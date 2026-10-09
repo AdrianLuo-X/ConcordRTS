@@ -1,0 +1,18 @@
+[Triggers]
+BAD_TRIGGER=Player,<none>,Unsupported Coverage,0,1,1,1,0
+LOSE_TRIGGER=Player,<none>,Fixture Lose,0,1,1,1,0
+
+[Events]
+BAD_TRIGGER=1,999,0,0
+LOSE_TRIGGER=1,8,0,0
+
+[Actions]
+BAD_TRIGGER=2,999,0,0,0,0,0,0,A,1,0,0,0,0,0,0,A
+LOSE_TRIGGER=1,2,0,0,0,0,0,0,A
+
+[ScriptTypes]
+0=BAD_SCRIPT
+
+[BAD_SCRIPT]
+Name=Unsupported Coverage Script
+0=999,0

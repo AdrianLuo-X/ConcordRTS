@@ -1,0 +1,21 @@
+[Triggers]
+BAD_TRIGGER=Player,<none>,Unsupported Action,0,1,1,1,0
+WIN_TRIGGER=Player,<none>,Fixture Win,0,1,1,1,0
+LOSE_TRIGGER=Player,<none>,Fixture Lose,0,1,1,1,0
+
+[Events]
+BAD_TRIGGER=1,8,0,0
+WIN_TRIGGER=1,8,0,0
+LOSE_TRIGGER=1,8,0,0
+
+[Actions]
+BAD_TRIGGER=1,999,0,0,0,0,0,0,A
+WIN_TRIGGER=1,1,0,0,0,0,0,0,A
+LOSE_TRIGGER=1,2,0,0,0,0,0,0,A
+
+[ScriptTypes]
+0=VALID_SCRIPT
+
+[VALID_SCRIPT]
+Name=Valid Coverage Script
+0=0,0

@@ -1,0 +1,21 @@
+[Basic]
+Name=Hospital and Armory Mod Compatibility Map
+
+[Header]
+Width=24
+Height=24
+
+[Map]
+Theater=TEMPERATE
+Size=0,0,24,24
+LocalSize=0,0,24,24
+
+[Structures]
+0=Alpha,MODHOSP,256,10,10,0,None
+1=Alpha,MODARM,256,14,10,0,None
+2=Alpha,MODARMDEFAULT,256,18,10,0,None
+3=Alpha,MODPLAIN,256,20,10,0,None
+
+[Infantry]
+0=Alpha,MODINF,128,8,10,2,Guard,0,None,0,-1,0,0
+1=Alpha,MODNOTRAIN,256,8,12,4,Guard,0,None,0,-1,0,0

@@ -1,0 +1,24 @@
+[Basic]
+Name=Aircraft Service Map Smoke
+
+[Header]
+Width=32
+Height=32
+
+[Map]
+Theater=TEMPERATE
+Size=0,0,32,32
+LocalSize=0,0,32,32
+
+[Units]
+0=Alpha,JET,256,5,5,0,Guard,None,0,-1,0,0
+1=Alpha,VEH,256,6,5,0,Guard,None,0,-1,0,0
+
+[Infantry]
+0=Alpha,DEFAULTINF,256,7,5,2,Guard,0,None,0,-1,0,0
+
+[Aircraft]
+0=Alpha,JET,256,5,6,0,Guard,None,0,-1,0,0
+1=Alpha,CLAMPAIR,256,6,6,0,Guard,None,0,-1,0,0
+2=Alpha,UNLIMITEDAIR,256,7,6,0,Guard,None,0,-1,0,0
+3=Alpha,NORELOADAIR,256,8,6,0,Guard,None,0,-1,0,0

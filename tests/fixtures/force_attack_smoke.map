@@ -1,0 +1,10 @@
+[Header]
+StartX=0
+StartY=0
+Width=32
+Height=20
+
+[Map]
+Theater=TEMPERATE
+Size=0,0,32,20
+LocalSize=0,0,32,20
