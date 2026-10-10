@@ -2,7 +2,7 @@
 #define NOMINMAX
 #include <windows.h>
 
-#include "../src/BinkVideoStream.h"
+#include "../src/assets/video/BinkVideoStream.h"
 
 #include <algorithm>
 #include <cstdint>

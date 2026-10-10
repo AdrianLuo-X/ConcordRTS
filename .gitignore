@@ -105,3 +105,8 @@ venv/
 *.p12
 .DS_Store
 Thumbs.db
+/%SystemDrive%/
+*.dmp
+*.community.state
+/.aws/
+/.ssh/

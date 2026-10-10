@@ -1,0 +1,45 @@
+# Lobby map downloads share the same transport in LAN and Internet. Attach
+# the implementation to every executable/static core that owns that layer.
+get_property(_map_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(_map_target IN LISTS _map_targets)
+    get_target_property(_map_sources ${_map_target} SOURCES)
+    if("src/network/internet/RuntimeInternetCommunity.cpp" IN_LIST _map_sources OR
+       "src/ui/network/RuntimeInternetMultiplayerMenu.cpp" IN_LIST _map_sources)
+        target_sources(${_map_target} PRIVATE src/network/internet/RuntimeInternetRankedMatch.cpp)
+        if(MSVC)
+            target_compile_options(${_map_target} PRIVATE /utf-8)
+        endif()
+    endif()
+    if("src/network/internet/RuntimeInternetCommunity.cpp" IN_LIST _map_sources)
+        target_sources(${_map_target} PRIVATE src/network/internet/RuntimeInternetCommunityState.cpp)
+        if(NOT "src/core/io/RuntimeAtomicFile.cpp" IN_LIST _map_sources)
+            target_sources(${_map_target} PRIVATE src/core/io/RuntimeAtomicFile.cpp)
+        endif()
+        if(MSVC)
+            target_compile_options(${_map_target} PRIVATE /wd4702)
+        endif()
+        get_target_property(_map_sources ${_map_target} SOURCES)
+    endif()
+    if("src/network/protocol/RuntimeMultiplayerProtocol.cpp" IN_LIST _map_sources OR
+       "src/ui/network/RuntimeMultiplayerMenu.cpp" IN_LIST _map_sources)
+        foreach(_map_source src/network/maps/RuntimeMultiplayerMapTransfer.cpp
+                src/network/maps/RuntimeMultiplayerCompatibilityFingerprint.cpp
+                src/network/snapshots/RuntimeMultiplayerSnapshotTransfer.cpp)
+            if(NOT "${_map_source}" IN_LIST _map_sources)
+                target_sources(${_map_target} PRIVATE ${_map_source})
+            endif()
+        endforeach()
+    endif()
+    if("src/network/lobby/RuntimeMultiplayerLobbyFlow.cpp" IN_LIST _map_sources OR
+       "src/ui/network/RuntimeMultiplayerMenu.cpp" IN_LIST _map_sources)
+        foreach(_map_source src/network/maps/RuntimeMultiplayerMapCache.cpp src/core/io/RuntimeAtomicFile.cpp)
+            if(NOT "${_map_source}" IN_LIST _map_sources)
+                target_sources(${_map_target} PRIVATE ${_map_source})
+            endif()
+        endforeach()
+        if(MSVC)
+            target_compile_options(${_map_target} PRIVATE /wd4702)
+        endif()
+    endif()
+endforeach()
+

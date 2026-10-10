@@ -1,2 +1,13 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# Keep documentation/build metadata readable across editors.
+# Do not renormalize all existing C++ sources as part of organization.
+*.md text eol=lf
+*.cmake text eol=lf
+CMakeLists.txt text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.cmd text eol=crlf
+*.png binary
+*.jpg binary
+*.bmp binary
+*.mix binary
+*.pal binary

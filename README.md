@@ -14,15 +14,62 @@ ConcordRTS 是使用 C++20 开发的 RTS 引擎工程，面向《命令与征服
 
 ## 仓库内容
 
-| 路径 | 内容 |
-| --- | --- |
-| `src/` | 引擎、游戏运行程序、解析器与网络服务源码 |
-| `tests/` | 专项测试和自编测试夹具 |
-| `tools/` | 构建、性能检查与开发工具源码 |
-| `samples/` | 精简规则、地图、MOD 与网络配置示例 |
-| `CMakeLists.txt` | 构建目标与测试配置 |
-| `API.md` | 主要源码接口、配置与命令行说明 |
-| `LICENSE` | GPL 第 3 版许可全文 |
+```text
+ConcordRTS/                                源码仓库根目录
+├── src/                                   引擎与游戏源码
+│   ├── analysis/                          离线分析、规则报告与命令行工具
+│   ├── assets/                            资源读取、解码、检查与预览
+│   ├── audio/                             声音播放、空间混音与声音事件
+│   ├── core/                              文件读写、INI 解析与基础工具
+│   ├── data/                              规则、美术、地图与战役数据库
+│   ├── network/                           联机协议、锁步同步与互联网服务
+│   ├── render/                            地形、单位、光照与画面特效渲染
+│   ├── runtime/                           游戏宿主、计时、持久化与运行诊断
+│   ├── simulation/                        AI、移动、战斗与其他玩法系统
+│   ├── ui/                                菜单、输入、侧边栏与战局界面
+│   └── world/                             世界对象、玩家与地形状态
+├── tests/                                 专项测试代码
+│   ├── audio/                             音频测试
+│   ├── campaign/                          战役测试
+│   ├── fixtures/                          自编规则、地图等测试输入
+│   ├── gameplay/                          游戏逻辑测试
+│   ├── infrastructure/                    基础设施与诊断测试
+│   ├── internet/                          互联网联机测试
+│   ├── maps/                              地图与随机地图测试
+│   ├── multiplayer/                       多人联机测试
+│   ├── pathfinding/                       寻路与导航测试
+│   ├── rendering/                         渲染测试
+│   └── rules/                             规则解析与校验测试
+├── tools/                                 构建与开发工具源码
+│   ├── assets/                            资源处理与模型调整工具
+│   ├── benchmarks/                        性能检查工具
+│   ├── legacy/                            历史源码集成脚本
+│   ├── maps/                              地图处理工具
+│   ├── playability/                       玩法功能检查工具
+│   ├── BinkFrameExtractor.cpp             视频助手源码
+│   ├── Build-Game.ps1                     游戏与视频助手的构建入口
+│   ├── Check-SourceRepository.ps1         源码仓库文件检查
+│   ├── CMakeLists.txt                     视频助手构建配置
+│   └── Get-ProjectInventory.ps1           项目文件清单与目录统计
+├── samples/                               自编示例与配置模板
+│   ├── mod-extensions/                    MOD 扩展示例
+│   ├── screen-shake/                      屏幕震动效果示例
+│   ├── artmd.ini                          精简美术规则示例
+│   ├── internet_client.example.ini        互联网客户端配置模板
+│   ├── internet_service.example.ini       互联网服务端配置模板
+│   ├── map_basic.map                      精简地图示例
+│   ├── rulesmd.ini                        精简游戏规则示例
+│   └── runtime_config.example.ini         运行配置模板
+├── cmake/                                 游戏、平台、视频助手与测试的构建配置
+├── .gitattributes                         文本换行与文件类型规则
+├── .gitignore                             私人数据与构建产物的忽略规则
+├── API.md                                 主要接口、配置与命令行文档
+├── CMakeLists.txt                         根构建入口，按序包含 cmake 配置
+├── LICENSE                                GPL-3.0-only 许可全文
+├── README.md                              项目介绍、目录说明与使用方法
+├── 启动.cmd                               本机游戏启动入口
+└── 编译.cmd                               本机游戏构建入口
+```
 
 `tests/fixtures/` 和 `samples/` 中的 INI、MAP 是自编测试输入，用于验证格式、规则和地图逻辑；它们不是完整原版游戏数据包，不能替代运行素材。
 
@@ -91,6 +138,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-Game.ps1
 示例 MOD 需要本机已有规则和素材。支持范围以源码实现为准，不保证任意 Ares、Phobos 或其他 MOD 可直接运行。
 
 ## 测试与开发
+
+根目录 `CMakeLists.txt` 按顺序包含 `cmake/` 下的配置文件，它们共享根目录作用域；整理文件夹后仍使用 `tools/Build-Game.ps1` 作为普通构建入口。
 
 CMake 保留专项测试目标。部分测试只使用自编夹具，部分需要本地原游戏数据；资源相关测试与调试工具需要按自己的环境配置路径。不能将无素材环境下的编译成功视为全部游戏功能或全部测试通过。
 

@@ -6,17 +6,17 @@
 
 ## 接口导航
 
-| 模块 | 主要用途 | 声明文件 |
-| --- | --- | --- |
-| `IniFile` | 读取 INI、查询键值、叠加配置 | [IniFile.h](src/IniFile.h) |
-| `RulesDatabase` | 单位、建筑、武器、弹体和弹头规则 | [RulesDatabase.h](src/RulesDatabase.h) |
-| `ArtDatabase` | 美术元数据及其与规则对象的关联 | [ArtDatabase.h](src/ArtDatabase.h) |
-| `MapDatabase` | 地图对象、瓦片、覆盖层和地图信息 | [MapDatabase.h](src/MapDatabase.h) |
-| `GameWorld` | 从地图创建世界状态并查询对象 | [GameWorld.h](src/GameWorld.h) |
-| `MixArchive` | MIX 索引、条目读取和提取 | [MixArchive.h](src/MixArchive.h) |
-| `GameResourceMount` | 扫描资源目录并生成挂载报告 | [GameResourceMount.h](src/GameResourceMount.h) |
-| 运行时入口 | 配置、启动检查、窗口和偏好保存 | [RuntimeShell.h](src/RuntimeShell.h) |
-| 互联网服务 | 服务配置、证书、连接和轮询 | [RuntimeInternetServiceHost.h](src/RuntimeInternetServiceHost.h)、[RuntimeInternetServiceHostConfig.h](src/RuntimeInternetServiceHostConfig.h) |
+| 模块                  | 主要用途             | 声明文件                                                                                                                                                                            |
+| ------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `IniFile`           | 读取 INI、查询键值、叠加配置 | [IniFile.h](src/core/io/IniFile.h)                                                                                                                                              |
+| `RulesDatabase`     | 单位、建筑、武器、弹体和弹头规则 | [RulesDatabase.h](src/data/rules/RulesDatabase.h)                                                                                                                               |
+| `ArtDatabase`       | 美术元数据及其与规则对象的关联  | [ArtDatabase.h](src/data/art/ArtDatabase.h)                                                                                                                                     |
+| `MapDatabase`       | 地图对象、瓦片、覆盖层和地图信息 | [MapDatabase.h](src/data/maps/MapDatabase.h)                                                                                                                                    |
+| `GameWorld`         | 从地图创建世界状态并查询对象   | [GameWorld.h](src/world/model/GameWorld.h)                                                                                                                                      |
+| `MixArchive`        | MIX 索引、条目读取和提取   | [MixArchive.h](src/assets/archive/MixArchive.h)                                                                                                                                 |
+| `GameResourceMount` | 扫描资源目录并生成挂载报告    | [GameResourceMount.h](src/assets/inspection/GameResourceMount.h)                                                                                                                |
+| 运行时入口               | 配置、启动检查、窗口和偏好保存  | [RuntimeShell.h](src/runtime/host/RuntimeShell.h)                                                                                                                               |
+| 互联网服务               | 服务配置、证书、连接和轮询    | [RuntimeInternetServiceHost.h](src/network/internet/RuntimeInternetServiceHost.h)、[RuntimeInternetServiceHostConfig.h](src/network/internet/RuntimeInternetServiceHostConfig.h) |
 
 典型的数据加载顺序为 `IniFile → RulesDatabase / ArtDatabase / MapDatabase → GameWorld`。`ArtDatabase::buildLinks()` 可以将规则对象与美术定义关联。
 
@@ -67,11 +67,11 @@ WeaponWarheadValidationReport validateWeaponWarheads() const;
 
 `validateWeaponWarheads()` 返回武器、弹头关联的专项诊断报告，不覆盖全部规则兼容性。规则字段的完整定义见头文件中的 `UnitType`、`BuildingType`、`WeaponType` 等结构。
 
-以下示例只使用自编规则文本，无需游戏素材。示例须与工程中的相应实现一起构建：
+以下示例只使用自编规则文本，无需游戏素材。示例须将 `src/` 加入头文件搜索目录，并与工程中的相应实现一起构建：
 
 ```cpp
-#include "IniFile.h"
-#include "RulesDatabase.h"
+#include "core/io/IniFile.h"
+#include "data/rules/RulesDatabase.h"
 #include <iostream>
 
 int main()
@@ -185,7 +185,7 @@ ResourceMountReport buildResourceMountReport(
 
 ## 运行时配置与启动
 
-声明位于 [RuntimeShell.h](src/RuntimeShell.h)：
+声明位于 [RuntimeShell.h](src/runtime/host/RuntimeShell.h)：
 
 ```cpp
 RuntimeConfig loadRuntimeConfig(const RuntimeConfigOverrides& overrides);
@@ -203,16 +203,16 @@ int runRuntimeWindow(const RuntimeConfig& config,
 
 配置按“内置默认值 → INI → `RuntimeConfigOverrides`”合并。覆盖对象中的非空字符串和正整数覆盖对应设置；配置文件缺失时会使用默认值并记录警告，资源或地图缺失仍可能使启动失败。
 
-| C++ 字段 | `[Runtime]` INI 键 | 作用 |
-| --- | --- | --- |
-| `configPath` | 由调用方或 `--config` 指定 | 配置文件路径 |
-| `resourceRootPath` | `ResourceRoot` | 原游戏资源目录 |
-| `localDataRootPath` | `LocalDataRoot` | 本地规则及导出资源目录 |
-| `modRootPath` | `ModRoot` | MOD 目录 |
-| `defaultMapPath` | `DefaultMap` | 默认地图 |
-| `windowWidth` / `windowHeight` | `WindowWidth` / `WindowHeight` | 窗口尺寸 |
-| `fixedTickHz` | `FixedTickHz` | 固定逻辑更新频率 |
-| `targetFps` | `TargetFps` | 目标画面刷新率 |
+| C++ 字段                         | `[Runtime]` INI 键              | 作用          |
+| ------------------------------ | ------------------------------ | ----------- |
+| `configPath`                   | 由调用方或 `--config` 指定            | 配置文件路径      |
+| `resourceRootPath`             | `ResourceRoot`                 | 原游戏资源目录     |
+| `localDataRootPath`            | `LocalDataRoot`                | 本地规则及导出资源目录 |
+| `modRootPath`                  | `ModRoot`                      | MOD 目录      |
+| `defaultMapPath`               | `DefaultMap`                   | 默认地图        |
+| `windowWidth` / `windowHeight` | `WindowWidth` / `WindowHeight` | 窗口尺寸        |
+| `fixedTickHz`                  | `FixedTickHz`                  | 固定逻辑更新频率    |
+| `targetFps`                    | `TargetFps`                    | 目标画面刷新率     |
 
 菜单设置包括 `[Runtime] ShowMainMenu` 和 `[Skirmish] ShowSetup`。完整配置示例见 [runtime_config.example.ini](samples/runtime_config.example.ini)。相对路径按启动工作目录及发现的工程根解析，不按配置文件所在目录解析；外部私人数据建议使用绝对路径。
 
@@ -233,18 +233,18 @@ int runRuntimeWindow(const RuntimeConfig& config,
 
 常用参数：
 
-| 参数 | 作用 |
-| --- | --- |
-| `--config <path>` | 指定运行配置 |
-| `--resource-root <path>` / `--local-data-root <path>` | 覆盖资源目录 |
-| `--mod-root <path>` / `--map <path>` | 覆盖 MOD 或地图 |
-| `--width <n>` / `--height <n>` | 覆盖窗口尺寸 |
-| `--tick-hz <n>` / `--target-fps <n>` | 覆盖逻辑频率和目标刷新率 |
-| `--runtime-events <path>` | 指定运行时事件记录输出 |
-| `--skip-main-menu` / `--skip-skirmish-menu` | 跳过对应菜单 |
-| `--smoke-test` | 加载启动数据并输出报告，不打开窗口 |
+| 参数                                                    | 作用                |
+| ----------------------------------------------------- | ----------------- |
+| `--config <path>`                                     | 指定运行配置            |
+| `--resource-root <path>` / `--local-data-root <path>` | 覆盖资源目录            |
+| `--mod-root <path>` / `--map <path>`                  | 覆盖 MOD 或地图        |
+| `--width <n>` / `--height <n>`                        | 覆盖窗口尺寸            |
+| `--tick-hz <n>` / `--target-fps <n>`                  | 覆盖逻辑频率和目标刷新率      |
+| `--runtime-events <path>`                             | 指定运行时事件记录输出       |
+| `--skip-main-menu` / `--skip-skirmish-menu`           | 跳过对应菜单            |
+| `--smoke-test`                                        | 加载启动数据并输出报告，不打开窗口 |
 
-`--smoke-test` 仍需要对应的私人数据，退出码 `0` 表示启动报告成功，`1` 表示失败。该结果只反映启动检查。参数处理见 [RuntimeMain.cpp](src/RuntimeMain.cpp)。
+`--smoke-test` 仍需要对应的私人数据，退出码 `0` 表示启动报告成功，`1` 表示失败。该结果只反映启动检查。参数处理见 [RuntimeMain.cpp](src/runtime/host/RuntimeMain.cpp)。
 
 ### 规则与资源工具
 
@@ -258,7 +258,7 @@ int runRuntimeWindow(const RuntimeConfig& config,
 
 一次调用只能选择一个动作。其他入口包括 `--dump-units`、`--dump-weapons`；使用 `--export-json <path>` 时可附加 `--art <ini>` 导出美术定义及关联。JSON 导出创建所需父目录，并覆盖同名输出文件。
 
-`--validate` 输出诊断，但诊断问题本身不保证产生非零退出码，应阅读输出结果。完整参数和执行流程见 [CommandLineOptions.cpp](src/CommandLineOptions.cpp)、[main.cpp](src/main.cpp)，JSON 字段见 [JsonExporter.cpp](src/JsonExporter.cpp)。
+`--validate` 输出诊断，但诊断问题本身不保证产生非零退出码，应阅读输出结果。完整参数和执行流程见 [CommandLineOptions.cpp](src/analysis/cli/CommandLineOptions.cpp)、[main.cpp](src/analysis/cli/main.cpp)，JSON 字段见 [JsonExporter.cpp](src/analysis/reports/JsonExporter.cpp)。
 
 ### 互联网服务
 
@@ -287,8 +287,8 @@ std::uint16_t port() const;
 void close() noexcept;
 ```
 
-部署配置、证书加载和运行时 host 配置是不同步骤。直接使用 host 时须按配置结构提供时钟、鉴权及 TLS 信息；传入的 Windows 证书上下文须在 `open()` 调用期间有效，TLS 层会复制并持有它，调用方的原始引用可在返回后释放。完整初始化顺序见 [RuntimeInternetServiceMain.cpp](src/RuntimeInternetServiceMain.cpp)。轮询结果中的 `succeeded` 和 `error` 用于判断运行故障。
+部署配置、证书加载和运行时 host 配置是不同步骤。直接使用 host 时须按配置结构提供时钟、鉴权及 TLS 信息；传入的 Windows 证书上下文须在 `open()` 调用期间有效，TLS 层会复制并持有它，调用方的原始引用可在返回后释放。完整初始化顺序见 [RuntimeInternetServiceMain.cpp](src/network/internet/RuntimeInternetServiceMain.cpp)。轮询结果中的 `succeeded` 和 `error` 用于判断运行故障。
 
 服务退出码为：`0` 正常停止，`1` 用法或平台错误，`2` 配置错误，`3` 证书错误，`4` 打开服务失败，`5` 控制处理器设置失败，`6` 轮询故障。
 
-网络接口为项目内部二进制协议，当前服务传输协议版本为 `1`，匹配协议版本为 `2`；跨版本使用须核对两端源码。协议声明见 [RuntimeInternetServiceTransport.h](src/RuntimeInternetServiceTransport.h)、[RuntimeInternetMatchmakingProtocol.h](src/RuntimeInternetMatchmakingProtocol.h) 和 [RuntimeInternetTlsTransport.h](src/RuntimeInternetTlsTransport.h)。当前没有对外的 HTTP REST API。
+网络接口为项目内部二进制协议，当前服务传输协议版本为 `1`，匹配协议版本为 `2`；跨版本使用须核对两端源码。协议声明见 [RuntimeInternetServiceTransport.h](src/network/transport/RuntimeInternetServiceTransport.h)、[RuntimeInternetMatchmakingProtocol.h](src/network/transport/RuntimeInternetMatchmakingProtocol.h) 和 [RuntimeInternetTlsTransport.h](src/network/transport/RuntimeInternetTlsTransport.h)。当前没有对外的 HTTP REST API。
