@@ -29274,6 +29274,13 @@ void refreshRuntimeAircraftDockAssignments(RuntimeWindowState& state) {
 
 #include "simulation/production/RuntimeFactoryExitClearance.inl"
 
+std::optional<RuntimeCellPoint> findRuntimeProductionExitMoveTarget(
+    const RuntimeWindowState& state,
+    const WorldObjectInstance& anchor,
+    const WorldObjectInstance& produced,
+    bool forceOpenSurfaceWater
+);
+
 std::optional<RuntimeProductionSpawn> findRuntimeProductionSpawnForOwner(
     const RuntimeWindowState& state,
     const RuntimeBuildCatalogItem& item,
@@ -29379,6 +29386,11 @@ std::optional<RuntimeProductionSpawn> findRuntimeProductionSpawnForOwner(
                 && factory != nullptr
                 && factory->weaponsFactory
                 && toUpperAsciiLocal(factory->factory) == "UNITTYPE";
+            // Ground vehicles must spawn at an authored edge, not beyond a
+            // blocked perimeter via the generic radius-three search.
+            const bool groundVehicleDoor = useVehicleFactoryDoor
+                && runtimeObjectMovementMode(state, probe) != PathMovementMode::Air;
+            if (groundVehicleDoor && searchRadius != 0) continue;
             if (runtimeFactoryUsesAirExit(state, *anchor, probe)) {
                 const auto roofCell = runtimeFactoryAirExitSpawnCell(state, *anchor);
                 if (!roofCell) continue;
@@ -29439,6 +29451,17 @@ std::optional<RuntimeProductionSpawn> findRuntimeProductionSpawnForOwner(
                         &occupiedByCell
                     );
                 if (passable.has_value()) {
+                    if (groundVehicleDoor) {
+                        probe.x = passable->x;
+                        probe.y = passable->y;
+                        probe.cell = runtimeCellKey(probe.x, probe.y);
+                        probe.level = terrainLevelAtRuntimeCell(state, probe.x, probe.y);
+                        probe.onBridge = runtimeCellIsBridge(state, probe.x, probe.y);
+                        // An empty doorway can still be a dead end. Try the
+                        // remaining edges, including the rear, before waiting.
+                        if (!findRuntimeProductionExitMoveTarget(state, *anchor, probe, false))
+                            continue;
+                    }
                     RuntimeProductionSpawn spawn;
                     spawn.anchor = anchor;
                     spawn.cell = *passable;
@@ -29551,6 +29574,27 @@ std::optional<RuntimeCellPoint> findRuntimeProductionExitMoveTarget(
             nullptr,
             &occupiedByCell
         );
+    // An obstructed straight apron must not reject a vehicle when it can
+    // legally turn out of the doorway. Preserve the normal exit preference,
+    // and validate one contiguous step rather than spawning past obstacles.
+    const auto* factoryType = findRuntimeBuildingTypeById(state.rules, anchor.type);
+    if (!target && !forceOpenSurfaceWater && produced.kind == WorldObjectKind::Unit
+        && !produced.airborne && runtimeObjectMovementMode(state, produced) != PathMovementMode::Air
+        && runtimeObjectMovementMode(state, produced) != PathMovementMode::Naval
+        && factoryType && factoryType->weaponsFactory) {
+        std::unordered_map<int, const TerrainCell*> generatedTerrain;
+        const auto* terrain = &state.terrainByCell;
+        if (terrain->empty()) { generatedTerrain = buildRuntimeTerrainLookup(state.world); terrain = &generatedTerrain; }
+        for (const auto& side : runtimeNeighborsOf(producedCell)) {
+            if ((side.x-producedCell.x)*stepX + (side.y-producedCell.y)*stepY < 0) continue;
+            if (side.x>=anchorCell.x && side.x<rightEdgeX
+                && side.y>=anchorCell.y && side.y<bottomEdgeY) continue;
+            if (!findRuntimePassableCellNear(state, produced, side, 0, -1,
+                    nullptr, nullptr, &occupiedByCell)) continue;
+            if (runtimeCellTransitionIsPassable(state, *terrain, occupiedByCell,
+                    producedCell, side, produced, -1, nullptr, false)) return side;
+        }
+    }
     if (!target.has_value() || *target == producedCell) {
         return std::nullopt;
     }
@@ -30894,7 +30938,23 @@ bool completeRuntimeProductionOrder(
     }
 
     const bool padAircraft = runtimeBuildItemUsesPadAircraft(state, item);
-    if (!padAircraft && requestRuntimeProductionDoorClearanceForOwner(
+    std::optional<RuntimeProductionSpawn> groundVehicleSpawn;
+    WorldObjectInstance spawnProbe;
+    spawnProbe.kind = runtimeKindForBuildItem(item.kind);
+    spawnProbe.type = item.typeId;
+    if (!padAircraft && spawnProbe.kind == WorldObjectKind::Unit
+        && runtimeObjectMovementMode(state, spawnProbe) != PathMovementMode::Air
+        && runtimeObjectMovementMode(state, spawnProbe) != PathMovementMode::Naval) {
+        groundVehicleSpawn = findRuntimeProductionSpawnForOwner(
+            state, item, state.economy.owner, allowLegacyFactoryFallback);
+        const auto* factoryType = groundVehicleSpawn && groundVehicleSpawn->anchor
+            ? findRuntimeBuildingTypeById(state.rules, groundVehicleSpawn->anchor->type)
+            : nullptr;
+        if (!factoryType || !factoryType->weaponsFactory) groundVehicleSpawn.reset();
+    }
+    // Prefer a usable alternate edge before asking occupants at the original
+    // doorway to move. That doorway need not be cleared for a rear delivery.
+    if (!padAircraft && !groundVehicleSpawn && requestRuntimeProductionDoorClearanceForOwner(
             state, item, state.economy.owner, allowLegacyFactoryFallback)) {
         state.economy.status = "clearing production exit for " + item.typeId;
         return false;
@@ -30958,7 +31018,7 @@ bool completeRuntimeProductionOrder(
             allowLegacyFactoryFallback
         );
     } else {
-        spawn = findRuntimeProductionSpawnForOwner(
+        spawn = groundVehicleSpawn ? groundVehicleSpawn : findRuntimeProductionSpawnForOwner(
             state,
             item,
             state.economy.owner,
@@ -30982,9 +31042,27 @@ bool completeRuntimeProductionOrder(
         return false;
     }
     if (spawn->anchor != nullptr && runtimeBuildItemNeedsExitClearance(state, item)) {
-        const auto outward = runtimeProductionOutwardCell(
+        auto outward = runtimeProductionOutwardCell(
             state, *spawn->anchor, spawn->cell
         );
+        const auto* factoryType = findRuntimeBuildingTypeById(state.rules, spawn->anchor->type);
+        WorldObjectInstance exitProbe;
+        exitProbe.instanceId = -1;
+        exitProbe.kind = runtimeKindForBuildItem(item.kind);
+        exitProbe.owner = state.economy.owner;
+        exitProbe.type = item.typeId;
+        exitProbe.alive = true;
+        exitProbe.x = spawn->cell.x;
+        exitProbe.y = spawn->cell.y;
+        exitProbe.cell = runtimeCellKey(exitProbe.x, exitProbe.y);
+        exitProbe.level = terrainLevelAtRuntimeCell(state, exitProbe.x, exitProbe.y);
+        exitProbe.onBridge = runtimeCellIsBridge(state, exitProbe.x, exitProbe.y);
+        if (factoryType && factoryType->weaponsFactory
+            && exitProbe.kind == WorldObjectKind::Unit
+            && runtimeObjectMovementMode(state, exitProbe) != PathMovementMode::Air
+            && runtimeObjectMovementMode(state, exitProbe) != PathMovementMode::Naval) {
+            outward = findRuntimeProductionExitMoveTarget(state, *spawn->anchor, exitProbe);
+        }
         if (outward && requestRuntimeFactoryExitClearance(
                 state, state.economy.owner, {spawn->cell, *outward},
                 -1, false, spawn->anchor->instanceId)) {
@@ -94371,6 +94449,20 @@ bool advanceRuntimeMoveBehavior(
         || (!state.factoryDeliveries.leases().empty()
             && runtimeFactoryLandDeliveryOwnsEgress(state, object))))
         (void)runtimeTickOccupancyLookup(state);
+    // Reuse only within this invocation, for ground vehicles. The intervening
+    // crowd helpers return immediately when they change authoritative motion;
+    // their false paths only query state or prepare derived caches. Infantry
+    // subcell selection and airborne step preparation keep their fresh query.
+    const RuntimeCellPoint admissionFrom = runtimeCellPointForObject(object);
+    const std::optional<RuntimeCellPoint> admissionTo = behavior.path.empty()
+        ? std::nullopt : std::optional<RuntimeCellPoint>(behavior.path.front());
+    static const bool admissionReference = [] {
+        const char* value = std::getenv("CONCORD_MOVE_ADMISSION_REFERENCE");
+        return value && value[0] == '1';
+    }();
+    const bool canReuseAdmission = !admissionReference && admissionTo.has_value()
+        && object.kind == WorldObjectKind::Unit && !object.airborne
+        && runtimeObjectMovementMode(state, object) != PathMovementMode::Air;
     const auto pendingAdmission = behavior.path.empty()
         ? RuntimeGroundBodyTransitionAdmission{}
         : runtimeGroundBodyTransitionAdmission(state, object,
@@ -94510,8 +94602,9 @@ bool advanceRuntimeMoveBehavior(
     }
 
     const RuntimeCellPoint next = behavior.path.front();
-    const auto infantryAdmission = runtimeGroundBodyTransitionAdmission(
-        state, object, runtimeCellPointForObject(object), next);
+    const auto infantryAdmission = canReuseAdmission && admissionFrom == runtimeCellPointForObject(object)
+        && *admissionTo == next ? pendingAdmission : runtimeGroundBodyTransitionAdmission(
+            state, object, runtimeCellPointForObject(object), next);
     const bool infantryBodyBlocked = infantryAdmission.bodyBlocked;
     if (infantryAdmission.held) {
         behavior.state=RuntimeBehaviorState::Blocked;

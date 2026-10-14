@@ -77,7 +77,8 @@ function Assert-GeneratedProjects([string]$Directory, [switch]$IncludeHelper) {
     if ($release.PreprocessorDefinitions -notmatch '(^|;)NDEBUG(?:=[^;]*)?(;|$)' -or $debug.PreprocessorDefinitions -notmatch '(^|;)_ITERATOR_DEBUG_LEVEL=0(;|$)') {
         throw 'Generated Release NDEBUG or Debug iterator ABI settings do not match the source contract.'
     }
-    if ($debug.ExceptionHandling -ne 'Sync' -or $debug.Optimization -ne 'MaxSpeed' -or $debug.InlineFunctionExpansion -ne 'AnySuitable' -or $debug.BasicRuntimeChecks -ne 'Default') {
+    # CMake versions serialize disabled runtime checks as an empty element or Default.
+    if ($debug.ExceptionHandling -ne 'Sync' -or $debug.Optimization -ne 'MaxSpeed' -or $debug.InlineFunctionExpansion -ne 'AnySuitable' -or [string]$debug.BasicRuntimeChecks -notin @('', 'Default')) {
         throw 'Generated Debug runtime must retain /EHsc, /O2, /Ob2 and no /RTC checks. This validation does not build Debug.'
     }
     if ($IncludeHelper) {
