@@ -32,10 +32,10 @@ add_executable(concord_path_request_queue_performance_smoke
     src/data/art/TheaterDatabase.cpp
 )
 target_include_directories(concord_path_request_queue_performance_smoke PRIVATE src)
-if (MSVC)
-    target_compile_options(concord_runtime_object_index_smoke PRIVATE /utf-8 /W4 /WX /permissive-)
+if(CONCORD_MSVC_FRONTEND)
+    concord_target_compile_options(concord_runtime_object_index_smoke PRIVATE /utf-8 /W4 /WX /permissive-)
     # Uses the same legacy map/rules sources as concord_map_data_smoke.
-    target_compile_options(concord_path_request_queue_performance_smoke PRIVATE /utf-8 /FS)
+    concord_target_compile_options(concord_path_request_queue_performance_smoke PRIVATE /utf-8 /FS)
 endif()
 
 add_executable(concord_runtime_map_package_smoke
@@ -112,8 +112,8 @@ add_executable(concord_rules_poison_policy_smoke
     src/data/rules/RulesDatabase.cpp
 )
 target_include_directories(concord_rules_poison_policy_smoke PRIVATE src)
-if(MSVC)
-    target_compile_options(concord_rules_poison_policy_smoke PRIVATE /utf-8 /FS)
+if(CONCORD_MSVC_FRONTEND)
+    concord_target_compile_options(concord_rules_poison_policy_smoke PRIVATE /utf-8 /FS)
 endif()
 add_executable(concord_mod_extensions_smoke
     tests/gameplay/RuntimeModExtensionsSmoke.cpp src/core/io/IniFile.cpp src/data/rules/RulesDatabase.cpp src/analysis/reports/ModCompatibilityScanner.cpp)
@@ -121,9 +121,9 @@ target_include_directories(concord_mod_extensions_smoke PRIVATE src)
 add_executable(concord_screen_shake_smoke
     tests/rendering/RuntimeScreenShakeSmoke.cpp src/core/io/IniFile.cpp src/data/rules/RulesDatabase.cpp)
 target_include_directories(concord_screen_shake_smoke PRIVATE src)
-if(MSVC)
-    target_compile_options(concord_mod_extensions_smoke PRIVATE /utf-8 /FS)
-    target_compile_options(concord_screen_shake_smoke PRIVATE /utf-8 /FS)
+if(CONCORD_MSVC_FRONTEND)
+    concord_target_compile_options(concord_mod_extensions_smoke PRIVATE /utf-8 /FS)
+    concord_target_compile_options(concord_screen_shake_smoke PRIVATE /utf-8 /FS)
 endif()
 
 add_executable(concord_rules_pad_aircraft_smoke
@@ -271,8 +271,8 @@ add_executable(concord_audio_decoder_smoke
     src/assets/archive/MixArchive.cpp src/assets/archive/WestwoodCrypto.cpp
 )
 target_include_directories(concord_audio_decoder_smoke PRIVATE src)
-if (MSVC)
-    target_compile_options(concord_audio_decoder_smoke PRIVATE /utf-8 /FS)
+if(CONCORD_MSVC_FRONTEND)
+    concord_target_compile_options(concord_audio_decoder_smoke PRIVATE /utf-8 /FS)
 endif()
 
 add_executable(concord_projectile_line_trail_smoke tests/rendering/ProjectileLineTrailSmoke.cpp)
@@ -496,6 +496,21 @@ add_executable(concord_multiplayer_compatibility_fingerprint_smoke
 target_include_directories(
     concord_multiplayer_compatibility_fingerprint_smoke PRIVATE src
 )
+
+add_executable(concord_runtime_config_smoke
+    tests/infrastructure/RuntimeConfigSmoke.cpp
+    src/runtime/config/RuntimeConfig.cpp
+    src/runtime/campaign/RuntimeCampaignDataSource.cpp
+    src/ui/settings/RuntimeSettings.cpp
+    src/core/io/RuntimeAtomicFile.cpp
+    src/core/io/IniFile.cpp
+    src/assets/archive/MixArchive.cpp
+    src/assets/archive/WestwoodCrypto.cpp
+)
+target_include_directories(concord_runtime_config_smoke PRIVATE src)
+if(CONCORD_MSVC_FRONTEND)
+    concord_target_compile_options(concord_runtime_config_smoke PRIVATE /utf-8 /FS /W4 /permissive-)
+endif()
 
 add_executable(concord_multiplayer_launch_config_smoke
     tests/multiplayer/RuntimeMultiplayerLaunchConfigSmoke.cpp
@@ -761,8 +776,8 @@ target_compile_definitions(
     concord_multiplayer_menu_smoke
     PRIVATE RUNTIME_MULTIPLAYER_MENU_PURE_HELPERS_ONLY _CRT_SECURE_NO_WARNINGS
 )
-if(MSVC)
+if(CONCORD_MSVC_FRONTEND)
     # RuntimeAtomicFile's Windows error branches are shared with the runtime.
-    target_compile_options(concord_multiplayer_menu_smoke PRIVATE /wd4702)
+    concord_target_compile_options(concord_multiplayer_menu_smoke PRIVATE /wd4702)
 endif()
 

@@ -317,7 +317,7 @@ void scanIniTags(
                     || (warhead && (normalized == "shield.penetrate" || normalized == "attacheffect.cumulative" || normalized == "attacheffect.animresetonreapply"))
                     || (toLower(sectionName) == "combatdamage" && normalized == "shieldapplyarmormult")
                     || (rules.findBuildingType(sectionName) && normalized == "superweapons"));
-                std::string detail = supported ? "Implemented in the documented baseline; see docs/assets/mod_extension_support.md."
+                std::string detail = supported ? "Implemented by the current engine; see the scanner source for supported fields."
                     : legacyExtra ? "Not a documented Ares extra-superweapon field. Use BuildingType SuperWeapons=."
                     : "Unsupported field or section; detection does not enable gameplay.";
                 if (supported && normalized == "attacheffect.animation" && artIni

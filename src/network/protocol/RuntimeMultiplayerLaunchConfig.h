@@ -1,7 +1,7 @@
 #pragma once
 
 #include "network/protocol/RuntimeMultiplayerMatchSetup.h"
-#include "runtime/host/RuntimeShell.h"
+#include "runtime/config/RuntimeConfig.h"
 
 #include <cstdint>
 #include <string>

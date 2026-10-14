@@ -57,3 +57,6 @@ add_test(NAME runtime_support_target_pan_test COMMAND concord_runtime --command-
     --map "${CMAKE_SOURCE_DIR}/local_data/maps/concord_flat_lake.map")
 set_tests_properties(runtime_support_target_pan_test PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     ENVIRONMENT "CONCORD_COMMAND_SMOKE_SUPPORT_POWERS_ONLY=1;CONCORD_COMMAND_SMOKE_SUPPORT_TARGET_PAN_ONLY=1")
+
+# Appended after the original registrations; root include order stays intact.
+include(cmake/TestProfiles.cmake)

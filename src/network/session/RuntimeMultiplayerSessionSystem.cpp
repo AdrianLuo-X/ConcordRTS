@@ -203,20 +203,6 @@ bool appliedLess(
     return left.peerId < right.peerId;
 }
 
-const RuntimeMultiplayerRoomMember* findMember(
-    const std::vector<RuntimeMultiplayerRoomMember>& members,
-    const std::string& peerId
-) {
-    const auto found = std::find_if(
-        members.begin(),
-        members.end(),
-        [&peerId](const RuntimeMultiplayerRoomMember& member) {
-            return member.peerId == peerId;
-        }
-    );
-    return found == members.end() ? nullptr : &*found;
-}
-
 RuntimeMultiplayerRoomMember* findMember(
     std::vector<RuntimeMultiplayerRoomMember>& members,
     const std::string& peerId

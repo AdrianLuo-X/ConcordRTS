@@ -414,6 +414,11 @@ add_test(
 )
 
 add_test(
+    NAME runtime_config_smoke_test
+    COMMAND concord_runtime_config_smoke "${CMAKE_BINARY_DIR}/runtime_config_smoke"
+)
+set_tests_properties(runtime_config_smoke_test PROPERTIES TIMEOUT 30)
+add_test(
     NAME runtime_multiplayer_launch_config_smoke_test
     COMMAND concord_multiplayer_launch_config_smoke
 )

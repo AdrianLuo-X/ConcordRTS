@@ -43,7 +43,7 @@ struct RuntimeInternetServiceAuthenticationRequest {
 
     bool operator==(
         const RuntimeInternetServiceAuthenticationRequest&
-    ) const = default;
+    ) const = delete;
 };
 
 struct RuntimeInternetServiceAuthenticationConfirmation {
@@ -79,7 +79,7 @@ struct RuntimeInternetServiceCoordinatorPacket {
 
     bool operator==(
         const RuntimeInternetServiceCoordinatorPacket&
-    ) const = default;
+    ) const = delete;
 };
 
 using RuntimeInternetServiceWireBody = std::variant<

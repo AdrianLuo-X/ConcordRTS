@@ -130,7 +130,9 @@ void hashProductionValue(std::uint64_t& hash, Value value) {
             hash,
             static_cast<std::uint8_t>(unsignedValue & 0xffu)
         );
-        unsignedValue >>= 8u;
+        if constexpr (sizeof(Unsigned) > 1) {
+            unsignedValue >>= 8u;
+        }
     }
 }
 

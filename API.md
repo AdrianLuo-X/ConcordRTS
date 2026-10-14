@@ -15,7 +15,8 @@
 | `GameWorld`         | 从地图创建世界状态并查询对象   | [GameWorld.h](src/world/model/GameWorld.h)                                                                                                                                      |
 | `MixArchive`        | MIX 索引、条目读取和提取   | [MixArchive.h](src/assets/archive/MixArchive.h)                                                                                                                                 |
 | `GameResourceMount` | 扫描资源目录并生成挂载报告    | [GameResourceMount.h](src/assets/inspection/GameResourceMount.h)                                                                                                                |
-| 运行时入口               | 配置、启动检查、窗口和偏好保存  | [RuntimeShell.h](src/runtime/host/RuntimeShell.h)                                                                                                                               |
+| 运行时配置 | 配置类型、加载与偏好保存 | [RuntimeConfig.h](src/runtime/config/RuntimeConfig.h) |
+| 运行时入口 | 启动检查与游戏窗口 | [RuntimeShell.h](src/runtime/host/RuntimeShell.h) |
 | 互联网服务               | 服务配置、证书、连接和轮询    | [RuntimeInternetServiceHost.h](src/network/internet/RuntimeInternetServiceHost.h)、[RuntimeInternetServiceHostConfig.h](src/network/internet/RuntimeInternetServiceHostConfig.h) |
 
 典型的数据加载顺序为 `IniFile → RulesDatabase / ArtDatabase / MapDatabase → GameWorld`。`ArtDatabase::buildLinks()` 可以将规则对象与美术定义关联。
@@ -185,12 +186,17 @@ ResourceMountReport buildResourceMountReport(
 
 ## 运行时配置与启动
 
-声明位于 [RuntimeShell.h](src/runtime/host/RuntimeShell.h)：
+`RuntimeConfig`、`RuntimeConfigOverrides` 及以下配置接口声明位于 [RuntimeConfig.h](src/runtime/config/RuntimeConfig.h)。配置类型头文件不依赖游戏窗口、世界状态或渲染器；加载实现见 [RuntimeConfig.cpp](src/runtime/config/RuntimeConfig.cpp)，偏好保存实现见 [RuntimeSettings.cpp](src/ui/settings/RuntimeSettings.cpp)。
 
 ```cpp
 RuntimeConfig loadRuntimeConfig(const RuntimeConfigOverrides& overrides);
 bool saveRuntimeConfigPreferences(const RuntimeConfig& config,
                                   std::string& errorMessage);
+```
+
+启动报告和窗口接口声明位于 [RuntimeShell.h](src/runtime/host/RuntimeShell.h)：
+
+```cpp
 RuntimeStartupReport buildRuntimeStartupReport(
     const RuntimeConfig& config,
     GameWorld* worldOutput = nullptr,
@@ -201,7 +207,7 @@ int runRuntimeWindow(const RuntimeConfig& config,
                       bool exitAfterLoadingSmoke = false);
 ```
 
-配置按“内置默认值 → INI → `RuntimeConfigOverrides`”合并。覆盖对象中的非空字符串和正整数覆盖对应设置；配置文件缺失时会使用默认值并记录警告，资源或地图缺失仍可能使启动失败。
+配置按“内置默认值 → INI → `RuntimeConfigOverrides`”合并。覆盖对象中的非空字符串和正整数覆盖对应设置；配置文件缺失时保留默认值，加载接口本身不返回配置警告列表。资源或地图缺失仍可能使启动失败，应检查启动报告中的诊断。
 
 | C++ 字段                         | `[Runtime]` INI 键              | 作用          |
 | ------------------------------ | ------------------------------ | ----------- |
@@ -222,7 +228,7 @@ int runRuntimeWindow(const RuntimeConfig& config,
 
 ## 命令行接口
 
-以下命令是供使用者构建后调用的示例。源码发布包不包含这些 EXE。`Build-Game.ps1` 默认生成游戏核心与视频助手；规则工具和互联网服务是另行选择的 CMake 目标，通常输出到 `build/Release/`。
+以下命令是供使用者构建后调用的示例。源码发布包不包含这些 EXE。`Build-Game.ps1` 默认在 `build/msvc-reference/` 中生成游戏核心与视频助手，再部署到 `bin/`；规则工具和互联网服务是另行选择的 CMake 目标，MSVC 参考目录的 Release 输出位于 `build/msvc-reference/Release/`。使用其他构建目录或单配置 Ninja 时，须按实际目标输出位置调用。
 
 ### 游戏运行程序
 
@@ -249,11 +255,11 @@ int runRuntimeWindow(const RuntimeConfig& config,
 ### 规则与资源工具
 
 ```powershell
-.\build\Release\concord_rules_dump.exe --rules .\samples\rulesmd.ini --summary
-.\build\Release\concord_rules_dump.exe --rules .\samples\rulesmd.ini --validate
-.\build\Release\concord_rules_dump.exe --rules .\samples\rulesmd.ini --export-json .\output\rules.json
-.\build\Release\concord_rules_dump.exe --map .\samples\map_basic.map --map-summary
-.\build\Release\concord_rules_dump.exe --mix "D:\MyPrivatePack\example.mix" --list-mix
+.\build\msvc-reference\Release\concord_rules_dump.exe --rules .\samples\rulesmd.ini --summary
+.\build\msvc-reference\Release\concord_rules_dump.exe --rules .\samples\rulesmd.ini --validate
+.\build\msvc-reference\Release\concord_rules_dump.exe --rules .\samples\rulesmd.ini --export-json .\output\rules.json
+.\build\msvc-reference\Release\concord_rules_dump.exe --map .\samples\map_basic.map --map-summary
+.\build\msvc-reference\Release\concord_rules_dump.exe --mix "D:\MyPrivatePack\example.mix" --list-mix
 ```
 
 一次调用只能选择一个动作。其他入口包括 `--dump-units`、`--dump-weapons`；使用 `--export-json <path>` 时可附加 `--art <ini>` 导出美术定义及关联。JSON 导出创建所需父目录，并覆盖同名输出文件。
@@ -263,7 +269,7 @@ int runRuntimeWindow(const RuntimeConfig& config,
 ### 互联网服务
 
 ```powershell
-.\build\Release\concord_internet_service.exe --config "D:\MyPrivatePack\internet_service.ini"
+.\build\msvc-reference\Release\concord_internet_service.exe --config "D:\MyPrivatePack\internet_service.ini"
 ```
 
 服务入口仅接受上述 `--config <path>` 调用形式，运行于 Windows，TLS 使用 Schannel。服务承担 TCP/TLS 协调与中继。配置示例见 [internet_service.example.ini](samples/internet_service.example.ini) 和 [internet_client.example.ini](samples/internet_client.example.ini)。

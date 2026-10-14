@@ -56,6 +56,7 @@ static bool runRuntimeProjectionHistoryContract(RuntimeWindowState& probe,
                 || a.hasMobileSpriteBounds != b.hasMobileSpriteBounds
                 || !runtimeRectEquals(a.selectionBounds, b.selectionBounds)
                 || !runtimeRectEquals(a.selectionBaseBounds, b.selectionBaseBounds)
+                || a.healthPixelOffsetY != b.healthPixelOffsetY
                 || a.drawLevel != b.drawLevel || a.projectedX != b.projectedX || a.projectedY != b.projectedY
                 || a.usesFootprintHit != b.usesFootprintHit
                 || a.hasStructureSpriteGeometry != b.hasStructureSpriteGeometry

@@ -86,6 +86,7 @@ add_executable(concord_runtime
     src/runtime/campaign/RuntimeCampaignDataSource.cpp
     src/runtime/campaign/RuntimeCampaignMovieResolver.cpp
     src/runtime/host/RuntimeShell.cpp
+    src/runtime/config/RuntimeConfig.cpp
     src/audio/backend/RuntimeVoiceAudio.cpp
     src/ui/skirmish/RuntimeSkirmishMenu.cpp
     src/data/maps/RuntimeRandomMap.cpp

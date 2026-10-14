@@ -3,8 +3,9 @@
 #include "core/io/IniFile.h"
 #include "core/io/RuntimeAtomicFile.h"
 #include "runtime/campaign/RuntimeCampaignDataSource.h"
-#include "runtime/host/RuntimeShell.h"
+#include "runtime/config/RuntimeConfig.h"
 #include "data/art/TheaterDatabase.h"
+#include "data/rules/RulesDatabase.h"
 
 #include <algorithm>
 #include <array>

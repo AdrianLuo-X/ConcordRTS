@@ -6,7 +6,7 @@
 
 // YR 1.001: DiskLaser initialization at 0x4A6CF0, AI at 0x4A7340.
 // These are the original 240-lepton points, including its asymmetric last
-// two angles (235 and 257 degrees). See docs/gameplay/abilities/floating_disk.md for provenance.
+// two angles (235 and 257 degrees).
 inline constexpr std::array<std::array<int, 2>, 16> runtimeDiskLaserPoints{{
     {0, -240}, {89, -222}, {169, -169}, {220, -93},
     {240, 0}, {222, 89}, {169, 169}, {93, 220},

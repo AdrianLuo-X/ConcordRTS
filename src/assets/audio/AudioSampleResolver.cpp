@@ -480,7 +480,7 @@ bool parseAudioIdx(
 
     const std::uint32_t count = readUInt32LE(idxBytes, 8U);
     constexpr std::size_t EntryBytes = 36U;
-    if (count
+    if (static_cast<std::uint64_t>(count)
         > (std::numeric_limits<std::size_t>::max() - 12U) / EntryBytes) {
         errorMessage = "audio.idx entry count is too large.";
         return false;

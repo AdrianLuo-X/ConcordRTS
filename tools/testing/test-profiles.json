@@ -1,0 +1,443 @@
+{
+  "schemaVersion": 1,
+  "scope": "Reviewed Windows local validation only; platform-core profiles belong to P10.",
+  "tests": [
+    {
+      "name": "runtime_config_smoke_test",
+      "target": "concord_runtime_config_smoke",
+      "profiles": [
+        "windows-minimal"
+      ],
+      "labels": [
+        "windows-minimal",
+        "no-assets",
+        "generated-fixture"
+      ],
+      "timeout": 30,
+      "inputs": [],
+      "outputs": [
+        "{build}/runtime_config_smoke/"
+      ],
+      "conditions": {
+        "platform": "Windows",
+        "stockAssets": false,
+        "window": false,
+        "processes": 1,
+        "network": false,
+        "performanceThreshold": false,
+        "retailExecutable": false
+      },
+      "source": "tests/infrastructure/RuntimeConfigSmoke.cpp",
+      "review": "Source/registration reviewed for S03; object-index timing is telemetry, assertions compare correctness."
+    },
+    {
+      "name": "runtime_settings_hotkey_smoke_test",
+      "target": "concord_settings_hotkey_smoke",
+      "profiles": [
+        "windows-minimal"
+      ],
+      "labels": [
+        "windows-minimal",
+        "no-assets",
+        "generated-fixture"
+      ],
+      "timeout": 30,
+      "inputs": [],
+      "outputs": [
+        "{build}/runtime_hotkey_preferences_test.ini"
+      ],
+      "conditions": {
+        "platform": "Windows",
+        "stockAssets": false,
+        "window": false,
+        "processes": 1,
+        "network": false,
+        "performanceThreshold": false,
+        "retailExecutable": false
+      },
+      "source": "tests/infrastructure/RuntimeSettingsHotkeySmoke.cpp",
+      "review": "Source/registration reviewed for S03; object-index timing is telemetry, assertions compare correctness."
+    },
+    {
+      "name": "runtime_object_index_smoke_test",
+      "target": "concord_runtime_object_index_smoke",
+      "profiles": [
+        "windows-minimal"
+      ],
+      "labels": [
+        "windows-minimal",
+        "no-assets",
+        "logic"
+      ],
+      "timeout": 120,
+      "inputs": [],
+      "outputs": [],
+      "conditions": {
+        "platform": "Windows",
+        "stockAssets": false,
+        "window": false,
+        "processes": 1,
+        "network": false,
+        "performanceThreshold": false,
+        "retailExecutable": false
+      },
+      "source": "tests/infrastructure/RuntimeObjectIndexSmoke.cpp",
+      "review": "Source/registration reviewed for S03; object-index timing is telemetry, assertions compare correctness."
+    },
+    {
+      "name": "game_world_deterministic_hash_smoke_test",
+      "target": "concord_game_world_deterministic_hash_smoke",
+      "profiles": [
+        "windows-minimal"
+      ],
+      "labels": [
+        "windows-minimal",
+        "no-assets",
+        "logic"
+      ],
+      "timeout": 30,
+      "inputs": [],
+      "outputs": [],
+      "conditions": {
+        "platform": "Windows",
+        "stockAssets": false,
+        "window": false,
+        "processes": 1,
+        "network": false,
+        "performanceThreshold": false,
+        "retailExecutable": false
+      },
+      "source": "tests/infrastructure/GameWorldDeterministicHashSmoke.cpp",
+      "review": "Source/registration reviewed for S03; object-index timing is telemetry, assertions compare correctness."
+    },
+    {
+      "name": "runtime_atomic_file_smoke_test",
+      "target": "concord_runtime_atomic_file_smoke",
+      "profiles": [
+        "windows-minimal"
+      ],
+      "labels": [
+        "windows-minimal",
+        "no-assets",
+        "file-io"
+      ],
+      "timeout": 60,
+      "inputs": [],
+      "outputs": [
+        "{temp}/concord-atomic-smoke-*/"
+      ],
+      "conditions": {
+        "platform": "Windows",
+        "stockAssets": false,
+        "window": false,
+        "processes": 1,
+        "network": false,
+        "performanceThreshold": false,
+        "retailExecutable": false
+      },
+      "source": "tests/infrastructure/RuntimeAtomicFileSmoke.cpp",
+      "review": "Source/registration reviewed for S03; object-index timing is telemetry, assertions compare correctness."
+    },
+    {
+      "name": "runtime_multiplayer_gameplay_command_smoke_test",
+      "target": "concord_multiplayer_gameplay_command_smoke",
+      "profiles": [
+        "windows-minimal"
+      ],
+      "labels": [
+        "windows-minimal",
+        "no-assets",
+        "protocol"
+      ],
+      "timeout": 30,
+      "inputs": [],
+      "outputs": [],
+      "conditions": {
+        "platform": "Windows",
+        "stockAssets": false,
+        "window": false,
+        "processes": 1,
+        "network": false,
+        "performanceThreshold": false,
+        "retailExecutable": false
+      },
+      "source": "tests/multiplayer/RuntimeMultiplayerGameplayCommandSmoke.cpp",
+      "review": "Source/registration reviewed for S03; object-index timing is telemetry, assertions compare correctness."
+    },
+    {
+      "name": "runtime_multiplayer_match_setup_smoke_test",
+      "target": "concord_multiplayer_match_setup_smoke",
+      "profiles": [
+        "windows-minimal"
+      ],
+      "labels": [
+        "windows-minimal",
+        "no-assets",
+        "protocol"
+      ],
+      "timeout": 30,
+      "inputs": [],
+      "outputs": [],
+      "conditions": {
+        "platform": "Windows",
+        "stockAssets": false,
+        "window": false,
+        "processes": 1,
+        "network": false,
+        "performanceThreshold": false,
+        "retailExecutable": false
+      },
+      "source": "tests/multiplayer/RuntimeMultiplayerMatchSetupSmoke.cpp",
+      "review": "Source/registration reviewed for S03; object-index timing is telemetry, assertions compare correctness."
+    },
+    {
+      "name": "runtime_multiplayer_snapshot_transfer_smoke_test",
+      "target": "concord_multiplayer_snapshot_transfer_smoke",
+      "profiles": [
+        "windows-minimal"
+      ],
+      "labels": [
+        "windows-minimal",
+        "no-assets",
+        "protocol"
+      ],
+      "timeout": 60,
+      "inputs": [],
+      "outputs": [],
+      "conditions": {
+        "platform": "Windows",
+        "stockAssets": false,
+        "window": false,
+        "processes": 1,
+        "network": false,
+        "performanceThreshold": false,
+        "retailExecutable": false
+      },
+      "source": "tests/multiplayer/RuntimeMultiplayerSnapshotTransferSmoke.cpp",
+      "review": "Source/registration reviewed for S03; object-index timing is telemetry, assertions compare correctness."
+    },
+    {
+      "name": "runtime_multiplayer_compatibility_fingerprint_smoke_test",
+      "target": "concord_multiplayer_compatibility_fingerprint_smoke",
+      "profiles": [
+        "windows-minimal"
+      ],
+      "labels": [
+        "windows-minimal",
+        "no-assets",
+        "generated-fixture"
+      ],
+      "timeout": 60,
+      "inputs": [],
+      "outputs": [
+        "{temp}/concord_multiplayer_content_*/payload.bin",
+        "{temp}/concord_multiplayer_content_*/payload-copy.bin",
+        "{temp}/concord_multiplayer_content_*/empty.bin"
+      ],
+      "conditions": {
+        "platform": "Windows",
+        "stockAssets": false,
+        "window": false,
+        "processes": 1,
+        "network": false,
+        "performanceThreshold": false,
+        "retailExecutable": false
+      },
+      "source": "tests/multiplayer/RuntimeMultiplayerCompatibilityFingerprintSmoke.cpp",
+      "review": "Source/registration reviewed for S03; object-index timing is telemetry, assertions compare correctness."
+    },
+    {
+      "name": "runtime_aircraft_flight_codec_smoke_test",
+      "target": "concord_aircraft_flight_codec_smoke",
+      "profiles": [
+        "windows-minimal"
+      ],
+      "labels": [
+        "windows-minimal",
+        "no-assets",
+        "logic"
+      ],
+      "timeout": 30,
+      "inputs": [],
+      "outputs": [],
+      "conditions": {
+        "platform": "Windows",
+        "stockAssets": false,
+        "window": false,
+        "processes": 1,
+        "network": false,
+        "performanceThreshold": false,
+        "retailExecutable": false
+      },
+      "source": "tests/gameplay/RuntimeAircraftFlightCodecSmoke.cpp",
+      "review": "Source/registration reviewed for S03; object-index timing is telemetry, assertions compare correctness."
+    },
+    {
+      "name": "runtime_movement_classification_smoke_test",
+      "target": "concord_movement_classification_smoke",
+      "profiles": [
+        "windows-minimal"
+      ],
+      "labels": [
+        "windows-minimal",
+        "no-assets",
+        "logic"
+      ],
+      "timeout": 60,
+      "inputs": [],
+      "outputs": [],
+      "conditions": {
+        "platform": "Windows",
+        "stockAssets": false,
+        "window": false,
+        "processes": 1,
+        "network": false,
+        "performanceThreshold": false,
+        "retailExecutable": false
+      },
+      "source": "tests/gameplay/RuntimeMovementClassificationSmoke.cpp",
+      "review": "Source/registration reviewed for S03; object-index timing is telemetry, assertions compare correctness."
+    },
+    {
+      "name": "map_data_health_aircraft_smoke_test",
+      "target": "concord_map_data_smoke",
+      "profiles": [
+        "windows-minimal"
+      ],
+      "labels": [
+        "windows-minimal",
+        "no-assets",
+        "fixture"
+      ],
+      "timeout": 30,
+      "inputs": [
+        "{source}/tests/fixtures/map_data_smoke.map",
+        "{source}/tests/fixtures/map_data_smoke_rules.ini"
+      ],
+      "outputs": [],
+      "conditions": {
+        "platform": "Windows",
+        "stockAssets": false,
+        "window": false,
+        "processes": 1,
+        "network": false,
+        "performanceThreshold": false,
+        "retailExecutable": false
+      },
+      "source": "tests/maps/MapDataSmoke.cpp",
+      "review": "Source/registration reviewed for S03; object-index timing is telemetry, assertions compare correctness."
+    },
+    {
+      "name": "rules_special_features_stock_rules_test",
+      "target": "concord_rules_special_features_smoke",
+      "profiles": [
+        "windows-local-assets"
+      ],
+      "labels": [
+        "windows-local-assets",
+        "local-assets",
+        "stock-rules"
+      ],
+      "timeout": 60,
+      "inputs": [
+        "{source}/local_data/resources/mix_exports/ra2md/localmd/rulesmd.ini"
+      ],
+      "outputs": [],
+      "conditions": {
+        "platform": "Windows",
+        "stockAssets": true,
+        "window": false,
+        "processes": 1,
+        "network": false,
+        "performanceThreshold": false,
+        "retailExecutable": false
+      },
+      "source": "tests/rules/RulesSpecialFeaturesSmoke.cpp",
+      "review": "--stock branch loads INI and asserts rules; registration conditional on EXISTS."
+    },
+    {
+      "name": "rules_pad_aircraft_stock_rules_test",
+      "target": "concord_rules_pad_aircraft_smoke",
+      "profiles": [
+        "windows-local-assets"
+      ],
+      "labels": [
+        "windows-local-assets",
+        "local-assets",
+        "stock-rules"
+      ],
+      "timeout": 60,
+      "inputs": [
+        "{source}/local_data/resources/mix_exports/ra2md/localmd/rulesmd.ini"
+      ],
+      "outputs": [],
+      "conditions": {
+        "platform": "Windows",
+        "stockAssets": true,
+        "window": false,
+        "processes": 1,
+        "network": false,
+        "performanceThreshold": false,
+        "retailExecutable": false
+      },
+      "source": "tests/rules/RulesPadAircraftSmoke.cpp",
+      "review": "--stock branch loads INI and asserts rules; registration conditional on EXISTS."
+    },
+    {
+      "name": "rules_production_stock_rules_test",
+      "target": "concord_rules_production_smoke",
+      "profiles": [
+        "windows-local-assets"
+      ],
+      "labels": [
+        "windows-local-assets",
+        "local-assets",
+        "stock-rules"
+      ],
+      "timeout": 60,
+      "inputs": [
+        "{source}/local_data/resources/mix_exports/ra2md/localmd/rulesmd.ini"
+      ],
+      "outputs": [],
+      "conditions": {
+        "platform": "Windows",
+        "stockAssets": true,
+        "window": false,
+        "processes": 1,
+        "network": false,
+        "performanceThreshold": false,
+        "retailExecutable": false
+      },
+      "source": "tests/rules/RulesProductionRulesSmoke.cpp",
+      "review": "--stock branch loads INI and asserts rules; registration conditional on EXISTS."
+    },
+    {
+      "name": "rules_crate_stock_rules_test",
+      "target": "concord_rules_crate_smoke",
+      "profiles": [
+        "windows-local-assets"
+      ],
+      "labels": [
+        "windows-local-assets",
+        "local-assets",
+        "stock-rules"
+      ],
+      "timeout": 60,
+      "inputs": [
+        "{source}/local_data/resources/mix_exports/ra2md/localmd/rulesmd.ini"
+      ],
+      "outputs": [],
+      "conditions": {
+        "platform": "Windows",
+        "stockAssets": true,
+        "window": false,
+        "processes": 1,
+        "network": false,
+        "performanceThreshold": false,
+        "retailExecutable": false
+      },
+      "source": "tests/rules/RulesCrateSmoke.cpp",
+      "review": "--stock branch loads INI and asserts rules; registration conditional on EXISTS."
+    }
+  ]
+}

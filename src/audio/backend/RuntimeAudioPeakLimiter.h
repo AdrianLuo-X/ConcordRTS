@@ -11,14 +11,14 @@ class RuntimeAudioPeakLimiter final : public CXAPOBase {
 public:
     RuntimeAudioPeakLimiter() : CXAPOBase(&registration_) {}
     HRESULT STDMETHODCALLTYPE IsInputFormatSupported(const WAVEFORMATEX* output,
-        const WAVEFORMATEX* input, WAVEFORMATEX** supported) override {
+        const WAVEFORMATEX* input, WAVEFORMATEX** supported) noexcept override {
         if (supported) *supported = nullptr;
         if (!validFormat(input) || (output && (!validFormat(output)
             || output->nSamplesPerSec != input->nSamplesPerSec))) return XAPO_E_FORMAT_UNSUPPORTED;
         return CXAPOBase::IsInputFormatSupported(output, input, supported);
     }
     HRESULT STDMETHODCALLTYPE IsOutputFormatSupported(const WAVEFORMATEX* input,
-        const WAVEFORMATEX* output, WAVEFORMATEX** supported) override {
+        const WAVEFORMATEX* output, WAVEFORMATEX** supported) noexcept override {
         if (supported) *supported = nullptr;
         if (!validFormat(output) || (input && (!validFormat(input)
             || output->nSamplesPerSec != input->nSamplesPerSec))) return XAPO_E_FORMAT_UNSUPPORTED;
@@ -26,7 +26,7 @@ public:
     }
     HRESULT STDMETHODCALLTYPE LockForProcess(UINT32 inputCount,
         const XAPO_LOCKFORPROCESS_PARAMETERS* input, UINT32 outputCount,
-        const XAPO_LOCKFORPROCESS_PARAMETERS* output) override {
+        const XAPO_LOCKFORPROCESS_PARAMETERS* output) noexcept override {
         if (inputCount != 1 || outputCount != 1 || !input || !output
             || !validFormat(input[0].pFormat) || !validFormat(output[0].pFormat)
             || input[0].pFormat->nSamplesPerSec != output[0].pFormat->nSamplesPerSec)
@@ -37,10 +37,10 @@ public:
         Reset();
         return S_OK;
     }
-    void STDMETHODCALLTYPE Reset() override { heldGain_ = 1.0; }
+    void STDMETHODCALLTYPE Reset() noexcept override { heldGain_ = 1.0; }
     void STDMETHODCALLTYPE Process(UINT32 inputCount,
         const XAPO_PROCESS_BUFFER_PARAMETERS* input, UINT32 outputCount,
-        XAPO_PROCESS_BUFFER_PARAMETERS* output, BOOL enabled) override {
+        XAPO_PROCESS_BUFFER_PARAMETERS* output, BOOL enabled) noexcept override {
         if (inputCount != 1 || outputCount != 1 || !input || !output) return;
         const UINT32 frames = input[0].ValidFrameCount;
         output[0].ValidFrameCount = frames;

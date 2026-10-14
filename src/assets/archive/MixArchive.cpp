@@ -576,7 +576,7 @@ bool MixArchive::readEntryData(
         return false;
     }
 
-    if (entry.size > static_cast<std::uint64_t>(std::numeric_limits<std::streamsize>::max())) {
+    if (static_cast<std::uint64_t>(entry.size) > static_cast<std::uint64_t>(std::numeric_limits<std::streamsize>::max())) {
         errorMessage = "MIX entry is too large to read on this platform.";
         return false;
     }

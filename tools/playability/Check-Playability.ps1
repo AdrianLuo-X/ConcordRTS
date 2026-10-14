@@ -1,7 +1,8 @@
 #requires -Version 7.0
 <#
 .SYNOPSIS
-Runs the configured Debug correctness checks against a selected runtime binary.
+Legacy Debug-only candidate checks. Use tools/testing/Run-LocalTests.ps1 for the
+reviewed, built-first validation profiles and machine-readable semantic results.
 .EXAMPLE
 pwsh -File tools/playability/Check-Playability.ps1 -Executable build/Debug/concord_runtime.exe -Label candidate
 .EXAMPLE
@@ -29,6 +30,12 @@ if (!$BuildDirectory) { $BuildDirectory = Join-Path $taskProject 'build' }
 $Executable = (Resolve-Path -LiteralPath $Executable).ProviderPath
 $BuildDirectory = (Resolve-Path -LiteralPath $BuildDirectory).ProviderPath
 if (!(Test-Path -LiteralPath $Executable -PathType Leaf)) { throw 'Executable must be a file.' }
+# This historical runner replaces only runtime, while standalone commands stay
+# Debug. Reject Release/other-directory overrides before creating any outputs.
+$taskDebugDirectory = [IO.Path]::GetFullPath((Join-Path $BuildDirectory 'Debug')).TrimEnd('\')
+if ([IO.Path]::GetDirectoryName($Executable).TrimEnd('\') -ine $taskDebugDirectory) {
+    throw 'Check-Playability is Debug-only: Executable must be in BuildDirectory/Debug. Use tools/testing/Run-LocalTests.ps1 with explicit BuildDirectory and Configuration for Release validation.'
+}
 $taskCachePath = Join-Path $BuildDirectory 'CMakeCache.txt'
 if (!(Test-Path -LiteralPath $taskCachePath -PathType Leaf)) { throw "No CMake cache: $taskCachePath" }
 $taskCTestMatch = Select-String -LiteralPath $taskCachePath -Pattern '^CMAKE_CTEST_COMMAND:INTERNAL=(.+)$' | Select-Object -First 1

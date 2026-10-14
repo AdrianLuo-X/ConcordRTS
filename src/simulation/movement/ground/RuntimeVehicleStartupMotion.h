@@ -18,14 +18,14 @@ inline constexpr std::int64_t startupMaximumDistanceQ16 = maximumDistanceQ16;
 inline std::int64_t distanceQ16(double distance) {
     if (!(distance > 0.0)) return 0;
     const long double scaled = static_cast<long double>(distance) * distanceOneQ16;
-    if (!std::isfinite(distance) || scaled >= maximumDistanceQ16) return maximumDistanceQ16;
+    if (!std::isfinite(distance) || scaled >= static_cast<long double>(maximumDistanceQ16)) return maximumDistanceQ16;
     return static_cast<std::int64_t>(std::llround(scaled));
 }
 
 inline std::int64_t rampDistanceQ16(double distance) {
     if (!(distance > 0.0)) return 0;
     const long double scaled = static_cast<long double>(distance) * distanceOneQ16;
-    if (!std::isfinite(distance) || scaled >= maximumDistanceQ16) return maximumDistanceQ16;
+    if (!std::isfinite(distance) || scaled >= static_cast<long double>(maximumDistanceQ16)) return maximumDistanceQ16;
     return static_cast<std::int64_t>(std::ceil(scaled));
 }
 

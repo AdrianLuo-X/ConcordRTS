@@ -373,6 +373,9 @@ struct RuntimeTerrainLayerCache {
     int authoredEmptyTerrainSubTiles = 0;
     int highBridgeTerminalUnderlays = 0;
     std::vector<std::uint32_t> pixels;
+    // TMP-only unsigned native Z. Ordinary/fallback painters invalidate the
+    // pixels they overwrite; this is separate from object scene depth.
+    std::vector<std::uint16_t> terrainDepthWords;
     // Source map cell for each opaque terrain pixel. TMP cliff and ramp art
     // extends beyond the base isometric diamond, so the vision compositor
     // needs this ownership map to cover those authored overhangs exactly.
@@ -1396,6 +1399,9 @@ POINT runtimeObjectBodyAnchorForRender(
 );
 
 bool runtimeGrandCannonBarrelDrawsInFront(int facing);
+
+bool runRuntimeTerrainNativeDepthContractCheck(
+    const RuntimeMapRenderContext& context, std::string& errorMessage);
 
 bool runRuntimeSonicWaveRenderContractCheck(std::string& errorMessage);
 

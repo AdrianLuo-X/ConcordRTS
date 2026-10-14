@@ -35,6 +35,7 @@
 #include "ui/selection/diagnostics/RuntimePaintProjectionSignatureContractOracle.h"
 #include "render/shadows/RuntimeGroundShadowEligibility.h"
 #include "render/terrain/RuntimeTerrainViewportFill.h"
+#include "render/terrain/RuntimeTerrainNativeDepth.h"
 #include "simulation/movement/ground/RuntimeMovementClassification.h"
 
 #include <gdiplus.h>
@@ -28574,6 +28575,11 @@ void putLayerPixel(
             * static_cast<std::size_t>(layer.width))
         + static_cast<std::size_t>(x);
     layer.pixels[offset] = color;
+    // A painter without authored TMP Z must not leave the hidden previous
+    // tile eligible to reject a later pixel. Native put restores accepted Z.
+    if (layer.terrainDepthWords.size() == layer.pixels.size()) {
+        layer.terrainDepthWords[offset] = 0xffffU;
+    }
     if (terrainCellIndex >= 0
         && layer.terrainCellIndices.size() == layer.pixels.size()) {
         layer.terrainCellIndices[offset] = terrainCellIndex;
@@ -28588,26 +28594,25 @@ void putLayerPixel(
 
 void putLayerPixelZBuffered(
     RuntimeTerrainLayerCache& layer,
-    std::vector<int>& zBuffer,
+    std::vector<std::uint16_t>& zBuffer,
     int x,
     int y,
-    int zValue,
-    std::uint32_t color
+    std::uint16_t zValue,
+    std::uint32_t color,
+    int terrainCellIndex
 ) {
     if (x < 0 || y < 0 || x >= layer.width || y >= layer.height) {
         return;
     }
-
-    const std::size_t index =
-        static_cast<std::size_t>(y) * layer.width + x;
-    if (zValue < zBuffer[index]) {
+    const std::size_t index = static_cast<std::size_t>(y) * layer.width + x;
+    if (index >= zBuffer.size() || zValue > zBuffer[index]) {
         return;
     }
-
-    layer.pixels[index] = color;
+    // TMP accepts equal Z (unlike the strict object SHP leaves). Color and
+    // both ownership maps must describe the same accepted source pixel.
+    putLayerPixel(layer, x, y, color, terrainCellIndex, terrainCellIndex);
     zBuffer[index] = zValue;
 }
-
 const RuntimeTmpSubTileImage* resolveRuntimeTerrainMetadata(
     int tileIndex,
     int subTileIndex,
@@ -28841,113 +28846,69 @@ bool drawHighBridgeTmpImageToLayer(
     );
 }
 
+// Only standard native TMPs with complete base/extra Z data enter this path.
+// Bridge adapters and custom color-only images retain their existing painter.
+bool runtimeTmpImageHasNativeDepth(const RuntimeTmpSubTileImage& image) {
+    constexpr std::size_t nativeDiamondPixels = 900;
+    if (image.baseWidth != 60 || image.baseHeight != 30
+        || image.basePixels.size() < nativeDiamondPixels
+        || !image.hasBaseZData || image.baseZData.size() < nativeDiamondPixels) {
+        return false;
+    }
+    if (!image.hasExtra) return true;
+    const auto count = static_cast<std::size_t>(std::max(0, image.extraWidth))
+        * static_cast<std::size_t>(std::max(0, image.extraHeight));
+    return count > 0 && image.hasExtraZData
+        && image.extraPixels.size() >= count && image.extraZData.size() >= count;
+}
+
 bool drawTmpTileImageZBufferedToLayer(
     RuntimeTerrainLayerCache& layer,
-    std::vector<int>& zBuffer,
+    std::vector<std::uint16_t>& zBuffer,
     const POINT& center,
     const TerrainCell& cell,
     const RuntimeMapCamera& camera,
     const RuntimeTmpSubTileImage& image,
     const std::array<std::uint32_t, 256>& packedPalette,
-    int zBias
+    int terrainCellIndex
 ) {
-    if (image.baseWidth <= 0
-        || image.baseHeight <= 0
-        || image.basePixels.empty()
-    ) {
-        return drawTmpTileImageToLayer(
-            layer,
-            center,
-            camera,
-            image,
-            packedPalette
-        );
+    if (camera.tileWidth != 60 || camera.tileHeight != 30
+        || !runtimeTmpImageHasNativeDepth(image)) {
+        return drawTmpTileImageToLayer(layer, center, camera, image,
+            packedPalette, terrainCellIndex);
     }
-
-    const int targetX = center.x - (camera.tileWidth / 2);
-    const int targetY = center.y - (camera.tileHeight / 2);
-    const int baseZ = (cell.x + cell.y) * (camera.tileHeight / 2);
-    const int halfHeight = image.baseHeight / 2;
+    const int targetX = center.x - camera.tileWidth / 2;
+    const int targetY = center.y - camera.tileHeight / 2;
     int rowWidth = 0;
     std::size_t sourceIndex = 0;
     for (int y = 0; y < image.baseHeight; ++y) {
-        if (y < halfHeight) {
-            rowWidth += 4;
-        } else {
-            rowWidth -= 4;
-        }
-
-        if (rowWidth <= 0) {
-            continue;
-        }
-
+        rowWidth += y < image.baseHeight / 2 ? 4 : -4;
         const int xStart = (image.baseWidth - rowWidth) / 2;
-        for (int x = 0; x < rowWidth; ++x) {
-            if (sourceIndex >= image.basePixels.size()) {
-                return true;
-            }
-
-            const unsigned char paletteIndex = image.basePixels[sourceIndex];
-            const int zAdjust =
-                image.hasBaseZData && sourceIndex < image.baseZData.size()
-                    ? image.baseZData[sourceIndex]
-                    : 0;
-            ++sourceIndex;
-
-            if (paletteIndex == 0) {
-                continue;
-            }
-
-            putLayerPixelZBuffered(
-                layer,
-                zBuffer,
+        for (int x = 0; x < rowWidth; ++x, ++sourceIndex) {
+            const auto color = image.basePixels[sourceIndex];
+            if (color == 0) continue;
+            putLayerPixelZBuffered(layer, zBuffer,
                 targetX + image.baseOffsetX + xStart + x,
                 targetY + image.baseOffsetY + y,
-                baseZ - zAdjust + zBias,
-                packedPalette[paletteIndex]
-            );
+                runtimeTmpNativeDepthWord(cell.x, cell.y, image.baseZData[sourceIndex]),
+                packedPalette[color], terrainCellIndex);
         }
     }
-
-    if (!image.hasExtra || image.extraPixels.empty()) {
-        return true;
-    }
-
+    if (!image.hasExtra) return true;
     const int extraTargetX = targetX + image.extraOffsetX - image.baseOffsetX;
     const int extraTargetY = targetY + image.extraOffsetY - image.baseOffsetY;
     for (int y = 0; y < image.extraHeight; ++y) {
         for (int x = 0; x < image.extraWidth; ++x) {
-            const std::size_t source =
-                (static_cast<std::size_t>(y)
-                    * static_cast<std::size_t>(image.extraWidth))
-                + static_cast<std::size_t>(x);
-            if (source >= image.extraPixels.size()) {
-                return true;
-            }
-
-            const unsigned char paletteIndex = image.extraPixels[source];
-            if (paletteIndex == 0) {
-                continue;
-            }
-
-            const int zAdjust =
-                image.hasExtraZData && source < image.extraZData.size()
-                    ? image.extraZData[source]
-                    : 0;
-            putLayerPixelZBuffered(
-                layer,
-                zBuffer,
-                extraTargetX + x,
-                extraTargetY + y,
-                baseZ - zAdjust + zBias,
-                packedPalette[paletteIndex]
-            );
+            const auto source = static_cast<std::size_t>(y) * image.extraWidth + x;
+            const auto color = image.extraPixels[source];
+            if (color == 0) continue;
+            putLayerPixelZBuffered(layer, zBuffer, extraTargetX + x, extraTargetY + y,
+                runtimeTmpNativeDepthWord(cell.x, cell.y, image.extraZData[source]),
+                packedPalette[color], terrainCellIndex);
         }
     }
-
     return true;
 }
-
 bool drawRuntimeAuxiliaryTmpSpriteToLayer(
     RuntimeTerrainLayerCache& layer,
     const POINT& center,
@@ -29465,6 +29426,8 @@ bool buildTerrainLayer(
     layer.pixels.assign(pixelCount, packDibColor(RGB(15, 22, 31)));
     layer.terrainCellIndices.assign(pixelCount, -1);
     layer.surfaceCellIndices.assign(pixelCount, -1);
+    // Fresh for every cache rebuild; never reuse Z across camera buckets or tiles.
+    layer.terrainDepthWords.assign(pixelCount, 0xffffU);
     const RuntimeTmpSubTileImage* clearImage =
         resolveTerrainCellImage(0, 0, context, cache);
     const RECT layerWorldRect{
@@ -29503,26 +29466,16 @@ bool buildTerrainLayer(
             cell, context, cache, &authoredEmptySubTile);
         bool drewTexture = false;
         if (image != nullptr) {
-            drewTexture = drawTmpTileImageToLayer(
-                layer,
-                center,
-                camera,
-                *image,
-                packedPalette,
-                terrainCellIndex
-            ) || drewTexture;
+            drewTexture = drawTmpTileImageZBufferedToLayer(
+                layer, layer.terrainDepthWords, center, cell, camera, *image,
+                packedPalette, terrainCellIndex) || drewTexture;
         } else if (authoredEmptySubTile) {
             drewTexture = true;
             ++layer.authoredEmptyTerrainSubTiles;
         } else if (clearImage != nullptr) {
-            drewTexture = drawTmpTileImageToLayer(
-                layer,
-                center,
-                camera,
-                *clearImage,
-                packedPalette,
-                terrainCellIndex
-            );
+            drewTexture = drawTmpTileImageZBufferedToLayer(
+                layer, layer.terrainDepthWords, center, cell, camera, *clearImage,
+                packedPalette, terrainCellIndex);
         }
 
         if (drewTexture) {
@@ -32885,6 +32838,7 @@ static bool runRuntimePaintSpecialObjectIdMemoContractCheck(const RuntimeMapRend
 #include "render/voxel/diagnostics/RuntimeVoxelFacePreparationContract.inl"
 #include "render/shadows/diagnostics/RuntimeGroundShadowEligibilityContract.inl"
 #include "render/terrain/diagnostics/RuntimeTerrainViewportFillContract.inl"
+#include "render/terrain/diagnostics/RuntimeTerrainNativeDepthContract.inl"
 #include "render/voxel/diagnostics/RuntimeVoxelLoadingPrewarmContract.inl"
 #include "render/voxel/diagnostics/RuntimeFutureVoxelBootstrapContract.inl"
 

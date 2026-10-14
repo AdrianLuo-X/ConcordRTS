@@ -37,6 +37,19 @@ add_test(NAME runtime_unit_alignment_test COMMAND concord_runtime --command-smok
     --map "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/multimd/dryheat.map")
 set_tests_properties(runtime_unit_alignment_test PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     ENVIRONMENT "CONCORD_COMMAND_SMOKE_UNIT_ALIGNMENT_ONLY=1" TIMEOUT 600)
+# Native TMP depth and signed health-bar offsets use the live runtime producers.
+add_test(NAME runtime_terrain_native_depth_test COMMAND concord_runtime --command-smoke-test
+    --resource-root "${CMAKE_SOURCE_DIR}/RedAlert2" --local-data-root "${CMAKE_SOURCE_DIR}/local_data"
+    --map "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/multimd/dryheat.map")
+set_tests_properties(runtime_terrain_native_depth_test PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    ENVIRONMENT "CONCORD_COMMAND_SMOKE_TERRAIN_NATIVE_DEPTH_ONLY=1;CONCORD_TERRAIN_NATIVE_DEPTH_OUTPUT=${CMAKE_BINARY_DIR}/vera_alignment/terrain-depth"
+    TIMEOUT 300 RUN_SERIAL TRUE)
+add_test(NAME runtime_selection_delta_test COMMAND concord_runtime --command-smoke-test
+    --resource-root "${CMAKE_SOURCE_DIR}/RedAlert2" --local-data-root "${CMAKE_SOURCE_DIR}/local_data"
+    --map "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/multimd/2peaks.map")
+set_tests_properties(runtime_selection_delta_test PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    ENVIRONMENT "CONCORD_COMMAND_SMOKE_SELECTION_DELTA_ONLY=1;CONCORD_SELECTION_DELTA_DIR=${CMAKE_BINARY_DIR}/vera_alignment/selection-delta"
+    TIMEOUT 300 RUN_SERIAL TRUE)
 add_test(NAME runtime_building_alignment_test COMMAND concord_runtime --command-smoke-test
     --resource-root "${CMAKE_SOURCE_DIR}/RedAlert2" --local-data-root "${CMAKE_SOURCE_DIR}/local_data"
     --map "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/multimd/dryheat.map")

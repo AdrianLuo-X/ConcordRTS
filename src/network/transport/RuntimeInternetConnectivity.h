@@ -316,7 +316,7 @@ struct RuntimeInternetAction {
     RuntimeInternetEndpoint endpoint;
     RuntimeNetworkPacket packet;
 
-    bool operator==(const RuntimeInternetAction&) const = default;
+    bool operator==(const RuntimeInternetAction&) const = delete;
 };
 
 struct RuntimeInternetConnectionConfig {

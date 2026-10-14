@@ -1,6 +1,6 @@
 #pragma once
 
-#include "runtime/host/RuntimeShell.h"
+#include "runtime/config/RuntimeConfig.h"
 
 #include <string>
 #include <vector>

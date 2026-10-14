@@ -1,7 +1,7 @@
 #pragma once
 
 #include "data/campaign/CampaignDatabase.h"
-#include "runtime/host/RuntimeShell.h"
+#include "runtime/config/RuntimeConfig.h"
 #include "ui/skirmish/RuntimeSkirmishMenu.h"
 
 #include <string>

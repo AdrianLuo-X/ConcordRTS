@@ -175,101 +175,9 @@ namespace {
 bool runtimeCombatSourceAvailable(const RulesDatabase& rules,
     const std::vector<WorldObjectInstance>& objects, const WorldObjectInstance& source);
 
-int parsePositiveInt(const std::string& value, int fallback) {
-    try {
-        const int parsed = std::stoi(value);
-        return parsed > 0 ? parsed : fallback;
-    } catch (...) {
-        return fallback;
-    }
-}
-
-std::string chooseString(const std::string& overrideValue, const std::string& value) {
-    return overrideValue.empty() ? value : overrideValue;
-}
-
-int choosePositiveInt(int overrideValue, int value) {
-    return overrideValue > 0 ? overrideValue : value;
-}
-
 bool pathExists(const std::filesystem::path& path) {
     std::error_code errorCode;
     return std::filesystem::exists(path, errorCode);
-}
-
-bool isRuntimeProjectRoot(const std::filesystem::path& path) {
-    return pathExists(path / "local_data")
-        && pathExists(path / "CMakeLists.txt")
-        && (pathExists(path / "RedAlert2") || pathExists(path / ".git"));
-}
-
-void addPathAncestors(
-    std::vector<std::filesystem::path>& candidates,
-    std::filesystem::path path
-) {
-    if (path.empty()) {
-        return;
-    }
-
-    std::error_code errorCode;
-    path = std::filesystem::weakly_canonical(path, errorCode);
-    if (errorCode) {
-        path = path.lexically_normal();
-    }
-
-    while (!path.empty()) {
-        candidates.push_back(path);
-        const std::filesystem::path parent = path.parent_path();
-        if (parent.empty() || parent == path) {
-            break;
-        }
-        path = parent;
-    }
-}
-
-std::filesystem::path executableDirectory() {
-    std::wstring buffer(MAX_PATH, L'\0');
-    DWORD length = GetModuleFileNameW(
-        nullptr,
-        buffer.data(),
-        static_cast<DWORD>(buffer.size())
-    );
-
-    while (length == buffer.size()) {
-        buffer.resize(buffer.size() * 2);
-        length = GetModuleFileNameW(
-            nullptr,
-            buffer.data(),
-            static_cast<DWORD>(buffer.size())
-        );
-    }
-
-    if (length == 0) {
-        return std::filesystem::current_path();
-    }
-
-    buffer.resize(length);
-    return std::filesystem::path(buffer).parent_path();
-}
-
-std::filesystem::path discoverRuntimeProjectRoot() {
-    std::vector<std::filesystem::path> candidates;
-
-    std::error_code errorCode;
-    addPathAncestors(candidates, std::filesystem::current_path(errorCode));
-    addPathAncestors(candidates, executableDirectory());
-
-    for (const std::filesystem::path& candidate : candidates) {
-        if (isRuntimeProjectRoot(candidate)) {
-            return candidate;
-        }
-    }
-
-    if (!candidates.empty()) {
-        return candidates.front();
-    }
-
-    return std::filesystem::current_path();
 }
 
 std::string pathString(const std::filesystem::path& path) {
@@ -277,29 +185,6 @@ std::string pathString(const std::filesystem::path& path) {
     const std::filesystem::path canonical =
         std::filesystem::weakly_canonical(path, errorCode);
     return (errorCode ? path.lexically_normal() : canonical).generic_string();
-}
-
-std::string resolveRuntimePath(
-    const std::string& value,
-    const std::filesystem::path& projectRoot
-) {
-    if (value.empty()) {
-        return "";
-    }
-
-    const std::filesystem::path path(value);
-    if (path.is_absolute()) {
-        return pathString(path);
-    }
-
-    const std::filesystem::path currentCandidate =
-        std::filesystem::current_path() / path;
-    if (pathExists(currentCandidate)) {
-        return pathString(currentCandidate);
-    }
-
-    const std::filesystem::path projectCandidate = projectRoot / path;
-    return pathString(projectCandidate);
 }
 
 std::string toLowerAsciiLocal(std::string value) {
@@ -427,33 +312,6 @@ bool parseRuntimeBool(const std::string& value) {
     return normalized == "yes"
         || normalized == "true"
         || normalized == "1";
-}
-
-int parseRuntimePercent(const std::string& value, int fallback) {
-    const std::string trimmed = trimAsciiLocal(value);
-    if (trimmed.empty()) {
-        return std::clamp(fallback, 0, 100);
-    }
-    try {
-        std::size_t consumed = 0;
-        const double parsed = std::stod(trimmed, &consumed);
-        if (consumed != trimmed.size() || !std::isfinite(parsed)) {
-            return std::clamp(fallback, 0, 100);
-        }
-        // Accept both Concord's integer percentages and the retail ra2.ini
-        // 0.0..1.0 volume representation for hand-copied preferences.
-        const double percent = parsed >= 0.0 && parsed <= 1.0
-            && trimmed.find('.') != std::string::npos
-            ? parsed * 100.0
-            : parsed;
-        return std::clamp(
-            static_cast<int>(std::lround(percent)),
-            0,
-            100
-        );
-    } catch (...) {
-        return std::clamp(fallback, 0, 100);
-    }
 }
 
 int runtimeSectionEntryCount(
@@ -3347,6 +3205,7 @@ struct RuntimeProjectedObject {
     bool hasMobileSpriteBounds = false;
     RECT selectionBounds{0, 0, 0, 0};
     RECT selectionBaseBounds{0, 0, 0, 0};
+    int healthPixelOffsetY = 0;
     double drawLevel = 0.0;
     int projectedX = 0;
     int projectedY = 0;
@@ -57254,29 +57113,26 @@ RECT runtimeUnitSelectionBoundsForAnchor(POINT anchor, int pixelDelta = 0) {
 RECT runtimeUnitHealthFrame(const RuntimeProjectedObject& projectedObject, bool applyBracketDelta = true) {
     const bool hasBase = projectedObject.selectionBaseBounds.right > projectedObject.selectionBaseBounds.left
         && projectedObject.selectionBaseBounds.bottom > projectedObject.selectionBaseBounds.top;
-    const RECT& bounds = !applyBracketDelta && hasBase
-        ? projectedObject.selectionBaseBounds : projectedObject.selectionBounds;
+    const RECT& bounds = hasBase ? projectedObject.selectionBaseBounds : projectedObject.selectionBounds;
     const int frameWidth = projectedObject.object != nullptr
         && projectedObject.object->kind == WorldObjectKind::Unit ? 36 : 18;
     const LONG left = bounds.left + (bounds.right - bounds.left) / 2 - frameWidth / 2;
-    return {left, bounds.top - 8, left + frameWidth, bounds.top - 4};
+    // Retail 0x6F6864/0x6F68FA and 0x6F68D5/0x6F6968 add the signed
+    // TechnoType +0x3E0 value to PIPBRD/health-pip Y. It does not resize
+    // the visible body or change picking; cargo pips keep the base anchor.
+    const LONG top = static_cast<LONG>(std::clamp<long long>(
+        static_cast<long long>(bounds.top) - 8
+            + (applyBracketDelta ? projectedObject.healthPixelOffsetY : 0),
+        static_cast<long long>(std::numeric_limits<LONG>::min()) + 2,
+        static_cast<long long>(std::numeric_limits<LONG>::max()) - 6));
+    return {left, top, left + frameWidth, top + 4};
 }
 
-RECT runtimeUnitSelectionBoundsForSprite(const RECT& sprite, int pixelDelta = 0) {
+RECT runtimeUnitSelectionBoundsForSprite(const RECT& sprite) {
     RECT base = sprite;
     InflateRect(&base, 3, 3);
-    // Preserve the authored bracket displacement without moving any visible
-    // body outside the frame. The unshifted envelope also anchors cargo pips.
-    const LONG shiftedTop = static_cast<LONG>(std::clamp<long long>(
-        static_cast<long long>(base.top) + pixelDelta,
-        static_cast<long long>(std::numeric_limits<LONG>::min()) + 8,
-        static_cast<long long>(std::numeric_limits<LONG>::max()) - 8));
-    const LONG shiftedBottom = static_cast<LONG>(std::clamp<long long>(
-        static_cast<long long>(base.bottom) + pixelDelta,
-        static_cast<long long>(std::numeric_limits<LONG>::min()) + 8,
-        static_cast<long long>(std::numeric_limits<LONG>::max()) - 8));
-    base.top = std::min(base.top, shiftedTop);
-    base.bottom = std::max(base.bottom, shiftedBottom);
+    // Concord's body envelope remains independent of the native health-bar
+    // displacement. Visible frame corners retain the existing click tolerance.
     return base;
 }
 
@@ -58368,8 +58224,9 @@ const std::vector<RuntimeProjectedObject>& runtimeProjectedObjectsForViewport(
                 : renderCenter;
             screenObject.selectionBaseBounds = runtimeUnitSelectionBoundsForAnchor(selectionAnchor);
             const UnitType* selectionType = findRuntimeUnitType(state.rules, observerView);
-            screenObject.selectionBounds = runtimeUnitSelectionBoundsForAnchor(selectionAnchor,
-                selectionType != nullptr ? selectionType->pixelSelectionBracketDelta : 0);
+            screenObject.healthPixelOffsetY = selectionType != nullptr
+                ? selectionType->pixelSelectionBracketDelta : 0;
+            screenObject.selectionBounds = screenObject.selectionBaseBounds;
             // Every visible part of the selection frame must also select the
             // unit. Infantry's small foot hitbox otherwise treats its bottom
             // corners as ground clicks, issuing an unintended move on reselect.
@@ -58403,8 +58260,7 @@ const std::vector<RuntimeProjectedObject>& runtimeProjectedObjectsForViewport(
                 screenObject.spriteBounds = resolvedSpriteBounds;
                 screenObject.hasMobileSpriteBounds = true;
                 screenObject.selectionBaseBounds = runtimeUnitSelectionBoundsForSprite(resolvedSpriteBounds);
-                screenObject.selectionBounds = runtimeUnitSelectionBoundsForSprite(resolvedSpriteBounds,
-                    missileType != nullptr ? missileType->pixelSelectionBracketDelta : 0);
+                screenObject.selectionBounds = screenObject.selectionBaseBounds;
                 // This is the visible body envelope, including turret/barrel and
                 // the current animation pose. No fixed-size phantom box remains.
                 if (screenObject.hasBodyHitClip) {
@@ -87091,6 +86947,13 @@ bool validateRuntimeGameplayVisibleTarget(
 }
 
 #include "ui/input/RuntimePlayerCommunication.inl"
+
+bool validateRuntimePlayerWaypointCommand(
+    const RuntimeWindowState& state,
+    const std::string& owner,
+    const RuntimeMultiplayerGameplayWaypointCommand& body,
+    std::string& error
+);
 
 bool prevalidateRuntimeMultiplayerGameplayCommand(
     const RuntimeWindowState& state,
@@ -118990,327 +118853,6 @@ LRESULT CALLBACK runtimeWindowProc(
 
 } // namespace
 
-RuntimeConfig loadRuntimeConfig(const RuntimeConfigOverrides& overrides) {
-    RuntimeConfig config;
-    const std::filesystem::path projectRoot = discoverRuntimeProjectRoot();
-    config.configPath = resolveRuntimePath(
-        chooseString(overrides.configPath, config.configPath),
-        projectRoot
-    );
-
-    std::error_code errorCode;
-    if (std::filesystem::exists(config.configPath, errorCode)) {
-        IniFile ini;
-        if (ini.loadFromFile(config.configPath)) {
-            config.resourceRootPath =
-                ini.getValue("Runtime", "ResourceRoot", config.resourceRootPath);
-            config.localDataRootPath =
-                ini.getValue("Runtime", "LocalDataRoot", config.localDataRootPath);
-            config.modRootPath =
-                ini.getValue("Runtime", "ModRoot", config.modRootPath);
-            config.defaultMapPath =
-                ini.getValue("Runtime", "DefaultMap", config.defaultMapPath);
-            config.windowWidth = parsePositiveInt(
-                ini.getValue("Runtime", "WindowWidth", ""),
-                config.windowWidth
-            );
-            config.windowHeight = parsePositiveInt(
-                ini.getValue("Runtime", "WindowHeight", ""),
-                config.windowHeight
-            );
-            config.fixedTickHz = parsePositiveInt(
-                ini.getValue("Runtime", "FixedTickHz", ""),
-                config.fixedTickHz
-            );
-            config.targetFps = parsePositiveInt(
-                ini.getValue("Runtime", "TargetFps", ""),
-                config.targetFps
-            );
-            config.showMainMenu = parseRuntimeBool(
-                ini.getValue(
-                    "Runtime",
-                    "ShowMainMenu",
-                    config.showMainMenu ? "yes" : "no"
-                )
-            );
-            config.showSkirmishMenu = parseRuntimeBool(
-                ini.getValue(
-                    "Skirmish",
-                    "ShowSetup",
-                    config.showSkirmishMenu ? "yes" : "no"
-                )
-            );
-            config.gameMode = ini.getValue(
-                "Skirmish",
-                "GameMode",
-                config.gameMode
-            );
-            config.gameModeRulesOverride = ini.getValue(
-                "Skirmish",
-                "GameModeRulesOverride",
-                config.gameModeRulesOverride
-            );
-            config.playerCountry = ini.getValue(
-                "Skirmish",
-                "Country",
-                config.playerCountry
-            );
-            config.playerColor = ini.getValue(
-                "Skirmish",
-                "Color",
-                config.playerColor
-            );
-            config.startingCredits = parsePositiveInt(
-                ini.getValue("Skirmish", "Credits", ""),
-                config.startingCredits
-            );
-            config.startingUnits = std::max(
-                0,
-                parseRuntimeIntOrDefault(
-                    ini.getValue("Skirmish", "UnitCount", ""),
-                    config.startingUnits
-                )
-            );
-            config.techLevel = std::clamp(
-                parseRuntimeIntOrDefault(
-                    ini.getValue("Skirmish", "TechLevel", ""),
-                    config.techLevel
-                ),
-                1,
-                10
-            );
-            config.gameSpeed = std::clamp(
-                parseRuntimeIntOrDefault(
-                    ini.getValue("Skirmish", "GameSpeed", ""),
-                    config.gameSpeed
-                ),
-                0,
-                6
-            );
-            config.scrollRate = std::clamp(
-                parseRuntimeIntOrDefault(
-                    ini.getValue("Options", "ScrollRate", ""),
-                    config.scrollRate
-                ),
-                0,
-                6
-            );
-            config.visualDetail = std::clamp(
-                parseRuntimeIntOrDefault(
-                    ini.getValue("Options", "DetailLevel", ""),
-                    config.visualDetail
-                ),
-                0,
-                2
-            );
-            config.tooltipsEnabled = parseRuntimeBool(
-                ini.getValue(
-                    "Options",
-                    "ToolTips",
-                    config.tooltipsEnabled ? "yes" : "no"
-                )
-            );
-            config.targetLinesEnabled = parseRuntimeBool(
-                ini.getValue(
-                    "Options",
-                    "UnitActionLines",
-                    config.targetLinesEnabled ? "yes" : "no"
-                )
-            );
-            config.seeHiddenObjects = parseRuntimeBool(ini.getValue("Options",
-                "SeeHiddenObjects", config.seeHiddenObjects ? "yes" : "no"));
-            config.scrollCoastingEnabled = parseRuntimeBool(
-                ini.getValue(
-                    "Options",
-                    "ScrollCoasting",
-                    config.scrollCoastingEnabled ? "yes" : "no"
-                )
-            );
-            config.musicVolume = parseRuntimePercent(
-                ini.getValue("Audio", "MusicVolume", ""),
-                config.musicVolume
-            );
-            config.soundVolume = parseRuntimePercent(
-                ini.getValue("Audio", "SoundVolume", ""),
-                config.soundVolume
-            );
-            config.voiceVolume = parseRuntimePercent(
-                ini.getValue("Audio", "VoiceVolume", ""),
-                config.voiceVolume
-            );
-            config.musicEnabled = parseRuntimeBool(
-                ini.getValue(
-                    "Audio",
-                    "InGameMusic",
-                    config.musicEnabled ? "yes" : "no"
-                )
-            );
-            config.soundEffectsEnabled = parseRuntimeBool(
-                ini.getValue(
-                    "Audio",
-                    "SoundEnabled",
-                    config.soundEffectsEnabled ? "yes" : "no"
-                )
-            );
-            std::vector<std::string> preferenceBindingIds = {
-                "Options", "StopObject", "GuardObject", "ScatterObject", "DeployObject", "CenterView"
-            };
-            for (const auto& binding : runtimePlayerCommandBindings())
-                preferenceBindingIds.push_back(binding.first);
-            config.keyboardReferenceLayout = ini.getValue("Hotkey", "ReferenceLayout", "") == "20260913";
-            config.keyBindings.clear();
-            for (const std::string& bindingId : preferenceBindingIds) {
-                const std::string raw = trimAsciiLocal(
-                    ini.getValue("Hotkey", bindingId, "")
-                );
-                if (raw.empty()) {
-                    continue;
-                }
-                const int keyCode = parseRuntimeIntOrDefault(raw, 0);
-                if (runtimePlayerValidKeyCode(keyCode)) {
-                    config.keyBindings.emplace_back(bindingId, keyCode);
-                }
-            }
-            config.shortGame = parseRuntimeBool(
-                ini.getValue(
-                    "Skirmish",
-                    "ShortGame",
-                    config.shortGame ? "yes" : "no"
-                )
-            );
-            config.mcvRepacks = parseRuntimeBool(
-                ini.getValue(
-                    "Skirmish",
-                    "MCVRepacks",
-                    config.mcvRepacks ? "yes" : "no"
-                )
-            );
-            config.crates = parseRuntimeBool(
-                ini.getValue(
-                    "Skirmish",
-                    "Crates",
-                    config.crates ? "yes" : "no"
-                )
-            );
-            config.superweapons = parseRuntimeBool(
-                ini.getValue(
-                    "Skirmish",
-                    "Superweapons",
-                    config.superweapons ? "yes" : "no"
-                )
-            );
-            config.buildOffAlly = parseRuntimeBool(
-                ini.getValue(
-                    "Skirmish",
-                    "BuildOffAlly",
-                    config.buildOffAlly ? "yes" : "no"
-                )
-            );
-            config.computerAiEnabled = parseRuntimeBool(
-                ini.getValue(
-                    "Skirmish",
-                    "ComputerAI",
-                    config.computerAiEnabled ? "yes" : "no"
-                )
-            );
-            config.noCooldown = parseRuntimeBool(ini.getValue("Skirmish", "NoCooldown", "no"));
-            config.campaignId = ini.getValue(
-                "Campaign",
-                "Campaign",
-                config.campaignId
-            );
-            config.campaignMissionId = ini.getValue(
-                "Campaign",
-                "Mission",
-                config.campaignMissionId
-            );
-            config.campaignSourceId = normalizeRuntimeCampaignSourceId(
-                ini.getValue(
-                    "Campaign",
-                    "SourceId",
-                    config.campaignSourceId
-                )
-            );
-            config.campaignDifficulty = ini.getValue(
-                "Campaign",
-                "Difficulty",
-                config.campaignDifficulty
-            );
-            config.campaignPlayerHouse = ini.getValue(
-                "Campaign",
-                "PlayerHouse",
-                config.campaignPlayerHouse
-            );
-            config.campaignNextMissionId = ini.getValue(
-                "Campaign",
-                "NextMission",
-                config.campaignNextMissionId
-            );
-            config.campaignSavePath = ini.getValue(
-                "Campaign",
-                "SavePath",
-                config.campaignSavePath
-            );
-            config.runtimeReplayEventOutputPath =
-                ini.getValue(
-                    "Runtime",
-                    "RuntimeReplayEvents",
-                    config.runtimeReplayEventOutputPath
-                );
-        }
-    }
-
-    config.resourceRootPath = resolveRuntimePath(
-        chooseString(overrides.resourceRootPath, config.resourceRootPath),
-        projectRoot
-    );
-    config.localDataRootPath = resolveRuntimePath(
-        chooseString(overrides.localDataRootPath, config.localDataRootPath),
-        projectRoot
-    );
-    config.modRootPath = resolveRuntimePath(
-        chooseString(overrides.modRootPath, config.modRootPath),
-        projectRoot
-    );
-    config.defaultMapPath = resolveRuntimePath(
-        chooseString(overrides.defaultMapPath, config.defaultMapPath),
-        projectRoot
-    );
-    config.campaignIntroVideoPath = resolveRuntimePath(
-        config.campaignIntroVideoPath,
-        projectRoot
-    );
-    config.campaignPostScoreVideoPath = resolveRuntimePath(
-        config.campaignPostScoreVideoPath,
-        projectRoot
-    );
-    config.campaignLoadSavePath = resolveRuntimePath(
-        config.campaignLoadSavePath,
-        projectRoot
-    );
-    config.campaignSavePath = resolveRuntimePath(
-        config.campaignSavePath,
-        projectRoot
-    );
-    config.windowWidth =
-        choosePositiveInt(overrides.windowWidth, config.windowWidth);
-    config.windowHeight =
-        choosePositiveInt(overrides.windowHeight, config.windowHeight);
-    config.fixedTickHz =
-        choosePositiveInt(overrides.fixedTickHz, config.fixedTickHz);
-    config.targetFps =
-        choosePositiveInt(overrides.targetFps, config.targetFps);
-    config.runtimeReplayEventOutputPath = resolveRuntimePath(
-        chooseString(
-            overrides.runtimeReplayEventOutputPath,
-            config.runtimeReplayEventOutputPath
-        ),
-        projectRoot
-    );
-
-    return config;
-}
-
 RuntimeStartupReport buildRuntimeStartupReport(
     const RuntimeConfig& config,
     GameWorld* worldOutput,
@@ -149579,6 +149121,36 @@ bool runRuntimeNeutralBuildingPaletteRenderContractCheck(
 #include "simulation/navigation/terrain/diagnostics/RuntimeOriginalMapReadNavigationSmoke.inl"
 
 int runRuntimeCommandSmokeTest(const RuntimeConfig& config) {
+    if (const char* only = std::getenv("CONCORD_COMMAND_SMOKE_TERRAIN_NATIVE_DEPTH_ONLY"); only != nullptr) {
+        if (std::string(only) != "1") {
+            std::cerr << "Terrain native depth: ONLY must be exactly 1\n";
+            return 1;
+        }
+        auto stock = std::make_unique<RuntimeWindowState>();
+        stock->config = config;
+        stock->report = buildRuntimeStartupReport(config, &stock->world,
+            &stock->theater, &stock->art, &stock->rules, &stock->mapFacts);
+        stock->rulesLoaded = stock->report.rulesLoaded;
+        stock->artLoaded = stock->report.artLoaded;
+        stock->theaterLoaded = stock->report.theaterLoaded;
+        stock->mapFactsLoaded = stock->report.map.loaded;
+        if (!stock->report.success) {
+            std::cerr << "Terrain native depth: original asset startup failed\n";
+            return 1;
+        }
+        RuntimeMapRenderContext context = runtimeTerrainMetadataContext(*stock);
+        context.rules = stock->rulesLoaded ? &stock->rules : nullptr;
+        context.art = stock->artLoaded ? &stock->art : nullptr;
+        context.palettePath = runtimePalettePath(stock->config, stock->report.map);
+        context.structureRootPath = runtimeStructureRootPath(stock->config, stock->report.map);
+        context.structurePalettePath = runtimeStructurePalettePath(stock->config, stock->report.map);
+        std::string error;
+        if (!runRuntimeTerrainNativeDepthContractCheck(context, error)) {
+            std::cerr << "Terrain native depth: " << error << '\n';
+            return 1;
+        }
+        return 0;
+    }
     if (const char* only = std::getenv("CONCORD_COMMAND_SMOKE_HARVESTER_MANUAL_UNLOAD_ISSUE25_ONLY"); only != nullptr) {
         if (std::string(only) != "1") {
             std::cerr << "Issue25 manual unload: ONLY must be exactly 1\n";
@@ -150317,7 +149889,11 @@ int runRuntimeCommandSmokeTest(const RuntimeConfig& config) {
         if (!runRuntimeUnitSelectionAlignmentSmoke(config, error)) { std::cerr << error << '\n'; return 1; }
         return 0;
     }
-    if (std::getenv("CONCORD_COMMAND_SMOKE_SELECTION_DELTA_ONLY")) {
+    if (const char* only = std::getenv("CONCORD_COMMAND_SMOKE_SELECTION_DELTA_ONLY"); only != nullptr) {
+        if (std::string(only) != "1") {
+            std::cerr << "Selection delta: ONLY must be exactly 1\n";
+            return 1;
+        }
         std::string error;
         if (!runRuntimeSelectionDeltaSmoke(config, error)) { std::cerr << error << '\n'; return 1; }
         return 0;

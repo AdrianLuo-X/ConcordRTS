@@ -14,7 +14,7 @@ std::int64_t runtimeLegacyVehicleStartupDistanceQ16(const RuntimeWindowState& st
         segment = std::hypot(double(object.x - move.moveSegmentFrom.x),
             double(object.y - move.moveSegmentFrom.y));
     const long double distance = std::ceil((static_cast<long double>(ramp) + segment) * 65536.0L);
-    return distance >= RuntimeVehicleStartupMotion::maximumDistanceQ16
+    return distance >= static_cast<long double>(RuntimeVehicleStartupMotion::maximumDistanceQ16)
         ? RuntimeVehicleStartupMotion::maximumDistanceQ16
         : static_cast<std::int64_t>(distance);
 }
