@@ -112,6 +112,161 @@ bool runRuntimeFactoryExitClearanceSmokeProbe(
         }
         return true;
     };
+    if (std::getenv("CONCORD_FACTORY_DEFAULT_RALLY_ONLY")) {
+        for (int n = 0; n < 3; ++n) for (bool rear : {false, true})
+            for (bool custom : {false, true}) {
+                auto storage = setup(cases[n]); auto& state = *storage;
+                const auto item = itemFor(cases[n]);
+                const auto initial = findRuntimeProductionSpawnForOwner(state, item, "ProbeA", false);
+                if (!initial) return fail("default rally baseline spawn");
+                const auto door = initial->cell;
+                const RuntimeCellPoint front{door.x + 1, door.y};
+                int id = 50;
+                add(state, id++, WorldObjectKind::Unit, "MTNK", door);
+                add(state, id++, WorldObjectKind::Unit, "MTNK", front);
+                if (rear) {
+                    for (int y = 7; y <= 11; ++y) {
+                        if (y != door.y) {
+                            add(state, id++, WorldObjectKind::Unit, "MTNK", {door.x, y});
+                            add(state, id++, WorldObjectKind::Unit, "MTNK", {door.x + 1, y});
+                        }
+                    }
+                    for (int x = 8; x < door.x; ++x) {
+                        add(state, id++, WorldObjectKind::Unit, "MTNK", {x, 7});
+                        add(state, id++, WorldObjectKind::Unit, "MTNK", {x, 11});
+                    }
+                }
+                refreshRuntimeObjectOccupancyAfterLocalChange(state);
+                const RuntimeCellPoint goal = custom ? RuntimeCellPoint{20, 18} : front;
+                if (custom && !applyRuntimePlayerRallyPoint(state, "ProbeA", 1, {goal.x, goal.y}))
+                    return fail("custom rally rejected");
+                const auto spawn = findRuntimeProductionSpawnForOwner(state, item, "ProbeA", false);
+                if (!spawn || spawn->cell == door || (rear && spawn->cell.x >= 8))
+                    return fail("alternate rally fixture did not use alternate edge");
+                const int producedId = nextRuntimeObjectInstanceId(state);
+                if (!completeRuntimeProductionOrder(state, item, false, cases[n].lane, 1))
+                    return fail("default rally production refused: " + state.economy.status);
+                const auto queue = state.playerCommands.queues.find(producedId);
+                if (queue == state.playerCommands.queues.end() || queue->second.orders.size() != 1)
+                    return fail("default/custom rally was not queued exactly once");
+                const auto* target = std::get_if<RuntimeMultiplayerGameplayCellTarget>(&queue->second.orders.front().target);
+                if (!target || target->cell != RuntimeMultiplayerGameplayCell{goal.x, goal.y})
+                    return fail("wrong default/custom rally target");
+                if (!custom && !state.playerCommands.rallyPoints.empty())
+                    return fail("default rally overwrote player factory settings");
+                bool released = false;
+                for (int tick = 0; tick < 600; ++tick) {
+                    if (!step(state)) return fail("default rally exit teleported");
+                    if (state.factoryDeliveries.leases().empty()) { released = true; break; }
+                }
+                if (!released) return fail("blocked front retained exit lease");
+                // Open the apron only after delivery: the default destination
+                // was blocked throughout egress and must not prevent production.
+                for (auto& object : state.world.accessObjects())
+                    if (object.instanceId >= 50 && object.instanceId < producedId) {
+                        object.alive = false; object.health = 0;
+                    }
+                refreshRuntimeObjectOccupancyAfterLocalChange(state);
+                bool arrived = false;
+                for (int tick = 0; tick < 1800; ++tick) {
+                    if (!step(state)) return fail("default rally route teleported");
+                    const auto* unit = findObjectById(state, producedId);
+                    if (unit && runtimeCellPointForObject(*unit) == goal && !unit->renderMoveActive) {
+                        arrived = true; break;
+                    }
+                }
+                if (!arrived) return fail(std::string(cases[n].factory) + " alternate exit did not reach default/custom rally");
+            }
+        std::cout << "Factory default rally: 12 three-faction side/rear default/custom routes, blocked-front lease release and physical arrival passed\n";
+        return true;
+    }
+    if (std::getenv("CONCORD_FACTORY_REAR_EXIT_ONLY")) {
+        for (int n = 0; n < 3; ++n) {
+            for (bool refinery : {false, true}) {
+                auto storage = setup(cases[n]);
+                auto& state = *storage;
+                const auto item = itemFor(cases[n]);
+                const auto initial = findRuntimeProductionSpawnForOwner(state, item, "ProbeA", false);
+                if (!initial) return fail("rear exit baseline spawn");
+                const auto door = initial->cell;
+                int id = 50;
+                if (refinery)
+                    add(state, id++, WorldObjectKind::Structure, "GAREFN", {door.x + 1, door.y - 1});
+                // Leave the front doorway empty, but seal its apron and both
+                // side edges. Only the rear edge can deliver the vehicle.
+                for (int y = 5; y <= 14; ++y)
+                    for (int x = door.x; x <= door.x + 3; ++x)
+                        if (!(x == door.x && y == door.y)
+                            && !(refinery && x > door.x && y >= door.y - 1 && y <= door.y + 1))
+                            add(state, id++, WorldObjectKind::Unit, "MTNK", {x, y});
+                for (int x = 8; x < door.x; ++x) {
+                    add(state, id++, WorldObjectKind::Unit, "MTNK", {x, 7});
+                    add(state, id++, WorldObjectKind::Unit, "MTNK", {x, 11});
+                }
+                state.structureFootprints = buildRuntimeStructureFootprints(state);
+                refreshRuntimeObjectOccupancyAfterLocalChange(state);
+                const auto rear = findRuntimeProductionSpawnForOwner(state, item, "ProbeA", false);
+                if (!rear || rear->cell.x >= 8) return fail("blocked front did not select rear");
+                const int producedId = nextRuntimeObjectInstanceId(state);
+                if (!completeRuntimeProductionOrder(state, item, false, cases[n].lane, 1))
+                    return fail("rear exit refused production: " + state.economy.status);
+                bool arrived = false;
+                for (int tick = 0; tick < 600; ++tick) {
+                    if (!step(state)) return fail("rear exit teleported");
+                    const auto* unit = findObjectById(state, producedId);
+                    if (unit && state.factoryDeliveries.leases().empty()) { arrived = true; break; }
+                }
+                if (!arrived) return fail(std::string(cases[n].factory) + " rear egress did not finish");
+                id = producedId + 1;
+                for (int y = 5; y <= 14; ++y)
+                    add(state, id++, WorldObjectKind::Unit, "MTNK", {7, y});
+                refreshRuntimeObjectOccupancyAfterLocalChange(state);
+                if (findRuntimeProductionSpawnForOwner(state, item, "ProbeA", false))
+                    return fail("sealed factory spawned beyond perimeter");
+            }
+        }
+        std::cout << "Factory rear exit: three factions, tank/refinery obstruction, physical egress, lease release, sealed perimeter passed\n";
+        return true;
+    }
+    // Regression: a refinery blocks the straight apron while the doorway's
+    // lateral neighbor remains free. Validate actual production and movement.
+    if (std::getenv("CONCORD_FACTORY_SIDE_EXIT_ONLY")) {
+        for (int n=0;n<3;++n) {
+            const auto& scenario=cases[n];
+            auto storage=setup(scenario);auto& state=*storage;
+            const auto item=itemFor(scenario);
+            const auto initial=findRuntimeProductionSpawnForOwner(state,item,"ProbeA",false);
+            if(!initial || !initial->anchor) return fail("side exit baseline spawn");
+            const auto door=initial->cell;
+            const auto outward=runtimeProductionOutwardCell(state,*initial->anchor,door);
+            if(!outward) return fail("side exit baseline outward");
+            add(state,50,WorldObjectKind::Structure,"GAREFN",{outward->x,outward->y-1});
+            state.structureFootprints=buildRuntimeStructureFootprints(state);
+            refreshRuntimeObjectOccupancyAfterLocalChange(state);
+            WorldObjectInstance probe;probe.instanceId=-1;probe.kind=WorldObjectKind::Unit;
+            probe.type=scenario.unit;probe.owner="ProbeA";probe.alive=true;probe.health=100;
+            probe.x=door.x;probe.y=door.y;probe.cell=runtimeCellKey(door.x,door.y);
+            const auto* factory=findObjectById(state,1);
+            const auto exit=findRuntimeProductionExitMoveTarget(state,*factory,probe);
+            if(!exit || *exit==*outward) return fail(std::string(scenario.factory)+" missing side route around refinery");
+            if(!completeRuntimeProductionOrder(state,item,false,scenario.lane,1)) return fail("side exit refused production");
+            int producedId=-1;for(const auto& o:state.world.getObjects()) if(o.kind==WorldObjectKind::Unit && o.type==scenario.unit) producedId=o.instanceId;
+            bool arrived=false;
+            for(int tick=0;tick<600;++tick) {
+                if(!step(state)) return fail("side exit teleported");
+                const auto* unit=findObjectById(state,producedId);
+                if(unit && state.factoryDeliveries.leases().empty()){arrived=true;break;}
+            }
+            if(!arrived) return fail(std::string(scenario.factory)+" failed to finish lateral egress");
+            // A fully occupied ring must not become a valid exit.
+            int id=100;for(const auto& cell:runtimeNeighborsOf(door)) add(state,id++,WorldObjectKind::Unit,"MTNK",cell);
+            refreshRuntimeObjectOccupancyAfterLocalChange(state);
+            factory=findObjectById(state,1);
+            if(findRuntimeProductionExitMoveTarget(state,*factory,probe)) return fail("sealed doorway accepted an exit");
+        }
+        std::cout<<"Factory side exit: Allied/Soviet/Yuri refinery obstruction, physical egress, lease release, sealed ring passed\n";
+        return true;
+    }
     for (const auto& scenario : cases) {
         auto storage = setup(scenario);
         auto& state = *storage;
