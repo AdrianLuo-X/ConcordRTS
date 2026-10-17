@@ -1366,12 +1366,6 @@ bool isRa2GemOverlayIndex(int overlayIndex) {
     return overlayIndex >= 27 && overlayIndex <= 38;
 }
 
-bool isRa2OreOverlayIndex(int overlayIndex) {
-    return (overlayIndex >= 102 && overlayIndex <= 121)
-        || (overlayIndex >= 127 && overlayIndex <= 146)
-        || (overlayIndex >= 147 && overlayIndex <= 166);
-}
-
 std::string numberedOverlayResourceName(const std::string& prefix, int number) {
     std::ostringstream stream;
     stream << prefix;

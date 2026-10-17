@@ -3,11 +3,13 @@
 param(
     [Parameter(Mandatory)][string]$BuildDirectory,
     [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Configuration,
+    [ValidateSet('MSVC','Clang')][string]$Compiler = 'MSVC',
     [Parameter(Mandatory)][string]$OutputDirectory
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$Compiler = if ($Compiler -ieq 'Clang') { 'Clang' } else { 'MSVC' }
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $utf8 = [Text.UTF8Encoding]::new($false)
 
@@ -63,6 +65,7 @@ function Invoke-Recorded([string]$Executable, [string[]]$Arguments, [string]$Nam
     $info.RedirectStandardOutput = $true
     $info.RedirectStandardError = $true
     foreach ($argument in $Arguments) { $info.ArgumentList.Add($argument) }
+    foreach ($key in @($info.Environment.Keys)) { if ($key -match '^CONCORD_') { [void]$info.Environment.Remove($key) } }
     $started = [DateTimeOffset]::UtcNow
     $process = [Diagnostics.Process]::new()
     $process.StartInfo = $info
@@ -74,12 +77,14 @@ function Invoke-Recorded([string]$Executable, [string[]]$Arguments, [string]$Nam
         [IO.File]::WriteAllText($stdoutFile, $stdoutTask.GetAwaiter().GetResult(), $utf8)
         [IO.File]::WriteAllText($stderrFile, $stderrTask.GetAwaiter().GetResult(), $utf8)
         $record = [ordered]@{
-            command = [ordered]@{ executable = $Executable; arguments = @($Arguments); workingDirectory = $projectRoot }
+            command = [ordered]@{ executable = $Executable; executableSha256 = Get-FileSha256 $Executable; arguments = @($Arguments); workingDirectory = $projectRoot; environment = [ordered]@{ clearedInherited = 'CONCORD_*' } }
             startedAtUtc = $started.ToString('o')
             finishedAtUtc = [DateTimeOffset]::UtcNow.ToString('o')
             exitCode = $process.ExitCode
             stdoutFile = $stdoutFile
+            stdoutSha256 = Get-FileSha256 $stdoutFile
             stderrFile = $stderrFile
+            stderrSha256 = Get-FileSha256 $stderrFile
         }
         Write-Json $recordFile $record
         return $record
@@ -90,6 +95,39 @@ function Invoke-Recorded([string]$Executable, [string[]]$Arguments, [string]$Nam
 function Get-AbsolutePath([string]$Path, [string]$Base) {
     if ([IO.Path]::IsPathRooted($Path)) { return [IO.Path]::GetFullPath($Path) }
     return [IO.Path]::GetFullPath((Join-Path $Base $Path))
+}
+
+function Get-CompilerMetadata([string]$Path) {
+    if (-not [IO.File]::Exists($Path)) { throw "CMake compiler metadata is missing: $Path" }
+    $values = [ordered]@{}
+    foreach ($line in [IO.File]::ReadLines($Path)) {
+        if ($line -match '^set\(((?:CMAKE_CXX_[A-Z0-9_]+|CMAKE_(?:AR|LINKER|LINKER_LINK|RANLIB)|MSVC_CXX_ARCHITECTURE_ID))\s+(.*)\)$') {
+            $values[$Matches[1]] = $Matches[2].Trim().Trim('"')
+        }
+    }
+    foreach ($key in @('CMAKE_CXX_COMPILER','CMAKE_CXX_COMPILER_ID','CMAKE_CXX_COMPILER_VERSION','CMAKE_CXX_COMPILER_FRONTEND_VARIANT')) {
+        if (-not $values.Contains($key) -or [string]::IsNullOrWhiteSpace($values[$key])) { throw "Compiler metadata has no $key : $Path" }
+    }
+    if ($values.CMAKE_CXX_COMPILER_ID -cne $Compiler -or $values.CMAKE_CXX_COMPILER_FRONTEND_VARIANT -cne 'MSVC') {
+        throw "Selected compiler '$Compiler' differs from CMake compiler identity/frontend '$($values.CMAKE_CXX_COMPILER_ID)/$($values.CMAKE_CXX_COMPILER_FRONTEND_VARIANT)'."
+    }
+    if (-not [IO.Path]::IsPathRooted($values.CMAKE_CXX_COMPILER) -or -not [IO.File]::Exists($values.CMAKE_CXX_COMPILER)) {
+        throw "Compiler executable is not an available absolute path: $($values.CMAKE_CXX_COMPILER)"
+    }
+    return [ordered]@{ file = $Path; sha256 = Get-FileSha256 $Path; values = $values }
+}
+
+function Get-CompilerIdentity($Metadata) {
+    return [ordered]@{
+        selected = $Compiler
+        id = $Metadata.values.CMAKE_CXX_COMPILER_ID
+        frontendVariant = $Metadata.values.CMAKE_CXX_COMPILER_FRONTEND_VARIANT
+        version = $Metadata.values.CMAKE_CXX_COMPILER_VERSION
+        executable = Get-AbsolutePath $Metadata.values.CMAKE_CXX_COMPILER $projectRoot
+        executableSha256 = Get-FileSha256 $Metadata.values.CMAKE_CXX_COMPILER
+        metadataFile = $Metadata.file
+        metadataSha256 = $Metadata.sha256
+    }
 }
 
 $buildRoot = Get-LocalPath $BuildDirectory 'BuildDirectory'
@@ -107,7 +145,7 @@ foreach ($key in @('CMAKE_COMMAND', 'CMAKE_CTEST_COMMAND', 'CMAKE_HOME_DIRECTORY
 if ((Get-AbsolutePath $cache.CMAKE_HOME_DIRECTORY $projectRoot) -ne $projectRoot) {
     throw "BuildDirectory belongs to another source tree: $($cache.CMAKE_HOME_DIRECTORY)"
 }
-if ($cache.ContainsKey('CMAKE_CONFIGURATION_TYPES')) {
+if ($cache.ContainsKey('CMAKE_CONFIGURATION_TYPES') -and -not [string]::IsNullOrWhiteSpace($cache.CMAKE_CONFIGURATION_TYPES)) {
     if ($Configuration -cnotin ($cache.CMAKE_CONFIGURATION_TYPES -split ';')) {
         throw "Configuration '$Configuration' is not registered in CMAKE_CONFIGURATION_TYPES."
     }
@@ -116,8 +154,18 @@ elseif (-not $cache.ContainsKey('CMAKE_BUILD_TYPE') -or $cache.CMAKE_BUILD_TYPE 
     throw "Configuration '$Configuration' differs from the single-configuration cache."
 }
 foreach ($key in @('CMAKE_COMMAND', 'CMAKE_CTEST_COMMAND')) {
-    if (-not [IO.File]::Exists($cache[$key])) { throw "Configured tool is missing: $key=$($cache[$key])" }
+    if (-not [IO.Path]::IsPathRooted($cache[$key]) -or -not [IO.File]::Exists($cache[$key])) { throw "Configured tool is not an available absolute path: $key=$($cache[$key])" }
 }
+foreach ($variable in @('CL','_CL_','LINK','_LINK_')) {
+    if (-not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($variable,'Process'))) { throw "Environment variable $variable injects unrecorded compiler/linker options. Use a clean command process." }
+}
+# CMake's metadata (not the compiler filename) proves the requested identity before reconfigure.
+$cacheVersion = "$($cache.CMAKE_CACHE_MAJOR_VERSION).$($cache.CMAKE_CACHE_MINOR_VERSION).$($cache.CMAKE_CACHE_PATCH_VERSION)"
+$metadataCandidates = @(Get-ChildItem -LiteralPath (Join-Path $buildRoot 'CMakeFiles') -Directory |
+    Where-Object { $_.Name -match ('^' + [regex]::Escape($cacheVersion) + '(?:$|[-+])') } |
+    ForEach-Object { Join-Path $_.FullName 'CMakeCXXCompiler.cmake' } | Where-Object { [IO.File]::Exists($_) })
+if ($metadataCandidates.Count -ne 1) { throw "Expected exactly one compiler metadata file for cache version '$cacheVersion'." }
+$compilerBefore = Get-CompilerIdentity (Get-CompilerMetadata $metadataCandidates[0])
 
 $inventoryFile = Join-Path $outputRoot 'inventory.json'
 $traceFile = Join-Path $outputRoot 'configure-trace.jsonl'
@@ -251,6 +299,7 @@ if ([IO.File]::Exists($reviewFile)) {
 
 $rows = [Collections.Generic.List[object]]::new()
 $unresolved = [Collections.Generic.List[string]]::new()
+$commandMismatches = [Collections.Generic.List[string]]::new()
 foreach ($test in $ctestData.tests) {
     $registration = if ($registrations.ContainsKey($test.name)) { $registrations[$test.name] } else { $null }
     $command = $null
@@ -290,6 +339,12 @@ foreach ($test in $ctestData.tests) {
         if ($review.ContainsKey('profiles')) { $profiles = @($review.profiles) }
     }
     $metadata = if ($null -ne $targetName) { $targets[$targetName] } else { $null }
+    $commandArtifactMatches = $null
+    if ($null -ne $command -and $command.Count -gt 0 -and $null -ne $metadata -and $null -ne $metadata.executableArtifact) {
+        $commandArtifactMatches = [IO.Path]::IsPathRooted($command[0]) -and
+            (Get-AbsolutePath $command[0] $buildRoot) -ieq (Get-AbsolutePath $metadata.executableArtifact $buildRoot)
+        if (-not $commandArtifactMatches) { $commandMismatches.Add($test.name) }
+    }
     $artifactExists = $null
     $allArtifactsExist = $null
     $artifactPresence = @()
@@ -306,6 +361,7 @@ foreach ($test in $ctestData.tests) {
         targetMetadata = $metadata
         configuration = $Configuration
         command = $command
+        commandArtifactMatches = $commandArtifactMatches
         artifactExists = $artifactExists
         allArtifactsExist = $allArtifactsExist
         artifactPresence = $artifactPresence
@@ -334,23 +390,20 @@ foreach ($key in ($finalCache.Keys | Sort-Object)) {
     }
     if ($key -match '^CMAKE_CXX_FLAGS(?:_[A-Z0-9_]+)?$') { $cxxFlags[$key] = $finalCache[$key] }
 }
-$compilerMetadata = $null
 $compilerMetadataFile = Join-Path $buildRoot "CMakeFiles/$($index.cmake.version.string)/CMakeCXXCompiler.cmake"
-if ([IO.File]::Exists($compilerMetadataFile)) {
-    $compilerValues = [ordered]@{}
-    foreach ($line in [IO.File]::ReadLines($compilerMetadataFile)) {
-        if ($line -match '^set\(((?:CMAKE_CXX_[A-Z0-9_]+|CMAKE_(?:AR|LINKER|LINKER_LINK|RANLIB)|MSVC_CXX_ARCHITECTURE_ID))\s+(.*)\)$') {
-            $compilerValues[$Matches[1]] = $Matches[2].Trim().Trim('"')
-        }
-    }
-    $compilerMetadata = [ordered]@{ file = $compilerMetadataFile; sha256 = Get-FileSha256 $compilerMetadataFile; values = $compilerValues }
+$compilerMetadata = Get-CompilerMetadata $compilerMetadataFile
+$compilerIdentity = Get-CompilerIdentity $compilerMetadata
+if ($compilerIdentity.executable -ine $compilerBefore.executable -or $compilerIdentity.executableSha256 -cne $compilerBefore.executableSha256 -or
+    $compilerIdentity.id -cne $compilerBefore.id -or $compilerIdentity.frontendVariant -cne $compilerBefore.frontendVariant) {
+    throw 'Compiler identity changed during inventory configure; no test was run.'
 }
 $inventory = [ordered]@{
-    schemaVersion = 1
+    schemaVersion = 2
     generatedAtUtc = [DateTimeOffset]::UtcNow.ToString('o')
     projectRoot = $projectRoot
     buildDirectory = $buildRoot
     configuration = $Configuration
+    compiler = $Compiler
     cacheFile = $cacheFile
     cacheSha256 = Get-FileSha256 $cacheFile
     cacheSha256BeforeConfigure = $cacheSha256Before
@@ -364,6 +417,7 @@ $inventory = [ordered]@{
         cxxFlags = $cxxFlags
         cacheEntries = $cacheEntries
         compilerMetadata = $compilerMetadata
+        compilerIdentity = $compilerIdentity
         fileApiCmake = $index.cmake
     }
     configure = $configure
@@ -374,6 +428,7 @@ $inventory = [ordered]@{
         registeredTests = $rows.Count
         mappedTests = $rows.Count - $unresolved.Count
         unresolvedTests = @($unresolved.ToArray())
+        commandArtifactMismatches = @($commandMismatches.ToArray())
         reviewedTests = $reviewedCount
         unreviewedTests = $rows.Count - $reviewedCount
     }
@@ -383,3 +438,4 @@ Write-Json $inventoryFile $inventory
 Write-Host "Inventory: $($rows.Count) registered, $($rows.Count - $unresolved.Count) mapped, $reviewedCount reviewed. $inventoryFile"
 if ($rows.Count -eq 0) { throw 'CTest registered zero tests; an empty inventory is not a successful verification.' }
 if ($unresolved.Count -gt 0) { throw "Test targets could not be proven: $($unresolved -join ', '). Complete inventory was written for review." }
+if ($commandMismatches.Count -gt 0) { throw "CTest commands differ from the exact File API executable artifacts for '$Configuration': $($commandMismatches -join ', '). Complete inventory was written for review; no test was run." }

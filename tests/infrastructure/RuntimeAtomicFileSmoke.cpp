@@ -26,6 +26,14 @@
 
 namespace {
 
+std::string utf8Filename(const std::filesystem::path& path) {
+    const std::u8string name = path.filename().u8string();
+    return std::string(
+        reinterpret_cast<const char*>(name.data()),
+        name.size()
+    );
+}
+
 bool expect(bool condition, const std::string& message) {
     if (!condition) {
         std::cerr << "Runtime atomic file smoke failure: " << message << '\n';
@@ -447,7 +455,7 @@ bool expectNoUnexpectedTemporaryFiles(
          !error && iterator != end;
          iterator.increment(error)) {
         const std::filesystem::path& path = iterator->path();
-        const std::string leaf = path.filename().string();
+        const std::string leaf = utf8Filename(path);
         if (leaf.rfind(".concord-atomic-", 0) == 0
             && path != allowedCollision) {
             success &= expect(
@@ -467,7 +475,7 @@ bool removeKnownPath(const std::filesystem::path& path, bool directory) {
         removed && !error,
         std::string{"could not remove known smoke "}
             + (directory ? "directory" : "file") + ": "
-            + path.filename().string()
+            + utf8Filename(path)
             + (error ? " (" + error.message() + ')' : "")
     );
 }

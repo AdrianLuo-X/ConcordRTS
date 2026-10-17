@@ -6,13 +6,19 @@
 # temporary environment variables, renders a smoke-test preview, and displays
 # the generated BMP in the panel on the right.
 
+param([ValidateSet('msvc','clang-cl')][string]$Toolchain='msvc',[string]$BuildDirectory='')
+
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
 $ErrorActionPreference = "Stop"
 
 $script:RepoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
-$script:RuntimeExe = Join-Path $script:RepoRoot "build\Debug\concord_runtime.exe"
+if(!$BuildDirectory){$BuildDirectory=if($Toolchain -eq 'msvc'){'build/msvc-reference'}else{'build/clang-cl-x64-release'}}
+$script:BuildDirectory=$BuildDirectory
+$script:Toolchain=$Toolchain
+# Preview consumes the verified daily deployment, independent of generator layout.
+$script:RuntimeExe = Join-Path $script:RepoRoot 'bin/concord_runtime.exe'
 $script:DefaultMap = Join-Path $script:RepoRoot "local_data\resources\mix_exports\multimd\2peaks.map"
 $script:ResourceRoot = Join-Path $script:RepoRoot "RedAlert2"
 $script:LocalDataRoot = Join-Path $script:RepoRoot "local_data"
@@ -396,6 +402,13 @@ $customText.Add_TextChanged({
 })
 
 function Start-Render {
+    try {
+        $provenance=Get-Content -LiteralPath (Join-Path $script:RepoRoot 'bin/build-provenance.json') -Raw | ConvertFrom-Json
+        $actual=if($provenance.PSObject.Properties['toolchain']){$provenance.toolchain}elseif($provenance.generator -match '^Visual Studio '){'msvc'}else{'unknown'}
+        $expectedBuild=[IO.Path]::GetFullPath($(if([IO.Path]::IsPathRooted($script:BuildDirectory)){$script:BuildDirectory}else{Join-Path $script:RepoRoot $script:BuildDirectory}))
+        $runtime=@($provenance.files | Where-Object name -EQ 'concord_runtime.exe')
+        if($actual -ine $script:Toolchain -or [IO.Path]::GetFullPath($provenance.buildDirectory) -ine $expectedBuild -or $runtime.Count -ne 1 -or (Get-FileHash -LiteralPath $script:RuntimeExe).Hash -ne $runtime[0].sha256){throw 'Deployed runtime does not match the selected toolchain/build. Build successfully before previewing.'}
+    } catch {$statusBox.Text=$_.Exception.Message;return}
     if ($script:IsRendering) {
         return
     }
@@ -497,27 +510,12 @@ function Start-BuildRuntime {
     $statusBox.Text = "Building concord_runtime..."
 
     try {
-        $cmakeCommand = Get-Command cmake.exe -CommandType Application -ErrorAction SilentlyContinue
-        if ($cmakeCommand) {
-            $cmake = $cmakeCommand.Source
-        } else {
-            $vswhere = Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft Visual Studio\Installer\vswhere.exe'
-            if (-not (Test-Path -LiteralPath $vswhere)) {
-                throw 'CMake was not found. Install CMake or Visual Studio C++ CMake tools.'
-            }
-            $vsInstallation = (& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1)
-            if (-not $vsInstallation) {
-                throw 'No Visual Studio C++ toolchain was found.'
-            }
-            $cmake = Join-Path $vsInstallation 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
-            if (-not (Test-Path -LiteralPath $cmake -PathType Leaf)) {
-                throw 'Enable the C++ CMake tools component in Visual Studio.'
-            }
-        }
+        $buildEntry = Join-Path $script:RepoRoot 'tools/Build-Game.ps1'
+        if($script:BuildDirectory.Contains('"')){throw 'Invalid build directory quote.'}
         [System.Windows.Forms.Application]::DoEvents()
         $result = Invoke-ProcessCapture `
-            -FileName $cmake `
-            -Arguments "--build build --config Debug --target concord_runtime -- /m:1" `
+            -FileName (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') `
+            -Arguments "-NoProfile -ExecutionPolicy Bypass -File `"$buildEntry`" -Toolchain $script:Toolchain -BuildDirectory `"$script:BuildDirectory`"" `
             -WorkingDirectory $script:RepoRoot `
             -Environment $null
         $statusBox.Text = "Build exit: $($result.ExitCode)`r`n$($result.Stdout)`r`n$($result.Stderr)"

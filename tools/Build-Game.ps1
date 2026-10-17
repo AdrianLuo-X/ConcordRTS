@@ -1,9 +1,31 @@
 param(
-    [string]$BuildDirectory = 'build\msvc-reference',
+    [string]$BuildDirectory = '',
+    [ValidateSet('msvc','clang-cl')][string]$Toolchain = 'clang-cl',
+    [ValidateSet('Release','Debug')][string]$Configuration = 'Release',
+    [string]$CMakeExecutable,
+    [string]$NinjaExecutable,
+    [string]$LLVMRoot,
+    [string]$MSVCRoot,
+    [string]$WindowsSDKRoot,
+    [string]$WindowsSDKVersion,
+    [string]$MSVCCompatibilityVersion,
+    [string]$CRTRoot,
+    [switch]$StageOnly,
     [switch]$ValidateOnly
 )
 
 $ErrorActionPreference = 'Stop'
+if ($Configuration -ne 'Release' -and !$ValidateOnly) { throw 'Daily product builds remain Release. Use a separately configured Debug test directory with the explicit test runner.' }
+if ($Toolchain -eq 'clang-cl') {
+    $clangArguments = @{}
+    foreach ($key in $PSBoundParameters.Keys) { if ($key -ne 'Toolchain') { $clangArguments[$key] = $PSBoundParameters[$key] } }
+    & (Join-Path $PSScriptRoot 'toolchain/Build-WindowsClang.ps1') @clangArguments
+    exit $LASTEXITCODE
+}
+if ($StageOnly) { throw '-StageOnly is supported by the explicit clang-cl entry only.' }
+foreach ($value in @($CMakeExecutable,$NinjaExecutable,$LLVMRoot,$MSVCRoot,$WindowsSDKRoot,$WindowsSDKVersion,$MSVCCompatibilityVersion,$CRTRoot)) {
+    if ($value) { throw 'Clang component overrides require -Toolchain clang-cl; MSVC reference discovery is unchanged.' }
+}
 $projectRoot = [System.IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 $binRoot = Join-Path $projectRoot 'bin'
 $oldUserRootDir = $env:UserRootDir
@@ -31,7 +53,7 @@ function Assert-Cache([hashtable]$Cache, [string]$Directory, [string]$Source, [s
     } elseif (-not $Cache.CMAKE_CACHEFILE_DIR -or (Get-NormalPath $Cache.CMAKE_CACHEFILE_DIR) -ne (Get-NormalPath $Directory)) {
         $reason = 'the cache was moved from another build directory'
     } elseif ($Cache.CMAKE_GENERATOR -notmatch '^Visual Studio (17 2022|18 2026)$') {
-        $reason = 'the generator is not a supported MSVC reference generator (Clang uses separate T-step directories)'
+        $reason = 'the generator is not a supported MSVC reference generator (Clang uses separate build directories)'
     } elseif ($Cache.CMAKE_GENERATOR_PLATFORM -ne $Platform) {
         $reason = "the cached platform is not $Platform"
     } elseif ($Cache.CMAKE_GENERATOR_TOOLSET -match 'Clang|LLVM') {

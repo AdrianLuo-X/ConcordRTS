@@ -53592,6 +53592,11 @@ bool materializeRuntimeMultiplayerSnapshotHouses(
         RuntimeEconomyState economy;
         initializeRuntimeLocalProductionLanes(economy);
         economy.owner = owner;
+        // The ordinary save body belongs to the canonical facade selected
+        // before loading. Per-house scalars do not carry this saved text.
+        if (ownerKey == runtimeCanonicalHumanHouseOwner(state.economy.owner)) {
+            economy.skirmishStatus = state.economy.skirmishStatus;
+        }
         if (!parseRuntimeMultiplayerSnapshotEconomyScalars(
                 ini.getValue(section, "Economy", ""),
                 economy
@@ -65795,7 +65800,12 @@ bool deployRuntimeMcv(
         return false;
     }
 
-    ++state.economy.completedBuildings;
+    // Delayed deployment runs outside the command's house scope.
+    // Attribute human builds to the saved source owner, retaining legacy contexts.
+    RuntimeEconomyState* deploymentEconomy =
+        runtimeHumanHouseEconomy(state, oldMcvSnapshot.owner);
+    ++(deploymentEconomy != nullptr ? *deploymentEconomy : state.economy)
+        .completedBuildings;
     state.economy.status =
         "deployed " + oldMcvType + " -> " + constructionYard->type
         + " #"
@@ -69046,6 +69056,7 @@ bool initializeRuntimeSkirmishStart(
             RuntimeCellPoint localStartCell;
             int localStartCandidate = -1;
             std::string localConstructionYardType;
+            std::vector<std::tuple<std::string, std::string, int>> humanStartDescriptions;
 
             for (std::size_t slotIndex = 0;
                 slotIndex < state.config.playerSlots.size();
@@ -69121,6 +69132,15 @@ bool initializeRuntimeSkirmishStart(
                     human->skirmishStartApplied = true;
                     human->skirmishStartObjectId = yardId;
                     human->skirmishStartCell = spawnedBaseCenter;
+                    humanStartDescriptions.emplace_back(
+                        owner,
+                        "skirmish base " + spawnedYardType
+                            + " #" + std::to_string(yardId)
+                            + " at " + std::to_string(spawnedBaseCenter.x)
+                            + "," + std::to_string(spawnedBaseCenter.y)
+                            + " units=" + std::to_string(startingUnits),
+                        candidateIndex + 1
+                    );
                 }
 
                 if (slotIndex == *localSlotIndex) {
@@ -69142,6 +69162,17 @@ bool initializeRuntimeSkirmishStart(
                     + "/"
                     + std::to_string(enabledSlots);
                 return false;
+            }
+
+            // Publish owner-specific text only after every combat slot has
+            // started, preserving the existing local failure diagnostics.
+            for (const auto& [owner, description, start] : humanStartDescriptions) {
+                if (RuntimeEconomyState* human = runtimeHumanHouseEconomy(state, owner)) {
+                    human->skirmishStatus = description
+                        + " opponents=" + std::to_string(spawnedSlots - 1)
+                        + " start=" + std::to_string(start)
+                        + " mode=" + state.config.gameMode;
+                }
             }
 
             if (localObserver && !startCandidates.empty()) localStartCell = startCandidates.front();

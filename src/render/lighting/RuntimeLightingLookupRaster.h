@@ -11,13 +11,28 @@
 #define CONCORD_LIGHTING_HAS_SSE2 0
 #endif
 
-#if defined(_MSC_VER) && defined(_M_X64) && !defined(__clang__)
+#if defined(_MSC_VER) && defined(_M_X64)
 #include <intrin.h>
 #include <immintrin.h>
 #include <cstdlib>
 #define CONCORD_LIGHTING_HAS_PRIVATE_AVX2 1
 #else
 #define CONCORD_LIGHTING_HAS_PRIVATE_AVX2 0
+#endif
+
+#if defined(__clang__)
+#define CONCORD_LIGHTING_NOINLINE __attribute__((noinline))
+#define CONCORD_LIGHTING_SSE2_LEAF __attribute__((target("sse2,no-avx,no-avx2"), noinline))
+#define CONCORD_LIGHTING_AVX2_LEAF __attribute__((target("avx2"), noinline))
+#define CONCORD_LIGHTING_XGETBV_LEAF __attribute__((target("xsave"), noinline))
+#elif defined(_MSC_VER)
+#define CONCORD_LIGHTING_NOINLINE __declspec(noinline)
+#define CONCORD_LIGHTING_SSE2_LEAF __declspec(noinline)
+#define CONCORD_LIGHTING_AVX2_LEAF __declspec(noinline)
+#define CONCORD_LIGHTING_XGETBV_LEAF __declspec(noinline)
+#else
+#define CONCORD_LIGHTING_NOINLINE __attribute__((noinline))
+#define CONCORD_LIGHTING_SSE2_LEAF __attribute__((noinline))
 #endif
 // A coefficient is accepted only when every entry of the existing, rounded
 // color lookup is reproduced exactly. Some floating-point half ties cannot
@@ -112,9 +127,14 @@ inline bool runtimeLightingAvx2FeatureBitsAllow(unsigned maximumLeaf,
         && (xcr0 & 6U) == 6U && (leaf7Ebx & (1U << 5U)) != 0;
 }
 #if CONCORD_LIGHTING_HAS_PRIVATE_AVX2
+// Clang requires the XSAVE feature for this intrinsic. The baseline detector
+// calls this isolated leaf only after checking XSAVE, OSXSAVE and AVX.
+inline CONCORD_LIGHTING_XGETBV_LEAF std::uint64_t runtimeLightingAvx2Xcr0() noexcept {
+    return _xgetbv(0);
+}
 // No AVX intrinsic belongs here. XGETBV is issued only after CPU XSAVE,
 // OSXSAVE and AVX are all present. Root must inspect the default-ISA object.
-inline __declspec(noinline) bool runtimeLightingAvx2CpuSupported() noexcept {
+inline CONCORD_LIGHTING_NOINLINE bool runtimeLightingAvx2CpuSupported() noexcept {
     static const bool supported = [] {
         int registers[4]{};
         __cpuidex(registers, 0, 0);
@@ -124,7 +144,7 @@ inline __declspec(noinline) bool runtimeLightingAvx2CpuSupported() noexcept {
         const unsigned leaf1Ecx = static_cast<unsigned>(registers[2]);
         constexpr unsigned required = (1U << 26U) | (1U << 27U) | (1U << 28U);
         if ((leaf1Ecx & required) != required) return false;
-        const std::uint64_t xcr0 = _xgetbv(0);
+        const std::uint64_t xcr0 = runtimeLightingAvx2Xcr0();
         if ((xcr0 & 6U) != 6U) return false;
         __cpuidex(registers, 7, 0);
         return runtimeLightingAvx2FeatureBitsAllow(maximumLeaf, leaf1Ecx,
@@ -133,7 +153,7 @@ inline __declspec(noinline) bool runtimeLightingAvx2CpuSupported() noexcept {
     return supported;
 }
 // Explicit intrinsics only in this out-of-line leaf. No TU-wide /arch change.
-inline __declspec(noinline) std::size_t runtimeApplyLightingLookupAvx2Leaf(
+inline CONCORD_LIGHTING_AVX2_LEAF std::size_t runtimeApplyLightingLookupAvx2Leaf(
     std::uint32_t* row, std::size_t count, const RuntimeLightingLookupRaster& raster
 ) noexcept {
     const __m256i zero = _mm256_setzero_si256();
@@ -160,6 +180,54 @@ inline __declspec(noinline) std::size_t runtimeApplyLightingLookupAvx2Leaf(
     return index;
 }
 #endif
+
+#if CONCORD_LIGHTING_HAS_SSE2
+inline CONCORD_LIGHTING_SSE2_LEAF std::size_t runtimeApplyLightingLookupSse2Leaf(
+    std::uint32_t* row, std::size_t count, const RuntimeLightingLookupRaster& raster
+) noexcept {
+    const __m128i zero = _mm_setzero_si128();
+    const __m128i fraction = _mm_loadu_si128(
+        reinterpret_cast<const __m128i*>(raster.fraction.data()));
+    const __m128i whole = _mm_loadu_si128(
+        reinterpret_cast<const __m128i*>(raster.whole.data()));
+    std::size_t index = 0;
+    for (; count - index >= 4; index += 4) {
+        const __m128i pixels = _mm_loadu_si128(reinterpret_cast<const __m128i*>(row + index));
+        const __m128i lowChannels = _mm_unpacklo_epi8(pixels, zero);
+        const __m128i highChannels = _mm_unpackhi_epi8(pixels, zero);
+        // Each result is at most 255*16, below signed 16-bit saturation.
+        const __m128i low = _mm_add_epi16(_mm_mullo_epi16(lowChannels, whole),
+            _mm_add_epi16(_mm_mulhi_epu16(lowChannels, fraction),
+                _mm_srli_epi16(_mm_mullo_epi16(lowChannels, fraction), 15)));
+        const __m128i high = _mm_add_epi16(_mm_mullo_epi16(highChannels, whole),
+            _mm_add_epi16(_mm_mulhi_epu16(highChannels, fraction),
+                _mm_srli_epi16(_mm_mullo_epi16(highChannels, fraction), 15)));
+        _mm_storeu_si128(reinterpret_cast<__m128i*>(row + index), _mm_packus_epi16(low, high));
+    }
+    return index;
+}
+#endif
+
+inline CONCORD_LIGHTING_NOINLINE void runtimeApplyLightingLookupScalarLeaf(
+    std::uint32_t* row, std::size_t count,
+    const std::array<std::uint8_t, 256>& red,
+    const std::array<std::uint8_t, 256>& green,
+    const std::array<std::uint8_t, 256>& blue
+) noexcept {
+#if defined(__clang__)
+#pragma clang loop vectorize(disable) interleave(disable)
+#elif defined(_MSC_VER)
+#pragma loop(no_vector)
+#endif
+    for (std::size_t index = 0; index < count; ++index) {
+        const std::uint32_t pixel = row[index];
+        row[index] = (pixel & 0xff000000U)
+            | (static_cast<std::uint32_t>(red[(pixel >> 16U) & 255U]) << 16U)
+            | (static_cast<std::uint32_t>(green[(pixel >> 8U) & 255U]) << 8U)
+            | static_cast<std::uint32_t>(blue[pixel & 255U]);
+    }
+}
+
 inline void runtimeApplyLightingLookupRow(
     std::uint32_t* row, std::size_t count,
     const std::array<std::uint8_t, 256>& red,
@@ -175,34 +243,17 @@ inline void runtimeApplyLightingLookupRow(
             index = runtimeApplyLightingLookupAvx2Leaf(row, count, raster);
 #endif
 #if CONCORD_LIGHTING_HAS_SSE2
-        const __m128i zero = _mm_setzero_si128();
-        const __m128i fraction = _mm_loadu_si128(
-            reinterpret_cast<const __m128i*>(raster.fraction.data()));
-        const __m128i whole = _mm_loadu_si128(
-            reinterpret_cast<const __m128i*>(raster.whole.data()));
-        const auto transform = [&](const __m128i channels) {
-            const __m128i integral = _mm_mullo_epi16(channels, whole);
-            const __m128i high = _mm_mulhi_epu16(channels, fraction);
-            const __m128i round = _mm_srli_epi16(_mm_mullo_epi16(channels, fraction), 15);
-            // Each result is at most 255*16, below signed 16-bit saturation.
-            return _mm_add_epi16(integral, _mm_add_epi16(high, round));
-        };
-        for (; count - index >= 4; index += 4) {
-            const __m128i pixels = _mm_loadu_si128(reinterpret_cast<const __m128i*>(row + index));
-            const __m128i low = transform(_mm_unpacklo_epi8(pixels, zero));
-            const __m128i high = transform(_mm_unpackhi_epi8(pixels, zero));
-            _mm_storeu_si128(reinterpret_cast<__m128i*>(row + index), _mm_packus_epi16(low, high));
-        }
+        if (count - index >= 4)
+            index += runtimeApplyLightingLookupSse2Leaf(row + index, count - index, raster);
 #endif
     }
-    for (; index < count; ++index) {
-        const std::uint32_t pixel = row[index];
-        row[index] = (pixel & 0xff000000U)
-            | (static_cast<std::uint32_t>(red[(pixel >> 16U) & 255U]) << 16U)
-            | (static_cast<std::uint32_t>(green[(pixel >> 8U) & 255U]) << 8U)
-            | static_cast<std::uint32_t>(blue[pixel & 255U]);
-    }
+    if (index < count)
+        runtimeApplyLightingLookupScalarLeaf(row + index, count - index, red, green, blue);
 }
 
 #undef CONCORD_LIGHTING_HAS_SSE2
 #undef CONCORD_LIGHTING_HAS_PRIVATE_AVX2
+#undef CONCORD_LIGHTING_NOINLINE
+#undef CONCORD_LIGHTING_SSE2_LEAF
+#undef CONCORD_LIGHTING_AVX2_LEAF
+#undef CONCORD_LIGHTING_XGETBV_LEAF

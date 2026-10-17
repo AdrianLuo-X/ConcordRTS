@@ -48,11 +48,14 @@ function Assert-Rejection([string]$Name,[string[]]$Arguments,[string]$Diagnostic
     }finally{$proc.Dispose()}
 }
 $runner=Join-Path $PSScriptRoot 'Run-LocalTests.ps1'
-$base=@($runner,'-BuildDirectory','build/msvc-reference','-Configuration','Release')
+$base=@($runner,'-Compiler','MSVC','-BuildDirectory','build/msvc-reference','-Configuration','Release')
 Assert-Rejection 'zero-match' ($base+@('-TestPattern','^does_not_exist$','-OutputDirectory',"$OutputDirectory/zero-match")) '0 tests match'
 Assert-Rejection 'old-cache' @($runner,'-BuildDirectory','build','-Configuration','Release','-OutputDirectory',"$OutputDirectory/old-cache") 'Build-directory contract validation failed'
 Assert-Rejection 'outside-project' @($runner,'-BuildDirectory',([IO.Path]::GetDirectoryName($taskRoot)),'-Configuration','Release','-OutputDirectory',"$OutputDirectory/outside") 'inside this project'
 Assert-Rejection 'configuration-required' @($runner,'-BuildDirectory','build/msvc-reference','-Configuration','invalid') 'ValidateSet|validation|验证'
+Assert-Rejection 'compiler-required-identity' @($runner,'-Compiler','invalid','-BuildDirectory','build/msvc-reference','-Configuration','Release') 'ValidateSet|validation|验证'
+Assert-Rejection 'compiler-cache-mismatch' @($runner,'-Compiler','Clang','-BuildDirectory','build/msvc-reference','-Configuration','Release','-OutputDirectory',"$OutputDirectory/compiler-mismatch") 'Build-directory contract validation failed'
+Assert-Rejection 'single-config-mismatch' @($runner,'-Compiler','Clang','-BuildDirectory','build/clang-cl-x64-release','-Configuration','Debug','-OutputDirectory',"$OutputDirectory/single-config-mismatch") 'single-configuration CMAKE_BUILD_TYPE'
 Assert-Rejection 'output-overwrite' ($base+@('-OutputDirectory',$OutputDirectory)) 'already exists'
 Assert-Rejection 'legacy-release-mixing' @((Join-Path $taskRoot 'tools/playability/Check-Playability.ps1'),'-Executable','build/msvc-reference/Release/concord_runtime.exe','-BuildDirectory','build/msvc-reference') 'Debug-only'
 $exit=if(@($taskChecks | Where-Object passed -EQ $false).Count){1}else{0}

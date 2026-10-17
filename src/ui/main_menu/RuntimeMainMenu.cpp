@@ -1144,6 +1144,8 @@ struct MenuState {
     std::unordered_map<std::string, std::vector<RuntimePaletteColor>> palettes;
     std::unordered_map<std::string, std::string> paletteSources;
     BinkMenuAnimation videoAnimation;
+    bool videoFirstFramePending = false;
+    std::uint64_t videoStartupStarted = 0;
     AssetImage videoFrame;
     AssetImage staticFallback;
     AssetImage mainShell;
@@ -1216,6 +1218,88 @@ struct MenuState {
 };
 
 std::unique_ptr<MenuState> prewarmedMainMenuState;
+
+constexpr std::uint64_t kMainMenuFirstFrameDeadlineMs = 60000;
+
+void failMainMenuVideoStartup(MenuState& state, const std::string& reason) {
+    state.videoFirstFramePending = false;
+    std::cerr << "Main menu Bink animation unavailable: " << reason
+              << "; using the original extracted first frame.\n";
+    state.videoAnimation.stop();
+    state.videoFrame = state.staticFallback;
+}
+
+bool pollMainMenuVideo(MenuState& state, DWORD waitMilliseconds = 0) {
+    bool changed = state.videoAnimation.poll(
+        state.videoFrame,
+        waitMilliseconds
+    );
+    if (!state.videoFirstFramePending) return changed;
+    const std::uint64_t elapsed = GetTickCount64() - state.videoStartupStarted;
+    if (changed) {
+        state.videoFirstFramePending = false;
+        std::cout << "Main menu Bink animation ready: sequence="
+                  << state.videoAnimation.sequence()
+                  << " startupMs=" << elapsed << "\n";
+    } else if (!state.videoAnimation.failure().empty()) {
+        failMainMenuVideoStartup(state, state.videoAnimation.failure());
+        changed = true;
+    } else if (state.videoAnimation.finished()) {
+        failMainMenuVideoStartup(state, "decoder stopped before its first frame");
+        changed = true;
+    } else if (elapsed >= kMainMenuFirstFrameDeadlineMs) {
+        failMainMenuVideoStartup(state, "first decoded frame startup deadline expired");
+        changed = true;
+    }
+    return changed;
+}
+
+bool startMainMenuVideo(
+    MenuState& state,
+    const RuntimeConfig& config,
+    DWORD initialWaitMilliseconds
+) {
+    state.videoFirstFramePending = false;
+    state.videoStartupStarted = GetTickCount64();
+    if (!state.videoAnimation.start(
+            config,
+            state.exportRoot,
+            {},
+            concord::bink_stream::PlaybackMode::Loop,
+            false,
+            0
+        )) {
+        failMainMenuVideoStartup(state, state.videoAnimation.failure());
+        return false;
+    }
+    state.videoFirstFramePending = true;
+    if (!pollMainMenuVideo(state, initialWaitMilliseconds)
+        && state.videoFirstFramePending) {
+        // The menu stays usable while its timer polls the live decoder.
+        // A preview is not a successful decoded frame or a permanent fallback.
+        std::cout << "Main menu Bink animation pending: original extracted preview "
+                     "shown while waiting for the first decoded frame.\n";
+    }
+    return state.videoFirstFramePending || state.videoAnimation.sequence() > 0;
+}
+
+bool waitMainMenuVideoForSmoke(MenuState& state) {
+    while (state.videoFirstFramePending) {
+        pollMainMenuVideo(state);
+        if (!state.videoFirstFramePending) break;
+        MsgWaitForMultipleObjectsEx(0, nullptr, 16, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+        MSG message{};
+        while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+            if (message.message == WM_QUIT) {
+                PostQuitMessage(static_cast<int>(message.wParam));
+                return false;
+            }
+            TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+    }
+    return state.videoAnimation.sequence() > 0;
+}
 
 std::vector<ButtonSpec> buttons(const MenuState& state);
 void finishMenu(MenuState& state, RuntimeMainMenuResult result);
@@ -2385,6 +2469,7 @@ void playSelectedMovie(MenuState& state) {
         state.backDirty = true;
         return;
     }
+    state.videoFirstFramePending = false;
     state.videoAnimation.stop();
     state.audio.stopMusic();
     HWND playbackHost = state.window;
@@ -2404,15 +2489,7 @@ void playSelectedMovie(MenuState& state) {
         state.config.voiceVolume
     );
     state.pageStatus = moviePlaybackStatus(played, error);
-    const bool animationStarted = state.videoAnimation.start(
-        state.config,
-        state.exportRoot,
-        {},
-        concord::bink_stream::PlaybackMode::Loop,
-        false,
-        0
-    );
-    if (animationStarted) state.videoAnimation.poll(state.videoFrame, 250);
+    startMainMenuVideo(state, state.config, 250);
     startPageMusic(state);
     if (state.window != nullptr && IsWindow(state.window)) {
         SetFocus(state.window);
@@ -2584,7 +2661,7 @@ bool updateDynamicState(MenuState& state) {
     if (state.closing) return false;
     const std::uint64_t now = GetTickCount64();
     bool changed = false;
-    changed = state.videoAnimation.poll(state.videoFrame) || changed;
+    changed = pollMainMenuVideo(state) || changed;
     if (!state.warning.empty()) {
         const int nextWarning = static_cast<int>(
             (now / 75ULL) % state.warning.size()
@@ -3353,24 +3430,7 @@ RuntimeMainMenuResult runRuntimeMainMenu(
     prewarmRuntimeSkirmishMenu(config);
     state.phase = MenuPhase::SlideIn;
     state.phaseStarted = GetTickCount64();
-    const bool animationStarted = state.videoAnimation.start(
-        config,
-        state.exportRoot,
-        {},
-        concord::bink_stream::PlaybackMode::Loop,
-        false,
-        0
-    );
-    const bool firstAnimationFrame = animationStarted
-        && state.videoAnimation.poll(state.videoFrame, 2000);
-    if (!firstAnimationFrame) {
-        std::cerr << "Main menu Bink animation unavailable: "
-                  << (state.videoAnimation.failure().empty()
-                        ? "the first decoded frame timed out"
-                        : state.videoAnimation.failure())
-                  << "; using the original extracted first frame.\n";
-        state.videoAnimation.stop();
-    }
+    startMainMenuVideo(state, config, 2000);
     state.backDirty = true;
     ShowWindow(window, SW_SHOW);
     UpdateWindow(window);
@@ -3468,6 +3528,13 @@ int runRuntimeMainMenuSmokeTest(
               << (headlessSmoke ? "skipped(hidden)" : "yes")
               << " hostSurvived=yes\n";
 
+    // Match the normal menu lifecycle: prepare the skirmish page before
+    // waiting for video and exercising navigation, rather than only when
+    // the final transition is requested. Its completion still has the same
+    // bounded transition wait and assertions below.
+    const ULONGLONG skirmishPrewarmStarted = GetTickCount64();
+    prewarmRuntimeSkirmishMenu(state.config);
+
     bool animationTested = false;
     LONG firstAnimationSequence = 0;
     LONG secondAnimationSequence = 0;
@@ -3523,15 +3590,8 @@ int runRuntimeMainMenuSmokeTest(
         fs::path(config.resourceRootPath) / "Game" / "Binkw32.dll"
     });
     if (!animationMovie.empty() && !animationDll.empty()) {
-        if (!state.videoAnimation.start(
-                config,
-                state.exportRoot,
-                {},
-                concord::bink_stream::PlaybackMode::Loop,
-                false,
-                0
-            )
-            || !state.videoAnimation.poll(state.videoFrame, 3000)) {
+        if (!startMainMenuVideo(state, config, 0)
+            || !waitMainMenuVideoForSmoke(state)) {
             std::cerr << "Main menu smoke failed: original Bink animation did not "
                          "produce its first frame: "
                       << state.videoAnimation.failure() << "\n";
@@ -4110,17 +4170,48 @@ int runRuntimeMainMenuSmokeTest(
     state.phaseStarted = GetTickCount64() - 1000;
     int pendingTicks = 0;
     while (!state.closing && GetTickCount64() - preparationStarted < 30000) {
+        MSG message{};
+        while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+            if (message.message == WM_QUIT) {
+                PostQuitMessage(static_cast<int>(message.wParam));
+                std::cerr << "Main menu smoke failed: skirmish transition "
+                             "received WM_QUIT.\n";
+                return 1;
+            }
+            TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
         updateDynamicState(state);
         if (!state.closing) {
             if (state.pending != MenuAction::Skirmish
-                || state.pageStatus.empty()) return 1;
+                || state.pageStatus.empty()) {
+                std::cerr << "Main menu smoke failed: skirmish pending contract "
+                          << "changed (pending=" << static_cast<int>(state.pending)
+                          << " statusEmpty=" << state.pageStatus.empty()
+                          << " transitionMs="
+                          << GetTickCount64() - preparationStarted << ").\n";
+                return 1;
+            }
             ++pendingTicks;
             Sleep(5);
         }
     }
     if (!state.closing || state.result != RuntimeMainMenuResult::Skirmish
-        || state.pending != MenuAction::None) return 1;
+        || state.pending != MenuAction::None) {
+        std::cerr << "Main menu smoke failed: skirmish transition did not "
+                     "complete within the original 30000ms wait "
+                  << "(closing=" << state.closing
+                  << " result=" << static_cast<int>(state.result)
+                  << " pending=" << static_cast<int>(state.pending)
+                  << " pendingTicks=" << pendingTicks
+                  << " transitionMs=" << GetTickCount64() - preparationStarted
+                  << " prewarmMs=" << GetTickCount64() - skirmishPrewarmStarted
+                  << ").\n";
+        return 1;
+    }
     std::cout << "Main menu skirmish transition: pendingTicks=" << pendingTicks
-              << " result=skirmish completed=yes\n";
+              << " result=skirmish completed=yes transitionMs="
+              << GetTickCount64() - preparationStarted
+              << " prewarmMs=" << GetTickCount64() - skirmishPrewarmStarted << "\n";
     return 0;
 }

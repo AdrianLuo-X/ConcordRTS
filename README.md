@@ -14,6 +14,14 @@ ConcordRTS 是使用 C++20 开发的 RTS 引擎工程，面向《命令与征服
 
 ## 更新记录
 
+### 2026-10-17
+
+- 将日常构建切换为 `clang-cl + Ninja`，保留显式 MSVC 参考入口，缺少工具时直接报错。
+- 恢复并验证 Clang 光照处理的标量、SSE2、AVX2 路径，保留安全 CPU 分派和像素一致性检查。
+- 完善游戏与视频助手的依赖检查、CRT 来源记录、部署校验及失败恢复。
+- 在未安装完整 Visual Studio IDE 的 Windows 环境完成实际构建、部署，以及 12 项无需游戏素材和 4 项本机素材回归。
+- 验证动态视频菜单、基本游戏操作、原生存档与载入及正常退出。
+
 ### 2026-10-14
 
 - 完成 Clang Release x64 游戏程序与 x86 视频助手的实际编译和链接，并验证两者的跨进程通信。
@@ -56,9 +64,12 @@ ConcordRTS/
 │   ├── campaign/                   战役、进度与影片解析检查
 │   └── audio/                      音频解码、混音与反馈检查
 ├── tools/                          构建与开发工具源码
-│   ├── Build-Game.ps1              MSVC 参考构建、检查与部署入口
+│   ├── Build-Game.ps1              默认 Clang 构建，兼容显式 MSVC 参考
 │   ├── testing/                    测试清单、分层执行与结果汇总
-│   ├── toolchain/                  可选 clang-cl 与 Ninja 配置入口
+│   ├── toolchain/                  Clang 配置、构建、依赖与部署工具
+│   │   ├── Build-WindowsClang.ps1   Clang 产品构建与部署
+│   │   ├── ClangBuildSupport.ps1    缓存、产物和运行库校验
+│   │   └── Configure-WindowsClang.ps1  显式工具链配置
 │   ├── assets/                     资源调试与模型调整工具
 │   ├── maps/                       自编地图生成工具
 │   ├── benchmarks/                 移动与规模性能检查工具
@@ -75,7 +86,7 @@ ConcordRTS/
 ├── LICENSE                         GPL 第 3 版许可全文
 ├── .gitattributes                  文本格式与换行约定
 ├── .gitignore                      本机数据与构建产物排除规则
-├── 编译.cmd                        调用 MSVC 参考构建入口
+├── 编译.cmd                        调用默认 Clang 构建入口并转发参数
 └── 启动.cmd                        使用本机数据启动游戏
 ```
 
@@ -85,31 +96,71 @@ ConcordRTS/
 
 ## 编译
 
+日常入口默认使用 Windows `clang-cl + Ninja`，串行构建 Release 的 x64 游戏核心 `concord_runtime` 和独立 x86 视频助手 `BinkFrameExtractor`，随后部署到 `bin/`。无需完整 Visual Studio IDE；仍需 Microsoft ABI、标准库、CRT 和 Windows SDK。核心编译不需要 Python 或官方游戏素材。
+
 需要：
 
-- Windows x64。
-- 已有 Visual Studio 2022 或更新系列的 C++ 构建工具、Windows SDK，以及 x64 和 Win32 工具链。完整 IDE 不是源码必需项；脚本也可发现符合要求的 Build Tools 实例。
-- CMake 3.20 或更新版本。构建脚本优先使用 Visual Studio 自带的 CMake；所选 CMake 还须支持对应的 Visual Studio 生成器。
+- Windows x64，Windows PowerShell 5.1；本地测试入口另需 PowerShell 7。
+- LLVM，包含 `clang-cl.exe`、`lld-link.exe`、`llvm-lib.exe` 和 `llvm-readobj.exe`。
+- CMake 3.20 或更新版本、Ninja；测试使用同套 CMake 中的 CTest。
+- Microsoft C++ 的 x64/x86 头文件与库、x64 CRT 分发文件，以及 Windows SDK 的头文件、库和 RC/MT 工具。
 
-在仓库根目录双击 `编译.cmd`，或在 PowerShell 中执行：
+已验收的组合为 LLVM 22.1.3、CMake 4.3.1、Ninja 1.13.2、Microsoft 头库/CRT 14.51.36231、ABI 兼容版本 19.51.36257、Windows SDK 10.0.26100.0；测试使用 PowerShell 7.6.5。这些工具和运行库不包含在源码包中。
+
+### 第一次构建
+
+先准备组件，再从仓库根目录执行。新构建目录必须显式提供 Microsoft 头库根、SDK 根和版本、ABI 兼容版本；CRT 分发根可指定，也可从所选 Microsoft 组件发现。下面路径是中性示例，请按自己已安装的组件修改；版本值对应上述已验收组合：
+
+```powershell
+$toolRoot = 'C:/Toolchains'
+$cmakeExe = "$toolRoot/CMake/bin/cmake.exe"
+$ninjaExe = "$toolRoot/Ninja/ninja.exe"
+$llvmRoot = "$toolRoot/LLVM"
+$msvcRoot = "$toolRoot/BuildTools/VC/Tools/MSVC/14.51.36231"
+$sdkRoot = "$toolRoot/WindowsSDK"
+$sdkVersion = '10.0.26100.0'
+$compatVersion = '19.51.36257'
+$crtRoot = "$toolRoot/BuildTools/VC/Redist/MSVC/14.51.36231/x64/Microsoft.VC145.CRT"
+$winPs = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+
+& $winPs -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-Game.ps1 `
+  -BuildDirectory build/clang-cl-x64-release `
+  -CMakeExecutable $cmakeExe -NinjaExecutable $ninjaExe `
+  -LLVMRoot $llvmRoot -MSVCRoot $msvcRoot `
+  -WindowsSDKRoot $sdkRoot -WindowsSDKVersion $sdkVersion `
+  -MSVCCompatibilityVersion $compatVersion -CRTRoot $crtRoot
+if ($LASTEXITCODE -ne 0) { throw '构建失败，请检查本次错误信息。' }
+```
+
+CMake、Ninja、LLVM 可通过完整路径指定，或由脚本从普通终端发现。脚本不自动安装工具，不修改持久 PATH，缺失或冲突时不会回退到 MSVC。已有缓存固定源码目录、组件、架构与配置；请勿复制他机缓存，也不要在原目录中切换工具链。
+
+### 日常构建与部署
+
+在默认 `build/clang-cl-x64-release/` 首次构建成功后，可双击 `编译.cmd`，或执行：
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-Game.ps1
 ```
 
-脚本在 `build/msvc-reference/` 中串行构建 Release 的 x64 游戏核心 `concord_runtime`，并通过独立 Win32 子构建生成项目自编的视频桥接工具 `BinkFrameExtractor`，随后部署到 `bin/`。核心编译不需要 Python，也不需要官方游戏素材。
+若使用其他构建目录，继续传 `-BuildDirectory` 选择该目录。日常产品构建保持 Release；Debug 测试使用单独配置的目录。Ninja 是单配置生成器，切换配置不能复用同一缓存。
 
-已有缓存必须属于当前源码目录，并符合所选工具实例、架构、编译参数、CRT 与 ABI 约定；不一致时入口会拒绝继续。需要独立构建时可传 `-BuildDirectory build/developer`，使用新的项目内目录，避免混用不同工具链或配置。`-ValidateOnly` 可检查已有配置，不配置、编译或部署。
+`Build-Game.ps1` 调用 [Build-WindowsClang.ps1](tools/toolchain/Build-WindowsClang.ps1)，先在独立目录构建核心与视频助手，再校验架构、导入依赖、源码和文件 SHA-256，从指定 CRT 分发源准备运行库。部署会保留旧程序组备份，并在失败时恢复已有程序组；`bin/build-provenance.json` 记录来源与构建参数。
 
-部署完成后，构建目录和 `bin/` 下的 `build-provenance.json` 记录工具、参数及部署文件 SHA-256。这些记录、程序与运行库均留在本机，源码包不包含它们。
+`-ValidateOnly` 只检查已有配置，不配置、构建或部署；`-StageOnly` 会构建并准备隔离产物，完成校验后不部署到 `bin/`。构建记录、阶段产物和程序均留在本机，不属于源码发布内容。
 
-`bin/` 内的运行库由本机 Visual Studio 复制，属于本机构建产物，不属于本仓库发布内容。视频桥接源码不包含 `Binkw32.dll` 或影片数据；如需视频播放，应由使用者自行提供其本地游戏所需文件。
+`bin/` 内的运行库来自选定的 Microsoft CRT 分发源。视频桥接源码不包含 `Binkw32.dll` 或影片数据；播放视频时由使用者自行提供本地游戏所需文件。
 
-### 可选 Clang 配置
+### 显式 MSVC 参考构建
 
-[Configure-WindowsClang.ps1](tools/toolchain/Configure-WindowsClang.ps1) 提供 Windows `clang-cl + Ninja` 的显式配置入口，工具链声明见 [windows-clang-cl.cmake](cmake/toolchains/windows-clang-cl.cmake)。使用者需传入自己已核验的 CMake、Ninja、LLVM、Microsoft C++ 库和 Windows SDK 路径及版本；配置入口不安装工具，也不更改持久 PATH。
+已安装相应 Microsoft C++ 构建工具和 Windows SDK 时，可使用独立的参考目录：
 
-Clang 使用独立的构建目录，按 `Release` / `Debug` 与 x64 / x86 分开配置。x64 游戏目标依赖单独构建的 x86 视频助手；它仍使用 Microsoft ABI、标准库、CRT 和 Windows SDK。当前常规构建与 `bin/` 部署入口仍是 `Build-Game.ps1` 的 MSVC 流程。
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-Game.ps1 -Toolchain msvc -BuildDirectory build/msvc-reference
+```
+
+参考入口发现已有 Visual Studio 2022/2026 系列的 C++ 工具或 Build Tools，使用匹配的 Visual Studio 生成器和独立 Win32 助手子构建。CMake 版本须支持所选生成器；MSVC 和 Clang 的缓存与产物分开保存。
+
+只需配置特定测试目录时，可使用 [Configure-WindowsClang.ps1](tools/toolchain/Configure-WindowsClang.ps1)；工具链声明见 [windows-clang-cl.cmake](cmake/toolchains/windows-clang-cl.cmake)。配置入口同样要求明确组件路径和版本。
 
 ## 准备本地资源并运行
 
@@ -159,13 +210,13 @@ Clang 使用独立的构建目录，按 `Release` / `Debug` 与 x64 / x86 分开
 
 根目录 `CMakeLists.txt` 按顺序包含 `cmake/` 下的配置文件，它们共享根目录作用域；整理文件夹后仍使用 `tools/Build-Game.ps1` 作为普通构建入口。
 
-完成 MSVC 参考目录的配置后，可使用 PowerShell 7 运行明确的本地测试集合：
+完成对应构建目录的配置后，使用 PowerShell 7 运行明确的本地测试集合。默认 Clang 构建目录示例：
 
 ```powershell
-pwsh -NoProfile -File .\tools\testing\Run-LocalTests.ps1 -BuildDirectory build/msvc-reference -Configuration Release -Profile windows-minimal
+pwsh -NoProfile -File .\tools\testing\Run-LocalTests.ps1 -Compiler Clang -BuildDirectory build/clang-cl-x64-release -Configuration Release -Profile windows-minimal
 ```
 
-`windows-minimal` 包含 12 项不需要原游戏素材的检查；`windows-local-assets` 包含 4 项需要本机规则素材的检查。入口先校验 MSVC 参考缓存，再串行构建所选目标并精确执行对应测试；它目前不用于 Clang 缓存，也不代表完整游戏或其他平台的验收。
+`windows-minimal` 包含 12 项不需要原游戏素材的检查；`windows-local-assets` 包含 4 项需要本机规则素材的检查。入口按显式选择的编译器校验缓存，再串行构建所选目标并精确执行对应测试。使用 MSVC 参考目录时传 `-Compiler MSVC -BuildDirectory build/msvc-reference`。测试入口的 `-Compiler` 缺省仍为 MSVC，因此 Clang 检查必须显式传 `-Compiler Clang`；这些集合不代表全部游戏功能或其他平台的验收。
 
 结果默认保存在 `build/local-tests/` 的独立目录中。`results.json` 分别记录 `passed`、`failed`、`skipped`、`unsupported`、`not-built` 和 `not-run`，跳过、未构建或未执行不能计为通过。清单与条件见 [test-profiles.json](tools/testing/test-profiles.json)。
 

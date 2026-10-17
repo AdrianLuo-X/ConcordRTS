@@ -228,7 +228,7 @@ int runRuntimeWindow(const RuntimeConfig& config,
 
 ## 命令行接口
 
-以下命令是供使用者构建后调用的示例。源码发布包不包含这些 EXE。`Build-Game.ps1` 默认在 `build/msvc-reference/` 中生成游戏核心与视频助手，再部署到 `bin/`；规则工具和互联网服务是另行选择的 CMake 目标，MSVC 参考目录的 Release 输出位于 `build/msvc-reference/Release/`。使用其他构建目录或单配置 Ninja 时，须按实际目标输出位置调用。
+以下命令是供使用者构建后调用的示例。源码发布包不包含这些 EXE。`Build-Game.ps1` 默认采用 `clang-cl + Ninja`，在 `build/clang-cl-x64-release/` 中生成游戏核心和独立 x86 视频助手，再部署到 `bin/`。规则工具和互联网服务是另行选择的 CMake 目标，Ninja 的默认 Release 配置输出位于 `build/clang-cl-x64-release/`，没有额外的 `Release/` 子目录。显式 MSVC 参考配置的输出仍位于 `build/msvc-reference/Release/`；其他目录须按实际目标输出位置调用。
 
 ### 游戏运行程序
 
@@ -255,11 +255,11 @@ int runRuntimeWindow(const RuntimeConfig& config,
 ### 规则与资源工具
 
 ```powershell
-.\build\msvc-reference\Release\concord_rules_dump.exe --rules .\samples\rulesmd.ini --summary
-.\build\msvc-reference\Release\concord_rules_dump.exe --rules .\samples\rulesmd.ini --validate
-.\build\msvc-reference\Release\concord_rules_dump.exe --rules .\samples\rulesmd.ini --export-json .\output\rules.json
-.\build\msvc-reference\Release\concord_rules_dump.exe --map .\samples\map_basic.map --map-summary
-.\build\msvc-reference\Release\concord_rules_dump.exe --mix "D:\MyPrivatePack\example.mix" --list-mix
+.\build\clang-cl-x64-release\concord_rules_dump.exe --rules .\samples\rulesmd.ini --summary
+.\build\clang-cl-x64-release\concord_rules_dump.exe --rules .\samples\rulesmd.ini --validate
+.\build\clang-cl-x64-release\concord_rules_dump.exe --rules .\samples\rulesmd.ini --export-json .\output\rules.json
+.\build\clang-cl-x64-release\concord_rules_dump.exe --map .\samples\map_basic.map --map-summary
+.\build\clang-cl-x64-release\concord_rules_dump.exe --mix "D:\MyPrivatePack\example.mix" --list-mix
 ```
 
 一次调用只能选择一个动作。其他入口包括 `--dump-units`、`--dump-weapons`；使用 `--export-json <path>` 时可附加 `--art <ini>` 导出美术定义及关联。JSON 导出创建所需父目录，并覆盖同名输出文件。
@@ -269,7 +269,7 @@ int runRuntimeWindow(const RuntimeConfig& config,
 ### 互联网服务
 
 ```powershell
-.\build\msvc-reference\Release\concord_internet_service.exe --config "D:\MyPrivatePack\internet_service.ini"
+.\build\clang-cl-x64-release\concord_internet_service.exe --config "D:\MyPrivatePack\internet_service.ini"
 ```
 
 服务入口仅接受上述 `--config <path>` 调用形式，运行于 Windows，TLS 使用 Schannel。服务承担 TCP/TLS 协调与中继。配置示例见 [internet_service.example.ini](samples/internet_service.example.ini) 和 [internet_client.example.ini](samples/internet_client.example.ini)。
