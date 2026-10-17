@@ -1,6 +1,4 @@
-# The 32-bit retail Bink decoder is a required product dependency on Windows.
-# VS retains its original Win32 sub-build. Ninja gets an independent x86 target.
-if (WIN32 AND TARGET concord_runtime AND CMAKE_SIZEOF_VOID_P EQUAL 8)
+if (WIN32 AND TARGET concord_runtime AND CMAKE_SIZEOF_VOID_P EQUAL 8 AND NOT (CMAKE_GENERATOR STREQUAL "Ninja" AND CMAKE_CXX_COMPILER_ID STREQUAL "MSVC"))
     include(ExternalProject)
     if(CMAKE_GENERATOR MATCHES "^Visual Studio " AND CONCORD_MSVC_ABI)
         ExternalProject_Add(
@@ -66,4 +64,3 @@ elseif (WIN32 AND TARGET concord_runtime AND CMAKE_SIZEOF_VOID_P EQUAL 4)
     add_subdirectory(tools bink_decoder32_native)
     add_dependencies(concord_runtime BinkFrameExtractor)
 endif()
-
