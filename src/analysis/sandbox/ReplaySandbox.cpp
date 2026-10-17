@@ -1,6 +1,6 @@
 #include "analysis/sandbox/ReplaySandbox.h"
 
-#include "runtime/host/RuntimeShell.h"
+#include "runtime/contracts/RuntimeReplayEventSnapshot.h"
 
 #include <algorithm>
 #include <cctype>

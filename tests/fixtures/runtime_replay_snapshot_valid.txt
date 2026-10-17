@@ -1,0 +1,7 @@
+# Synthetic S12 preparation fixture; not a newly captured runtime trace.
+sequence=1 tick=0 kind=CommandAccepted objectId=7 targetObjectId=8 commandVerb=Attack selectedCount=2 acceptedCount=1 rejectedCount=1 commandTargetCell=4:5
+sequence=2 tick=1 kind=MissionTransition objectId=7 missionFrom=Guard missionTo=Attack reason=S12Fixture
+sequence=3 tick=2 kind=ProjectileSpawned objectId=7 targetObjectId=8 projectileActorId=9 weaponId=120mm weaponSlot=Primary projectileId=Cannon projectileImageId=120mm warheadId=AP lifecycleState=Flying spawnTick=2 renderIntentId=S12Trail renderIntentHash=42 trailerIntentId=S12Trail sourceCell=1:2 targetCell=4:5 currentCell=2:3
+sequence=4 tick=3 kind=ProjectileImpact objectId=7 targetObjectId=8 projectileActorId=9 weaponId=120mm weaponSlot=Primary projectileId=Cannon projectileImageId=120mm warheadId=AP lifecycleState=Impact spawnTick=2 impactTick=3 renderIntentId=S12Impact renderIntentHash=43 impactIntentId=S12Impact warheadImpactIntentId=S12Warhead sourceCell=1:2 targetCell=4:5 currentCell=4:5
+sequence=5 tick=4 kind=ProjectileExpired objectId=7 targetObjectId=8 projectileActorId=9 weaponId=120mm weaponSlot=Primary projectileId=Cannon projectileImageId=120mm warheadId=AP lifecycleState=Expired spawnTick=2 impactTick=3 expiredTick=4 renderIntentId=S12Expired renderIntentHash=44 impactIntentId=S12Impact sourceCell=1:2 targetCell=4:5 currentCell=4:5
+sequence=0 tick=5 kind=SuperWeapon superWeaponId=S12Ignored superWeaponEvent=Fired secondTargetCell=9:10

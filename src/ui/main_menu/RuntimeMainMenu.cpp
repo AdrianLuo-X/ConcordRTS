@@ -3,6 +3,7 @@
 #endif
 
 #include "ui/main_menu/RuntimeMainMenu.h"
+#include "assets/text/CsfCodec.h"
 
 #include "assets/audio/AudioSampleResolver.h"
 #include "assets/video/BinkVideoStream.h"
@@ -245,18 +246,6 @@ std::uint32_t readLe32(const std::vector<unsigned char>& bytes, std::size_t at) 
         | (static_cast<std::uint32_t>(bytes[at + 3]) << 24);
 }
 
-bool fourCc(
-    const std::vector<unsigned char>& bytes,
-    std::size_t at,
-    const char (&tag)[5]
-) {
-    return at + 4 <= bytes.size()
-        && bytes[at] == static_cast<unsigned char>(tag[0])
-        && bytes[at + 1] == static_cast<unsigned char>(tag[1])
-        && bytes[at + 2] == static_cast<unsigned char>(tag[2])
-        && bytes[at + 3] == static_cast<unsigned char>(tag[3]);
-}
-
 struct CsfCatalog {
     std::unordered_map<std::string, std::wstring> values;
 
@@ -268,65 +257,10 @@ struct CsfCatalog {
             (std::istreambuf_iterator<char>(input)),
             std::istreambuf_iterator<char>()
         );
-        if (bytes.size() < 24 || !fourCc(bytes, 0, " FSC")) return false;
-        const std::uint32_t labels = readLe32(bytes, 8);
-        std::size_t cursor = 24;
-        for (std::uint32_t n = 0; n < labels && cursor + 12 <= bytes.size(); ++n) {
-            if (!fourCc(bytes, cursor, " LBL")) break;
-            cursor += 4;
-            const std::uint32_t strings = readLe32(bytes, cursor);
-            cursor += 4;
-            const std::uint32_t labelBytes = readLe32(bytes, cursor);
-            cursor += 4;
-            if (labelBytes > bytes.size() - cursor) break;
-            const std::string key(
-                reinterpret_cast<const char*>(bytes.data() + cursor), labelBytes
-            );
-            cursor += labelBytes;
-            std::wstring first;
-            for (std::uint32_t s = 0; s < strings && cursor + 8 <= bytes.size(); ++s) {
-                const bool plain = fourCc(bytes, cursor, " RTS");
-                const bool extra = fourCc(bytes, cursor, "WRTS");
-                if (!plain && !extra) {
-                    cursor = bytes.size();
-                    break;
-                }
-                cursor += 4;
-                const std::uint32_t chars = readLe32(bytes, cursor);
-                cursor += 4;
-                const std::uint64_t encoded = static_cast<std::uint64_t>(chars) * 2ULL;
-                if (encoded > bytes.size() - cursor) {
-                    cursor = bytes.size();
-                    break;
-                }
-                std::wstring decoded;
-                decoded.reserve(chars);
-                for (std::uint32_t i = 0; i < chars; ++i) {
-                    const std::uint16_t ch =
-                        static_cast<std::uint16_t>(bytes[cursor + i * 2])
-                        | (static_cast<std::uint16_t>(bytes[cursor + i * 2 + 1]) << 8);
-                    const wchar_t value = static_cast<wchar_t>(ch ^ 0xffffU);
-                    decoded.push_back(value == L'\r' ? L' ' : value);
-                }
-                cursor += static_cast<std::size_t>(encoded);
-                if (extra) {
-                    if (cursor + 4 > bytes.size()) {
-                        cursor = bytes.size();
-                        break;
-                    }
-                    const std::uint32_t length = readLe32(bytes, cursor);
-                    cursor += 4;
-                    if (length > bytes.size() - cursor) {
-                        cursor = bytes.size();
-                        break;
-                    }
-                    cursor += length;
-                }
-                if (s == 0) first = std::move(decoded);
-            }
-            if (!key.empty() && !first.empty()) {
-                values[lowerAscii(key)] = std::move(first);
-            }
+        for (auto& entry : concord::csf::decodeEntries(bytes)) {
+            const auto value = concord::csf::projectCarriageReturns(
+                std::move(entry.firstValue), concord::csf::CarriageReturnPolicy::Space);
+            values[lowerAscii(entry.label)] = std::wstring(value.begin(), value.end());
         }
         return !values.empty();
     }

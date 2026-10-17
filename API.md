@@ -15,6 +15,13 @@
 | `GameWorld`         | 从地图创建世界状态并查询对象   | [GameWorld.h](src/world/model/GameWorld.h)                                                                                                                                      |
 | `MixArchive`        | MIX 索引、条目读取和提取   | [MixArchive.h](src/assets/archive/MixArchive.h)                                                                                                                                 |
 | `GameResourceMount` | 扫描资源目录并生成挂载报告    | [GameResourceMount.h](src/assets/inspection/GameResourceMount.h)                                                                                                                |
+| 席位角色 | 独立判断观战角色与席位条件 | [PlayerSlotRole.h](src/core/players/PlayerSlotRole.h) |
+| 比赛计分 | 建造、损失与击杀记账，保存和哈希 | [RuntimeMatchScore.h](src/core/results/RuntimeMatchScore.h) |
+| CSF 文字 | 字节解析与显式回车投影 | [CsfCodec.h](src/assets/text/CsfCodec.h) |
+| PAL 调色板 | 原始通道解析与颜色映射策略 | [PalDecoder.h](src/assets/codecs/PalDecoder.h) |
+| SHP 图像 | 索引像素帧与两种兼容策略 | [ShpCodec.h](src/assets/codecs/ShpCodec.h) |
+| 预览资源会话 | 资源上下文、缓存和显式刷新 | [MapPreviewResourceContext.h](src/assets/preview/MapPreviewResourceContext.h)、[MapPreviewExporter.h](src/assets/preview/MapPreviewExporter.h) |
+| 回放事件类型 | 独立事件数据及读取、汇总入口 | [RuntimeReplayEventSnapshot.h](src/runtime/contracts/RuntimeReplayEventSnapshot.h)、[ReplaySandbox.h](src/analysis/sandbox/ReplaySandbox.h) |
 | 运行时配置 | 配置类型、加载与偏好保存 | [RuntimeConfig.h](src/runtime/config/RuntimeConfig.h) |
 | 运行时入口 | 启动检查与游戏窗口 | [RuntimeShell.h](src/runtime/host/RuntimeShell.h) |
 | 互联网服务               | 服务配置、证书、连接和轮询    | [RuntimeInternetServiceHost.h](src/network/internet/RuntimeInternetServiceHost.h)、[RuntimeInternetServiceHostConfig.h](src/network/internet/RuntimeInternetServiceHostConfig.h) |
@@ -225,6 +232,130 @@ int runRuntimeWindow(const RuntimeConfig& config,
 `buildRuntimeStartupReport()` 检查配置、资源、规则和地图，结果应检查 `success`、`errorMessage`、`warnings`。可选输出参数用于取得加载后的数据库和世界；另有输出 `MapFacts` 的重载。
 
 `saveRuntimeConfigPreferences()` 原子更新指定的用户偏好项，并保留其他段、键和注释；它不保存完整世界状态。`runRuntimeWindow()` 打开并运行游戏窗口，另有接收 `RuntimeMultiplayerRuntimeBridge` 的重载。
+
+## 席位与比赛计分
+
+### 席位角色
+
+[PlayerSlotRole.h](src/core/players/PlayerSlotRole.h) 是仅使用标准库的头文件接口：
+
+```cpp
+bool runtimeObserverCountry(std::string_view country);
+template <typename Slot>
+bool runtimeObserverSlot(const Slot& slot);
+```
+
+`runtimeObserverCountry()` 裁剪两端的空格、TAB、CR、LF，忽略 ASCII 大小写，接受 `observer` 或 `obs`。`runtimeObserverSlot()` 要求对象提供 `enabled`、`human`、`country` 字段，仅在启用的人类席位符合观战标识时返回 `true`。玩家本地席位与配置回退判断仍由 [RuntimeObserver.h](src/ui/input/RuntimeObserver.h) 的应用层适配承担。
+
+### 比赛计分
+
+[RuntimeMatchScore.h](src/core/results/RuntimeMatchScore.h) 声明六个计数值的 `RuntimeMatchScoreEntry`、按规范化 owner 排序的 `RuntimeMatchScoreState`，以及建造、销毁事件值。常用接口：
+
+```cpp
+void recordRuntimeMatchScoreBuild(
+    RuntimeMatchScoreState& scores, const RuntimeMatchScoreBuildEvent& event);
+void recordRuntimeMatchScoreDestruction(
+    RuntimeMatchScoreState& scores, const RuntimeMatchScoreDestructionEvent& event);
+void writeRuntimeMatchScore(const RuntimeMatchScoreState& scores, std::ostream& output);
+bool loadRuntimeMatchScore(RuntimeMatchScoreState& scores,
+                           const IniFile& ini, std::string& error);
+void hashRuntimeMatchScore(const RuntimeMatchScoreState& scores, std::uint64_t& hash);
+```
+
+调用方先完成战局门控、归属与联盟判定，再提交事件。模块累计事件，重复提交会重复计入；对象退出去重仍由游戏宿主负责。销毁事件的空 `creditedOwner` 只记损失。计数保持饱和处理，加载支持原有 Schema 1/2；加载失败保留原状态，缺少保存段时清空状态。`hashRuntimeMatchScore()` 更新传入的哈希累加值。旧 [ui/results/RuntimeMatchScore.h](src/ui/results/RuntimeMatchScore.h) 保留对核心头的兼容包含。
+
+## 共享资源解码
+
+这些接口接收字节并返回解析数据。素材选择、文件读取、资源优先级及各消费者的显示行为由调用方承担。
+
+### CSF 文字
+
+[CsfCodec.h](src/assets/text/CsfCodec.h) 的接口位于 `concord::csf`：
+
+```cpp
+std::vector<Entry> decodeEntries(std::span<const unsigned char> bytes);
+std::u16string projectCarriageReturns(std::u16string value, CarriageReturnPolicy policy);
+```
+
+`Entry` 保存原 label 和首个值，按文件顺序返回；值为 UTF-16 code units，保留 NUL 和 surrogate。坏尾保留此前完整条目及当前已完整的首值，空 label 或空首值不输出。`CarriageReturnPolicy::Space` 与 `LineFeed` 仅决定 CR 的投影；键名整理、重复项覆盖和查找回退仍由菜单适配器处理。
+
+### PAL 调色板
+
+[PalDecoder.h](src/assets/codecs/PalDecoder.h) 的接口位于 `concord::assets`：
+
+```cpp
+bool decodePalBytes(std::span<const std::uint8_t> bytes,
+                    PalRawPalette& output, PalLengthPolicy lengthPolicy);
+std::array<PalRgbChannels, 256> mapPalColors(
+    const PalRawPalette& raw, PalColorPolicy colorPolicy);
+```
+
+`Exact768` 要求恰好 768 字节，`Prefix768` 接受至少 768 字节并忽略尾部。解析失败保留原输出；原始通道中任一值超过 63 时，整张调色板按八位处理。颜色投影须明确选择 `RoundedSixBit`、`DacShiftTwo` 或 `ReplicatedSixBit`；八位通道保持原值。接口不推断透明索引、remap、光照或像素格式。
+
+### SHP 图像
+
+[ShpCodec.h](src/assets/codecs/ShpCodec.h) 提供全局接口：
+
+```cpp
+bool decodeShpIndexedFrame(
+    const std::vector<unsigned char>& bytes, const std::string& source,
+    int frameIndex, ShpDecodePolicy policy,
+    ShpIndexedFrame& frame, std::string& error);
+```
+
+`ShpIndexedFrame` 返回尺寸、偏移、格式元数据和索引像素，不包含调色板颜色。`Preview` 与 `Runtime` 保留原消费者在字段符号、格式接受范围和空帧上的差异，调用方须按用途选择。失败保留原 `frame`，成功保留调用方已有的 `error`；资源路径选择、帧回退、阴影处理与显示缓存留在原消费者。
+
+## 预览资源会话
+
+[MapPreviewResourceContext.h](src/assets/preview/MapPreviewResourceContext.h) 声明 `concord::assets::MapPreviewResourceContext` 与 `MapPreviewResourceSession`。上下文绑定包根、瓦片/素材根、普通和建筑调色板路径、配置根顺序策略以及 `mountGeneration`。会话可移动、不可复制，由一个消费者串行持有和刷新。
+
+类成员节选：
+
+```cpp
+const MapPreviewResourceContext& context() const;
+void refresh();
+std::size_t cachedDomainCount() const;
+template <typename Value>
+std::unordered_map<std::string, Value>& cache(MapPreviewCacheDomain domain);
+bool readLooseBytes(MapPreviewCacheDomain domain, const std::string& path,
+                    std::vector<unsigned char>& bytes, std::string& error);
+```
+
+会话拥有九个明确缓存域，包括覆盖层 TMP/SHP、解码错误、资源字节和诊断结果。同一缓存域须使用一致的值类型。`readLooseBytes()` 用于 `OverlayLooseBytes`、`DiagnosticLooseBytes`；相对路径按会话包根解析。成功读取的字节含空文件会缓存，打开、尺寸和读取失败不缓存；解码错误是否缓存由各缓存域的原策略决定。
+
+文件改动不会自动使缓存失效。`refresh()` 清除全部九域并递增代际，旧缓存引用随即失效；会话销毁释放缓存。`context()` 返回的路径供 [MapPreviewExporter.h](src/assets/preview/MapPreviewExporter.h) 的 `exportMapTmpPreviewToHtml(session, ...)` 重载使用，其瓦片、素材与调色板路径必须与调用参数匹配。旧导出重载保留一次性会话适配。资源候选、loose/MIX 优先级及版别/MOD 根顺序沿用现有配置。
+
+## 回放事件类型
+
+[RuntimeReplayEventSnapshot.h](src/runtime/contracts/RuntimeReplayEventSnapshot.h) 独立声明 `RuntimeSnapshotCell` 与 `RuntimeReplayEventSnapshot`，仅依赖必要标准头。事件保留原字段类型、顺序和默认值；旧 [RuntimeShell.h](src/runtime/host/RuntimeShell.h) 继续兼容包含该头。只需要事件类型的消费者可直接包含窄头。
+
+读取和汇总函数仍在 [ReplaySandbox.h](src/analysis/sandbox/ReplaySandbox.h)：
+
+```cpp
+bool loadRuntimeReplayEventSnapshotsFromFile(
+    const std::string& path, std::vector<RuntimeReplayEventSnapshot>& runtimeEvents,
+    std::string& errorMessage);
+ReplayRuntimeEventSourceSummary summarizeRuntimeReplayEventSnapshots(
+    const RuntimeReplayEventSnapshot* events, std::size_t count);
+```
+
+读取函数沿用现有事件文本解析和错误语义。`superWeaponId`、`superWeaponEvent`、`secondTargetCell` 当前未从文件恢复，保持默认值。完整对象容器需要包含窄头，以获得完整类型定义。本次布局对照限实测 Clang Release，不构成跨编译器、配置或版本的稳定 ABI 保证。
+
+## 模块库与独立合同
+
+[LeafModuleLibraries.cmake](cmake/LeafModuleLibraries.cmake) 为 CSF 与 INI 两份实现建立五个单源 `STATIC` 变体：
+
+| CMake 目标 | 实现 | 消费者编译约定 |
+| --- | --- | --- |
+| `concord_csf_runtime_leaf` | `CsfCodec.cpp` | 游戏运行时 |
+| `concord_csf_contract_leaf` | `CsfCodec.cpp` | CSF 独立合同测试 |
+| `concord_ini_runtime_leaf` | `IniFile.cpp` | 游戏运行时 |
+| `concord_ini_tools_leaf` | `IniFile.cpp` | 规则与分析工具 |
+| `concord_ini_contract_leaf` | `IniFile.cpp` | 普通独立合同测试 |
+
+编译选项、定义和 CRT 设置均为 `PRIVATE`，各变体继承对应消费者约定；运行时 Debug 的 `/MD`、iterator level 0 与工具/普通合同 Debug 的 `/MDd`、默认 iterator level 2 分开保留。消费者仍配置自己的 `src/` 头文件搜索目录。现有静态库范围为上述两份实现，整体产品构建继续按 [README](README.md) 的 Windows 流程执行。
+
+角色、计分、解码、预览会话和回放类型的独立检查见 [TestsUnitAndNetwork.cmake](cmake/TestsUnitAndNetwork.cmake)；回放测试目标定义见 [ReplaySnapshotContracts.cmake](cmake/ReplaySnapshotContracts.cmake)。新增检查按具体 CMake 目标和 CTest 名称选择，未自动并入 `windows-minimal` 的 12 项或 `windows-local-assets` 的 4 项集合。
 
 ## 命令行接口
 

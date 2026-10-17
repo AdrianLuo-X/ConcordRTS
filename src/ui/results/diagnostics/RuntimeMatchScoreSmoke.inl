@@ -80,44 +80,10 @@ bool runRuntimeMatchScoreStateSmoke(std::string& error) {
     probe.skirmishMatchFinished = false;
     if (probe.matchScores.size() != 3 || probe.matchScores.at("skirmishplayer1").built != 4
         || probe.matchScores.at("skirmishplayer2").built != 7) return fail("completed production count/exclusions wrong");
-    std::ostringstream saved;
-    writeRuntimeMatchScore(probe, saved);
-    IniFile ini;
-    ini.loadFromString(saved.str());
-    auto restored = std::make_unique<RuntimeWindowState>();
-    if (!loadRuntimeMatchScore(*restored, ini, error) || restored->matchScores != probe.matchScores)
-        return fail("cumulative score did not survive save/load");
-    std::uint64_t before = 1, after = 1;
-    hashRuntimeMatchScore(probe, before);
-    hashRuntimeMatchScore(*restored, after);
-    if (before != after) return fail("restored score hash changed");
-    restored->matchScores.begin()->second.score++;
-    after = 1;
-    hashRuntimeMatchScore(*restored, after);
-    if (after == before) return fail("score was not part of authority");
-    restored->matchScores = probe.matchScores;
-    restored->matchScores.begin()->second.built++;
-    after = 1;
-    hashRuntimeMatchScore(*restored, after);
-    if (after == before) return fail("build count was not part of authority");
-    const auto valid = restored->matchScores;
-    IniFile invalid;
-    invalid.loadFromString("[RuntimeMatchScore]\nSchema=1\nCount=1\n0=41 -1 0 0 0 0\n");
-    if (loadRuntimeMatchScore(*restored, invalid, error) || restored->matchScores != valid)
-        return fail("invalid score did not load atomically");
-    invalid.loadFromString("[RuntimeMatchScore]\nSchema=2\nCount=1\n0=41 1 2 3 4 5 -1\n");
-    if (loadRuntimeMatchScore(*restored, invalid, error) || restored->matchScores != valid)
-        return fail("invalid build count did not load atomically");
-    IniFile oldScore;
-    oldScore.loadFromString("[RuntimeMatchScore]\nSchema=1\nCount=1\n0=41 1 2 3 4 5\n");
-    if (!loadRuntimeMatchScore(*restored, oldScore, error) || restored->matchScores.at("a").built != 0
-        || restored->matchScores.at("a").score != 5) return fail("old score schema no longer loads");
-    IniFile legacy;
-    if (!loadRuntimeMatchScore(*restored, legacy, error) || !restored->matchScores.empty())
-        return fail("old saves inherited another match's score");
+    // Pure codec/hash checks live in tests/infrastructure/RuntimeMatchScoreContract.cpp.
     error.clear();
     std::cout << "Match score facts: attributedKills=ok temporal=ok friendlyLoss=ok once=ok "
-        "soldTransformNeutralDontScore=excluded built=ok saveLoad=ok hash=ok legacy=ok\n";
+        "soldTransformNeutralDontScore=excluded built=ok pureCodec=runtime_match_score_contract_test\n";
     return true;
 }
 

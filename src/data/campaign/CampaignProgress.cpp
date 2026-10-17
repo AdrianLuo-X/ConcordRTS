@@ -2,7 +2,7 @@
 
 #include "core/io/IniFile.h"
 #include "core/io/RuntimeAtomicFile.h"
-#include "ui/input/RuntimeObserver.h"
+#include "core/players/PlayerSlotRole.h"
 
 #include <algorithm>
 #include <cctype>

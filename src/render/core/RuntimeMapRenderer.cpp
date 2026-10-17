@@ -1,4 +1,6 @@
 #include "render/core/RuntimeMapRenderer.h"
+#include "assets/codecs/ShpCodec.h"
+#include "assets/codecs/PalDecoder.h"
 #include "simulation/abilities/psionic/RuntimeDisguiseBlink.h"
 #include "audio/events/RuntimeSuperWeaponBuildingAudio.h"
 #include "simulation/production/RuntimeFactoryExitAnimation.h"
@@ -328,46 +330,25 @@ int signExtendUInt16(unsigned int value) {
     return static_cast<int>(value) - 0x10000;
 }
 
-unsigned char scalePaletteChannel(unsigned char value, bool sixBitPalette) {
-    if (!sixBitPalette) {
-        return value;
-    }
-
-    // Westwood palettes expand 6-bit DAC channels by shifting, preserving
-    // their original four-level spacing (63 becomes 252, not 255).
-    return static_cast<unsigned char>(
-        static_cast<unsigned int>(value) << 2U
-    );
-}
-
 bool decodeRuntimePaletteBytes(
     const std::vector<unsigned char>& paletteBytes,
     std::vector<RuntimePaletteColor>& palette,
     std::string& errorMessage,
     const std::string& sourceName
 ) {
-    if (paletteBytes.size() != 768) {
+    concord::assets::PalRawPalette raw;
+    if (!concord::assets::decodePalBytes(
+            paletteBytes, raw, concord::assets::PalLengthPolicy::Exact768)) {
         errorMessage = "PAL file must be exactly 768 bytes: " + sourceName;
         return false;
     }
-
-    unsigned int maxChannel = 0;
-    for (const unsigned char value : paletteBytes) {
-        maxChannel = std::max(maxChannel, static_cast<unsigned int>(value));
-    }
-
-    const bool sixBitPalette = maxChannel <= 63;
+    const auto colors = concord::assets::mapPalColors(
+        raw, concord::assets::PalColorPolicy::DacShiftTwo);
     palette.clear();
     palette.reserve(256);
-    for (std::size_t i = 0; i < 256; ++i) {
-        const std::size_t offset = i * 3;
-        palette.push_back({
-            scalePaletteChannel(paletteBytes[offset], sixBitPalette),
-            scalePaletteChannel(paletteBytes[offset + 1], sixBitPalette),
-            scalePaletteChannel(paletteBytes[offset + 2], sixBitPalette)
-        });
+    for (const auto& color : colors) {
+        palette.push_back({color.r, color.g, color.b});
     }
-
     return true;
 }
 
@@ -389,116 +370,6 @@ bool loadRuntimePalette(
     );
 }
 
-bool decodeRuntimeShpFormat3Frame(
-    const std::vector<unsigned char>& bytes,
-    std::size_t dataOffset,
-    int width,
-    int height,
-    std::vector<unsigned char>& pixels,
-    std::string& errorMessage
-) {
-    pixels.assign(
-        static_cast<std::size_t>(width) * static_cast<std::size_t>(height),
-        0
-    );
-
-    std::size_t cursor = dataOffset;
-    for (int y = 0; y < height; ++y) {
-        if (cursor + 2 > bytes.size()) {
-            errorMessage = "SHP format 3 row table ended early.";
-            return false;
-        }
-
-        const std::size_t rowStart = cursor;
-        const std::size_t rowLength = readUInt16(bytes, cursor);
-        if (rowLength < 2) {
-            errorMessage = "SHP format 3 row has an invalid length.";
-            return false;
-        }
-
-        const std::size_t rowEnd = rowStart + rowLength;
-        if (rowEnd > bytes.size()) {
-            errorMessage = "SHP format 3 row extends past the end of the file.";
-            return false;
-        }
-
-        cursor += 2;
-        int x = 0;
-        while (cursor < rowEnd) {
-            const unsigned char value = bytes[cursor++];
-            if (value == 0) {
-                if (cursor >= rowEnd) {
-                    errorMessage = "SHP format 3 transparent run is truncated.";
-                    return false;
-                }
-
-                x += bytes[cursor++];
-                continue;
-            }
-
-            if (x >= 0 && x < width) {
-                pixels[
-                    (static_cast<std::size_t>(y) * static_cast<std::size_t>(width))
-                    + static_cast<std::size_t>(x)
-                ] = value;
-            }
-            ++x;
-        }
-
-        cursor = rowEnd;
-    }
-
-    return true;
-}
-
-bool decodeRuntimeShpFormat2Frame(
-    const std::vector<unsigned char>& bytes,
-    std::size_t dataOffset,
-    int width,
-    int height,
-    std::vector<unsigned char>& pixels,
-    std::string& errorMessage
-) {
-    const std::size_t pixelCount =
-        static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
-    pixels.assign(pixelCount, 0);
-
-    std::size_t cursor = dataOffset;
-    for (int y = 0; y < height; ++y) {
-        if (cursor + 2 > bytes.size()) {
-            errorMessage = "SHP format 2 row header is truncated";
-            return false;
-        }
-
-        const int rowLength = static_cast<int>(readUInt16(bytes, cursor));
-        cursor += 2;
-        if (rowLength < 2) {
-            errorMessage = "SHP format 2 row length is invalid";
-            return false;
-        }
-
-        const int rowDataLength = rowLength - 2;
-        if (cursor + static_cast<std::size_t>(rowDataLength) > bytes.size()) {
-            errorMessage = "SHP format 2 row data is truncated";
-            return false;
-        }
-
-        const int copyLength = std::min(width, rowDataLength);
-        if (copyLength > 0) {
-            const std::size_t rowStart =
-                static_cast<std::size_t>(y) * static_cast<std::size_t>(width);
-            std::copy_n(
-                bytes.begin() + static_cast<std::ptrdiff_t>(cursor),
-                copyLength,
-                pixels.begin() + static_cast<std::ptrdiff_t>(rowStart)
-            );
-        }
-        cursor += static_cast<std::size_t>(rowDataLength);
-    }
-
-    return true;
-}
-
 bool decodeRuntimeShpFrameFromBytes(
     const std::vector<unsigned char>& bytes,
     const std::string& sourceName,
@@ -506,127 +377,26 @@ bool decodeRuntimeShpFrameFromBytes(
     RuntimeShpFrameImage& image,
     std::string& errorMessage
 ) {
+    // Preserve the original invalidation even when byte decoding fails.
     image.shadowMaskSpanCache.invalidate();
-    constexpr std::size_t fileHeaderBytes = 8;
-    constexpr std::size_t frameHeaderBytes = 24;
-    if (bytes.size() < fileHeaderBytes + frameHeaderBytes) {
-        errorMessage = "SHP file is too small for a frame table: " + sourceName;
+    ShpIndexedFrame decoded;
+    if (!decodeShpIndexedFrame(bytes, sourceName, frameIndex, ShpDecodePolicy::Runtime, decoded, errorMessage)) {
         return false;
     }
-
-    const unsigned int frameCount = readUInt16(bytes, 6);
-    if (frameCount == 0) {
-        errorMessage = "SHP file has no frames: " + sourceName;
-        return false;
-    }
-
-    if (frameIndex < 0 || static_cast<unsigned int>(frameIndex) >= frameCount) {
-        errorMessage =
-            "SHP frame "
-            + std::to_string(frameIndex)
-            + " is outside the frame table ("
-            + std::to_string(frameCount)
-            + " frames): "
-            + sourceName;
-        return false;
-    }
-
-    const std::size_t frameOffset =
-        fileHeaderBytes + (static_cast<std::size_t>(frameIndex) * frameHeaderBytes);
-    if (frameOffset + frameHeaderBytes > bytes.size()) {
-        errorMessage = "SHP frame table is truncated: " + sourceName;
-        return false;
-    }
-
-    const int globalWidth = signExtendUInt16(readUInt16(bytes, 2));
-    const int globalHeight = signExtendUInt16(readUInt16(bytes, 4));
-    const int offsetX = signExtendUInt16(readUInt16(bytes, frameOffset));
-    const int offsetY = signExtendUInt16(readUInt16(bytes, frameOffset + 2));
-    const int width = signExtendUInt16(readUInt16(bytes, frameOffset + 4));
-    const int height = signExtendUInt16(readUInt16(bytes, frameOffset + 6));
-    const unsigned int format = bytes[frameOffset + 8];
-    const std::size_t dataOffset = readUInt32(bytes, frameOffset + 20);
-
-    // Original NGTBNK.SHP and award animations use empty format-4 frames;
-    // MONEY.SHP also ends with an empty format-3 frame. Both have zero size
-    // and no data. MGUN directional sprites also interleave empty raw format-1
-    // frames. NUKEDIE also ends with an empty raw format-0 frame. Preserve
-    // those authored pauses instead of reporting missing art.
-    if (globalWidth > 0 && globalHeight > 0 && width == 0 && height == 0
-        && (format <= 1 || format == 3 || format == 4) && dataOffset == 0) {
+    if (decoded.authoredPause) {
         image = RuntimeShpFrameImage{};
-        image.globalWidth = globalWidth; image.globalHeight = globalHeight;
+        image.globalWidth = decoded.globalWidth;
+        image.globalHeight = decoded.globalHeight;
         image.sourcePath = sourceName;
         return true;
     }
-    if (globalWidth <= 0
-        || globalHeight <= 0
-        || width <= 0
-        || height <= 0
-        || width > 4096
-        || height > 4096) {
-        errorMessage = "SHP frame dimensions are unsupported: " + sourceName;
-        return false;
-    }
-
-    if (dataOffset >= bytes.size()) {
-        errorMessage = "SHP frame data offset is outside the file: " + sourceName;
-        return false;
-    }
-
-    std::vector<unsigned char> pixels;
-    if (format <= 1) {
-        const std::size_t pixelCount =
-            static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
-        if (dataOffset + pixelCount > bytes.size()) {
-            errorMessage = "SHP raw frame is shorter than expected: " + sourceName;
-            return false;
-        }
-
-        pixels.assign(
-            bytes.begin() + static_cast<std::ptrdiff_t>(dataOffset),
-            bytes.begin() + static_cast<std::ptrdiff_t>(dataOffset + pixelCount)
-        );
-    } else if (format == 2) {
-        if (!decodeRuntimeShpFormat2Frame(
-                bytes,
-                dataOffset,
-                width,
-                height,
-                pixels,
-                errorMessage
-            )) {
-            errorMessage += " Path: " + sourceName;
-            return false;
-        }
-    } else if (format == 3) {
-        if (!decodeRuntimeShpFormat3Frame(
-                bytes,
-                dataOffset,
-                width,
-                height,
-                pixels,
-                errorMessage
-            )) {
-            errorMessage += " Path: " + sourceName;
-            return false;
-        }
-    } else {
-        errorMessage =
-            "Unsupported SHP frame format "
-            + std::to_string(format)
-            + ": "
-            + sourceName;
-        return false;
-    }
-
-    image.offsetX = offsetX;
-    image.offsetY = offsetY;
-    image.globalWidth = globalWidth;
-    image.globalHeight = globalHeight;
-    image.width = width;
-    image.height = height;
-    image.pixels = std::move(pixels);
+    image.offsetX = decoded.offsetX;
+    image.offsetY = decoded.offsetY;
+    image.globalWidth = decoded.globalWidth;
+    image.globalHeight = decoded.globalHeight;
+    image.width = decoded.width;
+    image.height = decoded.height;
+    image.pixels = std::move(decoded.pixels);
     image.sourcePath = sourceName;
     return true;
 }

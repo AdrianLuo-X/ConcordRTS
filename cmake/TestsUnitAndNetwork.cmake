@@ -15,6 +15,53 @@ add_test(
     COMMAND concord_campaign_progress_smoke
 )
 
+add_test(NAME csf_codec_contract_test COMMAND concord_csf_codec_contract)
+set_tests_properties(csf_codec_contract_test
+    PROPERTIES TIMEOUT 30 LABELS "no-assets;csf-codec-contract")
+
+add_test(NAME pal_decoder_contract_test COMMAND concord_pal_decoder_contract)
+set_tests_properties(pal_decoder_contract_test
+    PROPERTIES TIMEOUT 30 LABELS "no-assets;pal-codec")
+if(EXISTS "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/palettes/isotem.pal"
+    AND EXISTS "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/extracted_palettes/cache_isotem.pal"
+    AND EXISTS "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/extracted_palettes/cache_unittem.pal"
+    AND EXISTS "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/ra2md/localmd/mpyscrn.pal"
+    AND EXISTS "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/expandmd01/mpyscrn.pal"
+    AND EXISTS "${CMAKE_SOURCE_DIR}/resources/palettes/anim.pal")
+    add_test(NAME pal_decoder_asset_samples_test COMMAND concord_pal_decoder_contract
+        "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/palettes/isotem.pal"
+        "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/extracted_palettes/cache_isotem.pal"
+        "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/extracted_palettes/cache_unittem.pal"
+        "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/ra2md/localmd/mpyscrn.pal"
+        "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/expandmd01/mpyscrn.pal"
+        "${CMAKE_SOURCE_DIR}/resources/palettes/anim.pal")
+    set_tests_properties(pal_decoder_asset_samples_test
+        PROPERTIES TIMEOUT 30 LABELS "local-assets;pal-codec")
+endif()
+
+add_test(NAME map_preview_resource_context_contract_test
+    COMMAND concord_map_preview_resource_context_contract "${CMAKE_BINARY_DIR}/s10-preview-session-contract")
+set_tests_properties(map_preview_resource_context_contract_test
+    PROPERTIES TIMEOUT 30 LABELS "no-assets;preview-resource-context")
+
+add_test(NAME runtime_replay_event_snapshot_contract_test
+    COMMAND concord_replay_event_snapshot_contract
+        "${CMAKE_SOURCE_DIR}/tests/fixtures/runtime_replay_snapshot_valid.txt"
+        "${CMAKE_SOURCE_DIR}/tests/fixtures/runtime_replay_snapshot_invalid.txt")
+add_test(NAME runtime_replay_event_snapshot_header_probe_test
+    COMMAND concord_replay_event_snapshot_header_probe)
+set_tests_properties(runtime_replay_event_snapshot_contract_test runtime_replay_event_snapshot_header_probe_test
+    PROPERTIES TIMEOUT 30 LABELS "no-assets;runtime-contract;replay-snapshot")
+
+add_test(NAME runtime_match_score_contract_test COMMAND concord_runtime_match_score_contract)
+set_tests_properties(runtime_match_score_contract_test
+    PROPERTIES TIMEOUT 30 LABELS "no-assets;match-score-contract")
+
+add_test(NAME player_slot_role_contract_test COMMAND concord_player_slot_role_contract)
+add_test(NAME runtime_observer_contract_test COMMAND concord_runtime_observer_contract)
+set_tests_properties(player_slot_role_contract_test runtime_observer_contract_test
+    PROPERTIES TIMEOUT 30 LABELS "no-assets;seat-role-contract")
+
 add_test(
     NAME campaign_map_selection_smoke_test
     COMMAND concord_campaign_map_selection_smoke
@@ -685,3 +732,6 @@ foreach (special_mechanism_name IN ITEMS timed-bomb parasite)
     )
 endforeach()
 
+
+add_test(NAME shp_codec_contract_test COMMAND concord_shp_codec_contract)
+set_tests_properties(shp_codec_contract_test PROPERTIES TIMEOUT 30 LABELS "no-assets;shp-codec-contract")

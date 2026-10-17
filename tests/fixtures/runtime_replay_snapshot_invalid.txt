@@ -1,0 +1,2 @@
+kind=CommandAccepted tick=0
+kind=ProjectileSpawned tick=not-an-integer

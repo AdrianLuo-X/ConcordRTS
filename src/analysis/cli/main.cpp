@@ -13,6 +13,7 @@
 #include "analysis/reports/JsonExporter.h"
 #include "data/maps/MapDatabase.h"
 #include "assets/preview/MapPreviewExporter.h"
+#include "assets/preview/MapPreviewResourceContext.h"
 #include "assets/archive/MixArchive.h"
 #include "analysis/reports/ModCompatibilityScanner.h"
 #include "analysis/reports/ObjectReferenceValidator.h"
@@ -2566,25 +2567,23 @@ int main(int argc, char** argv) {
                     }
                 }
 
-                const bool exported = exportStructureSprites
-                    ? exportMapTmpPreviewToHtml(
-                        options.exportMapTmpHtmlPath,
-                        mapDatabase,
-                        theaterDatabase,
-                        options.tileRootPath,
-                        resolvedPalettePath,
-                        structureSpriteOptions,
-                        structureSpriteStats,
-                        errorMessage
-                    )
-                    : exportMapTmpPreviewToHtml(
-                        options.exportMapTmpHtmlPath,
-                        mapDatabase,
-                        theaterDatabase,
-                        options.tileRootPath,
-                        resolvedPalettePath,
-                        errorMessage
-                    );
+                concord::assets::MapPreviewResourceContext previewContext;
+                previewContext.packageRoot = std::filesystem::current_path().string();
+                previewContext.tileRootPath = options.tileRootPath;
+                previewContext.assetRootPath = structureSpriteOptions.assetRootPath;
+                previewContext.palettePath = resolvedPalettePath;
+                previewContext.structurePalettePath = structureSpriteOptions.structurePalettePath;
+                concord::assets::MapPreviewResourceSession previewSession(std::move(previewContext));
+                const bool exported = exportMapTmpPreviewToHtml(
+                    previewSession,
+                    options.exportMapTmpHtmlPath,
+                    mapDatabase,
+                    theaterDatabase,
+                    options.tileRootPath,
+                    resolvedPalettePath,
+                    structureSpriteOptions,
+                    structureSpriteStats,
+                    errorMessage);
 
                 if (!exported) {
                     std::cerr << "Failed to export map TMP HTML preview: "

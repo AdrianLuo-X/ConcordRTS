@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+namespace concord::assets { class MapPreviewResourceSession; }
+
 class ArtDatabase;
 class RulesDatabase;
 
@@ -55,6 +57,19 @@ bool exportMapTmpPreviewToHtml(
 );
 
 bool exportMapTmpPreviewToHtml(
+    const std::string& outputPath,
+    const MapDatabase& mapDatabase,
+    const TheaterDatabase& theaterDatabase,
+    const std::string& tileRootPath,
+    const std::string& palettePath,
+    const MapStructureSpriteOptions& structureSpriteOptions,
+    MapStructureSpriteStats& structureSpriteStats,
+    std::string& errorMessage
+);
+
+// Explicit complete preview session; legacy overloads above remain one-shot adapters.
+bool exportMapTmpPreviewToHtml(
+    concord::assets::MapPreviewResourceSession& session,
     const std::string& outputPath,
     const MapDatabase& mapDatabase,
     const TheaterDatabase& theaterDatabase,

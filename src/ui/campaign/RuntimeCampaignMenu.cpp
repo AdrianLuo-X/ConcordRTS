@@ -3,6 +3,8 @@
 #endif
 
 #include "ui/campaign/RuntimeCampaignMenu.h"
+#include "assets/codecs/PalDecoder.h"
+#include "assets/text/CsfCodec.h"
 
 #include "assets/audio/AudioDecoder.h"
 #include "assets/audio/AudioSampleResolver.h"
@@ -131,18 +133,6 @@ std::uint32_t readLe32(
         | (static_cast<std::uint32_t>(bytes[at + 3]) << 24);
 }
 
-bool fourCc(
-    const std::vector<unsigned char>& bytes,
-    std::size_t at,
-    const char (&tag)[5]
-) {
-    return at + 4 <= bytes.size()
-        && bytes[at] == static_cast<unsigned char>(tag[0])
-        && bytes[at + 1] == static_cast<unsigned char>(tag[1])
-        && bytes[at + 2] == static_cast<unsigned char>(tag[2])
-        && bytes[at + 3] == static_cast<unsigned char>(tag[3]);
-}
-
 struct CampaignCsfCatalog {
     std::unordered_map<std::string, std::wstring> values;
     std::string source;
@@ -154,74 +144,11 @@ struct CampaignCsfCatalog {
             (std::istreambuf_iterator<char>(input)),
             std::istreambuf_iterator<char>()
         );
-        if (bytes.size() < 24 || !fourCc(bytes, 0, " FSC")) return false;
         std::unordered_map<std::string, std::wstring> loadedValues;
-        const std::uint32_t labelCount = readLe32(bytes, 8);
-        std::size_t cursor = 24;
-        for (std::uint32_t label = 0;
-            label < labelCount && cursor + 12 <= bytes.size();
-            ++label) {
-            if (!fourCc(bytes, cursor, " LBL")) break;
-            cursor += 4;
-            const std::uint32_t stringCount = readLe32(bytes, cursor);
-            cursor += 4;
-            const std::uint32_t keyLength = readLe32(bytes, cursor);
-            cursor += 4;
-            if (keyLength > bytes.size() - cursor) break;
-            const std::string key(
-                reinterpret_cast<const char*>(bytes.data() + cursor),
-                keyLength
-            );
-            cursor += keyLength;
-            std::wstring first;
-            for (std::uint32_t stringIndex = 0;
-                stringIndex < stringCount && cursor + 8 <= bytes.size();
-                ++stringIndex) {
-                const bool plain = fourCc(bytes, cursor, " RTS");
-                const bool extended = fourCc(bytes, cursor, "WRTS");
-                if (!plain && !extended) {
-                    cursor = bytes.size();
-                    break;
-                }
-                cursor += 4;
-                const std::uint32_t characterCount = readLe32(bytes, cursor);
-                cursor += 4;
-                const std::uint64_t encodedBytes =
-                    static_cast<std::uint64_t>(characterCount) * 2ULL;
-                if (encodedBytes > bytes.size() - cursor) {
-                    cursor = bytes.size();
-                    break;
-                }
-                std::wstring decoded;
-                decoded.reserve(characterCount);
-                for (std::uint32_t index = 0; index < characterCount; ++index) {
-                    const std::uint16_t encoded =
-                        static_cast<std::uint16_t>(bytes[cursor + index * 2])
-                        | (static_cast<std::uint16_t>(
-                            bytes[cursor + index * 2 + 1]) << 8);
-                    const wchar_t character =
-                        static_cast<wchar_t>(encoded ^ 0xffffU);
-                    decoded.push_back(character == L'\r' ? L'\n' : character);
-                }
-                cursor += static_cast<std::size_t>(encodedBytes);
-                if (extended) {
-                    if (cursor + 4 > bytes.size()) {
-                        cursor = bytes.size();
-                        break;
-                    }
-                    const std::uint32_t extraLength = readLe32(bytes, cursor);
-                    cursor += 4;
-                    if (extraLength > bytes.size() - cursor) {
-                        cursor = bytes.size();
-                        break;
-                    }
-                    cursor += extraLength;
-                }
-                if (stringIndex == 0) first = std::move(decoded);
-            }
-            if (!key.empty() && !first.empty()) {
-                loadedValues[lowerAscii(key)] = std::move(first);
-            }
+        for (auto& entry : concord::csf::decodeEntries(bytes)) {
+            const auto value = concord::csf::projectCarriageReturns(
+                std::move(entry.firstValue), concord::csf::CarriageReturnPolicy::LineFeed);
+            loadedValues[lowerAscii(entry.label)] = std::wstring(value.begin(), value.end());
         }
         if (loadedValues.empty()) return false;
         for (auto& [key, value] : loadedValues) {
@@ -711,26 +638,14 @@ bool decodeCampaignPalette(
     std::vector<RuntimePaletteColor>& palette
 ) {
     palette.clear();
-    if (bytes.size() < 256U * 3U) return false;
-    bool sixBit = true;
-    for (std::size_t index = 0; index < 256U * 3U; ++index) {
-        if (bytes[index] > 63U) {
-            sixBit = false;
-            break;
-        }
-    }
+    concord::assets::PalRawPalette raw;
+    if (!concord::assets::decodePalBytes(
+            bytes, raw, concord::assets::PalLengthPolicy::Prefix768)) return false;
+    const auto colors = concord::assets::mapPalColors(
+        raw, concord::assets::PalColorPolicy::ReplicatedSixBit);
     palette.resize(256);
     for (std::size_t index = 0; index < 256; ++index) {
-        const auto expand = [sixBit](unsigned char value) {
-            return sixBit
-                ? static_cast<unsigned char>((value << 2U) | (value >> 4U))
-                : value;
-        };
-        palette[index] = {
-            expand(bytes[index * 3]),
-            expand(bytes[index * 3 + 1]),
-            expand(bytes[index * 3 + 2])
-        };
+        palette[index] = {colors[index].r, colors[index].g, colors[index].b};
     }
     return true;
 }

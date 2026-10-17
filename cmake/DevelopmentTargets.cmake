@@ -48,6 +48,45 @@ add_executable(concord_runtime_map_package_smoke
 )
 target_include_directories(concord_runtime_map_package_smoke PRIVATE src)
 
+add_executable(concord_csf_codec_contract
+    tests/assets/CsfCodecContract.cpp
+)
+target_include_directories(concord_csf_codec_contract PRIVATE src)
+if(CONCORD_MSVC_FRONTEND)
+    concord_target_compile_options(concord_csf_codec_contract PRIVATE /utf-8 /W4 /WX /permissive-)
+endif()
+
+add_executable(concord_pal_decoder_contract
+    tests/infrastructure/PalDecoderContract.cpp
+    src/assets/codecs/PalDecoder.cpp
+)
+target_include_directories(concord_pal_decoder_contract PRIVATE src)
+if(CONCORD_MSVC_FRONTEND)
+    concord_target_compile_options(concord_pal_decoder_contract PRIVATE /utf-8 /W4 /WX /permissive-)
+endif()
+
+add_executable(concord_map_preview_resource_context_contract
+    tests/infrastructure/MapPreviewResourceContextContract.cpp
+    src/assets/preview/MapPreviewResourceContext.cpp
+)
+target_include_directories(concord_map_preview_resource_context_contract PRIVATE src)
+if(CONCORD_MSVC_FRONTEND)
+    concord_target_compile_options(concord_map_preview_resource_context_contract PRIVATE /utf-8 /W4 /WX /permissive-)
+endif()
+
+add_executable(concord_runtime_match_score_contract
+    tests/infrastructure/RuntimeMatchScoreContract.cpp
+    src/core/results/RuntimeMatchScore.cpp
+)
+target_include_directories(concord_runtime_match_score_contract PRIVATE src)
+if(CONCORD_MSVC_FRONTEND)
+    concord_target_compile_options(concord_runtime_match_score_contract PRIVATE /utf-8 /W4 /WX /permissive-)
+endif()
+
+# Stable leaf library profiles; all consumers above exist before this include.
+include(cmake/LeafModuleLibraries.cmake)
+include(cmake/ReplaySnapshotContracts.cmake)
+
 add_executable(concord_campaign_progress_smoke
     tests/campaign/CampaignProgressSmoke.cpp
     src/data/campaign/CampaignProgress.cpp
@@ -55,6 +94,15 @@ add_executable(concord_campaign_progress_smoke
     src/core/io/RuntimeAtomicFile.cpp
 )
 target_include_directories(concord_campaign_progress_smoke PRIVATE src)
+
+add_executable(concord_player_slot_role_contract tests/infrastructure/PlayerSlotRoleContract.cpp)
+target_include_directories(concord_player_slot_role_contract PRIVATE src)
+add_executable(concord_runtime_observer_contract tests/infrastructure/RuntimeObserverContract.cpp)
+target_include_directories(concord_runtime_observer_contract PRIVATE src)
+if(CONCORD_MSVC_FRONTEND)
+    concord_target_compile_options(concord_player_slot_role_contract PRIVATE /utf-8 /W4 /WX /permissive-)
+    concord_target_compile_options(concord_runtime_observer_contract PRIVATE /utf-8 /W4 /WX /permissive-)
+endif()
 
 add_executable(concord_campaign_map_selection_smoke
     tests/campaign/CampaignMapSelectionSmoke.cpp
@@ -781,3 +829,12 @@ if(CONCORD_MSVC_FRONTEND)
     concord_target_compile_options(concord_multiplayer_menu_smoke PRIVATE /wd4702)
 endif()
 
+
+add_executable(concord_shp_codec_contract
+    tests/assets/ShpCodecContract.cpp
+    src/assets/codecs/ShpCodec.cpp
+)
+target_include_directories(concord_shp_codec_contract PRIVATE src)
+if(CONCORD_MSVC_FRONTEND)
+    concord_target_compile_options(concord_shp_codec_contract PRIVATE /utf-8 /W4 /WX /permissive-)
+endif()

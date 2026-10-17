@@ -1,4 +1,7 @@
 #include "assets/preview/MapPreviewExporter.h"
+#include "assets/preview/MapPreviewResourceContext.h"
+#include "assets/codecs/ShpCodec.h"
+#include "assets/codecs/PalDecoder.h"
 
 #include "data/art/ArtDatabase.h"
 #include "assets/archive/MixArchive.h"
@@ -302,16 +305,6 @@ int signExtendUInt16(unsigned int value) {
     return static_cast<int>(value) - 0x10000;
 }
 
-unsigned char scalePaletteChannel(unsigned char value, bool sixBitPalette) {
-    if (!sixBitPalette) {
-        return value;
-    }
-
-    return static_cast<unsigned char>(
-        (static_cast<unsigned int>(value) * 255U + 31U) / 63U
-    );
-}
-
 bool loadPalette(
     const std::string& palettePath,
     std::vector<Color>& palette,
@@ -321,30 +314,19 @@ bool loadPalette(
     if (!loadBytes(palettePath, paletteBytes, errorMessage)) {
         return false;
     }
-
-    if (paletteBytes.size() != 768) {
+    concord::assets::PalRawPalette raw;
+    if (!concord::assets::decodePalBytes(
+            paletteBytes, raw, concord::assets::PalLengthPolicy::Exact768)) {
         errorMessage = "PAL file must be exactly 768 bytes: " + palettePath;
         return false;
     }
-
-    unsigned int maxChannel = 0;
-    for (const unsigned char value : paletteBytes) {
-        maxChannel = std::max(maxChannel, static_cast<unsigned int>(value));
-    }
-
-    const bool sixBitPalette = maxChannel <= 63;
+    const auto colors = concord::assets::mapPalColors(
+        raw, concord::assets::PalColorPolicy::RoundedSixBit);
     palette.clear();
     palette.reserve(256);
-
-    for (std::size_t i = 0; i < 256; ++i) {
-        const std::size_t offset = i * 3;
-        palette.push_back({
-            scalePaletteChannel(paletteBytes[offset], sixBitPalette),
-            scalePaletteChannel(paletteBytes[offset + 1], sixBitPalette),
-            scalePaletteChannel(paletteBytes[offset + 2], sixBitPalette)
-        });
+    for (const auto& color : colors) {
+        palette.push_back({color.r, color.g, color.b});
     }
-
     return true;
 }
 
@@ -1143,63 +1125,6 @@ int resolveOverlayTmpImageIndex(
     return firstPresentTmpImageIndex(tileFile);
 }
 
-bool decodeShpFormat3Frame(
-    const std::vector<unsigned char>& bytes,
-    std::size_t dataOffset,
-    int width,
-    int height,
-    std::vector<unsigned char>& pixels,
-    std::string& errorMessage
-) {
-    pixels.assign(static_cast<std::size_t>(width) * static_cast<std::size_t>(height), 0);
-
-    std::size_t cursor = dataOffset;
-    for (int y = 0; y < height; ++y) {
-        if (cursor + 2 > bytes.size()) {
-            errorMessage = "SHP format 3 row table ended early.";
-            return false;
-        }
-
-        const std::size_t rowStart = cursor;
-        const std::size_t rowLength = readUInt16(bytes, cursor);
-        if (rowLength < 2) {
-            errorMessage = "SHP format 3 row has an invalid length.";
-            return false;
-        }
-
-        const std::size_t rowEnd = rowStart + rowLength;
-        if (rowEnd > bytes.size()) {
-            errorMessage = "SHP format 3 row extends past the end of the file.";
-            return false;
-        }
-
-        cursor += 2;
-        int x = 0;
-        while (cursor < rowEnd) {
-            const unsigned char value = bytes[cursor++];
-            if (value == 0) {
-                if (cursor >= rowEnd) {
-                    errorMessage = "SHP format 3 transparent run is truncated.";
-                    return false;
-                }
-
-                x += bytes[cursor++];
-                continue;
-            }
-
-            if (x >= 0 && x < width) {
-                pixels[static_cast<std::size_t>(y) * static_cast<std::size_t>(width)
-                    + static_cast<std::size_t>(x)] = value;
-            }
-            ++x;
-        }
-
-        cursor = rowEnd;
-    }
-
-    return true;
-}
-
 bool decodeShpFrameFromBytes(
     const std::vector<unsigned char>& bytes,
     const std::string& sourceLabel,
@@ -1207,93 +1132,20 @@ bool decodeShpFrameFromBytes(
     ShpFrameImage& image,
     std::string& errorMessage
 ) {
-    constexpr std::size_t fileHeaderBytes = 8;
-    constexpr std::size_t frameHeaderBytes = 24;
-    if (bytes.size() < fileHeaderBytes + frameHeaderBytes) {
-        errorMessage = "SHP file is too small for a frame table: " + sourceLabel;
+    ShpIndexedFrame decoded;
+    if (!decodeShpIndexedFrame(bytes, sourceLabel, frameIndex, ShpDecodePolicy::Preview, decoded, errorMessage)) {
         return false;
     }
-
-    const unsigned int frameCount = readUInt16(bytes, 6);
-    if (frameCount == 0) {
-        errorMessage = "SHP file has no frames: " + sourceLabel;
-        return false;
-    }
-
-    if (frameIndex < 0 || static_cast<unsigned int>(frameIndex) >= frameCount) {
-        errorMessage =
-            "SHP frame "
-            + std::to_string(frameIndex)
-            + " is outside the frame table ("
-            + std::to_string(frameCount)
-            + " frames): "
-            + sourceLabel;
-        return false;
-    }
-
-    const std::size_t frameOffset =
-        fileHeaderBytes + (static_cast<std::size_t>(frameIndex) * frameHeaderBytes);
-    if (frameOffset + frameHeaderBytes > bytes.size()) {
-        errorMessage = "SHP frame table is truncated: " + sourceLabel;
-        return false;
-    }
-
-    const int globalWidth = static_cast<int>(readUInt16(bytes, 2));
-    const int globalHeight = static_cast<int>(readUInt16(bytes, 4));
-    const int offsetX = static_cast<int>(readUInt16(bytes, frameOffset));
-    const int offsetY = static_cast<int>(readUInt16(bytes, frameOffset + 2));
-    const int width = static_cast<int>(readUInt16(bytes, frameOffset + 4));
-    const int height = static_cast<int>(readUInt16(bytes, frameOffset + 6));
-    const unsigned int format = readUInt16(bytes, frameOffset + 8);
-    const std::size_t dataOffset = readUInt32(bytes, frameOffset + 20);
-
-    if (width <= 0 || height <= 0 || width > 4096 || height > 4096) {
-        errorMessage = "SHP first frame dimensions are unsupported: " + sourceLabel;
-        return false;
-    }
-
-    if (dataOffset >= bytes.size()) {
-        errorMessage = "SHP first frame data offset is outside the file: " + sourceLabel;
-        return false;
-    }
-
-    std::vector<unsigned char> pixels;
-    if (format == 0 || format == 1) {
-        const std::size_t pixelCount =
-            static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
-        if (dataOffset + pixelCount > bytes.size()) {
-            errorMessage = "SHP raw first frame is shorter than expected: " + sourceLabel;
-            return false;
-        }
-
-        pixels.assign(
-            bytes.begin() + static_cast<std::ptrdiff_t>(dataOffset),
-            bytes.begin() + static_cast<std::ptrdiff_t>(dataOffset + pixelCount)
-        );
-    } else if (format == 3) {
-        if (!decodeShpFormat3Frame(bytes, dataOffset, width, height, pixels, errorMessage)) {
-            errorMessage += " Path: " + sourceLabel;
-            return false;
-        }
-    } else {
-        errorMessage =
-            "Unsupported SHP first frame format "
-            + std::to_string(format)
-            + ": "
-            + sourceLabel;
-        return false;
-    }
-
-    image.offsetX = offsetX;
-    image.offsetY = offsetY;
-    image.globalWidth = globalWidth;
-    image.globalHeight = globalHeight;
-    image.width = width;
-    image.height = height;
-    image.frameIndex = frameIndex;
-    image.format = static_cast<int>(format);
-    image.dataOffset = static_cast<unsigned int>(dataOffset);
-    image.pixels = std::move(pixels);
+    image.offsetX = decoded.offsetX;
+    image.offsetY = decoded.offsetY;
+    image.globalWidth = decoded.globalWidth;
+    image.globalHeight = decoded.globalHeight;
+    image.width = decoded.width;
+    image.height = decoded.height;
+    image.frameIndex = decoded.frameIndex;
+    image.format = decoded.format;
+    image.dataOffset = decoded.dataOffset;
+    image.pixels = std::move(decoded.pixels);
     image.sourcePath = sourceLabel;
     return true;
 }
@@ -2696,7 +2548,7 @@ std::string decodeOverlayTmpResource(
     return result;
 }
 
-std::string decodeOverlayResourceFromBytes(
+std::string decodeOverlayResourceFromBytes(concord::assets::MapPreviewResourceSession& session,
     const MapOverlayCell& overlay,
     const std::string& candidate,
     const std::vector<unsigned char>& bytes,
@@ -2708,8 +2560,8 @@ std::string decodeOverlayResourceFromBytes(
         toLowerAscii(std::filesystem::path(candidate).extension().string());
 
     if (isTmpLikeExtension(extension)) {
-        static std::unordered_map<std::string, TmpTileFile> tmpDecodeCache;
-        static std::unordered_map<std::string, std::string> tmpErrorCache;
+        auto& tmpDecodeCache = session.cache<TmpTileFile>(concord::assets::MapPreviewCacheDomain::OverlayTmp);
+        auto& tmpErrorCache = session.cache<std::string>(concord::assets::MapPreviewCacheDomain::OverlayTmpError);
 
         const std::string cacheKey =
             "tmp:"
@@ -2745,8 +2597,8 @@ std::string decodeOverlayResourceFromBytes(
     }
 
     if (extension == ".shp") {
-        static std::unordered_map<std::string, ShpFrameImage> shpFrameCache;
-        static std::unordered_map<std::string, std::string> shpErrorCache;
+        auto& shpFrameCache = session.cache<ShpFrameImage>(concord::assets::MapPreviewCacheDomain::OverlayShpFrame);
+        auto& shpErrorCache = session.cache<std::string>(concord::assets::MapPreviewCacheDomain::OverlayShpError);
 
         const std::string baseCacheKey =
             "shp:"
@@ -2756,7 +2608,7 @@ std::string decodeOverlayResourceFromBytes(
             + "#"
             + std::to_string(bytes.size());
         const auto decodeCachedFrame =
-            [&bytes, &sourceLabel, &baseCacheKey](
+            [&bytes, &sourceLabel, &baseCacheKey, &shpFrameCache, &shpErrorCache](
                 int frameIndex,
                 ShpFrameImage& image,
                 std::string& errorMessage
@@ -2829,7 +2681,7 @@ std::string decodeOverlayResourceFromBytes(
     return "decode=skip unsupported-extension=" + (extension.empty() ? "(none)" : extension);
 }
 
-std::string decodeOverlayResourceFromPath(
+std::string decodeOverlayResourceFromPath(concord::assets::MapPreviewResourceSession& session,
     const MapOverlayCell& overlay,
     const std::string& candidate,
     const std::string& path,
@@ -2837,22 +2689,15 @@ std::string decodeOverlayResourceFromPath(
 ) {
     decoded = false;
     std::vector<unsigned char> bytes;
-    static std::unordered_map<std::string, std::vector<unsigned char>> looseBytesCache;
-    const auto cachedBytes = looseBytesCache.find(path);
-    if (cachedBytes != looseBytesCache.end()) {
-        bytes = cachedBytes->second;
-    } else {
-        std::string errorMessage;
-        if (!loadBytes(path, bytes, errorMessage)) {
-            return "decode=fail read error=" + errorMessage;
-        }
-        looseBytesCache.emplace(path, bytes);
+    std::string errorMessage;
+    if (!session.readLooseBytes(concord::assets::MapPreviewCacheDomain::OverlayLooseBytes,
+            path, bytes, errorMessage)) {
+        return "decode=fail read error=" + errorMessage;
     }
-
-    return decodeOverlayResourceFromBytes(overlay, candidate, bytes, path, decoded);
+    return decodeOverlayResourceFromBytes(session,overlay, candidate, bytes, path, decoded);
 }
 
-OverlayResourceProbe probeOverlayResource(
+OverlayResourceProbe probeOverlayResource(concord::assets::MapPreviewResourceSession& session,
     const MapOverlayCell& overlay,
     const std::vector<std::string>& candidates,
     const std::unordered_map<std::string, std::vector<std::string>>& filesByName,
@@ -2869,7 +2714,7 @@ OverlayResourceProbe probeOverlayResource(
             probe.found = true;
             probe.candidate = candidate;
             probe.source = "loose:" + fileIt->second.front();
-            probe.decodeResult = decodeOverlayResourceFromPath(
+            probe.decodeResult = decodeOverlayResourceFromPath(session,
                 overlay,
                 candidate,
                 fileIt->second.front(),
@@ -2899,7 +2744,7 @@ OverlayResourceProbe probeOverlayResource(
                 + " size="
                 + std::to_string(entry->size);
 
-            static std::unordered_map<std::string, std::vector<unsigned char>> mixBytesCache;
+            auto& mixBytesCache = session.cache<std::vector<unsigned char>>(concord::assets::MapPreviewCacheDomain::OverlayMixBytes);
             const std::string bytesCacheKey =
                 indexedMix.path
                 + "!"
@@ -2920,7 +2765,7 @@ OverlayResourceProbe probeOverlayResource(
                 mixBytesCache.emplace(bytesCacheKey, bytes);
             }
 
-            probe.decodeResult = decodeOverlayResourceFromBytes(
+            probe.decodeResult = decodeOverlayResourceFromBytes(session,
                 overlay,
                 candidate,
                 bytes,
@@ -3055,7 +2900,7 @@ std::string decodeDiagnosticTmpResource(
     return result;
 }
 
-std::string decodeDiagnosticResourceFromBytes(
+std::string decodeDiagnosticResourceFromBytes(concord::assets::MapPreviewResourceSession& session,
     const std::string& candidate,
     const std::vector<unsigned char>& bytes,
     const std::string& sourceLabel,
@@ -3065,7 +2910,7 @@ std::string decodeDiagnosticResourceFromBytes(
     decoded = false;
     const std::string extension =
         toLowerAscii(std::filesystem::path(candidate).extension().string());
-    static std::unordered_map<std::string, std::pair<std::string, bool>> decodeResultCache;
+    auto& decodeResultCache = session.cache<std::pair<std::string, bool>>(concord::assets::MapPreviewCacheDomain::DiagnosticResult);
     const std::string cacheKey =
         sourceLabel
         + "#"
@@ -3194,7 +3039,7 @@ std::string decodeDiagnosticResourceFromBytes(
     return result;
 }
 
-std::string decodeDiagnosticResourceFromPath(
+std::string decodeDiagnosticResourceFromPath(concord::assets::MapPreviewResourceSession& session,
     const std::string& candidate,
     const std::string& path,
     int requestedFrame,
@@ -3202,28 +3047,15 @@ std::string decodeDiagnosticResourceFromPath(
 ) {
     decoded = false;
     std::vector<unsigned char> bytes;
-    static std::unordered_map<std::string, std::vector<unsigned char>> looseBytesCache;
-    const auto cachedBytes = looseBytesCache.find(path);
-    if (cachedBytes != looseBytesCache.end()) {
-        bytes = cachedBytes->second;
-    } else {
-        std::string errorMessage;
-        if (!loadBytes(path, bytes, errorMessage)) {
-            return "decode=fail read error=" + errorMessage;
-        }
-        looseBytesCache.emplace(path, bytes);
+    std::string errorMessage;
+    if (!session.readLooseBytes(concord::assets::MapPreviewCacheDomain::DiagnosticLooseBytes,
+            path, bytes, errorMessage)) {
+        return "decode=fail read error=" + errorMessage;
     }
-
-    return decodeDiagnosticResourceFromBytes(
-        candidate,
-        bytes,
-        path,
-        requestedFrame,
-        decoded
-    );
+    return decodeDiagnosticResourceFromBytes(session,candidate, bytes, path, requestedFrame, decoded);
 }
 
-ResourceDiagnosticProbe probeDiagnosticResource(
+ResourceDiagnosticProbe probeDiagnosticResource(concord::assets::MapPreviewResourceSession& session,
     const std::vector<std::string>& candidates,
     const std::unordered_map<std::string, std::vector<std::string>>& filesByName,
     const std::vector<IndexedMixArchive>& mixArchives,
@@ -3240,7 +3072,7 @@ ResourceDiagnosticProbe probeDiagnosticResource(
             probe.found = true;
             probe.candidate = candidate;
             probe.source = "loose:" + fileIt->second.front();
-            probe.decodeResult = decodeDiagnosticResourceFromPath(
+            probe.decodeResult = decodeDiagnosticResourceFromPath(session,
                 candidate,
                 fileIt->second.front(),
                 requestedFrame,
@@ -3270,7 +3102,7 @@ ResourceDiagnosticProbe probeDiagnosticResource(
                 + " size="
                 + std::to_string(entry->size);
 
-            static std::unordered_map<std::string, std::vector<unsigned char>> mixBytesCache;
+            auto& mixBytesCache = session.cache<std::vector<unsigned char>>(concord::assets::MapPreviewCacheDomain::DiagnosticMixBytes);
             const std::string bytesCacheKey =
                 indexedMix.path
                 + "!"
@@ -3290,7 +3122,7 @@ ResourceDiagnosticProbe probeDiagnosticResource(
                 mixBytesCache.emplace(bytesCacheKey, bytes);
             }
 
-            probe.decodeResult = decodeDiagnosticResourceFromBytes(
+            probe.decodeResult = decodeDiagnosticResourceFromBytes(session,
                 candidate,
                 bytes,
                 indexedMix.path + "!" + candidate,
@@ -3331,7 +3163,7 @@ std::string formatProbeForReport(
         + " decode=not-attempted";
 }
 
-ResourceDiagnosticProbe appendResourceDiagnostic(
+ResourceDiagnosticProbe appendResourceDiagnostic(concord::assets::MapPreviewResourceSession& session,
     MapStructureSpriteStats& stats,
     const std::string& label,
     const std::vector<std::string>& candidates,
@@ -3350,7 +3182,7 @@ ResourceDiagnosticProbe appendResourceDiagnostic(
     }
 
     const ResourceDiagnosticProbe probe =
-        probeDiagnosticResource(candidates, filesByName, mixArchives, requestedFrame);
+        probeDiagnosticResource(session,candidates, filesByName, mixArchives, requestedFrame);
     stats.warnings.push_back(
         label
         + ": "
@@ -3656,7 +3488,7 @@ std::string formatLayerOffset(const ArtType::ActiveAnimation& animation) {
         + (animation.powered ? "yes" : "no");
 }
 
-void appendAnimationLayerDiagnostics(
+void appendAnimationLayerDiagnostics(concord::assets::MapPreviewResourceSession& session,
     MapStructureSpriteStats& stats,
     const std::string& buildingId,
     const std::string& group,
@@ -3667,7 +3499,7 @@ void appendAnimationLayerDiagnostics(
     const std::string& fallbackPalette
 ) {
     const ArtType* artType = art.findArtType(animation.image);
-    appendResourceDiagnostic(
+    appendResourceDiagnostic(session,
         stats,
         "building layer diagnostic "
             + buildingId
@@ -3694,7 +3526,7 @@ void appendAnimationLayerDiagnostics(
     }
 
     const ArtType* damagedArtType = art.findArtType(animation.damagedImage);
-    appendResourceDiagnostic(
+    appendResourceDiagnostic(session,
         stats,
         "building layer diagnostic "
             + buildingId
@@ -3717,7 +3549,7 @@ void appendAnimationLayerDiagnostics(
     );
 }
 
-void appendBuildingLayerDiagnostics(
+void appendBuildingLayerDiagnostics(concord::assets::MapPreviewResourceSession& session,
     MapStructureSpriteStats& stats,
     const RulesDatabase& rules,
     const ArtDatabase& art,
@@ -3808,7 +3640,7 @@ void appendBuildingLayerDiagnostics(
             + " rendererNeeds=base+buildup+active+bib/aux"
         );
 
-        appendResourceDiagnostic(
+        appendResourceDiagnostic(session,
             stats,
             "building layer diagnostic " + buildingId + " base",
             structureAssetFileCandidates(link, theaterDatabase),
@@ -3819,7 +3651,7 @@ void appendBuildingLayerDiagnostics(
         );
 
         if (!link.buildup.empty()) {
-            appendResourceDiagnostic(
+            appendResourceDiagnostic(session,
                 stats,
                 "building layer diagnostic " + buildingId + " buildup image=" + link.buildup,
                 shpResourceCandidates(link.buildup),
@@ -3837,7 +3669,7 @@ void appendBuildingLayerDiagnostics(
         }
 
         if (!link.bibShape.empty()) {
-            appendResourceDiagnostic(
+            appendResourceDiagnostic(session,
                 stats,
                 "building layer diagnostic " + buildingId + " bib image=" + link.bibShape,
                 theaterDatabase.getResourceFileNameCandidates(link.bibShape, true),
@@ -3855,7 +3687,7 @@ void appendBuildingLayerDiagnostics(
         }
 
         for (const ArtType::ActiveAnimation& animation : link.activeAnimations) {
-            appendAnimationLayerDiagnostics(
+            appendAnimationLayerDiagnostics(session,
                 stats,
                 buildingId,
                 "active",
@@ -3868,7 +3700,7 @@ void appendBuildingLayerDiagnostics(
         }
 
         for (const ArtType::ActiveAnimation& animation : link.specialAnimations) {
-            appendAnimationLayerDiagnostics(
+            appendAnimationLayerDiagnostics(session,
                 stats,
                 buildingId,
                 "special",
@@ -3881,7 +3713,7 @@ void appendBuildingLayerDiagnostics(
         }
 
         for (const ArtType::ActiveAnimation& animation : link.auxiliaryAnimations) {
-            appendAnimationLayerDiagnostics(
+            appendAnimationLayerDiagnostics(session,
                 stats,
                 buildingId,
                 "aux",
@@ -3898,7 +3730,7 @@ void appendBuildingLayerDiagnostics(
             if (cameoName.empty()) {
                 continue;
             }
-            appendResourceDiagnostic(
+            appendResourceDiagnostic(session,
                 stats,
                 "building layer diagnostic " + buildingId + " cameo image=" + cameoName,
                 shpResourceCandidates(cameoName),
@@ -3972,7 +3804,7 @@ void appendFlagDiagnostics(
     }
 }
 
-void appendSidebarCandidateDiagnostic(
+void appendSidebarCandidateDiagnostic(concord::assets::MapPreviewResourceSession& session,
     MapStructureSpriteStats& stats,
     const std::string& label,
     const std::vector<std::string>& candidates,
@@ -3980,7 +3812,7 @@ void appendSidebarCandidateDiagnostic(
     const std::vector<IndexedMixArchive>& mixArchives,
     const std::string& paletteStatus
 ) {
-    appendResourceDiagnostic(
+    appendResourceDiagnostic(session,
         stats,
         "sidebar resource diagnostic " + label,
         candidates,
@@ -3991,12 +3823,12 @@ void appendSidebarCandidateDiagnostic(
     );
 }
 
-void appendSidebarDiagnostics(
+void appendSidebarDiagnostics(concord::assets::MapPreviewResourceSession& session,
     MapStructureSpriteStats& stats,
     const std::unordered_map<std::string, std::vector<std::string>>& filesByName,
     const std::vector<IndexedMixArchive>& mixArchives
 ) {
-    appendSidebarCandidateDiagnostic(
+    appendSidebarCandidateDiagnostic(session,
         stats,
         "mix containers",
         resourceFileCandidates(
@@ -4007,7 +3839,7 @@ void appendSidebarDiagnostics(
         mixArchives,
         "not-applicable"
     );
-    appendSidebarCandidateDiagnostic(
+    appendSidebarCandidateDiagnostic(session,
         stats,
         "mix containers md",
         resourceFileCandidates(
@@ -4018,7 +3850,7 @@ void appendSidebarDiagnostics(
         mixArchives,
         "not-applicable"
     );
-    appendSidebarCandidateDiagnostic(
+    appendSidebarCandidateDiagnostic(session,
         stats,
         "tabs",
         resourceFileCandidates(
@@ -4029,7 +3861,7 @@ void appendSidebarDiagnostics(
         mixArchives,
         "sidebar palette"
     );
-    appendSidebarCandidateDiagnostic(
+    appendSidebarCandidateDiagnostic(session,
         stats,
         "repair button",
         resourceFileCandidates(
@@ -4040,7 +3872,7 @@ void appendSidebarDiagnostics(
         mixArchives,
         "sidebar palette"
     );
-    appendSidebarCandidateDiagnostic(
+    appendSidebarCandidateDiagnostic(session,
         stats,
         "sell button",
         resourceFileCandidates(
@@ -4051,7 +3883,7 @@ void appendSidebarDiagnostics(
         mixArchives,
         "sidebar palette"
     );
-    appendSidebarCandidateDiagnostic(
+    appendSidebarCandidateDiagnostic(session,
         stats,
         "main buttons",
         resourceFileCandidates(
@@ -4062,7 +3894,7 @@ void appendSidebarDiagnostics(
         mixArchives,
         "sidebar palette"
     );
-    appendSidebarCandidateDiagnostic(
+    appendSidebarCandidateDiagnostic(session,
         stats,
         "start button",
         resourceFileCandidates(
@@ -4073,7 +3905,7 @@ void appendSidebarDiagnostics(
         mixArchives,
         "sidebar palette"
     );
-    appendSidebarCandidateDiagnostic(
+    appendSidebarCandidateDiagnostic(session,
         stats,
         "power and health bars",
         resourceFileCandidates(
@@ -4084,7 +3916,7 @@ void appendSidebarDiagnostics(
         mixArchives,
         "sidebar palette"
     );
-    appendSidebarCandidateDiagnostic(
+    appendSidebarCandidateDiagnostic(session,
         stats,
         "power bar pips frames",
         resourceFileCandidates(
@@ -4095,7 +3927,7 @@ void appendSidebarDiagnostics(
         mixArchives,
         "sidebar palette"
     );
-    appendSidebarCandidateDiagnostic(
+    appendSidebarCandidateDiagnostic(session,
         stats,
         "health bar pips frames",
         resourceFileCandidates(
@@ -4106,7 +3938,7 @@ void appendSidebarDiagnostics(
         mixArchives,
         "sidebar palette"
     );
-    appendSidebarCandidateDiagnostic(
+    appendSidebarCandidateDiagnostic(session,
         stats,
         "standalone power image probe",
         resourceFileCandidates(
@@ -4117,7 +3949,7 @@ void appendSidebarDiagnostics(
         mixArchives,
         "sidebar palette; expected-missing if pips.shp is used"
     );
-    appendSidebarCandidateDiagnostic(
+    appendSidebarCandidateDiagnostic(session,
         stats,
         "standalone health image probe",
         resourceFileCandidates(
@@ -4128,7 +3960,7 @@ void appendSidebarDiagnostics(
         mixArchives,
         "sidebar palette; expected-missing if pips.shp is used"
     );
-    appendSidebarCandidateDiagnostic(
+    appendSidebarCandidateDiagnostic(session,
         stats,
         "radar panel",
         resourceFileCandidates(
@@ -4139,7 +3971,7 @@ void appendSidebarDiagnostics(
         mixArchives,
         "sidebar palette"
     );
-    appendSidebarCandidateDiagnostic(
+    appendSidebarCandidateDiagnostic(session,
         stats,
         "sidebar grips top",
         resourceFileCandidates(
@@ -4161,7 +3993,7 @@ void appendSidebarDiagnostics(
         "GDGIICON"
     };
     for (const std::string& cameoName : cameoNames) {
-        appendSidebarCandidateDiagnostic(
+        appendSidebarCandidateDiagnostic(session,
             stats,
             "cameo " + cameoName,
             shpResourceCandidates(cameoName),
@@ -4257,7 +4089,7 @@ std::vector<std::string> collectWeaponIds(const UnitType& unit) {
     return weaponIds;
 }
 
-void appendWeaponArtDiagnostic(
+void appendWeaponArtDiagnostic(concord::assets::MapPreviewResourceSession& session,
     MapStructureSpriteStats& stats,
     const std::string& objectId,
     const std::string& weaponId,
@@ -4362,7 +4194,7 @@ void appendWeaponArtDiagnostic(
             + " as muzzle/impact art when present, normally with anim.pal. rendererProjectileSprite=none logicalProjectile=yes"
         );
     } else {
-        const ResourceDiagnosticProbe projectileProbe = appendResourceDiagnostic(
+        const ResourceDiagnosticProbe projectileProbe = appendResourceDiagnostic(session,
             stats,
             "weapon art diagnostic "
                 + objectId
@@ -4390,7 +4222,7 @@ void appendWeaponArtDiagnostic(
             + " noReexportNeeded="
             + (projectileProbe.found ? "yes" : "no")
         );
-        appendResourceDiagnostic(
+        appendResourceDiagnostic(session,
             stats,
             "projectile palette candidate diagnostic "
                 + objectId
@@ -4408,7 +4240,7 @@ void appendWeaponArtDiagnostic(
 
     for (const std::string& animId : splitCommaList(weapon->anim)) {
         const ArtType* animArt = art.findArtType(animId);
-        appendResourceDiagnostic(
+        appendResourceDiagnostic(session,
             stats,
             "weapon art diagnostic "
                 + objectId
@@ -4437,7 +4269,7 @@ void appendWeaponArtDiagnostic(
 
     for (const std::string& trailerId : splitCommaList(projectile->trailer)) {
         const ArtType* trailerArt = art.findArtType(trailerId);
-        appendResourceDiagnostic(
+        appendResourceDiagnostic(session,
             stats,
             "weapon art diagnostic "
                 + objectId
@@ -4471,7 +4303,7 @@ void appendWeaponArtDiagnostic(
     }
 }
 
-void appendProjectileDiagnostics(
+void appendProjectileDiagnostics(concord::assets::MapPreviewResourceSession& session,
     MapStructureSpriteStats& stats,
     const RulesDatabase& rules,
     const ArtDatabase& art,
@@ -4489,7 +4321,7 @@ void appendProjectileDiagnostics(
             continue;
         }
         for (const std::string& weaponId : collectWeaponIds(*unit)) {
-            appendWeaponArtDiagnostic(
+            appendWeaponArtDiagnostic(session,
                 stats,
                 objectId,
                 weaponId,
@@ -4512,7 +4344,7 @@ void appendProjectileDiagnostics(
             continue;
         }
         for (const std::string& weaponId : collectWeaponIds(*unit)) {
-            appendWeaponArtDiagnostic(
+            appendWeaponArtDiagnostic(session,
                 stats,
                 objectId,
                 weaponId,
@@ -4528,7 +4360,7 @@ void appendProjectileDiagnostics(
     }
 }
 
-void appendInfantrySequenceDiagnostics(
+void appendInfantrySequenceDiagnostics(concord::assets::MapPreviewResourceSession& session,
     MapStructureSpriteStats& stats,
     const RulesDatabase& rules,
     const ArtDatabase& art,
@@ -4621,7 +4453,7 @@ void appendInfantrySequenceDiagnostics(
             + " rendererNeeds=deployed mission uses Deployed/DeployedFire frames and deployWeapon, not normal FireUp."
         );
 
-        appendResourceDiagnostic(
+        appendResourceDiagnostic(session,
             stats,
             "infantry sequence diagnostic "
                 + objectId
@@ -4632,7 +4464,7 @@ void appendInfantrySequenceDiagnostics(
             sequenceProbeFrame(ready),
             unitPalette
         );
-        appendResourceDiagnostic(
+        appendResourceDiagnostic(session,
             stats,
             "infantry sequence diagnostic "
                 + objectId
@@ -4643,7 +4475,7 @@ void appendInfantrySequenceDiagnostics(
             sequenceProbeFrame(fireUp),
             unitPalette
         );
-        appendResourceDiagnostic(
+        appendResourceDiagnostic(session,
             stats,
             "infantry sequence diagnostic "
                 + objectId
@@ -4654,7 +4486,7 @@ void appendInfantrySequenceDiagnostics(
             sequenceProbeFrame(deploy),
             unitPalette
         );
-        appendResourceDiagnostic(
+        appendResourceDiagnostic(session,
             stats,
             "infantry sequence diagnostic "
                 + objectId
@@ -4665,7 +4497,7 @@ void appendInfantrySequenceDiagnostics(
             sequenceProbeFrame(deployed),
             unitPalette
         );
-        appendResourceDiagnostic(
+        appendResourceDiagnostic(session,
             stats,
             "infantry sequence diagnostic "
                 + objectId
@@ -4717,7 +4549,7 @@ std::string decodeBridgeTileReference(
         + " palette=theater terrain palette";
 }
 
-void appendBridgeDiagnostics(
+void appendBridgeDiagnostics(concord::assets::MapPreviewResourceSession& session,
     MapStructureSpriteStats& stats,
     const MapDatabase& mapDatabase,
     const TheaterDatabase& theaterDatabase,
@@ -4806,7 +4638,7 @@ void appendBridgeDiagnostics(
         const std::vector<std::string> candidates =
             overlayAssetFileCandidates(overlay, theaterDatabase);
         const OverlayResourceProbe probe =
-            probeOverlayResource(overlay, candidates, filesByName, mixArchives);
+            probeOverlayResource(session,overlay, candidates, filesByName, mixArchives);
         stats.warnings.push_back(
             "bridge overlay diagnostic: cell="
             + std::to_string(overlay.x)
@@ -4840,7 +4672,7 @@ void appendBridgeDiagnostics(
     }
 }
 
-OverlayResourceCoverage buildOverlayResourceCoverage(
+OverlayResourceCoverage buildOverlayResourceCoverage(concord::assets::MapPreviewResourceSession& session,
     const MapDatabase& mapDatabase,
     const TheaterDatabase& theaterDatabase,
     const std::unordered_map<std::string, std::vector<std::string>>& filesByName,
@@ -4933,7 +4765,7 @@ OverlayResourceCoverage buildOverlayResourceCoverage(
 
         coverage.candidateCells += group.cellCount;
         const OverlayResourceProbe probe =
-            probeOverlayResource(overlay, candidates, filesByName, mixArchives);
+            probeOverlayResource(session,overlay, candidates, filesByName, mixArchives);
         probeByKey[key] = probe;
 
         if (probe.found) {
@@ -5057,7 +4889,7 @@ OverlayResourceCoverage buildOverlayResourceCoverage(
         if (probeIt == probeByKey.end() && !candidatesIt->second.empty()) {
             probeIt = probeByKey.emplace(
                 key,
-                probeOverlayResource(overlay, candidatesIt->second, filesByName, mixArchives)
+                probeOverlayResource(session,overlay, candidatesIt->second, filesByName, mixArchives)
             ).first;
         }
 
@@ -6437,6 +6269,7 @@ bool exportMapTmpPreviewToPpm(
 }
 
 bool exportMapTmpPreviewToHtml(
+    concord::assets::MapPreviewResourceSession& session,
     const std::string& outputPath,
     const MapDatabase& mapDatabase,
     const TheaterDatabase& theaterDatabase,
@@ -6446,6 +6279,15 @@ bool exportMapTmpPreviewToHtml(
     MapStructureSpriteStats& structureSpriteStats,
     std::string& errorMessage
 ) {
+    const auto& bound = session.context();
+    if (bound.tileRootPath != tileRootPath
+        || bound.assetRootPath != structureSpriteOptions.assetRootPath
+        || bound.palettePath != palettePath
+        || bound.structurePalettePath != structureSpriteOptions.structurePalettePath) {
+        errorMessage = "preview resource session context differs from configured resource paths";
+        return false;
+    }
+
     errorMessage.clear();
 
     constexpr int cellWidth = 60;
@@ -6736,7 +6578,7 @@ bool exportMapTmpPreviewToHtml(
     }
 
     appendOverlayResourceCoverageWarnings(
-        buildOverlayResourceCoverage(
+        buildOverlayResourceCoverage(session,
             mapDatabase,
             theaterDatabase,
             overlayFilesByName,
@@ -6748,7 +6590,7 @@ bool exportMapTmpPreviewToHtml(
     if (structureSpriteOptions.rules != nullptr
         && structureSpriteOptions.art != nullptr
     ) {
-        appendBuildingLayerDiagnostics(
+        appendBuildingLayerDiagnostics(session,
             structureSpriteStats,
             *structureSpriteOptions.rules,
             *structureSpriteOptions.art,
@@ -6762,12 +6604,12 @@ bool exportMapTmpPreviewToHtml(
             *structureSpriteOptions.rules,
             *structureSpriteOptions.art
         );
-        appendSidebarDiagnostics(
+        appendSidebarDiagnostics(session,
             structureSpriteStats,
             overlayFilesByName,
             mixArchives
         );
-        appendProjectileDiagnostics(
+        appendProjectileDiagnostics(session,
             structureSpriteStats,
             *structureSpriteOptions.rules,
             *structureSpriteOptions.art,
@@ -6777,7 +6619,7 @@ bool exportMapTmpPreviewToHtml(
             structureSpriteOptions.structurePalettePath,
             palettePath
         );
-        appendInfantrySequenceDiagnostics(
+        appendInfantrySequenceDiagnostics(session,
             structureSpriteStats,
             *structureSpriteOptions.rules,
             *structureSpriteOptions.art,
@@ -6788,7 +6630,7 @@ bool exportMapTmpPreviewToHtml(
         );
     }
 
-    appendBridgeDiagnostics(
+    appendBridgeDiagnostics(session,
         structureSpriteStats,
         mapDatabase,
         theaterDatabase,
@@ -6954,7 +6796,7 @@ bool exportMapTmpPreviewToHtml(
 
             if (!foundCandidateFile) {
                 const OverlayResourceProbe probe =
-                    probeOverlayResource(*overlay, candidates, overlayFilesByName, mixArchives);
+                    probeOverlayResource(session,*overlay, candidates, overlayFilesByName, mixArchives);
                 if (probe.found) {
                     if (missingOverlayWarnings.insert(warningKey + "|mix").second) {
                         structureSpriteStats.warnings.push_back(
@@ -7438,6 +7280,27 @@ bool exportMapTmpPreviewToHtml(
     }
 
     return true;
+}
+
+bool exportMapTmpPreviewToHtml(
+    const std::string& outputPath,
+    const MapDatabase& mapDatabase,
+    const TheaterDatabase& theaterDatabase,
+    const std::string& tileRootPath,
+    const std::string& palettePath,
+    const MapStructureSpriteOptions& structureSpriteOptions,
+    MapStructureSpriteStats& structureSpriteStats,
+    std::string& errorMessage
+) {
+    concord::assets::MapPreviewResourceContext context;
+    context.packageRoot = std::filesystem::current_path().string();
+    context.tileRootPath = tileRootPath;
+    context.assetRootPath = structureSpriteOptions.assetRootPath;
+    context.palettePath = palettePath;
+    context.structurePalettePath = structureSpriteOptions.structurePalettePath;
+    concord::assets::MapPreviewResourceSession session(std::move(context));
+    return exportMapTmpPreviewToHtml(session, outputPath, mapDatabase, theaterDatabase,
+        tileRootPath, palettePath, structureSpriteOptions, structureSpriteStats, errorMessage);
 }
 
 bool exportMapTmpPreviewToHtml(

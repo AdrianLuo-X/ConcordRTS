@@ -12,6 +12,7 @@ if (EXISTS "${CONCORD_RUNTIME_ANIM_PALETTE}")
 endif()
 
 add_executable(concord_rules_dump
+    src/assets/codecs/PalDecoder.cpp
     src/analysis/cli/main.cpp
     src/data/art/ArtDatabase.cpp
     src/assets/inspection/AssetInspector.cpp
@@ -28,10 +29,10 @@ add_executable(concord_rules_dump
     src/analysis/sandbox/EconomySandbox.cpp
     src/analysis/reports/EngineStatus.cpp
     src/world/model/GameWorld.cpp
-    src/core/io/IniFile.cpp
     src/analysis/reports/JsonExporter.cpp
     src/data/maps/MapDatabase.cpp
     src/assets/preview/MapPreviewExporter.cpp
+    src/assets/preview/MapPreviewResourceContext.cpp
     src/assets/archive/MixArchive.cpp
     src/analysis/reports/ModCompatibilityScanner.cpp
     src/analysis/reports/ObjectReferenceValidator.cpp
@@ -46,6 +47,7 @@ add_executable(concord_rules_dump
 )
 
 add_executable(concord_runtime
+    src/assets/codecs/PalDecoder.cpp
     src/runtime/host/RuntimeMain.cpp
     src/data/campaign/CampaignDatabase.cpp
     src/data/campaign/CampaignPresentationDecoder.cpp
@@ -87,6 +89,7 @@ add_executable(concord_runtime
     src/runtime/campaign/RuntimeCampaignMovieResolver.cpp
     src/runtime/host/RuntimeShell.cpp
     src/runtime/config/RuntimeConfig.cpp
+    src/core/results/RuntimeMatchScore.cpp
     src/audio/backend/RuntimeVoiceAudio.cpp
     src/ui/skirmish/RuntimeSkirmishMenu.cpp
     src/data/maps/RuntimeRandomMap.cpp
@@ -121,7 +124,6 @@ add_executable(concord_runtime
     src/simulation/buildings/RuntimeInfantryServiceSystem.cpp
     src/simulation/superweapons/SuperWeaponSystem.cpp
     src/simulation/vision/RuntimeVision.cpp
-    src/core/io/IniFile.cpp
     src/data/maps/MapDatabase.cpp
     src/assets/archive/MixArchive.cpp
     src/simulation/navigation/pathfinding/PathRequestQueue.cpp
@@ -135,3 +137,7 @@ add_executable(concord_runtime
 target_include_directories(concord_runtime PRIVATE src)
 target_include_directories(concord_rules_dump PRIVATE src)
 
+
+# S09: the runtime and preview tool share one compatibility-preserving SHP decoder.
+target_sources(concord_runtime PRIVATE src/assets/codecs/ShpCodec.cpp)
+target_sources(concord_rules_dump PRIVATE src/assets/codecs/ShpCodec.cpp)

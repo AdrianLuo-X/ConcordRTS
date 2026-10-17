@@ -3571,7 +3571,7 @@ struct RuntimeWindowState {
     // Test-local progress destination; empty preserves the original campaign path.
     std::string runtimeCampaignProgressRootPathOverride;
     RuntimeCampaignScoreState campaignScore;
-    std::map<std::string, RuntimeMatchScoreEntry> matchScores;
+    RuntimeMatchScoreState matchScores;
     RuntimeResultPresentationState resultPresentation;
     std::deque<std::string> pendingCampaignVideoPaths;
     bool exitAfterPendingCampaignVideos = false;
@@ -126363,7 +126363,9 @@ int runRuntimeResultPresentationSmokeTest(const RuntimeConfig& config) {
         return std::vector<std::uint32_t>(pixels, pixels + width * height);
     };
     const std::filesystem::path outputRoot =
-        std::filesystem::path(config.localDataRootPath).parent_path() / "build";
+        std::getenv("CONCORD_RESULT_PRESENTATION_OUTPUT") != nullptr
+            ? std::filesystem::path(std::getenv("CONCORD_RESULT_PRESENTATION_OUTPUT"))
+            : std::filesystem::path(config.localDataRootPath).parent_path() / "build";
     const auto save = [&](const char* name, const std::vector<std::uint32_t>& pixels) {
         std::string error;
         return pixels.size() == width * height && writeRuntimeSmokeBmp(

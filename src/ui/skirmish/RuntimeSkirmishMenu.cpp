@@ -3,6 +3,7 @@
 #endif
 
 #include "ui/skirmish/RuntimeSkirmishMenu.h"
+#include "assets/text/CsfCodec.h"
 #include "ui/input/RuntimeObserver.h"
 #include "data/maps/RuntimeRandomMap.h"
 
@@ -230,106 +231,21 @@ std::uint32_t readLe32(const std::vector<unsigned char>& bytes, std::size_t at) 
         | (static_cast<std::uint32_t>(bytes[at + 3]) << 24);
 }
 
-bool fourCcAt(
-    const std::vector<unsigned char>& bytes,
-    std::size_t at,
-    const char (&tag)[5]
-) {
-    return at + 4 <= bytes.size()
-        && bytes[at] == static_cast<unsigned char>(tag[0])
-        && bytes[at + 1] == static_cast<unsigned char>(tag[1])
-        && bytes[at + 2] == static_cast<unsigned char>(tag[2])
-        && bytes[at + 3] == static_cast<unsigned char>(tag[3]);
-}
-
 struct CsfCatalog {
     std::unordered_map<std::string, std::wstring> values;
 
     bool load(const fs::path& path) {
         values.clear();
         std::ifstream input(path, std::ios::binary);
-        if (!input) {
-            return false;
-        }
-        std::vector<unsigned char> bytes(
+        if (!input) return false;
+        const std::vector<unsigned char> bytes(
             (std::istreambuf_iterator<char>(input)),
             std::istreambuf_iterator<char>()
         );
-        if (bytes.size() < 24 || !fourCcAt(bytes, 0, " FSC")) {
-            return false;
-        }
-
-        const std::uint32_t labelCount = readLe32(bytes, 8);
-        std::size_t cursor = 24;
-        for (std::uint32_t labelIndex = 0;
-             labelIndex < labelCount && cursor + 12 <= bytes.size();
-             ++labelIndex) {
-            if (!fourCcAt(bytes, cursor, " LBL")) {
-                break;
-            }
-            cursor += 4;
-            const std::uint32_t stringCount = readLe32(bytes, cursor);
-            cursor += 4;
-            const std::uint32_t labelLength = readLe32(bytes, cursor);
-            cursor += 4;
-            if (labelLength > bytes.size() - cursor) {
-                break;
-            }
-            const std::string label(
-                reinterpret_cast<const char*>(bytes.data() + cursor),
-                labelLength
-            );
-            cursor += labelLength;
-
-            std::wstring firstValue;
-            for (std::uint32_t stringIndex = 0;
-                 stringIndex < stringCount && cursor + 8 <= bytes.size();
-                 ++stringIndex) {
-                const bool plain = fourCcAt(bytes, cursor, " RTS");
-                const bool extra = fourCcAt(bytes, cursor, "WRTS");
-                if (!plain && !extra) {
-                    cursor = bytes.size();
-                    break;
-                }
-                cursor += 4;
-                const std::uint32_t charCount = readLe32(bytes, cursor);
-                cursor += 4;
-                const std::uint64_t encodedBytes =
-                    static_cast<std::uint64_t>(charCount) * 2ULL;
-                if (encodedBytes > bytes.size() - cursor) {
-                    cursor = bytes.size();
-                    break;
-                }
-                std::wstring decoded;
-                decoded.reserve(charCount);
-                for (std::uint32_t i = 0; i < charCount; ++i) {
-                    const std::uint16_t encoded =
-                        static_cast<std::uint16_t>(bytes[cursor + i * 2])
-                        | (static_cast<std::uint16_t>(bytes[cursor + i * 2 + 1]) << 8);
-                    const wchar_t value = static_cast<wchar_t>(encoded ^ 0xffffU);
-                    decoded.push_back(value == L'\r' ? L' ' : value);
-                }
-                cursor += static_cast<std::size_t>(encodedBytes);
-                if (extra) {
-                    if (cursor + 4 > bytes.size()) {
-                        cursor = bytes.size();
-                        break;
-                    }
-                    const std::uint32_t extraLength = readLe32(bytes, cursor);
-                    cursor += 4;
-                    if (extraLength > bytes.size() - cursor) {
-                        cursor = bytes.size();
-                        break;
-                    }
-                    cursor += extraLength;
-                }
-                if (stringIndex == 0) {
-                    firstValue = std::move(decoded);
-                }
-            }
-            if (!label.empty() && !firstValue.empty()) {
-                values[lowerAscii(label)] = std::move(firstValue);
-            }
+        for (auto& entry : concord::csf::decodeEntries(bytes)) {
+            const auto value = concord::csf::projectCarriageReturns(
+                std::move(entry.firstValue), concord::csf::CarriageReturnPolicy::Space);
+            values[lowerAscii(entry.label)] = std::wstring(value.begin(), value.end());
         }
         return !values.empty();
     }

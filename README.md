@@ -14,6 +14,15 @@ ConcordRTS 是使用 C++20 开发的 RTS 引擎工程，面向《命令与征服
 
 ## 更新记录
 
+### 2026-10-18
+
+- 提取独立的席位角色判断与比赛计分模块，保留原记录、保存和哈希语义。
+- 将纯计分诊断移到独立测试，继续调用生产实现。
+- 提取共享 CSF、PAL、SHP 解码，明确保留各消费者的文字、颜色和格式兼容策略。
+- 为地图预览增加显式资源会话、九类缓存及刷新生命周期。
+- 为 CSF 和 INI 建立按消费者编译约定区分的静态库。
+- 将回放事件快照拆到窄头文件，保持字段、默认值和原接口，并减少真实分析消费者的头文件依赖。
+
 ### 2026-10-17
 
 - 将日常构建切换为 `clang-cl + Ninja`，保留显式 MSVC 参考入口，缺少工具时直接报错。
@@ -38,13 +47,20 @@ ConcordRTS 是使用 C++20 开发的 RTS 引擎工程，面向《命令与征服
 ```text
 ConcordRTS/
 ├── src/                            引擎与运行程序源码
-│   ├── core/                       基础工具、INI 与文件读写
+│   ├── core/                       基础工具与不依赖界面的数据逻辑
+│   │   ├── io/                     INI 与文件读写
+│   │   ├── players/                纯席位角色判断
+│   │   └── results/                比赛计分、保存与哈希
 │   ├── data/                       规则、美术、地图与战役数据库
 │   ├── assets/                     游戏资源格式读取、检查与导出
+│   │   ├── text/                   共享 CSF 文字解码
+│   │   ├── codecs/                 共享 PAL、SHP 基础解码
+│   │   └── preview/                地图预览、资源会话与缓存
 │   ├── world/                      世界状态、对象索引与查询
 │   ├── simulation/                 战斗、移动、经济、AI 与特殊机制
 │   ├── runtime/                    运行时配置与游戏宿主
 │   │   ├── config/                 配置类型、解析与命令行覆盖
+│   │   ├── contracts/              窄范围回放事件类型
 │   │   └── host/                   启动检查、游戏窗口与战局宿主
 │   ├── render/                     地图、单位、效果与软件绘制
 │   ├── ui/                         菜单、输入、HUD 与偏好保存
@@ -52,7 +68,8 @@ ConcordRTS/
 │   ├── network/                    联机协议、同步、会话与互联网服务
 │   └── analysis/                   规则分析、命令行工具与报告
 ├── tests/                          按领域分组的专项测试
-│   ├── fixtures/                   自编 INI、MAP 等测试输入
+│   ├── fixtures/                   自编规则、地图与回放测试输入
+│   ├── assets/                     CSF、SHP 解码合同测试
 │   ├── infrastructure/             配置、文件、状态哈希与索引检查
 │   ├── gameplay/                   战斗、生产、单位行为与机制检查
 │   ├── multiplayer/                局域网、同步、快照与恢复检查
@@ -219,6 +236,8 @@ pwsh -NoProfile -File .\tools\testing\Run-LocalTests.ps1 -Compiler Clang -BuildD
 `windows-minimal` 包含 12 项不需要原游戏素材的检查；`windows-local-assets` 包含 4 项需要本机规则素材的检查。入口按显式选择的编译器校验缓存，再串行构建所选目标并精确执行对应测试。使用 MSVC 参考目录时传 `-Compiler MSVC -BuildDirectory build/msvc-reference`。测试入口的 `-Compiler` 缺省仍为 MSVC，因此 Clang 检查必须显式传 `-Compiler Clang`；这些集合不代表全部游戏功能或其他平台的验收。
 
 结果默认保存在 `build/local-tests/` 的独立目录中。`results.json` 分别记录 `passed`、`failed`、`skipped`、`unsupported`、`not-built` 和 `not-run`，跳过、未构建或未执行不能计为通过。清单与条件见 [test-profiles.json](tools/testing/test-profiles.json)。
+
+新增角色、计分、CSF/PAL/SHP、预览会话与回放类型检查由对应 CMake 目标和 CTest 名称独立注册，未自动加入上述 12＋4 集合。按具体目标构建并精确筛选测试名，注册见 [TestsUnitAndNetwork.cmake](cmake/TestsUnitAndNetwork.cmake)。
 
 CMake 保留专项测试目标。部分测试只使用自编夹具，部分需要本地原游戏数据；资源相关测试与调试工具需要按自己的环境配置路径。不能将无素材环境下的编译成功视为全部游戏功能或全部测试通过。
 
