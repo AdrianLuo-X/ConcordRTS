@@ -101,8 +101,6 @@ function Assert-PEMachine([string]$Path, [int]$Expected) {
 }
 
 function Get-Sha256([string]$Path) {
-    # Windows PowerShell may inherit a PSModulePath from another host/runtime.
-    # Keep deployment verification independent of module auto-discovery.
     $sha256 = [System.Security.Cryptography.SHA256]::Create()
     try {
         $stream = [System.IO.File]::OpenRead($Path)
@@ -119,7 +117,6 @@ try {
     if (-not $buildRoot.StartsWith($projectPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
         throw 'The build directory must stay inside this project.'
     }
-    # A junction must not turn a project-local spelling into writes to another copy.
     $ancestor = $buildRoot
     while ($ancestor -and $ancestor.Length -gt $projectRoot.Length) {
         if ((Test-Path -LiteralPath $ancestor) -and ((Get-Item -LiteralPath $ancestor).Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
@@ -138,8 +135,21 @@ try {
 
     $vswherePath = Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft Visual Studio\Installer\vswhere.exe'
     if (-not (Test-Path -LiteralPath $vswherePath)) { throw 'Existing VS-family C++ tools could not be discovered: vswhere.exe is missing. This entry does not install tools; a full IDE is not required.' }
-    $instances = @((& $vswherePath -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -format json | ConvertFrom-Json) | Where-Object { $_.isComplete -and [version]$_.installationVersion -ge [version]'17.0' })
+    
+    $allInstances = @((& $vswherePath -products '*' -format json | ConvertFrom-Json) | Where-Object { $_.isComplete -and [version]$_.installationVersion -ge [version]'17.0' })
     if ($LASTEXITCODE -ne 0) { throw 'vswhere could not inspect the existing C++ tools.' }
+    
+    $instances = @($allInstances | Where-Object {
+        $msvcDir = Join-Path $_.installationPath 'VC\Tools\MSVC'
+        if (Test-Path -LiteralPath $msvcDir) {
+            $clFound = Get-ChildItem -LiteralPath $msvcDir -Directory | Where-Object {
+                Test-Path -LiteralPath (Join-Path $_.FullName 'bin\Hostx64\x64\cl.exe')
+            } | Select-Object -First 1
+            return $null -ne $clFound
+        }
+        return $false
+    })
+
     if ($cache.Count -gt 0) {
         if (-not $cache.CMAKE_GENERATOR_INSTANCE) { throw 'The cache has no fixed VS instance. Select a new project-local reference directory.' }
         $instance = $instances | Where-Object { (Get-NormalPath $_.installationPath) -eq (Get-NormalPath $cache.CMAKE_GENERATOR_INSTANCE) } | Select-Object -First 1
@@ -148,6 +158,7 @@ try {
         $instance = $instances | Sort-Object { [version]$_.installationVersion } -Descending | Select-Object -First 1
         if (-not $instance) { throw 'No existing VS-family x64/Win32 C++ tools were found. Tool installation is outside this build step; a full IDE is not required.' }
     }
+    
     $vsHome = $instance.installationPath
     $vsVersion = [version]$instance.installationVersion
     if ($vsVersion.Major -eq 18) { $generator = 'Visual Studio 18 2026' }
