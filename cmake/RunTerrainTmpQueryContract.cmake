@@ -1,0 +1,18 @@
+# Allocate a fresh output leaf on each run; retain previous evidence without deletion.
+if(NOT DEFINED CONTRACT_EXECUTABLE OR NOT DEFINED OUTPUT_PARENT)
+    message(FATAL_ERROR "A real contract executable and private output parent are required")
+endif()
+string(RANDOM LENGTH 24 ALPHABET 0123456789abcdef run_id)
+set(run_path "${OUTPUT_PARENT}/${run_id}")
+if(EXISTS "${run_path}")
+    message(FATAL_ERROR "Refuse existing contract output leaf")
+endif()
+execute_process(COMMAND "${CONTRACT_EXECUTABLE}" --temp-root "${run_path}"
+    RESULT_VARIABLE actual_exit OUTPUT_VARIABLE actual_stdout ERROR_VARIABLE actual_stderr)
+message("${actual_stdout}")
+if(NOT "${actual_stderr}" STREQUAL "")
+    message("${actual_stderr}")
+endif()
+if(NOT "${actual_exit}" STREQUAL "0")
+    message(FATAL_ERROR "TMP query contract actual exit: ${actual_exit}; output retained at ${run_path}")
+endif()

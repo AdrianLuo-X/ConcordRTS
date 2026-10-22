@@ -98,9 +98,9 @@ bool runRuntimeYuriCursorSmoke(RuntimeWindowState& live, std::string& error) {
         if(runtimeMouseCursorFrameForPoint(s,client,*point)->frameIndex!=190)return fail("repair priority");++exclusions;
         s.activeSidebarTool=RuntimeSidebarTool::Sell;
         if(runtimeMouseCursorFrameForPoint(s,client,*point)->frameIndex!=149)return fail("sell priority");++exclusions;
-        s.activeSidebarTool=RuntimeSidebarTool::None;s.rightDragActive=true;
+        s.activeSidebarTool=RuntimeSidebarTool::None;s.rightPointer.active=true;
         if(runtimeMouseCursorFrameForPoint(s,client,*point)->frameIndex!=0)return fail("pan priority");++exclusions;
-        s.rightDragActive=false;s.forceAttackHeld=true;
+        s.rightPointer.active=false;s.forceAttackHeld=true;
         if(!normalAttack())return fail("force-fire priority");s.forceAttackHeld=false;++exclusions;
         if(!dispatchRuntimeTargetOrderFromUi(s,RuntimeMultiplayerGameplayTargetOrderKind::Primary,{64,64},findObjectById(s,targetId))
             ||s.lastCommand.acceptedCount!=1)return fail(label+" Primary attack rejected: "+s.interactionStatus);

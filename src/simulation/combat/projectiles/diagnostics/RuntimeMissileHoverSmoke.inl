@@ -74,9 +74,9 @@ bool runRuntimeMissileHoverSmoke(RuntimeWindowState& live,std::string& error) {
         runtimeWindowProc(window,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(point.x,point.y));
         runtimeWindowProc(window,WM_LBUTTONUP,0,MAKELPARAM(point.x,point.y));
         if(selectionContains(s,id))return fail("mouse selected missile");++clicks;
-        s.selectedObjectIds.clear();s.selectionDragActive=s.selectionDragMoved=true;
-        s.selectionStart={bounds.left-2,bounds.top-2};s.selectionCurrent={bounds.right+2,bounds.bottom+2};
-        runtimeWindowProc(window,WM_LBUTTONUP,0,MAKELPARAM(s.selectionCurrent.x,s.selectionCurrent.y));
+        s.selectedObjectIds.clear();s.leftPointer.active=s.leftPointer.moved=true;
+        s.leftPointer.start={bounds.left-2,bounds.top-2};s.leftPointer.current={bounds.right+2,bounds.bottom+2};
+        runtimeWindowProc(window,WM_LBUTTONUP,0,MAKELPARAM(s.leftPointer.current.x,s.leftPointer.current.y));
         if(selectionContains(s,id))return fail("box selected missile");++clicks;
         for(const auto modifiers:{std::pair{false,false},std::pair{true,false},std::pair{false,true}}){
             s.selectedObjectIds={1};applySelection(s,{id},modifiers.first,modifiers.second);

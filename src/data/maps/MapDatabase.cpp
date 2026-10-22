@@ -3728,7 +3728,7 @@ MapFacts MapDatabase::buildMapFacts(
         // Visible low-bridge overlays are authoritative. Original maps place
         // them over several terrain classes, including clear and road cells.
         cell->isLowBridge = isLowBridgeOverlayFact(overlay);
-        const bool overlayIsBridge =
+        [[maybe_unused]] const bool overlayIsBridge =
             cell->overlayResource.overlayKind == "bridge";
         const bool overlayIsHighBridge =
             isHighBridgeOverlayFact(overlay);

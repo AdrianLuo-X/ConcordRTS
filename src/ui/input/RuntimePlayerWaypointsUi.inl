@@ -33,34 +33,7 @@ std::optional<POINT> runtimePlayerWaypointScreenPoint(const RuntimeWindowState& 
     return runtimeScreenPointForCell(state, viewport, cell, terrainLevelAtRuntimeCell(state, cell.x, cell.y));
 }
 
-bool handleRuntimePlayerWaypointClick(RuntimeWindowState& state, const RECT& viewport, POINT point) {
-    auto& local = state.playerLocalCommands;
-    if (!local.planning || local.followTargeting || local.rallyTargeting
-        || state.playerCommunication.beaconTargeting || state.activeSidebarTool != RuntimeSidebarTool::None) return false;
-    const auto owner = runtimeCanonicalHumanHouseOwner(state.economy.owner);
-    std::uint64_t nearestId = 0;
-    long long nearestDistance = 145;
-    bool canClose = false;
-    for (const auto& [id, route] : state.playerCommands.waypoints.routes) {
-        if (route.owner != owner) continue;
-        for (std::size_t i = 0; i < route.points.size(); ++i) {
-            const auto position = runtimePlayerWaypointScreenPoint(state, viewport, route.points[i]);
-            if (!position) continue;
-            const long long dx = point.x - position->x, dy = point.y - position->y;
-            const long long distance = dx * dx + dy * dy;
-            if (distance < nearestDistance) {
-                nearestId = route.points[i].id; nearestDistance = distance;
-                canClose = !route.loopStart && i + 1 < route.points.size() && selectionContains(state, id);
-            }
-        }
-    }
-    local.selectedWaypoint = nearestId;
-    if (!nearestId) return false;
-    if (canClose) dispatchRuntimePlayerWaypointFromUi(state, RuntimePlayerWaypointOperation::CloseLoop, nearestId);
-    state.selectionDragActive = state.selectionDragMoved = false;
-    state.repaintRequested = true;
-    return true;
-}
+bool handleRuntimePlayerWaypointClick(RuntimeWindowState& state, const RECT& viewport, POINT point);
 
 void drawRuntimePlayerWaypoints(HDC dc, const RECT& viewport, const RuntimeWindowState& state) {
     const int saved = SaveDC(dc);

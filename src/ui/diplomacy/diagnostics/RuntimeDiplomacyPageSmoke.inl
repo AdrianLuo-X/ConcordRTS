@@ -351,9 +351,9 @@ bool runRuntimeDiplomacyPageSmoke(RuntimeWindowState& live, std::string& error) 
         // modal key nor its deferred release leaves a capture or pan cursor.
         SendMessageW(window,WM_RBUTTONDOWN,MK_RBUTTON,MAKELPARAM(30,30));
         SendMessageW(window,WM_MOUSEMOVE,MK_RBUTTON,MAKELPARAM(80,55));
-        if (!s.rightDragActive || GetCapture()!=window) return fail("actual map right drag fixture did not capture");
+        if (!s.rightPointer.active || GetCapture()!=window) return fail("actual map right drag fixture did not capture");
         key(VK_TAB);
-        if (!s.playerCommunication.diplomacyOpen || s.rightDragActive || GetCapture()==window)
+        if (!s.playerCommunication.diplomacyOpen || s.rightPointer.active || GetCapture()==window)
             return fail("Tab retained map drag/capture behind diplomacy page");
         SendMessageW(window,WM_RBUTTONUP,0,MAKELPARAM(80,55));
         if (s.playerCommunication.diplomacyOpen) key(VK_ESCAPE);

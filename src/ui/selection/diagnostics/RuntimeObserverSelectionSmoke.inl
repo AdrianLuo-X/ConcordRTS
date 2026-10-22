@@ -56,12 +56,12 @@ bool runRuntimeObserverSelectionSmoke(RuntimeWindowState& state, int objectId,
         state.economy.owner = role == 2 ? actor->owner : owner;
         for (WPARAM modifiers : {WPARAM{0}, WPARAM{MK_SHIFT}, WPARAM{MK_CONTROL}}) {
             state.selectedObjectIds.clear(); click(modifiers);
-            if (!state.selectedObjectIds.empty() || state.selectionDragActive)
+            if (!state.selectedObjectIds.empty() || state.leftPointer.active)
                 return fail("mouse click selected an actor in role " + std::to_string(role));
             ++checks;
         }
         state.selectedObjectIds.clear(); box();
-        if (!state.selectedObjectIds.empty() || state.selectionDragActive)
+        if (!state.selectedObjectIds.empty() || state.leftPointer.active)
             return fail("box selected an actor");
         ++checks;
         state.playerLocalCommands.teamCreate(0, {objectId}, [](int) { return true; });
@@ -99,7 +99,7 @@ bool runRuntimeObserverSelectionSmoke(RuntimeWindowState& state, int objectId,
     if (state.world.deterministicSimulationStateHash() != worldHash) return fail("input changed the watched world");
     state.config = config; state.economy.owner = owner; state.multiplayerLocalSpectator = spectator;
     state.playerLocalCommands = localCommands; state.selectedObjectIds.clear();
-    state.selectionDragActive = state.selectionDragMoved = false;
+    state.leftPointer.active = state.leftPointer.moved = false;
     std::cout << "Observer selection: " << checks << " mouse/box/shortcut checks, three roles, "
         "hover, right-drag camera and participant input passed\n";
     return true;

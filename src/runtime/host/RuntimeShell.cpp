@@ -1,4 +1,5 @@
 #include "runtime/host/RuntimeShell.h"
+#include "runtime/host/RuntimeUiClockWin32.h"
 #include "runtime/timing/RuntimeGameSpeedTiming.h"
 #include "runtime/timing/RuntimePresentationWorkBudget.h"
 #include "runtime/timing/RuntimePresentationBudgetRemainder.h"
@@ -32,6 +33,7 @@
 #include "simulation/movement/ground/RuntimeVehicleStartupMotion.h"
 #include "simulation/combat/projectiles/RuntimeMissileAcceleration.h"
 #include "simulation/navigation/terrain/RuntimeTerrainMetadataMap.h"
+#include "simulation/navigation/terrain/RuntimeNavigationTerrainQuery.h"
 #include "render/geometry/RuntimeCameraGeometryMemo.h"
 
 #include "data/campaign/CampaignProgress.h"
@@ -84,6 +86,25 @@
 #include "ui/input/RuntimePlayerCommands.h"
 #include "ui/input/RuntimePlayerCommunication.h"
 #include "ui/input/RuntimePlayerDefeatNotice.h"
+#include "ui/input/RuntimeInputPixelValues.h"
+#include "ui/input/RuntimeSelectionKeyController.h"
+#include "ui/input/RuntimeTeamKeyController.h"
+#include "ui/input/RuntimeLocalNavigationController.h"
+#include "ui/input/RuntimeReferencePresentationController.h"
+#include "ui/sidebar/RuntimeSidebarPageController.h"
+#include "ui/input/RuntimeReferenceCommunicationController.h"
+#include "ui/input/RuntimeChatTextController.h"
+#include "ui/input/RuntimeMapRightPointerController.h"
+#include "ui/input/RuntimeMapLeftPointerController.h"
+#include "ui/input/RuntimePointerIngressController.h"
+#include "ui/input/RuntimeCursorController.h"
+#include "ui/input/RuntimeInputCancellationController.h"
+#include "ui/input/RuntimePlanningFactoryKeyController.h"
+#include "ui/input/RuntimeCameraKeyController.h"
+#include "ui/input/RuntimeMenuKeyController.h"
+#include "ui/input/RuntimeSessionKeyController.h"
+#include "ui/input/RuntimeKeyboardRouterController.h"
+#include "ui/input/RuntimeKeyboardIngressController.h"
 #include "network/lockstep/RuntimeMultiplayerLockstep.h"
 #include "ui/network/RuntimeMultiplayerMenu.h"
 #include "network/lockstep/RuntimeMultiplayerPlayerIntent.h"
@@ -2212,19 +2233,6 @@ struct RuntimeCapabilityProfileCache {
     std::vector<std::string> recentMissionDiagnostics;
 };
 
-enum class RuntimeBuildKind {
-    Building,
-    Defense,
-    Infantry,
-    Unit
-};
-
-enum class RuntimeSidebarTool {
-    None,
-    Repair,
-    Sell
-};
-
 struct RuntimeBuildCatalogItem {
     RuntimeBuildKind kind = RuntimeBuildKind::Building;
     std::string typeId;
@@ -2442,54 +2450,6 @@ struct RuntimeResultPresentationState {
     bool continueHovered = false;
     bool continuePressed = false;
     bool scoreMusicSelected = false;
-};
-
-enum class RuntimeMenuPage {
-    Main,
-    Settings,
-    Display,
-    Sound,
-    Keyboard,
-    ExitConfirm
-};
-
-enum class RuntimeMenuAction {
-    None,
-    Options,
-    Save,
-    Load,
-    Exit,
-    Resume,
-    OpenDisplay,
-    OpenSound,
-    OpenKeyboard,
-    CycleGameSpeed,
-    CycleScrollRate,
-    CycleVisualDetail,
-    ToggleTooltips,
-    ToggleTargetLines,
-    ToggleScrollCoasting,
-    ToggleHiddenObjects,
-    CycleResolution,
-    ApplyResolution,
-    AdjustMusicVolume,
-    AdjustSoundVolume,
-    AdjustVoiceVolume,
-    ToggleMusic,
-    ToggleSound,
-    RebindOptions,
-    RebindStopObject,
-    RebindGuardObject,
-    RebindScatterObject,
-    RebindDeployObject,
-    RebindCenterView,
-    Back,
-    ConfirmExit,
-    CancelExit,
-    KeyboardCategory,
-    KeyboardPreviousPage,
-    KeyboardNextPage,
-    KeyboardResetAll
 };
 
 struct RuntimeMenuButton {
@@ -2990,16 +2950,6 @@ struct RuntimeStructureFootprint {
     bool valid = false;
 };
 
-enum class RuntimeTerrainKind {
-    Land,
-    Water,
-    Shore,
-    Cliff,
-    Ramp,
-    Bridge,
-    Blocked
-};
-
 struct RuntimeTerrainInfo {
     // Authored surface used by movement timing; reachability retains its
     // existing shoreline/bridge checks in authoredLandType below.
@@ -3433,6 +3383,9 @@ struct RuntimeSuperWeaponVisualEvent {
 };
 
 struct RuntimeWindowState {
+    // Borrowed host dependency; providers outlive this session and detached scratch.
+    // Local UI milliseconds never enter authority, serialization, hash, or commit swaps.
+    const RuntimeUiClock* uiClock = &runtimeWin32UiClock();
     bool offlineGameplayIntentRouting = false;
     RuntimeJumpjetFlights jumpjetFlights;
     RuntimeAircraftFlights aircraftFlights;
@@ -3712,15 +3665,8 @@ struct RuntimeWindowState {
     // Selection is local presentation state, so this deferred set follows
     // selection rather than the deterministic world/save hash.
     std::unordered_set<int> parasiteReselectAfterLimboObjectIds;
-    bool selectionDragActive = false;
-    bool selectionDragMoved = false;
-    POINT selectionStart{0, 0};
-    POINT selectionCurrent{0, 0};
-    bool rightDragActive = false;
-    bool rightDragMoved = false;
-    POINT rightDragStart{0, 0};
-    POINT rightDragLast{0, 0};
-    POINT rightDragCursorDelta{0, 0};
+    RuntimeMapLeftPointerState leftPointer;
+    RuntimeMapRightPointerState rightPointer;
     bool mouseClientPointValid = false;
     bool forceAttackHeld = false;
     POINT mouseClientPoint{0, 0};
@@ -3943,6 +3889,10 @@ struct RuntimeWindowState {
     } lastCommand;
 };
 
+std::uint64_t runtimeUiClockNow(const RuntimeWindowState& state) noexcept {
+    return state.uiClock->nowMs();
+}
+
 int runtimeCampaignClockSeconds(const std::string& value) {
     const std::string trimmed = trimAsciiLocal(value);
     std::stringstream stream(trimmed);
@@ -4067,7 +4017,7 @@ void finalizeRuntimeCampaignScore(RuntimeWindowState& state, bool victory) {
         ));
         score.captured = true;
     }
-    score.presentationStartedAtMs = GetTickCount64();
+    score.presentationStartedAtMs = runtimeUiClockNow(state);
 }
 
 bool runtimeSkirmishModeMatches(const RuntimeWindowState& state,
@@ -8408,17 +8358,19 @@ bool validateRuntimeMusicPlayback(
 }
 
 RECT runtimeMapViewport(const RECT& clientRect) {
-    RECT viewport = clientRect;
-    viewport.right = std::max(viewport.left, viewport.right - runtimeSidebarWidth);
-    return viewport;
+    const auto viewport = runtimeInputPixelMapViewport(
+        {clientRect.left, clientRect.top, clientRect.right, clientRect.bottom},
+        runtimeSidebarWidth);
+    return {viewport.left, viewport.top, viewport.right, viewport.bottom};
 }
 
 #include "runtime/performance/RuntimeFpsDisplay.inl"
 
 RECT runtimeSidebarRect(const RECT& clientRect) {
-    RECT sidebar = clientRect;
-    sidebar.left = std::max(sidebar.left, sidebar.right - runtimeSidebarWidth);
-    return sidebar;
+    const auto sidebar = runtimeInputPixelSidebarRect(
+        {clientRect.left, clientRect.top, clientRect.right, clientRect.bottom},
+        runtimeSidebarWidth);
+    return {sidebar.left, sidebar.top, sidebar.right, sidebar.bottom};
 }
 
 RECT runtimeRadarRect(const RECT& sidebar) {
@@ -12116,11 +12068,6 @@ int runtimePowerNetAfterBuildItem(
         }
     }
     return produced - used;
-}
-
-bool runtimeBuildKindUsesSingleStructureSlot(RuntimeBuildKind kind) {
-    return kind == RuntimeBuildKind::Building
-        || kind == RuntimeBuildKind::Defense;
 }
 
 std::string runtimeBuildLimitKey(const std::string& value) {
@@ -17601,74 +17548,86 @@ bool runtimeCellHasDisconnectedHighBridgeDeck(
     return false;
 }
 
+RuntimeNavigationTerrainInfo runtimeOwnedNavigationTerrainInfo(const RuntimeTerrainInfo& source) {
+    RuntimeNavigationTerrainInfo result;
+    result.movementLandType = source.movementLandType;
+    result.movementRampType = source.movementRampType;
+    result.kind = source.kind;
+    result.authoredLandType = source.authoredLandType;
+    result.passable = source.passable;
+    result.water = source.water;
+    result.shore = source.shore;
+    result.cliff = source.cliff;
+    result.ramp = source.ramp;
+    result.bridge = source.bridge;
+    result.cost = source.cost;
+    return result;
+}
+
+RuntimeTerrainInfo runtimePrivateNavigationTerrainInfo(const RuntimeNavigationTerrainInfo& source) {
+    RuntimeTerrainInfo result;
+    result.movementLandType = source.movementLandType;
+    result.movementRampType = source.movementRampType;
+    result.kind = source.kind;
+    result.authoredLandType = source.authoredLandType;
+    result.passable = source.passable;
+    result.water = source.water;
+    result.shore = source.shore;
+    result.cliff = source.cliff;
+    result.ramp = source.ramp;
+    result.bridge = source.bridge;
+    result.cost = source.cost;
+    return result;
+}
+
+class RuntimeNavigationTerrainRendererAdapter final : public RuntimeNavigationTerrainQueryPort {
+public:
+    RuntimeNavigationTerrainRendererAdapter(RuntimeWindowState& state,
+        const RuntimeMapRenderContext& metadataContext)
+        : state_(state), metadataContext_(metadataContext) {}
+
+    bool theaterLoaded() const override { return state_.theaterLoaded; }
+    bool overlayWallRuleForCell(const TerrainCell& terrain) const override {
+        return static_cast<bool>(runtimeOverlayWallRuleForCell(state_, terrain));
+    }
+    bool overlayWallUsesCurrentOverlay(const TerrainCell& terrain) const override {
+        return runtimeOverlayWallUsesCurrentOverlay(terrain);
+    }
+    bool overlayProvidesBridgeDeck(const TerrainCell& terrain) const override {
+        return runtimeOverlayProvidesBridgeDeck(terrain);
+    }
+    bool highBridgeFrameIsDisconnected(const TerrainCell& terrain) const override {
+        return runtimeHighBridgeFrameIsDisconnected(terrain);
+    }
+    bool overlayIsBrokenLowBridgePlaceholder(const TerrainCell& terrain) const override {
+        return runtimeOverlayIsBrokenLowBridgePlaceholder(terrain);
+    }
+    RuntimeNavigationTerrainInfo baseTerrainInfoForCell(const TerrainCell& terrain) const override {
+        return runtimeOwnedNavigationTerrainInfo(runtimeTerrainInfoForCell(state_, terrain));
+    }
+    RuntimeTerrainLandType subTileLandType(const TerrainCell& terrain) override {
+        return resolveRuntimeTerrainSubTileLandType(terrain, metadataContext_, state_.renderCache);
+    }
+    unsigned char subTileRampType(const TerrainCell& terrain) override {
+        return resolveRuntimeTerrainSubTileRampType(terrain, metadataContext_, state_.renderCache);
+    }
+    bool cellHasDisconnectedHighBridgeDeck(const TerrainCell& terrain) const override {
+        return runtimeCellHasDisconnectedHighBridgeDeck(state_, terrain);
+    }
+
+private:
+    RuntimeWindowState& state_;
+    const RuntimeMapRenderContext& metadataContext_;
+};
+
 RuntimeTerrainInfo runtimeNavigationTerrainInfoForCell(
     RuntimeWindowState& state,
     const TerrainCell& terrain,
     const RuntimeMapRenderContext& metadataContext
 ) {
-    if (terrain.overlayWall.health > 0 && runtimeOverlayWallRuleForCell(state, terrain)
-        && runtimeOverlayWallUsesCurrentOverlay(terrain)) {
-        RuntimeTerrainInfo blocked;
-        blocked.kind = RuntimeTerrainKind::Blocked;
-        blocked.passable = false;
-        blocked.cost = std::numeric_limits<int>::max() / 4;
-        blocked.movementLandType = blocked.authoredLandType = RuntimeTerrainLandType::Wall;
-        return blocked;
-    }
-    // Resolve only ordinary sentinel ground through canonical metadata. Intact
-    // bridge overlays retain their previous underlying movement-surface policy.
-    if (terrain.tileIndex == 65535 && state.theaterLoaded
-        && !runtimeOverlayProvidesBridgeDeck(terrain)
-        && !runtimeHighBridgeFrameIsDisconnected(terrain)
-        && !runtimeOverlayIsBrokenLowBridgePlaceholder(terrain)) {
-        TerrainCell clear = terrain;
-        clear.tileIndex = 0;
-        clear.subTileIndex = 0;
-        return runtimeNavigationTerrainInfoForCell(state, clear, metadataContext);
-    }
-    RuntimeTerrainInfo info = runtimeTerrainInfoForCell(state, terrain);
-    info.movementLandType = resolveRuntimeTerrainSubTileLandType(terrain, metadataContext, state.renderCache);
-    info.movementRampType = resolveRuntimeTerrainSubTileRampType(terrain, metadataContext, state.renderCache);
-    if (info.bridge && !runtimeOverlayProvidesBridgeDeck(terrain)
-        && runtimeCellHasDisconnectedHighBridgeDeck(state, terrain)) {
-        info.bridge = false;
-        info.authoredLandType = info.movementLandType;
-        info.water = info.movementLandType == RuntimeTerrainLandType::Water;
-        info.kind = info.water ? RuntimeTerrainKind::Water : RuntimeTerrainKind::Land;
-        info.cost = info.water ? 18
-            : (info.movementLandType == RuntimeTerrainLandType::Road ? 8 : 10);
-        if (info.movementLandType == RuntimeTerrainLandType::Rock
-            || info.movementLandType == RuntimeTerrainLandType::Wall) {
-            info.kind = RuntimeTerrainKind::Blocked;
-            info.passable = false;
-            info.cost = std::numeric_limits<int>::max() / 4;
-        }
-    }
-    if (info.kind != RuntimeTerrainKind::Shore) {
-        return info;
-    }
-
-    info.authoredLandType = resolveRuntimeTerrainSubTileLandType(
-        terrain,
-        metadataContext,
-        state.renderCache
-    );
-    if (info.authoredLandType == RuntimeTerrainLandType::Water) {
-        info.kind = RuntimeTerrainKind::Water;
-        info.water = true;
-        info.shore = false;
-        info.cost = 18;
-    } else if (info.authoredLandType == RuntimeTerrainLandType::Rough
-               || info.authoredLandType == RuntimeTerrainLandType::Clear) {
-        // Landward shoreline cells remain ordinary traversable land.
-        info.kind = RuntimeTerrainKind::Land;
-        info.water = false;
-        info.shore = false;
-        info.cost = 10;
-    }
-    return info;
+    RuntimeNavigationTerrainRendererAdapter adapter(state, metadataContext);
+    return runtimePrivateNavigationTerrainInfo(queryRuntimeNavigationTerrainInfo(adapter, terrain));
 }
-
 RuntimeTerrainInfo runtimeNavigationTerrainInfoForCell(
     RuntimeWindowState& state,
     const TerrainCell& terrain
@@ -44878,8 +44837,8 @@ bool materializeRuntimeLoadStateFromIni(
 
     state.selectedObjectIds.clear();
     state.parasiteReselectAfterLimboObjectIds.clear();
-    state.selectionDragActive = false;
-    state.rightDragActive = false;
+    state.leftPointer.active = false;
+    state.rightPointer.active = false;
     state.actionSummary = RuntimeActionSummary{};
     state.gattlingWeaponTimers = std::move(
         validatedLateState->gattlingWeaponTimers
@@ -46266,6 +46225,8 @@ void seedRuntimeLoadScratch(
     // These fields form the immutable map/rules context used while parsing
     // and materializing a save.  All copies happen before the live state is
     // touched, so allocation failure leaves the running match unchanged.
+    // Same borrowed host source for detached materialization; never committed.
+    scratch.uiClock = live.uiClock;
     scratch.config = live.config;
     scratch.report = live.report;
     scratch.world = live.world;
@@ -46498,8 +46459,8 @@ void commitRuntimeLoadedState(
     RUNTIME_LOAD_SWAP(drainingObjectExits);
     RUNTIME_LOAD_SWAP(selectedObjectIds);
     RUNTIME_LOAD_SWAP(parasiteReselectAfterLimboObjectIds);
-    RUNTIME_LOAD_SWAP(selectionDragActive);
-    RUNTIME_LOAD_SWAP(rightDragActive);
+    RUNTIME_LOAD_SWAP(leftPointer.active);
+    RUNTIME_LOAD_SWAP(rightPointer.active);
     RUNTIME_LOAD_SWAP(sidebarPowerAnimation);
     swapRuntimeLoadedRenderWorldCaches(
         live.renderCache,
@@ -56587,10 +56548,9 @@ RECT normalizedRect(POINT first, POINT second) {
 }
 
 bool rectsIntersect(const RECT& left, const RECT& right) {
-    return left.left < right.right
-        && left.right > right.left
-        && left.top < right.bottom
-        && left.bottom > right.top;
+    return runtimeInputPixelRectsIntersect(
+        {left.left, left.top, left.right, left.bottom},
+        {right.left, right.top, right.right, right.bottom});
 }
 
 bool rectIsEmpty(const RECT& rect) {
@@ -56613,10 +56573,8 @@ RECT unionRects(const RECT& left, const RECT& right) {
 }
 
 bool pointInRectInclusive(const RECT& rect, POINT point) {
-    return point.x >= rect.left
-        && point.x <= rect.right
-        && point.y >= rect.top
-        && point.y <= rect.bottom;
+    return runtimeInputPixelPointInRectInclusive(
+        {rect.left, rect.top, rect.right, rect.bottom}, {point.x, point.y});
 }
 
 bool pointInRuntimeIsoDiamond(
@@ -75481,10 +75439,10 @@ void refreshRuntimeActionSummary(RuntimeWindowState& state) {
 
 void cancelRuntimeInteraction(RuntimeWindowState& state) {
     state.selectedObjectIds.clear();
-    state.selectionDragActive = false;
-    state.selectionDragMoved = false;
-    state.rightDragActive = false;
-    state.rightDragMoved = false;
+    state.leftPointer.active = false;
+    state.leftPointer.moved = false;
+    state.rightPointer.active = false;
+    state.rightPointer.moved = false;
     state.activeSidebarTool = RuntimeSidebarTool::None;
     state.lastCommand.valid = false;
     state.interactionStatus = "selection canceled";
@@ -91800,8 +91758,8 @@ bool applyRuntimeCampaignAction(
 
     if (type == 46 || type == 47) {
         state.triggers.campaignInputLocked = type == 46;
-        state.selectionDragActive = false;
-        state.rightDragActive = false;
+        state.leftPointer.active = false;
+        state.rightPointer.active = false;
         state.triggers.status = type == 46
             ? "campaign input locked"
             : "campaign input unlocked";
@@ -104437,61 +104395,10 @@ bool advanceRuntimeSimulation(
     return changed;
 }
 
-bool panRuntimeCameraByRightDragDelta(
-    RuntimeWindowState& state,
-    int dx,
-    int dy
-) {
-    if ((dx * dx) + (dy * dy) <= 16) {
-        return false;
-    }
-
-    const int panX = std::clamp(dx, -96, 96);
-    const int panY = std::clamp(dy, -96, 96);
-    if (panX == 0 && panY == 0) {
-        return false;
-    }
-
-    if (!scrollRuntimeMapCameraClamped(state, panX, panY)) {
-        state.interactionStatus = "map edge";
-        return false;
-    }
-    invalidateRuntimeObjectProjectionCache(state);
-    state.interactionStatus = "right drag pan";
-    return true;
-}
-
-int runtimeRightDragPanStep(int delta) {
-    const int magnitude = std::abs(delta);
-    if (magnitude <= 4) {
-        return 0;
-    }
-
-    const int step = std::clamp(magnitude / 4, 1, 32);
-    return delta < 0 ? -step : step;
-}
-
-bool advanceRuntimeRightMousePan(RuntimeWindowState& state) {
-    if (!state.runtimeScrollCoastingEnabled
-        || !state.rightDragActive
-        || !state.rightDragMoved) {
-        return false;
-    }
-
-    const int dx = state.rightDragLast.x - state.rightDragStart.x;
-    const int dy = state.rightDragLast.y - state.rightDragStart.y;
-    const int rateScale = std::clamp(state.runtimeScrollRate, 0, 6) + 3;
-    const int panX = runtimeRightDragPanStep(dx) * rateScale / 6;
-    const int panY = runtimeRightDragPanStep(dy) * rateScale / 6;
-    if (!panRuntimeCameraByRightDragDelta(state, panX, panY)) {
-        return false;
-    }
-    return true;
-}
-
 POINT pointFromMouseMessage(LPARAM lParam) {
-    const POINTS points = MAKEPOINTS(lParam);
-    return {points.x, points.y};
+    const auto point = runtimeInputPixelPointFromPackedPosition(
+        static_cast<std::uint32_t>(lParam));
+    return {point.x, point.y};
 }
 
 POINT runtimeScreenPointForCell(
@@ -104583,16 +104490,12 @@ void centerRuntimeCameraOnCell(
     const int level = terrainLevelAtRuntimeCell(state, cell.x, cell.y);
     const RuntimeProjectedPoint projected =
         runtimeProjectCellXY(cell.x, cell.y, level, state.camera);
-    const int viewportWidth = std::max(
-        1,
-        static_cast<int>(viewport.right - viewport.left)
-    );
-    const int viewportHeight = std::max(
-        1,
-        static_cast<int>(viewport.bottom - viewport.top)
-    );
-    state.camera.worldOffsetX = projected.x - (viewportWidth / 2);
-    state.camera.worldOffsetY = projected.y - (viewportHeight / 2);
+    const RuntimeInputPixelSize viewportSize = runtimeInputPixelBoundsSize(
+        {viewport.left, viewport.top}, {viewport.right, viewport.bottom});
+    const RuntimeInputPixelPoint offset = runtimeInputPixelCameraOffset(
+        {projected.x, projected.y}, viewportSize);
+    state.camera.worldOffsetX = offset.x;
+    state.camera.worldOffsetY = offset.y;
     state.camera.initialized = true;
     state.cameraClampViewport = viewport;
     clampRuntimeMapCamera(state, viewport);
@@ -104712,6 +104615,7 @@ const ArtType* runtimeArtTypeForBuildItem(
     return state.art.findArtType(artId);
 }
 
+#include "ui/input/diagnostics/RuntimeKeyboardParentDiagnostics.inl"
 #include "ui/input/RuntimeGameplayIntentRouting.inl"
 
 std::string runtimeImageIdForBuildItem(
@@ -106691,17 +106595,7 @@ bool drawRuntimeBuildProgressClockOverlay(
 }
 
 int runtimeBuildTabIndex(RuntimeBuildKind kind) {
-    switch (kind) {
-    case RuntimeBuildKind::Building:
-        return 0;
-    case RuntimeBuildKind::Defense:
-        return 1;
-    case RuntimeBuildKind::Infantry:
-        return 2;
-    case RuntimeBuildKind::Unit:
-        return 3;
-    }
-    return 0;
+    return runtimeSidebarPageTabIndex(kind);
 }
 
 RuntimeBuildKind runtimeBuildKindForTabIndex(int index) {
@@ -107035,72 +106929,37 @@ int runtimeBuildButtonsPerPage(const RECT& sidebar) {
     );
 }
 
+#include "ui/sidebar/RuntimeSidebarPageUi.inl"
+
 int runtimeActiveBuildPage(const RuntimeWindowState& state) {
-    const int tab = runtimeBuildTabIndex(state.activeBuildTab);
-    if (tab < 0 || tab >= static_cast<int>(state.buildPageByTab.size())) {
-        return 0;
-    }
-    return std::max(0, state.buildPageByTab[tab]);
+    RuntimeSidebarPageQueryUiHost host(state);
+    return runtimeSidebarPageActive(host);
 }
 
 void runtimeSetActiveBuildPage(RuntimeWindowState& state, int page) {
-    const int tab = runtimeBuildTabIndex(state.activeBuildTab);
-    if (tab < 0 || tab >= static_cast<int>(state.buildPageByTab.size())) {
-        return;
-    }
-    state.buildPageByTab[tab] = std::max(0, page);
+    RuntimeSidebarPageUiHost host(state);
+    runtimeSidebarPageSet(host, page);
 }
 
 int runtimeBuildPageCount(
     const RuntimeWindowState& state,
     const RECT& sidebar
 ) {
-    const std::vector<int> filtered = runtimeFilteredBuildCatalogIndices(state);
-    const int superWeaponCount = state.activeBuildTab == RuntimeBuildKind::Defense
-        ? static_cast<int>(runtimeVisibleSuperWeapons(state).size())
-        : 0;
-    const int perPage = runtimeBuildButtonsPerPage(sidebar);
-    return std::max(
-        1,
-        (static_cast<int>(filtered.size()) + superWeaponCount + perPage - 1)
-            / perPage
-    );
+    RuntimeSidebarPageQueryUiHost host(state);
+    return runtimeSidebarPageCount(host, {sidebar.left, sidebar.top, sidebar.right, sidebar.bottom});
 }
 
 void runtimeClampActiveBuildPage(
     RuntimeWindowState& state,
     const RECT& sidebar
 ) {
-    runtimeSetActiveBuildPage(
-        state,
-        std::min(
-            runtimeActiveBuildPage(state),
-            runtimeBuildPageCount(state, sidebar) - 1
-        )
-    );
+    RuntimeSidebarPageUiHost host(state);
+    runtimeSidebarPageClamp(host, {sidebar.left, sidebar.top, sidebar.right, sidebar.bottom});
 }
 
 bool scrollRuntimeSidebarWheel(RuntimeWindowState& state, const RECT& sidebar, int delta) {
-    const int tab = runtimeBuildTabIndex(state.activeBuildTab);
-    if (tab < 0 || tab >= static_cast<int>(state.buildWheelRemainderByTab.size())) return false;
-    const int before = runtimeActiveBuildPage(state);
-    runtimeClampActiveBuildPage(state, sidebar);
-    int& remainder = state.buildWheelRemainderByTab[tab];
-    const int pages = runtimeBuildPageCount(state, sidebar);
-    if (pages <= 1) {
-        remainder = 0;
-        return before != runtimeActiveBuildPage(state);
-    }
-    const int accumulated = remainder + delta;
-    const int steps = accumulated / WHEEL_DELTA;
-    remainder = accumulated % WHEEL_DELTA;
-    const int previous = runtimeActiveBuildPage(state);
-    const int next = std::clamp(previous - steps, 0, pages - 1);
-    if (steps != 0 && next == previous) remainder = 0;
-    runtimeSetActiveBuildPage(state, next);
-    if (next == before) return false;
-    state.interactionStatus = "build page " + std::to_string(next + 1) + "/" + std::to_string(pages);
-    return true;
+    RuntimeSidebarPageUiHost host(state);
+    return runtimeSidebarPageScroll(host, {sidebar.left, sidebar.top, sidebar.right, sidebar.bottom}, delta);
 }
 
 std::vector<int> runtimeVisibleBuildCatalogIndices(
@@ -108039,7 +107898,7 @@ void drawRuntimeSidebar(
     HDC dc,
     const RECT& clientRect,
     RuntimeWindowState& state,
-    std::uint64_t presentationMs = GetTickCount64()
+    std::uint64_t presentationMs
 ) {
     RuntimeSidebarOwnedQueryDiagnostics::Phase sidebarQueryTracePhase(&state);
     RuntimePaintSecretLabPhaseScope secretLabReadonlyPhase(state, true);
@@ -108402,7 +108261,7 @@ void drawRuntimeSidebar(
             }
         }
 
-        if (placementReady && (presentationMs / 500U) % 2U == 0U) {
+        if (placementReady && runtimeUiReadyBlinkOn(presentationMs)) {
             RECT textRect{iconRect.left + 2, iconRect.top + 4, iconRect.right - 2, iconRect.bottom - 12};
             RECT shadowRect = textRect;
             OffsetRect(&shadowRect, 1, 1);
@@ -108571,7 +108430,7 @@ void drawRuntimeSidebar(
         LineTo(dc, rect.left + 1, rect.bottom - 1);
         LineTo(dc, rect.left + 1, rect.top + 1);
         if (runtimeSuperWeaponHasReadyLabel(snapshot)
-            && (presentationMs / 500U) % 2U == 0U) {
+            && runtimeUiReadyBlinkOn(presentationMs)) {
             // Use presentation time so game speed and pause do not accelerate
             // or freeze the cameo's ready indication.
             RECT textRect{rect.left + 2, rect.top + 4, rect.right - 2, rect.bottom - 12};
@@ -108593,6 +108452,10 @@ void drawRuntimeSidebar(
 
     SelectObject(dc, oldPen);
     SelectObject(dc, oldBrush);
+}
+
+void drawRuntimeSidebar(HDC dc, const RECT& clientRect, RuntimeWindowState& state) {
+    drawRuntimeSidebar(dc, clientRect, state, runtimeUiClockNow(state));
 }
 
 std::wstring runtimeMenuLabel(
@@ -108623,14 +108486,14 @@ bool runtimeGameplayObjectTooltipDelayElapsed(
     RuntimeWindowState& state,
     int objectId
 ) {
-    const std::uint64_t nowMs = static_cast<std::uint64_t>(GetTickCount64());
+    const std::uint64_t nowMs = runtimeUiClockNow(state);
     if (state.runtimeGameplayTooltipHoverObjectId != objectId) {
         state.runtimeGameplayTooltipHoverObjectId = objectId;
         state.runtimeGameplayTooltipHoverStartedMs = nowMs;
         return false;
     }
-    return nowMs - state.runtimeGameplayTooltipHoverStartedMs
-        >= runtimeGameplayObjectTooltipDelayMs;
+    return runtimeUiHoverDelayElapsed(nowMs,
+        state.runtimeGameplayTooltipHoverStartedMs, runtimeGameplayObjectTooltipDelayMs);
 }
 
 void resetRuntimeGameplayBuildTooltipHover(RuntimeWindowState& state) {
@@ -108642,14 +108505,14 @@ bool runtimeGameplayBuildTooltipDelayElapsed(
     RuntimeWindowState& state,
     int buttonIndex
 ) {
-    const std::uint64_t nowMs = static_cast<std::uint64_t>(GetTickCount64());
+    const std::uint64_t nowMs = runtimeUiClockNow(state);
     if (state.runtimeGameplayTooltipHoverBuildButtonIndex != buttonIndex) {
         state.runtimeGameplayTooltipHoverBuildButtonIndex = buttonIndex;
         state.runtimeGameplayTooltipHoverBuildStartedMs = nowMs;
         return false;
     }
-    return nowMs - state.runtimeGameplayTooltipHoverBuildStartedMs
-        >= runtimeGameplayBuildTooltipDelayMs;
+    return runtimeUiHoverDelayElapsed(nowMs,
+        state.runtimeGameplayTooltipHoverBuildStartedMs, runtimeGameplayBuildTooltipDelayMs);
 }
 
 void resetRuntimeGameplayTooltipHover(RuntimeWindowState& state) {
@@ -111483,7 +111346,7 @@ void drawRuntimeSuperWeaponTargetRings(
     const RECT& viewport,
     const RuntimeWindowState& state
 ) {
-    if (!state.mouseClientPointValid || state.rightDragActive
+    if (!state.mouseClientPointValid || state.rightPointer.active
         || !pointInRectInclusive(viewport, state.mouseClientPoint)) {
         return;
     }
@@ -111842,11 +111705,11 @@ void drawRuntimeInteractionOverlay(
     DeleteObject(structureSelectionPen);
     DeleteObject(selectedPen);
 
-    if (state.selectionDragActive && state.selectionDragMoved && !state.forceAttackHeld) {
+    if (state.leftPointer.active && state.leftPointer.moved && !state.forceAttackHeld) {
         HPEN dragPen = CreatePen(PS_DOT, 1, RGB(228, 238, 250));
         oldPen = SelectObject(dc, dragPen);
         const RECT dragRect =
-            normalizedRect(state.selectionStart, state.selectionCurrent);
+            normalizedRect(POINT{state.leftPointer.start.x, state.leftPointer.start.y}, POINT{state.leftPointer.current.x, state.leftPointer.current.y});
         Rectangle(dc, dragRect.left, dragRect.top, dragRect.right, dragRect.bottom);
         SelectObject(dc, oldPen);
         DeleteObject(dragPen);
@@ -112402,7 +112265,7 @@ std::optional<RuntimeMouseCursorFrame> runtimeMouseCursorFrameForPoint(
     }
 
     // The pan cross temporarily overrides targeting without changing its state.
-    if (state.rightDragActive) {
+    if (state.rightPointer.active) {
         return runtimePanMouseCursorFrame(state);
     }
     const int phase = std::max(0, state.tick / 4);
@@ -112458,7 +112321,7 @@ std::optional<RuntimeMouseCursorFrame> runtimeMouseCursorFrameForPoint(
         && !runtimeSelectedPlacement(state).has_value()) {
         return RuntimeMouseCursorFrame{53 + (phase % 5), 27, 21};
     }
-    if (state.selectionDragActive) {
+    if (state.leftPointer.active) {
         // Pressing or box-selecting uses the original silver arrow.
         return RuntimeMouseCursorFrame{0, 0, 0};
     }
@@ -112609,42 +112472,7 @@ void drawRuntimeMouseCursorOverlay(
     if (savedDc != 0) RestoreDC(dc, savedDc);
 }
 
-HCURSOR runtimeCursorForPoint(
-    const RuntimeWindowState& state,
-    const RECT& clientRect,
-    POINT point
-) {
-    const RECT sidebar = runtimeSidebarRect(clientRect);
-    if (pointInRectInclusive(sidebar, point)) {
-        if (runtimeSuperWeaponAtPoint(state, sidebar, point) != nullptr
-            || runtimeBuildButtonAtPoint(state, sidebar, point).has_value()
-            || runtimeBuildPageButtonAtPoint(state, sidebar, point) != 0
-            || runtimeBuildTabAtPoint(state, sidebar, point).has_value()
-            || runtimeSidebarToolAtPoint(sidebar, point).has_value()
-            || runtimeRadarCellAtPoint(state, runtimeRadarRect(sidebar), point)
-                .has_value()) {
-            return loadRuntimeStockCursor(32649);
-        }
-        return loadRuntimeStockCursor(32512);
-    }
-
-    const RECT viewport = runtimeMapViewport(clientRect);
-    if (!pointInRectInclusive(viewport, point)) {
-        return loadRuntimeStockCursor(32512);
-    }
-    if (runtimeSelectedPlacement(state).has_value()) {
-        return loadRuntimeStockCursor(
-            runtimePlacementValidForUi(state) ? 32515 : 32648
-        );
-    }
-    if (state.activeSidebarTool != RuntimeSidebarTool::None) {
-        return loadRuntimeStockCursor(32515);
-    }
-    if (selectedMovableObjectCount(state) > 0) {
-        return loadRuntimeStockCursor(32515);
-    }
-    return loadRuntimeStockCursor(32512);
-}
+#include "ui/input/RuntimeCursorUi.inl"
 
 bool runtimeMenuCsfFourCc(
     const std::vector<unsigned char>& bytes,
@@ -113596,46 +113424,8 @@ bool setRuntimeMenuSliderFromX(
     return true;
 }
 
-bool beginRuntimeMenuSliderDrag(
-    RuntimeWindowState& state,
-    const RECT& clientRect,
-    RuntimeMenuAction action,
-    POINT point
-) {
-    const std::optional<RuntimeMenuControl> control =
-        runtimeMenuControlForAction(state, clientRect, action);
-    if (!control.has_value()
-        || control->kind != RuntimeMenuControlKind::Slider) {
-        return false;
-    }
-
-    const RECT valueRect = runtimeMenuControlValueRect(*control);
-    if (!PtInRect(&valueRect, point)) {
-        return false;
-    }
-
-    state.runtimeMenuPressed = action;
-    state.runtimeMenuSliderDrag = action;
-    (void)setRuntimeMenuSliderFromX(state, clientRect, action, point.x);
-    return true;
-}
-
-bool updateRuntimeMenuSliderDrag(
-    RuntimeWindowState& state,
-    const RECT& clientRect,
-    int clientX
-) {
-    if (state.runtimeMenuSliderDrag == RuntimeMenuAction::None) {
-        return false;
-    }
-    return setRuntimeMenuSliderFromX(
-        state,
-        clientRect,
-        state.runtimeMenuSliderDrag,
-        clientX
-    );
-}
-
+bool beginRuntimeMenuSliderDrag(RuntimeWindowState& state, const RECT& clientRect, RuntimeMenuAction action, POINT point);
+bool updateRuntimeMenuSliderDrag(RuntimeWindowState& state, const RECT& clientRect, int clientX);
 void applyRuntimeMenuSliderRuntimeEffects(
     RuntimeWindowState& state,
     RuntimeMenuAction action
@@ -113663,24 +113453,7 @@ void applyRuntimeMenuSliderRuntimeEffects(
         muteRuntimeEvaPlaybackPreservingSubtitle(state);
     }
 }
-bool finishRuntimeMenuSliderDrag(
-    RuntimeWindowState& state,
-    const RECT& clientRect,
-    int clientX
-) {
-    if (state.runtimeMenuSliderDrag == RuntimeMenuAction::None) {
-        return false;
-    }
-    (void)updateRuntimeMenuSliderDrag(state, clientRect, clientX);
-    const RuntimeMenuAction completedAction = state.runtimeMenuSliderDrag;
-    state.runtimeMenuSliderDrag = RuntimeMenuAction::None;
-    state.runtimeMenuPressed = RuntimeMenuAction::None;
-    applyRuntimeMenuSliderRuntimeEffects(state, completedAction);
-    state.runtimeMenuStatus.clear();
-    (void)persistRuntimeMenuPreferences(state);
-    return true;
-}
-
+bool finishRuntimeMenuSliderDrag(RuntimeWindowState& state, const RECT& clientRect, int clientX);
 bool adjustRuntimeMenuSliderPosition(
     RuntimeWindowState& state,
     RuntimeMenuAction action,
@@ -113947,10 +113720,10 @@ void setRuntimeMenuOpen(RuntimeWindowState& state, bool open) {
     ensureRuntimeMenuOptionDefaults(state);
     state.runtimeMenuOpen = open;
     resetRuntimeMenuPage(state, RuntimeMenuPage::Main);
-    state.selectionDragActive = false;
-    state.selectionDragMoved = false;
-    state.rightDragActive = false;
-    state.rightDragMoved = false;
+    state.leftPointer.active = false;
+    state.leftPointer.moved = false;
+    state.rightPointer.active = false;
+    state.rightPointer.moved = false;
     state.interactionStatus = open ? "menu open" : "menu closed";
 }
 
@@ -114186,7 +113959,7 @@ void activateRuntimeMenuAction(
         state.resultPresentation.resigned = true;
         // Keep this window and its statistics alive through the EVA/banner
         // and score page. Only the score's Continue action leaves the match.
-        advanceRuntimeResultPresentation(state, GetTickCount64());
+        advanceRuntimeResultPresentation(state, runtimeUiClockNow(state));
         return;
     }
     if (preferenceChanged) {
@@ -114271,24 +114044,16 @@ RuntimeMenuAction runtimeMenuFocusedAction(
     return focusable[static_cast<std::size_t>(index)].action;
 }
 
+#include "ui/input/RuntimeMenuNavigationUi.inl"
+
 bool handleRuntimeMenuHorizontalKey(
     RuntimeWindowState& state,
     const RECT& clientRect,
     WPARAM key
 ) {
-    if (key != VK_LEFT && key != VK_RIGHT) {
-        return false;
-    }
-    if (state.runtimeMenuPage==RuntimeMenuPage::Keyboard) {
-        runtimeKeyboardChangePage(state,key==VK_RIGHT?1:-1,
-            runtimeMenuFocusedAction(state,clientRect)==RuntimeMenuAction::KeyboardCategory);
-        return true;
-    }
-    return adjustRuntimeMenuSliderPosition(
-        state,
-        runtimeMenuFocusedAction(state, clientRect),
-        key == VK_RIGHT ? 1 : -1
-    );
+    RuntimeMenuNavigationUiHost host(state, clientRect);
+    return ::handleRuntimeMenuHorizontalKey(
+        {static_cast<std::uint64_t>(key), false}, host);
 }
 
 std::wstring runtimeMenuPageTitle(const RuntimeWindowState& state) {
@@ -114324,22 +114089,7 @@ std::wstring runtimeMenuKeyboardBindingLabel(
 }
 
 bool runtimeKeyboardModifierOnly(WPARAM key) {
-    switch (key) {
-    case VK_SHIFT:
-    case VK_LSHIFT:
-    case VK_RSHIFT:
-    case VK_CONTROL:
-    case VK_LCONTROL:
-    case VK_RCONTROL:
-    case VK_MENU:
-    case VK_LMENU:
-    case VK_RMENU:
-    case VK_LWIN:
-    case VK_RWIN:
-        return true;
-    default:
-        return false;
-    }
+    return ::runtimeMenuKeyModifierOnly(static_cast<std::uint64_t>(key));
 }
 
 bool assignRuntimeMenuKeyboardBinding(
@@ -114401,46 +114151,16 @@ bool assignRuntimeMenuKeyboardBinding(
     return true;
 }
 
+#include "ui/input/RuntimeMenuCaptureUi.inl"
+
 bool handleRuntimeMenuKeyCapture(
     RuntimeWindowState& state,
-    WPARAM key
+    WPARAM key,
+    bool repeated = false
 ) {
-    if (!state.runtimeMenuOpen
-        || state.runtimeMenuPage != RuntimeMenuPage::Keyboard
-        || state.runtimeMenuKeyCaptureIndex < 0) {
-        return false;
-    }
-    if (key == VK_ESCAPE) {
-        state.runtimeMenuKeyCaptureIndex = -1;
-        state.runtimeMenuStatus = L"已取消改键。";
-        return true;
-    }
-    if (runtimeKeyboardModifierOnly(key)) {
-        state.runtimeMenuStatus =
-            L"请同时按下组合键中的字母、数字或功能键。";
-        return true;
-    }
-
-    const int bindingIndex = state.runtimeMenuKeyCaptureIndex;
-    int keyCode = runtimePlayerCurrentKeyCode(key);
-    bool restoredDefault = false;
-    if (key == VK_BACK) {
-        if (bindingIndex < 0
-            || bindingIndex >= static_cast<int>(state.runtimeMenuKeyboardBindings.size())) {
-            state.runtimeMenuKeyCaptureIndex = -1;
-            state.runtimeMenuStatus = L"已取消改键。";
-            return true;
-        }
-        keyCode = runtimeKeyboardDefaultAt(bindingIndex);
-        restoredDefault = true;
-    }
-    (void)assignRuntimeMenuKeyboardBinding(
-        state,
-        bindingIndex,
-        keyCode,
-        restoredDefault
-    );
-    return true;
+    RuntimeMenuCaptureUiHost host(state);
+    return ::handleRuntimeMenuCaptureKey(
+        {static_cast<std::uint64_t>(key), repeated}, host);
 }
 
 void drawRuntimeMenuDialogContent(
@@ -115252,11 +114972,9 @@ void drawRuntimeCampaignScoreFallbackOverlay(
     SelectObject(dc, oldPen);
     DeleteObject(gridPen);
 
-    const ULONGLONG now = GetTickCount64();
-    const ULONGLONG elapsedMs = state.campaignScore.presentationStartedAtMs == 0
-        || now < state.campaignScore.presentationStartedAtMs
-        ? 2000ULL
-        : now - state.campaignScore.presentationStartedAtMs;
+    const ULONGLONG now = runtimeUiClockNow(state);
+    const ULONGLONG elapsedMs = runtimeUiScoreElapsed(
+        now, state.campaignScore.presentationStartedAtMs, 2000ULL);
     const int visibleBars = std::clamp<int>(
         1 + static_cast<int>(elapsedMs / 130ULL),
         1,
@@ -115452,11 +115170,9 @@ void drawRuntimeCampaignScoreOverlay(
         true,
         true
     );
-    const ULONGLONG now = GetTickCount64();
-    const ULONGLONG elapsedMs = state.campaignScore.presentationStartedAtMs == 0
-        || now < state.campaignScore.presentationStartedAtMs
-        ? 3000ULL
-        : now - state.campaignScore.presentationStartedAtMs;
+    const ULONGLONG now = runtimeUiClockNow(state);
+    const ULONGLONG elapsedMs = runtimeUiScoreElapsed(
+        now, state.campaignScore.presentationStartedAtMs, 3000ULL);
     constexpr ULONGLONG transitionFrameMs = 100ULL;
     constexpr ULONGLONG transitionDurationMs = 6ULL * transitionFrameMs;
     if (elapsedMs < transitionDurationMs) {
@@ -115705,8 +115421,8 @@ void advanceRuntimeResultPresentation(RuntimeWindowState& state, ULONGLONG now) 
             std::llround(minutes * 60000.0)
         );
         state.runtimeMenuOpen = false;
-        state.selectionDragActive = false;
-        state.rightDragActive = false;
+        state.leftPointer.active = false;
+        state.rightPointer.active = false;
         // Simulation ticks stop at the result. Old combat announcements must
         // not leave the end-of-game EVA stuck behind a tick-based busy timer.
         if (!state.multiplayerLocalSpectator && !runtimeLocalObserver(state.config)) {
@@ -115717,9 +115433,30 @@ void advanceRuntimeResultPresentation(RuntimeWindowState& state, ULONGLONG now) 
         state.repaintRequested = true;
     }
     if (presentation.bannerVisible
-        && now >= presentation.startedAtMs
-        && now - presentation.startedAtMs >= presentation.bannerDurationMs) {
+        && runtimeUiBannerElapsed(now, presentation.startedAtMs, presentation.bannerDurationMs)) {
         beginRuntimeResultScorePage(state, now);
+    }
+}
+
+void advanceRuntimeUiPresentation(RuntimeWindowState& state) {
+    const std::uint64_t presentationMs = runtimeUiClockNow(state);
+    advanceRuntimeResultPresentation(state, presentationMs);
+    expireRuntimePlayerDefeatNotices(state,presentationMs);
+    const std::uint64_t readyBlinkPeriod = runtimeUiReadyBlinkPeriod(presentationMs);
+    if (readyBlinkPeriod != state.lastSidebarReadyBlinkPeriod) {
+        state.lastSidebarReadyBlinkPeriod = readyBlinkPeriod;
+        if (runtimeOldestReadyPlacement(state).has_value()) {
+            // Ready buildings also animate while the world is paused.
+            state.repaintRequested = true;
+        }
+        for (const auto& snapshot : state.superWeapons.sidebarSnapshots()) {
+            if (snapshot.owner == state.economy.owner
+                && runtimeSuperWeaponHasReadyLabel(snapshot)) {
+                // A paused world otherwise reuses the cached frame.
+                state.repaintRequested = true;
+                break;
+            }
+        }
     }
 }
 
@@ -116553,8 +116290,8 @@ bool dismissRuntimePlacementFromUi(RuntimeWindowState& state) {
     if (runtimeUsesGameplayIntentRouter(state)) state.multiplayerIntentRouter.cancelPlacement();
     else clearRuntimePlacementSelection(state);
     state.interactionStatus = "building ready: click sidebar icon to place";
-    state.selectionDragActive = state.selectionDragMoved = false;
-    state.rightDragActive = state.rightDragMoved = false;
+    state.leftPointer.active = state.leftPointer.moved = false;
+    state.rightPointer.active = state.rightPointer.moved = false;
     return true;
 }
 
@@ -116715,8 +116452,8 @@ bool cancelRuntimeActiveSuperWeaponTargetSelection(
         clearRuntimeLocalChronosphereMarker(state);
         state.interactionStatus =
             "superweapon target canceled: " + reason;
-        state.selectionDragActive = false;
-        state.selectionDragMoved = false;
+        state.leftPointer.active = false;
+        state.leftPointer.moved = false;
         return true;
     }
     ensureRuntimeSuperWeaponsInitialized(state);
@@ -116748,8 +116485,8 @@ bool cancelRuntimeActiveSuperWeaponTargetSelection(
         clearRuntimeLocalChronosphereMarker(state);
         (void)flushRuntimeSuperWeaponHostEvents(state);
         state.economy.status = state.interactionStatus;
-        state.selectionDragActive = false;
-        state.selectionDragMoved = false;
+        state.leftPointer.active = false;
+        state.leftPointer.moved = false;
         return true;
     }
     return false;
@@ -116758,215 +116495,75 @@ bool cancelRuntimeActiveSuperWeaponTargetSelection(
 #include "ui/input/RuntimePlayerWaypointsUi.inl"
 #include "ui/diplomacy/RuntimeDiplomacyPage.inl"
 #include "ui/input/RuntimePlayerBeaconPresentation.inl"
-int runtimePlayerDefeatNoticeStackHeight(const RuntimeWindowState& state, const RECT& viewport, ULONGLONG nowMs);
+int runtimePlayerDefeatNoticeStackHeight(const RuntimeWindowState& state, const RECT& viewport, std::uint64_t nowMs);
 #include "ui/input/RuntimePlayerHotkeysUi.inl"
 #include "ui/input/RuntimePlayerDefeatNoticeUi.inl"
 #include "ui/input/RuntimePlayerCommandsUi.inl"
 
-bool handleRuntimeMapRightClick(
-    RuntimeWindowState& state,
-    const RECT& clientRect,
-    POINT point
-) {
-    if (state.playerCommunication.selectedBeacon) {
-        state.playerCommunication.selectedBeacon.reset();state.repaintRequested=true;return true;
-    }
-    if (state.playerLocalCommands.followTargeting || state.playerLocalCommands.rallyTargeting
-        || state.playerCommunication.beaconTargeting) {
-        state.playerCommunication.beaconTargeting = false;
-        state.playerLocalCommands.followTargeting = false;
-        state.playerLocalCommands.rallyTargeting = false;
-        return true;
-    }
-    if (cancelRuntimeActiveSuperWeaponTargetSelection(
-            state,
-            "right-click"
-        )) {
-        return true;
-    }
+#include "ui/input/RuntimeMapRightPointerUi.inl"
 
-    const RECT viewport = runtimeMapViewport(clientRect);
-    if (!pointInRectInclusive(viewport, point)) {
-        return false;
-    }
+bool submitRuntimeSuperWeaponTargetAtPoint(RuntimeWindowState& state, const RECT& viewport, POINT point);
 
-    if (dismissRuntimePlacementFromUi(state)) return true;
+// Per-message borrowed host: every query observes the live root state at the
+// original controller query point. No substate or object survives a callback.
+class RuntimeSelectionKeyWin32Host final : public RuntimeSelectionKeyHost {
+public:
+    RuntimeSelectionKeyWin32Host(RuntimeWindowState& state, WPARAM key)
+        : state_(state), key_(key) {}
 
-    if (state.playerLocalCommands.planning) {
-        state.playerLocalCommands.selectedWaypoint = 0;
-        cancelRuntimeInteraction(state);
-        return true;
-    }
-
-    if (state.activeSidebarTool != RuntimeSidebarTool::None) {
-        state.activeSidebarTool = RuntimeSidebarTool::None;
-        state.interactionStatus = "sidebar tool canceled";
-        return true;
-    }
-
-    if (state.selectedObjectIds.empty()) {
-        cancelRuntimeInteraction(state);
-        return true;
-    }
-
-    const std::vector<RuntimeProjectedObject>& projectedObjects =
-        runtimeProjectedObjectsForViewport(state, viewport);
-    const RuntimeProjectedObject* projectedObject =
-        findProjectedObjectAtPoint(projectedObjects, point);
-    const auto terrainWallTarget = visibleTerrainWallTargetAtPoint(state, viewport, point);
-    if (terrainWallTarget) {
-        if (dispatchRuntimeTargetOrderFromUi(state,
-                RuntimeMultiplayerGameplayTargetOrderKind::Primary,
-                {terrainWallTarget->x, terrainWallTarget->y}, &*terrainWallTarget)) return true;
-    }
-    if (projectedObject != nullptr
-        && projectedObject->object != nullptr
-        && !selectionContains(state, projectedObject->object->instanceId)) {
-        const POINT targetPoint =
-            approximateCellFromScreenPoint(state, viewport, point);
-        const RuntimeCellPoint targetCell{targetPoint.x, targetPoint.y};
-        if (dispatchRuntimeTargetOrderFromUi(
-                state,
-                RuntimeMultiplayerGameplayTargetOrderKind::Primary,
-                targetCell,
-                projectedObject->object
-            )) {
-            return true;
+    std::int32_t binding(
+        RuntimeSelectionKeyBinding id, std::int32_t fallback) override {
+        switch (id) {
+        case RuntimeSelectionKeyBinding::Stop:
+            return runtimeMenuKeyboardBindingCode(state_, "StopObject", fallback);
+        case RuntimeSelectionKeyBinding::Guard:
+            return runtimeMenuKeyboardBindingCode(state_, "GuardObject", fallback);
+        case RuntimeSelectionKeyBinding::Scatter:
+            return runtimeMenuKeyboardBindingCode(state_, "ScatterObject", fallback);
+        case RuntimeSelectionKeyBinding::Deploy:
+            return runtimeMenuKeyboardBindingCode(state_, "DeployObject", fallback);
         }
+        return fallback;
     }
 
-    cancelRuntimeInteraction(state);
-    return true;
-}
-
-bool submitRuntimeSuperWeaponTargetAtPoint(
-    RuntimeWindowState& state,
-    const RECT& viewport,
-    POINT point
-) {
-    ensureRuntimeSuperWeaponsInitialized(state);
-    if (runtimeUsesGameplayIntentRouter(state)) {
-        const auto& activeIntent =
-            state.multiplayerIntentRouter.superWeapon();
-        if (!activeIntent.has_value()) {
-            return false;
-        }
-        const POINT targetPoint = approximateCellFromScreenPoint(
-            state,
-            viewport,
-            point
-        );
-        RuntimeMultiplayerGameplaySuperWeaponTarget target;
-        target.cell = {targetPoint.x, targetPoint.y};
-        const std::vector<RuntimeProjectedObject>& projectedObjects =
-            runtimeProjectedObjectsForViewport(state, viewport);
-        const RuntimeProjectedObject* projectedObject =
-            findProjectedObjectAtPoint(projectedObjects, point);
-        if (projectedObject != nullptr
-            && projectedObject->object != nullptr
-            && !runtimeSuperWeaponTargetsGroundArea(state, activeIntent->superWeaponId)) {
-            target.objectId = projectedObject->object->instanceId;
-        }
-        refreshRuntimeMultiplayerPlayerIntentAuthority(state);
-        std::string errorMessage;
-        const bool accepted =
-            state.multiplayerIntentRouter.targetSuperWeapon(
-                std::move(target),
-                errorMessage
-            );
-        if (accepted) {
-            const auto& remaining =
-                state.multiplayerIntentRouter.superWeapon();
-            if (remaining && remaining->expectedTargetCount == 2
-                && remaining->targets.size() == 1) {
-                beginRuntimeLocalChronosphereMarker(state,
-                    remaining->superWeaponId,
-                    {remaining->targets.front().cell.x, remaining->targets.front().cell.y});
-            } else if (!remaining) {
-                clearRuntimeLocalChronosphereMarker(state);
-            }
-            state.interactionStatus = remaining.has_value()
-                ? "superweapon choose destination"
-                : (state.multiplayerBridge ? "superweapon launch queued for multiplayer" : "superweapon launched");
-        } else {
-            state.interactionStatus =
-                "superweapon target rejected: " + errorMessage;
-            emitRuntimeSound(state, "blocked");
-        }
-        state.selectionDragActive = false;
-        state.selectionDragMoved = false;
-        return true;
+    std::int32_t sampleKeyCode(const RuntimeSelectionKeyInput&) override {
+        // Keep the native helper's original GetKeyState argument expression.
+        return runtimePlayerCurrentKeyCode(key_);
     }
-    const std::string owner = toLowerAsciiLocal(
-        trimAsciiLocal(state.economy.owner)
-    );
-    const SuperWeaponSidebarSnapshot* activeSuperWeapon = nullptr;
-    for (const SuperWeaponSidebarSnapshot& snapshot :
-            state.superWeapons.sidebarSnapshots()) {
-        if (snapshot.targetSelectionActive
-            && (owner.empty()
-                || toLowerAsciiLocal(trimAsciiLocal(snapshot.owner)) == owner)) {
-            activeSuperWeapon = &snapshot;
+
+    void dispatch(RuntimeSelectionKeyAction action) override {
+        switch (action) {
+        case RuntimeSelectionKeyAction::Stop:
+            (void)dispatchRuntimeSelectionCommandFromUi(
+                state_, RuntimeMultiplayerGameplayCommandType::Stop);
+            break;
+        case RuntimeSelectionKeyAction::Guard:
+            (void)dispatchRuntimeSelectionCommandFromUi(
+                state_, RuntimeMultiplayerGameplayCommandType::Guard);
+            break;
+        case RuntimeSelectionKeyAction::Scatter:
+            (void)dispatchRuntimeSelectionCommandFromUi(
+                state_, RuntimeMultiplayerGameplayCommandType::Scatter);
+            break;
+        case RuntimeSelectionKeyAction::Deploy:
+            (void)dispatchRuntimeSecondaryActionForSelectionFromUi(state_);
             break;
         }
     }
-    if (activeSuperWeapon == nullptr) {
-        return false;
-    }
-    const std::string activeSuperWeaponOwner = activeSuperWeapon->owner;
-    const std::string activeSuperWeaponId = activeSuperWeapon->superWeaponId;
 
-    const POINT targetPoint = approximateCellFromScreenPoint(
-        state,
-        viewport,
-        point
-    );
-    int objectId = -1;
-    const std::vector<RuntimeProjectedObject>& projectedObjects =
-        runtimeProjectedObjectsForViewport(state, viewport);
-    const RuntimeProjectedObject* projectedObject =
-        findProjectedObjectAtPoint(projectedObjects, point);
-    if (projectedObject != nullptr && projectedObject->object != nullptr
-        && !runtimeSuperWeaponTargetsGroundArea(state, activeSuperWeaponId)) {
-        objectId = projectedObject->object->instanceId;
-    }
+private:
+    RuntimeWindowState& state_;
+    WPARAM key_;
+};
 
-    SuperWeaponWorldContext context = runtimeSuperWeaponContext(state);
-    context.emit = runtimeSuperWeaponEventSink(state);
-    const std::vector<std::array<int, 4>> parasiteHostPoses =
-        runtimeParasiteLinkedHostPoses(state);
-    std::string reason;
-    const bool accepted = state.superWeapons.submitTarget(
-        activeSuperWeaponOwner,
-        activeSuperWeaponId,
-        {{targetPoint.x, targetPoint.y}, objectId},
-        context,
-        &reason
-    );
-    (void)notifyRuntimeParasiteHostsRelocated(state, parasiteHostPoses);
-    (void)drainRuntimeObjectExitQueue(state);
-    if (accepted) {
-        (void)flushRuntimeSuperWeaponHostEvents(state);
-        const SuperWeaponRuntimeState nextState = state.superWeapons.stateOf(
-            activeSuperWeaponOwner,
-            activeSuperWeaponId
-        );
-        state.interactionStatus =
-            nextState == SuperWeaponRuntimeState::AwaitingSecondTarget
-                ? "superweapon choose destination"
-                : "superweapon launch queued";
-    } else {
-        state.interactionStatus = "superweapon target rejected: " + reason;
-        state.economy.status = state.interactionStatus;
-        if (!state.runtimeSuppressPlayerAudioFeedback) {
-            emitRuntimeSound(state, "blocked");
-        }
-    }
-    state.selectionDragActive = false;
-    state.selectionDragMoved = false;
-    return true;
-}
 
+#include "ui/input/RuntimeResultSessionKeyUi.inl"
+#include "ui/input/RuntimeOptionsSessionKeyUi.inl"
+#include "ui/input/RuntimeSaveLoadSessionKeyUi.inl"
+#include "ui/input/RuntimeForceAttackHeldUi.inl"
+#include "ui/input/RuntimeMapLeftPointerUi.inl"
+#include "ui/input/RuntimeKeyboardIngressUi.inl"
+#include "ui/input/RuntimeInputCancellationUi.inl"
 
 LRESULT CALLBACK runtimeWindowProc(
     HWND window,
@@ -116986,1109 +116583,110 @@ LRESULT CALLBACK runtimeWindowProc(
         runtimeInvalidateVisionTerrainBatchForMessage(campaignState->world);
 
     if (campaignState != nullptr) {
-        bool forceAttackHeld = campaignState->forceAttackHeld;
-        if ((message == WM_KEYDOWN || message == WM_SYSKEYDOWN)
-            && (wParam == VK_CONTROL || wParam == VK_LCONTROL || wParam == VK_RCONTROL)) {
-            forceAttackHeld = true;
-        } else if ((message == WM_KEYUP || message == WM_SYSKEYUP)
-            && (wParam == VK_CONTROL || wParam == VK_LCONTROL || wParam == VK_RCONTROL)) {
-            forceAttackHeld = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-        } else if (message == WM_KILLFOCUS
-            || (message == WM_ACTIVATEAPP && wParam == FALSE)) {
-            forceAttackHeld = false;
-        } else if (message == WM_MOUSEMOVE || message == WM_LBUTTONDOWN
-            || message == WM_LBUTTONUP) {
-            forceAttackHeld = (wParam & MK_CONTROL) != 0;
-        }
-        if (forceAttackHeld != campaignState->forceAttackHeld) {
-            campaignState->forceAttackHeld = forceAttackHeld;
-            campaignState->repaintRequested = true;
-            RedrawWindow(window, nullptr, nullptr, RDW_INVALIDATE | RDW_NOERASE);
-        }
+        RuntimeForceAttackHeldUiHost forceHost(*campaignState, window);
+        handleRuntimeForceAttackHeld(runtimeForceAttackInputForMessage(message, wParam), forceHost);
     }
-    if (campaignState != nullptr && campaignState->rightDragActive
-        && (message == WM_KILLFOCUS || message == WM_CANCELMODE
-            || (message == WM_ACTIVATEAPP && wParam == FALSE))) {
-        campaignState->rightDragActive = false;
-        campaignState->rightDragMoved = false;
-        campaignState->repaintRequested = true;
-        if (GetCapture() == window) ReleaseCapture();
+    if (campaignState != nullptr) {
+        RuntimeMapRightPointerGestureUiHost rightHost(*campaignState, window);
+        const auto event = message == WM_KILLFOCUS ? RuntimeMapRightPointerCancelEvent::FocusLost
+            : message == WM_CANCELMODE ? RuntimeMapRightPointerCancelEvent::CancelMode
+            : message == WM_ACTIVATEAPP && wParam == FALSE
+                ? RuntimeMapRightPointerCancelEvent::ApplicationDeactivated
+                : RuntimeMapRightPointerCancelEvent::Other;
+        cancelRuntimeMapRightPointer(event, rightHost);
     }
-    if (campaignState != nullptr
-        && campaignState->campaignMode
-        && campaignState->triggers.campaignInputLocked
-        && !campaignState->skirmishMatchFinished
-        && !campaignState->runtimeMenuOpen) {
-        switch (message) {
-        case WM_LBUTTONDOWN:
-        case WM_LBUTTONUP:
-        case WM_LBUTTONDBLCLK:
-        case WM_RBUTTONDOWN:
-        case WM_RBUTTONUP:
-        case WM_RBUTTONDBLCLK:
-        case WM_MBUTTONDOWN:
-        case WM_MBUTTONUP:
-        case WM_MBUTTONDBLCLK:
-        case WM_XBUTTONDOWN:
-        case WM_XBUTTONUP:
-        case WM_XBUTTONDBLCLK:
-        case WM_MOUSEMOVE:
-        case WM_MOUSEWHEEL:
-        case WM_MOUSEHWHEEL:
-        case WM_KEYDOWN:
-        case WM_KEYUP:
-        case WM_CHAR:
+    if (campaignState != nullptr) {
+        RuntimeCampaignInputAdmissionUiHost admissionHost(*campaignState);
+        if (rejectRuntimeCampaignInput(runtimeCampaignInputEventForMessage(message), admissionHost))
             return 0;
-        default:
-            break;
-        }
     }
-    if (campaignState != nullptr && campaignState->skirmishMatchFinished) {
-        if (GetCapture() == window) {
-            ReleaseCapture();
-        }
-        if (!campaignState->campaignMode && !campaignState->resultPresentation.bannerVisible
-            && (message == WM_MOUSEMOVE || message == WM_LBUTTONDOWN || message == WM_LBUTTONUP)) {
-            RECT client;
-            GetClientRect(window, &client);
-            const RECT button = runtimeMatchScoreContinueRect(client);
-            const POINT point{static_cast<short>(LOWORD(lParam)), static_cast<short>(HIWORD(lParam))};
-            const bool inside = PtInRect(&button, point) != FALSE;
-            auto& presentation = campaignState->resultPresentation;
-            if (message == WM_LBUTTONUP) {
-                const bool activate = presentation.continuePressed && inside;
-                presentation.continuePressed = false;
-                campaignState->repaintRequested = true;
-                if (activate) SendMessageW(window, WM_KEYDOWN, VK_RETURN, 0);
-            } else {
-                if (message == WM_LBUTTONDOWN) presentation.continuePressed = inside;
-                presentation.continueHovered = inside;
-                campaignState->repaintRequested = true;
-            }
+    if (campaignState != nullptr) {
+        RuntimePointerIngressUiHost pointerHost(*campaignState, window);
+        if (handleRuntimePointerIngress(
+                runtimePointerIngressInputForMessage(message, wParam, lParam), pointerHost))
             return 0;
-        }
-        switch (message) {
-        case WM_LBUTTONDOWN: case WM_LBUTTONUP: case WM_LBUTTONDBLCLK:
-        case WM_RBUTTONDOWN: case WM_RBUTTONUP: case WM_RBUTTONDBLCLK:
-        case WM_MBUTTONDOWN: case WM_MBUTTONUP: case WM_MBUTTONDBLCLK:
-        case WM_XBUTTONDOWN: case WM_XBUTTONUP: case WM_XBUTTONDBLCLK:
-        case WM_MOUSEWHEEL: case WM_MOUSEHWHEEL:
-            return 0;
-        default:
-            break;
-        }
-    }
-    if (campaignState && !campaignState->runtimeMenuOpen && !campaignState->skirmishMatchFinished
-        && (campaignState->playerCommunication.chatOpen || campaignState->playerCommunication.diplomacyOpen)) {
-        if (campaignState->playerCommunication.diplomacyOpen) {
-            if (message == WM_CAPTURECHANGED || message == WM_CANCELMODE || message == WM_KILLFOCUS
-                || (message == WM_ACTIVATEAPP && wParam == FALSE)) {
-                campaignState->playerCommunication.diplomacyPressedControl = 0;
-                if (message != WM_CAPTURECHANGED && GetCapture() == window) ReleaseCapture();
-                return 0;
-            }
-            switch (message) {
-            case WM_MOUSEMOVE: case WM_LBUTTONDOWN: case WM_LBUTTONUP: case WM_LBUTTONDBLCLK:
-            case WM_RBUTTONDOWN: case WM_RBUTTONUP: case WM_RBUTTONDBLCLK:
-            case WM_MBUTTONDOWN: case WM_MBUTTONUP: case WM_MBUTTONDBLCLK:
-            case WM_XBUTTONDOWN: case WM_XBUTTONUP: case WM_XBUTTONDBLCLK:
-            case WM_MOUSEWHEEL: case WM_MOUSEHWHEEL: {
-                RECT client{}; GetClientRect(window, &client);
-                handleRuntimeDiplomacyMouse(*campaignState, client, message, pointFromMouseMessage(lParam));
-                if (message == WM_LBUTTONDOWN) SetCapture(window);
-                if (message == WM_LBUTTONUP || message == WM_RBUTTONUP) {
-                    if (GetCapture() == window) ReleaseCapture();
-                }
-                campaignState->selectionDragActive = campaignState->selectionDragMoved = false;
-                InvalidateRect(window,nullptr,FALSE); return 0;
-            }
-            default: break;
-            }
-        }
-        if (message == WM_LBUTTONDOWN || message == WM_LBUTTONUP || message == WM_LBUTTONDBLCLK
-            || message == WM_RBUTTONDOWN || message == WM_RBUTTONUP || message == WM_MOUSEWHEEL) {
-            auto& ui = campaignState->playerCommunication;
-            if (message == WM_RBUTTONUP) {
-                ui.chatOpen = ui.diplomacyOpen = ui.beaconEditing = false; ui.chatDraft.clear();
-            }
-            campaignState->selectionDragActive = campaignState->selectionDragMoved = false;
-            campaignState->repaintRequested = true; InvalidateRect(window,nullptr,FALSE); return 0;
-        }
     }
     switch (message) {
     case WM_SETCURSOR:
     {
-        if (LOWORD(lParam) != HTCLIENT) {
-            return DefWindowProcW(window, message, wParam, lParam);
-        }
-        RuntimeWindowState* state = reinterpret_cast<RuntimeWindowState*>(
-            GetWindowLongPtrW(window, GWLP_USERDATA)
-        );
-        if (state == nullptr || !state->world.getSummary().loaded) {
-            return DefWindowProcW(window, message, wParam, lParam);
-        }
-        if (state->runtimeMenuOpen || state->skirmishMatchFinished || state->playerCommunication.diplomacyOpen) {
-            SetCursor(LoadCursorW(nullptr, MAKEINTRESOURCEW(32512)));
-            return TRUE;
-        }
-
-        POINT point;
-        GetCursorPos(&point);
-        ScreenToClient(window, &point);
-        RECT clientRect;
-        GetClientRect(window, &clientRect);
-        if (pointInRectInclusive(runtimeMapViewport(clientRect), point)) {
-            ensureRuntimeSuperWeaponsInitialized(*state);
-            if (runtimeActiveLocalSuperWeaponTargeting(*state) != nullptr) {
-                SetCursor(nullptr);
-                return TRUE;
-            }
-            const RECT viewport = runtimeMapViewport(clientRect);
-            const SuperWeaponSidebarSnapshot* activeSuperWeapon = nullptr;
-            const auto& multiplayerSuperWeapon =
-                state->multiplayerIntentRouter.superWeapon();
-            const std::string owner = toLowerAsciiLocal(
-                trimAsciiLocal(state->economy.owner)
-            );
-            for (const SuperWeaponSidebarSnapshot& snapshot :
-                    state->superWeapons.sidebarSnapshots()) {
-                const bool localMultiplayerTargeting =
-                    runtimeUsesGameplayIntentRouter(*state)
-                    && multiplayerSuperWeapon.has_value()
-                    && toLowerAsciiLocal(snapshot.superWeaponId)
-                        == toLowerAsciiLocal(
-                            multiplayerSuperWeapon->superWeaponId
-                        );
-                if ((snapshot.targetSelectionActive
-                        || localMultiplayerTargeting)
-                    && (owner.empty()
-                        || toLowerAsciiLocal(trimAsciiLocal(snapshot.owner))
-                            == owner)) {
-                    activeSuperWeapon = &snapshot;
-                    break;
-                }
-            }
-            if (activeSuperWeapon != nullptr) {
-                const POINT targetPoint = approximateCellFromScreenPoint(
-                    *state,
-                    viewport,
-                    point
-                );
-                int objectId = -1;
-                const std::vector<RuntimeProjectedObject>& projectedObjects =
-                    runtimeProjectedObjectsForViewport(*state, viewport);
-                const RuntimeProjectedObject* projectedObject =
-                    findProjectedObjectAtPoint(projectedObjects, point);
-                if (projectedObject != nullptr
-                    && projectedObject->object != nullptr
-                    && !runtimeSuperWeaponTargetsGroundArea(*state, activeSuperWeapon->superWeaponId)) {
-                    objectId = projectedObject->object->instanceId;
-                }
-                SuperWeaponWorldContext context =
-                    runtimeSuperWeaponContext(*state);
-                std::string reason;
-                const bool valid = state->superWeapons.previewTarget(
-                    activeSuperWeapon->owner,
-                    activeSuperWeapon->superWeaponId,
-                    {{targetPoint.x, targetPoint.y}, objectId},
-                    context,
-                    &reason
-                );
-                SetCursor(loadRuntimeStockCursor(valid ? 32515 : 32648));
-                return TRUE;
-            }
-            SetCursor(nullptr);
-            return TRUE;
-        }
-        SetCursor(runtimeCursorForPoint(*state, clientRect, point));
-        return TRUE;
+        RuntimeCursorUiHost host(window);
+        return handleRuntimeCursor(LOWORD(lParam) == HTCLIENT, host)
+            ? TRUE : DefWindowProcW(window, message, wParam, lParam);
     }
     case WM_LBUTTONDOWN:
     {
         RuntimeWindowState* state = reinterpret_cast<RuntimeWindowState*>(
             GetWindowLongPtrW(window, GWLP_USERDATA)
         );
-        if (state == nullptr || !state->world.getSummary().loaded) {
-            return DefWindowProcW(window, message, wParam, lParam);
-        }
-        RECT clientRect;
-        GetClientRect(window, &clientRect);
+        if (state == nullptr) return DefWindowProcW(window, message, wParam, lParam);
         const POINT point = pointFromMouseMessage(lParam);
-        state->mouseClientPointValid = true;
-        state->mouseClientPoint = point;
-        if (!pointInRectInclusive(clientRect, point)) {
-            return DefWindowProcW(window, message, wParam, lParam);
-        }
-        if (state->runtimeMenuOpen) {
-            const RuntimeMenuAction action = runtimeMenuActionAtPoint(
-                *state,
-                clientRect,
-                point
-            );
-            state->runtimeMenuPressed = action;
-            const std::vector<RuntimeMenuButton> buttons =
-                runtimeMenuFocusableButtons(*state, clientRect);
-            for (std::size_t index = 0; index < buttons.size(); ++index) {
-                if (buttons[index].action == action) {
-                    state->runtimeMenuFocus = static_cast<int>(index);
-                    break;
-                }
-            }
-            if (beginRuntimeMenuSliderDrag(
-                    *state,
-                    clientRect,
-                    action,
-                    point
-                )) {
-                SetCapture(window);
-                state->repaintRequested = true;
-                RedrawWindow(
-                    window,
-                    nullptr,
-                    nullptr,
-                    RDW_INVALIDATE | RDW_NOERASE
-                );
-                return 0;
-            }
-            if (action != RuntimeMenuAction::None) {
-                SetCapture(window);
-            }
-            state->repaintRequested = true;
-            RedrawWindow(
-                window,
-                nullptr,
-                nullptr,
-                RDW_INVALIDATE | RDW_NOERASE
-            );
-            return 0;
-        }
-        const RECT sidebar = runtimeSidebarRect(clientRect);
-        if (pointInRectInclusive(sidebar, point)) {
-            const RECT radarRect = runtimeRadarRect(sidebar);
-            const std::optional<RuntimeCellPoint> radarCell =
-                runtimeRadarCellAtPoint(*state, radarRect, point);
-            if (radarCell.has_value()) {
-                centerRuntimeCameraOnCell(*state, clientRect, *radarCell);
-                invalidateRuntimeObjectProjectionCache(*state);
-                state->interactionStatus =
-                    "radar jump "
-                    + std::to_string(radarCell->x)
-                    + ","
-                    + std::to_string(radarCell->y);
-                state->selectionDragActive = false;
-                state->selectionDragMoved = false;
-                state->repaintRequested = true;
-                RedrawWindow(
-                    window,
-                    nullptr,
-                    nullptr,
-                    RDW_INVALIDATE | RDW_NOERASE
-                );
-                return 0;
-            }
-
-            ensureRuntimeSuperWeaponsInitialized(*state);
-            if (const SuperWeaponSidebarSnapshot* superWeapon =
-                    runtimeSuperWeaponAtPoint(*state, sidebar, point)) {
-                const std::string superWeaponOwner = superWeapon->owner;
-                const std::string superWeaponId = superWeapon->superWeaponId;
-                const std::string superWeaponName = superWeapon->name;
-                SuperWeaponWorldContext superContext =
-                    runtimeSuperWeaponContext(*state);
-                superContext.emit = runtimeSuperWeaponEventSink(*state);
-                std::string reason;
-                bool beganTargeting = false;
-                if (runtimeUsesGameplayIntentRouter(*state)) {
-                    refreshRuntimeMultiplayerPlayerIntentAuthority(*state);
-                    const SuperWeaponRule* rule =
-                        state->rules.findSuperWeaponType(superWeaponId);
-                    const std::string targetMode = rule == nullptr
-                        ? std::string("cell")
-                        : toLowerAsciiLocal(
-                            trimAsciiLocal(rule->targetMode)
-                        );
-                    const std::size_t targetCount =
-                        targetMode == "none"
-                            || targetMode == "notarget"
-                            || targetMode == "wholemap"
-                            || targetMode == "map"
-                        ? 0U
-                        : (targetMode == "twostage"
-                            || targetMode == "two-stage"
-                            ? 2U
-                            : 1U);
-                    if (superWeapon->state
-                            != SuperWeaponRuntimeState::Ready) {
-                        reason = "not ready";
-                    } else {
-                        beganTargeting =
-                            state->multiplayerIntentRouter.beginSuperWeapon(
-                                superWeaponId,
-                                targetCount,
-                                reason
-                            );
-                        if (beganTargeting && targetCount == 0U) {
-                            beganTargeting = state->multiplayerIntentRouter
-                                .confirmSuperWeapon(reason);
-                        }
-                    }
-                } else {
-                    beganTargeting = state->superWeapons.beginTargetSelection(
-                        superWeaponOwner,
-                        superWeaponId,
-                        superContext,
-                        &reason
-                    );
-                }
-                if (beganTargeting) {
-                    clearRuntimeLocalChronosphereMarker(*state);
-                    state->interactionStatus =
-                        state->multiplayerBridge != nullptr
-                            && !state->multiplayerIntentRouter
-                                .superWeapon().has_value()
-                        ? "superweapon launch queued for multiplayer"
-                        : "superweapon target: " + superWeaponName;
-                    emitRuntimeSound(
-                        *state,
-                        runtimeSoundIntentSidebarButtonClick
-                    );
-                } else {
-                    state->interactionStatus =
-                        "superweapon unavailable: " + reason;
-                    const bool unfinished =
-                        superWeapon->state
-                            == SuperWeaponRuntimeState::Charging
-                        || superWeapon->state
-                            == SuperWeaponRuntimeState::Suspended;
-                    if (!unfinished
-                        && !state->runtimeSuppressPlayerAudioFeedback) {
-                        emitRuntimeSound(*state, "blocked");
-                    }
-                }
-                state->repaintRequested = true;
-                RedrawWindow(
-                    window,
-                    nullptr,
-                    nullptr,
-                    RDW_INVALIDATE | RDW_NOERASE
-                );
-                return 0;
-            }
-
-            const std::optional<RuntimeSidebarTool> sidebarTool =
-                runtimeSidebarToolAtPoint(sidebar, point);
-            if (sidebarTool.has_value()) {
-                state->activeSidebarTool =
-                    state->activeSidebarTool == *sidebarTool
-                        ? RuntimeSidebarTool::None
-                        : *sidebarTool;
-                state->interactionStatus =
-                    state->activeSidebarTool == RuntimeSidebarTool::None
-                        ? "sidebar tool canceled"
-                        : runtimeSidebarToolLabel(state->activeSidebarTool);
-                emitRuntimeSound(
-                    *state,
-                    runtimeSoundIntentSidebarTabClick
-                );
-                state->repaintRequested = true;
-                RedrawWindow(
-                    window,
-                    nullptr,
-                    nullptr,
-                    RDW_INVALIDATE | RDW_NOERASE
-                );
-                return 0;
-            }
-
-            const std::optional<RuntimeBuildKind> tab =
-                runtimeBuildTabAtPoint(*state, sidebar, point);
-            if (tab.has_value()) {
-                state->activeBuildTab = *tab;
-                runtimeClampActiveBuildPage(*state, sidebar);
-                state->interactionStatus =
-                    "build tab " + runtimeBuildTabLabel(*tab);
-                emitRuntimeSound(*state, runtimeSoundIntentSidebarTabClick);
-                state->repaintRequested = true;
-                RedrawWindow(
-                    window,
-                    nullptr,
-                    nullptr,
-                    RDW_INVALIDATE | RDW_NOERASE
-                );
-                return 0;
-            }
-
-            const int pageDelta =
-                runtimeBuildPageButtonAtPoint(*state, sidebar, point);
-            if (pageDelta != 0) {
-                const int pageCount = runtimeBuildPageCount(*state, sidebar);
-                const int nextPage = std::clamp(
-                    runtimeActiveBuildPage(*state) + pageDelta,
-                    0,
-                    pageCount - 1
-                );
-                runtimeSetActiveBuildPage(*state, nextPage);
-                state->interactionStatus =
-                    "build page " + std::to_string(nextPage + 1)
-                    + "/" + std::to_string(pageCount);
-                emitRuntimeSound(*state, runtimeSoundIntentSidebarButtonClick);
-                state->repaintRequested = true;
-                RedrawWindow(
-                    window,
-                    nullptr,
-                    nullptr,
-                    RDW_INVALIDATE | RDW_NOERASE
-                );
-                return 0;
-            }
-
-            const std::optional<int> buttonIndex =
-                runtimeBuildButtonAtPoint(*state, sidebar, point);
-            if (buttonIndex.has_value()) {
-                const RuntimeBuildCatalogItem& item =
-                    state->economy.catalog[*buttonIndex];
-                RuntimeProductionLane readyLane =
-                    RuntimeProductionLane::Structures;
-                if (const RuntimeProductionLaneOrder* ready =
-                        runtimeReadyProductionForItem(
-                            *state,
-                            item,
-                            &readyLane
-                        )) {
-                    const std::optional<RuntimeProductionCatalogAdapter>
-                        catalog = runtimeProductionCatalogLookup(
-                            *state,
-                            ready->itemKey
-                        );
-                    if (catalog.has_value() && catalog->item != nullptr) {
-                        beginRuntimePlacementFromUi(
-                            *state,
-                            RuntimeSelectedPlacement{
-                                readyLane,
-                                *ready,
-                                catalog->item
-                            },
-                            true
-                        );
-                    }
-                    state->interactionStatus =
-                        "placing " + item.typeId;
-                    emitRuntimeSound(*state, runtimeSoundIntentSidebarButtonClick);
-                } else {
-                    const bool addNext =
-                        (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-                    dispatchRuntimeQueueProductionFromUi(
-                        *state,
-                        item,
-                        addNext
-                            ? RuntimeProductionInsertMode::AfterActive
-                            : RuntimeProductionInsertMode::Back
-                    );
-                }
-                state->repaintRequested = true;
-                RedrawWindow(
-                    window,
-                    nullptr,
-                    nullptr,
-                    RDW_INVALIDATE | RDW_NOERASE
-                );
-            }
-            return 0;
-        }
-
-        if (rejectRuntimeObserverSelection(*state)) return 0;
-        SetFocus(window);
-        SetCapture(window);
-        // Focus/capture can deliver nested messages. Restore this click's
-        // modifiers and position before exposing the pressed cursor.
-        state->forceAttackHeld = (wParam & MK_CONTROL) != 0;
-        state->mouseClientPoint = point;
-        state->repaintRequested = true;
-        state->selectionDragActive = true;
-        state->selectionDragMoved = false;
-        state->selectionStart = point;
-        state->selectionCurrent = point;
-        state->interactionStatus = "selecting";
-        return 0;
+        RuntimeMapLeftPointerUiHost host(*state, window);
+        return handleRuntimeMapLeftPointerDown({{point.x, point.y},
+            static_cast<std::uint64_t>(wParam)}, host)
+            ? 0 : DefWindowProcW(window, message, wParam, lParam);
     }
     case WM_MOUSEMOVE:
     {
         RuntimeWindowState* state = reinterpret_cast<RuntimeWindowState*>(
             GetWindowLongPtrW(window, GWLP_USERDATA)
         );
-        if (state == nullptr) {
-            return DefWindowProcW(window, message, wParam, lParam);
-        }
-
+        if (state == nullptr) return DefWindowProcW(window, message, wParam, lParam);
         const POINT point = pointFromMouseMessage(lParam);
-        const bool mousePointChanged =
-            !state->mouseClientPointValid
-            || state->mouseClientPoint.x != point.x
-            || state->mouseClientPoint.y != point.y;
-        state->mouseClientPointValid = true;
-        state->mouseClientPoint = point;
-        if (mousePointChanged) {
-            state->repaintRequested = true;
-        }
-        if (state->runtimeMenuOpen) {
-            RECT clientRect{};
-            GetClientRect(window, &clientRect);
-            if (state->runtimeMenuSliderDrag != RuntimeMenuAction::None) {
-                if (GetCapture() == window && (wParam & MK_LBUTTON) != 0) {
-                    if (updateRuntimeMenuSliderDrag(
-                            *state,
-                            clientRect,
-                            point.x
-                        )) {
-                        state->repaintRequested = true;
-                        RedrawWindow(
-                            window,
-                            nullptr,
-                            nullptr,
-                            RDW_INVALIDATE | RDW_NOERASE
-                        );
-                    }
-                }
-                return 0;
-            }
-            const RuntimeMenuAction hover = runtimeMenuActionAtPoint(
-                *state,
-                clientRect,
-                point
-            );
-            if (hover != state->runtimeMenuHover) {
-                state->runtimeMenuHover = hover;
-                state->repaintRequested = true;
-                RedrawWindow(
-                    window,
-                    nullptr,
-                    nullptr,
-                    RDW_INVALIDATE | RDW_NOERASE
-                );
-            }
-            return 0;
-        }
-        if (state->rightDragActive) {
-            const POINT previousPoint = state->rightDragLast;
-            const int totalDx = point.x - state->rightDragStart.x;
-            const int totalDy = point.y - state->rightDragStart.y;
-            if ((totalDx * totalDx) + (totalDy * totalDy) > 16) {
-                state->rightDragMoved = true;
-            }
-            if (point.x != previousPoint.x || point.y != previousPoint.y) {
-                state->rightDragCursorDelta = {point.x - previousPoint.x, point.y - previousPoint.y};
-            }
-            state->rightDragLast = point;
-            if (!state->runtimeScrollCoastingEnabled
-                && state->rightDragMoved) {
-                panRuntimeCameraByRightDragDelta(
-                    *state,
-                    point.x - previousPoint.x,
-                    point.y - previousPoint.y
-                );
-            }
-            state->repaintRequested = true;
-            return 0;
-        }
-
-        if (runtimeSelectedPlacement(*state).has_value()) {
-            RECT clientRect;
-            GetClientRect(window, &clientRect);
-            const RECT viewport = runtimeMapViewport(clientRect);
-            if (pointInRectInclusive(viewport, point)) {
-                updateRuntimePlacementPreview(*state, viewport, point);
-                state->repaintRequested = true;
-            }
-        }
-
-        if (!state->selectionDragActive) {
-            return DefWindowProcW(window, message, wParam, lParam);
-        }
-
-        state->selectionCurrent = point;
-        const int deltaX = point.x - state->selectionStart.x;
-        const int deltaY = point.y - state->selectionStart.y;
-        if ((deltaX * deltaX) + (deltaY * deltaY) > 16) {
-            state->selectionDragMoved = true;
-        }
-        state->repaintRequested = true;
-        return 0;
+        RuntimeMapLeftPointerUiHost host(*state, window);
+        return handleRuntimeMapLeftPointerMove({{point.x, point.y},
+            static_cast<std::uint64_t>(wParam)}, host)
+            ? 0 : DefWindowProcW(window, message, wParam, lParam);
     }
     case WM_LBUTTONUP:
     {
         RuntimeWindowState* state = reinterpret_cast<RuntimeWindowState*>(
             GetWindowLongPtrW(window, GWLP_USERDATA)
         );
-        if (state == nullptr) {
-            return DefWindowProcW(window, message, wParam, lParam);
-        }
-
-        RECT clientRect;
-        GetClientRect(window, &clientRect);
+        if (state == nullptr) return DefWindowProcW(window, message, wParam, lParam);
         const POINT point = pointFromMouseMessage(lParam);
-        state->mouseClientPointValid = true;
-        state->mouseClientPoint = point;
-        if (state->runtimeMenuOpen) {
-            if (finishRuntimeMenuSliderDrag(*state, clientRect, point.x)) {
-                if (GetCapture() == window) {
-                    ReleaseCapture();
-                }
-                emitRuntimeSound(
-                    *state,
-                    runtimeSoundIntentSidebarButtonClick
-                );
-                state->repaintRequested = true;
-                RedrawWindow(
-                    window,
-                    nullptr,
-                    nullptr,
-                    RDW_INVALIDATE | RDW_NOERASE
-                );
-                return 0;
-            }
-            const RuntimeMenuAction released = runtimeMenuActionAtPoint(
-                *state,
-                clientRect,
-                point
-            );
-            const RuntimeMenuAction pressed = state->runtimeMenuPressed;
-            state->runtimeMenuPressed = RuntimeMenuAction::None;
-            if (GetCapture() == window) {
-                ReleaseCapture();
-            }
-            if (released == pressed && pressed != RuntimeMenuAction::None) {
-                activateRuntimeMenuAction(window, *state, pressed);
-            } else {
-                state->repaintRequested = true;
-                RedrawWindow(
-                    window,
-                    nullptr,
-                    nullptr,
-                    RDW_INVALIDATE | RDW_NOERASE
-                );
-            }
-            return 0;
-        }
-        if (GetCapture() == window) {
-            ReleaseCapture();
-        }
-        if (rejectRuntimeObserverSelection(*state)) return 0;
-        const RECT viewport = runtimeMapViewport(clientRect);
-        if (pointInRectInclusive(viewport, point)
-            && submitRuntimeSuperWeaponTargetAtPoint(
-                *state,
-                viewport,
-                point
-            )) {
-            state->repaintRequested = true;
-            RedrawWindow(
-                window,
-                nullptr,
-                nullptr,
-                RDW_INVALIDATE | RDW_NOERASE
-            );
-            return 0;
-        }
-        if (!state->selectionDragActive) {
-            return DefWindowProcW(window, message, wParam, lParam);
-        }
-        state->selectionCurrent = point;
-
-        if (state->activeSidebarTool != RuntimeSidebarTool::None
-            && pointInRectInclusive(viewport, point)) {
-            const std::vector<RuntimeProjectedObject>& projectedObjects =
-                runtimeProjectedObjectsForViewport(*state, viewport);
-            const RuntimeProjectedObject* projectedObject =
-                findProjectedObjectAtPoint(projectedObjects, point);
-            bool toolHandled = false;
-            if (projectedObject != nullptr
-                && projectedObject->object != nullptr
-                && projectedObject->object->kind == WorldObjectKind::Structure) {
-                if (state->activeSidebarTool == RuntimeSidebarTool::Sell) {
-                    toolHandled = dispatchRuntimeStructureToolFromUi(
-                        *state,
-                        RuntimeSidebarTool::Sell,
-                        projectedObject->object->instanceId
-                    );
-                } else if (state->activeSidebarTool == RuntimeSidebarTool::Repair) {
-                    toolHandled = dispatchRuntimeStructureToolFromUi(
-                        *state,
-                        RuntimeSidebarTool::Repair,
-                        projectedObject->object->instanceId
-                    );
-                }
-            } else {
-                state->economy.status =
-                    runtimeSidebarToolLabel(state->activeSidebarTool)
-                    + " needs a structure";
-            }
-            if (toolHandled) {
-                if (state->activeSidebarTool != RuntimeSidebarTool::Sell) {
-                    state->activeSidebarTool = RuntimeSidebarTool::None;
-                }
-                state->interactionStatus = state->economy.status;
-            } else {
-                emitRuntimeSound(
-                    *state,
-                    containsAsciiCaseInsensitive(
-                        state->economy.status,
-                        "no credits"
-                    )
-                        ? runtimeSoundIntentInsufficientFunds
-                        : runtimeSoundIntentSidebarScold
-                );
-            }
-            state->selectionDragActive = false;
-            state->selectionDragMoved = false;
-            state->repaintRequested = true;
-            RedrawWindow(
-                window,
-                nullptr,
-                nullptr,
-                    RDW_INVALIDATE | RDW_NOERASE
-            );
-            return toolHandled ? 0 : 0;
-        }
-
-        if (runtimeSelectedPlacement(*state).has_value()) {
-            if (pointInRectInclusive(viewport, point)) {
-                updateRuntimePlacementPreview(*state, viewport, point);
-                if (runtimeUsesGameplayIntentRouter(*state)) {
-                    const bool previewWasValid = runtimePlacementValidForUi(*state);
-                    refreshRuntimeMultiplayerPlayerIntentAuthority(*state);
-                    std::string errorMessage;
-                    const bool accepted = state->multiplayerIntentRouter
-                        .confirmPlacement(errorMessage);
-                    noteRuntimeMultiplayerIntentResult(
-                        *state,
-                        accepted,
-                        "building placement",
-                        errorMessage,
-                        previewWasValid ? runtimeSoundIntentSidebarScold
-                            : runtimeSoundIntentCannotDeployHere
-                    );
-                } else {
-                    placeRuntimeReadyBuilding(
-                        *state,
-                        runtimePlacementCellForUi(*state)
-                    );
-                }
-            }
-            state->selectionDragActive = false;
-            state->selectionDragMoved = false;
-            state->repaintRequested = true;
-            RedrawWindow(
-                window,
-                nullptr,
-                nullptr,
-                    RDW_INVALIDATE | RDW_NOERASE
-            );
-            return 0;
-        }
-
-        const std::vector<RuntimeProjectedObject>& projectedObjects =
-            runtimeProjectedObjectsForViewport(*state, viewport);
-        std::vector<int> selectedIds;
-        if (!state->selectionDragMoved && handleRuntimePlayerTargetClick(*state, viewport, point)) return 0;
-        const bool append = (wParam & MK_SHIFT) != 0;
-        const bool toggle = (wParam & MK_CONTROL) != 0;
-        const bool forceFireClick = toggle && !state->selectedObjectIds.empty()
-            && pointInRectInclusive(viewport, point);
-        const bool altClick = (GetKeyState(VK_MENU) & 0x8000) != 0
-            && !state->selectedObjectIds.empty() && pointInRectInclusive(viewport, point);
-        const bool attackMoveClick = toggle && append && !altClick
-            && !state->selectedObjectIds.empty() && pointInRectInclusive(viewport, point);
-        if ((altClick || attackMoveClick) && !state->selectionDragMoved) {
-            const auto* target = findProjectedObjectAtPoint(projectedObjects, point);
-            const POINT cell = approximateCellFromScreenPoint(*state, viewport, point);
-            const auto order = runtimePlayerModifiedTargetOrder(toggle, append, altClick,
-                target != nullptr && target->object != nullptr);
-            dispatchRuntimeTargetOrderFromUi(*state, order, {cell.x, cell.y},
-                order == RuntimeMultiplayerGameplayTargetOrderKind::Follow ? target->object : nullptr);
-        } else if (state->selectionDragMoved) {
-            const RECT dragRect =
-                normalizedRect(state->selectionStart, state->selectionCurrent);
-            for (const RuntimeProjectedObject& projectedObject : projectedObjects) {
-                if (projectedObject.object != nullptr
-                    && runtimeObjectCanBeBoxSelected(*projectedObject.object)
-                    && rectsIntersect(dragRect, projectedObject.bounds)) {
-                    selectedIds.push_back(projectedObject.object->instanceId);
-                }
-            }
-            applyRuntimePlayerSelection(*state, selectedIds, append, toggle);
-            state->playerCommunication.selectedBeacon.reset();
-        } else {
-            const RuntimeProjectedObject* projectedObject =
-                findProjectedObjectAtPoint(projectedObjects, point);
-            const bool hasMovableSelection =
-                selectedMovableObjectCount(*state) > 0;
-            const auto terrainWallTarget = (forceFireClick || (!append && !toggle))
-                ? visibleTerrainWallTargetAtPoint(*state, viewport, point)
-                : std::optional<WorldObjectInstance>{};
-            if (forceFireClick) {
-                const WorldObjectInstance* target = terrainWallTarget ? &*terrainWallTarget
-                    : (projectedObject != nullptr ? projectedObject->object : nullptr);
-                const POINT targetPoint =
-                    approximateCellFromScreenPoint(*state, viewport, point);
-                dispatchRuntimeTargetOrderFromUi(
-                    *state,
-                    target != nullptr
-                        ? RuntimeMultiplayerGameplayTargetOrderKind::Attack
-                        : RuntimeMultiplayerGameplayTargetOrderKind::ForceFireCell,
-                    {targetPoint.x, targetPoint.y},
-                    target
-                );
-                // Consume rejected force-fire too, preserving the selection.
-            } else if (!append && !toggle && terrainWallTarget) {
-                dispatchRuntimeTargetOrderFromUi(*state,
-                    RuntimeMultiplayerGameplayTargetOrderKind::Primary,
-                    {terrainWallTarget->x, terrainWallTarget->y}, &*terrainWallTarget);
-            } else if (!append && !toggle
-                && pointInRectInclusive(viewport, point)
-                && (projectedObject == nullptr || projectedObject->object == nullptr)
-                && runtimeSelectedFactoryCanSetRallyPoint(*state)) {
-                const POINT cell = approximateCellFromScreenPoint(*state, viewport, point);
-                dispatchRuntimePlayerFactoryFromUi(*state, state->selectedObjectIds.front(),
-                    RuntimeMultiplayerGameplayCell{cell.x, cell.y});
-            } else if (!append && !toggle && projectedObject != nullptr
-                && projectedObject->object != nullptr
-                && runtimeSelectedFactoryCanBePrimary(*state, *projectedObject->object)) {
-                dispatchRuntimePlayerFactoryFromUi(*state, projectedObject->object->instanceId, std::nullopt);
-            } else if (!append
-                && !toggle
-                && projectedObject != nullptr
-                && projectedObject->object != nullptr
-                && selectionContains(
-                    *state,
-                    projectedObject->object->instanceId
-                )
-                && dispatchRuntimeSecondaryActionFromUi(
-                    *state,
-                    projectedObject->object->instanceId
-                )) {
-                // handled secondary deploy/action
-            } else if (!append
-                && !toggle
-                && hasMovableSelection
-                && (projectedObject == nullptr
-                    || projectedObject->object == nullptr
-                    || !selectionContains(
-                        *state,
-                        projectedObject->object->instanceId
-                    ))) {
-                const POINT targetPoint =
-                    approximateCellFromScreenPoint(*state, viewport, point);
-                const RuntimeCellPoint targetCell{targetPoint.x, targetPoint.y};
-                dispatchRuntimeTargetOrderFromUi(
-                    *state,
-                    RuntimeMultiplayerGameplayTargetOrderKind::Primary,
-                    targetCell,
-                    projectedObject != nullptr ? projectedObject->object : nullptr
-                );
-            } else if (projectedObject != nullptr
-                && projectedObject->object != nullptr) {
-                selectedIds.push_back(projectedObject->object->instanceId);
-                applyRuntimePlayerSelection(*state, selectedIds, append, toggle);
-            state->playerCommunication.selectedBeacon.reset();
-            } else {
-                applyRuntimePlayerSelection(*state, selectedIds, append, toggle);
-            state->playerCommunication.selectedBeacon.reset();
-            }
-        }
-
-        state->selectionDragActive = false;
-        state->selectionDragMoved = false;
-        state->repaintRequested = true;
-        RedrawWindow(
-            window,
-            nullptr,
-            nullptr,
-                    RDW_INVALIDATE | RDW_NOERASE
-        );
-        return 0;
+        RuntimeMapLeftPointerUiHost host(*state, window);
+        return handleRuntimeMapLeftPointerUp({{point.x, point.y},
+            static_cast<std::uint64_t>(wParam)}, host)
+            ? 0 : DefWindowProcW(window, message, wParam, lParam);
     }
     case WM_CAPTURECHANGED:
     {
         RuntimeWindowState* state = reinterpret_cast<RuntimeWindowState*>(
             GetWindowLongPtrW(window, GWLP_USERDATA)
         );
-        if (state != nullptr && state->rightDragActive) {
-            state->rightDragActive = false;
-            state->rightDragMoved = false;
-            state->repaintRequested = true;
-        }
-        if (state != nullptr
-            && (state->runtimeMenuSliderDrag != RuntimeMenuAction::None
-                || state->runtimeMenuPressed != RuntimeMenuAction::None)) {
-            const RuntimeMenuAction interruptedSlider =
-                state->runtimeMenuSliderDrag;
-            state->runtimeMenuSliderDrag = RuntimeMenuAction::None;
-            state->runtimeMenuPressed = RuntimeMenuAction::None;
-            if (interruptedSlider != RuntimeMenuAction::None) {
-                applyRuntimeMenuSliderRuntimeEffects(
-                    *state,
-                    interruptedSlider
-                );
-                (void)persistRuntimeMenuPreferences(*state);
-            }
-            state->repaintRequested = true;
-            RedrawWindow(
-                window,
-                nullptr,
-                nullptr,
-                RDW_INVALIDATE | RDW_NOERASE
-            );
-            return 0;
+        if (state != nullptr) {
+            RuntimeMapRightPointerGestureUiHost rightHost(*state, window);
+            RuntimeInputCaptureUiHost menuHost(*state, window);
+            if (handleRuntimeInputCaptureChanged(rightHost, menuHost)) return 0;
         }
         return DefWindowProcW(window, message, wParam, lParam);
     }
     case WM_RBUTTONDOWN:
     {
-        RuntimeWindowState* state = reinterpret_cast<RuntimeWindowState*>(
-            GetWindowLongPtrW(window, GWLP_USERDATA)
-        );
-        if (state == nullptr || !state->world.getSummary().loaded) {
-            return DefWindowProcW(window, message, wParam, lParam);
-        }
-        if (state->runtimeMenuOpen) {
-            return 0;
-        }
-
-        RECT clientRect;
-        GetClientRect(window, &clientRect);
-        const POINT point = pointFromMouseMessage(lParam);
-        state->mouseClientPointValid = true;
-        state->mouseClientPoint = point;
-        const RECT sidebar = runtimeSidebarRect(clientRect);
-        const RECT viewport = runtimeMapViewport(clientRect);
-        // A map press may become a drag. Only a completed click cancels
-        // targeting; sidebar/outside-map presses retain immediate cancel.
-        if (!pointInRectInclusive(viewport, point)
-            && cancelRuntimeActiveSuperWeaponTargetSelection(
-                *state,
-                "right-click"
-            )) {
-            state->repaintRequested = true;
-            RedrawWindow(
-                window,
-                nullptr,
-                nullptr,
-                RDW_INVALIDATE | RDW_NOERASE
-            );
-            return 0;
-        }
-
-        if (pointInRectInclusive(sidebar, point)) {
-            const std::optional<int> buttonIndex =
-                runtimeBuildButtonAtPoint(*state, sidebar, point);
-            if (buttonIndex.has_value()) {
-                dispatchRuntimeBuildButtonSecondaryActionFromUi(
-                    *state,
-                    state->economy.catalog[*buttonIndex]
-                );
-                state->repaintRequested = true;
-                RedrawWindow(
-                    window,
-                    nullptr,
-                    nullptr,
-                    RDW_INVALIDATE | RDW_NOERASE
-                );
-                return 0;
-            }
-
-            if (state->activeSidebarTool != RuntimeSidebarTool::None) {
-                state->activeSidebarTool = RuntimeSidebarTool::None;
-                state->interactionStatus = "sidebar tool canceled";
-                state->repaintRequested = true;
-                RedrawWindow(
-                    window,
-                    nullptr,
-                    nullptr,
-                    RDW_INVALIDATE | RDW_NOERASE
-                );
-                return 0;
-            }
-
-            return 0;
-        }
-        if (!pointInRectInclusive(viewport, point)) {
-            return 0;
-        }
-
-        SetFocus(window);
-        SetCapture(window);
-        state->rightDragActive = true;
-        state->rightDragMoved = false;
-        state->rightDragStart = point;
-        state->rightDragLast = point;
-        state->rightDragCursorDelta = {0, 0};
-        state->interactionStatus = "right drag pan";
-        state->repaintRequested = true;
-        return 0;
+        auto* state = reinterpret_cast<RuntimeWindowState*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+        if (state == nullptr) return DefWindowProcW(window, message, wParam, lParam);
+        RuntimeMapRightPointerGestureUiHost host(*state, window);
+        const RuntimeMapRightPointerInput input{runtimeInputPixelPointFromPackedPosition(static_cast<std::uint32_t>(lParam))};
+        return handleRuntimeMapRightPointerDown(input, host) ? LRESULT{0}
+            : DefWindowProcW(window, message, wParam, lParam);
     }
     case WM_RBUTTONUP:
     {
-        RuntimeWindowState* state = reinterpret_cast<RuntimeWindowState*>(
-            GetWindowLongPtrW(window, GWLP_USERDATA)
-        );
-        if (state == nullptr || !state->world.getSummary().loaded) {
-            return DefWindowProcW(window, message, wParam, lParam);
-        }
-        if (state->runtimeMenuOpen) {
-            return 0;
-        }
-
-        // ReleaseCapture synchronously sends WM_CAPTURECHANGED. Commit
-        // the completed gesture first so that callback cannot erase it.
-        const bool wasRightDrag = state->rightDragActive;
-        const bool wasRightDragMove = state->rightDragMoved;
-        state->rightDragActive = false;
-        state->rightDragMoved = false;
-        if (GetCapture() == window) {
-            ReleaseCapture();
-        }
-        const POINT point = pointFromMouseMessage(lParam);
-        state->mouseClientPointValid = true;
-        state->mouseClientPoint = point;
-        // A release after losing capture, or a sidebar press already
-        // handled on button-down, must not cancel a retained map ability.
-        if (!wasRightDrag) {
-            return 0;
-        }
-        if (wasRightDragMove) {
-            state->interactionStatus = "camera panned";
-            state->repaintRequested = true;
-            RedrawWindow(
-                window,
-                nullptr,
-                nullptr,
-                    RDW_INVALIDATE | RDW_NOERASE
-            );
-            return 0;
-        }
-
-        RECT clientRect;
-        GetClientRect(window, &clientRect);
-        handleRuntimeMapRightClick(*state, clientRect, point);
-
-        state->repaintRequested = true;
-        RedrawWindow(
-            window,
-            nullptr,
-            nullptr,
-                    RDW_INVALIDATE | RDW_NOERASE
-        );
-        return 0;
+        auto* state = reinterpret_cast<RuntimeWindowState*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+        if (state == nullptr) return DefWindowProcW(window, message, wParam, lParam);
+        RuntimeMapRightPointerGestureUiHost host(*state, window);
+        RuntimeMapRightPointerClickUiHost clickHost(*state);
+        const RuntimeMapRightPointerInput input{runtimeInputPixelPointFromPackedPosition(static_cast<std::uint32_t>(lParam))};
+        return handleRuntimeMapRightPointerUp(input, host, clickHost) ? LRESULT{0}
+            : DefWindowProcW(window, message, wParam, lParam);
     }
     case WM_CHAR:
     {
         auto* state = reinterpret_cast<RuntimeWindowState*>(GetWindowLongPtrW(window, GWLP_USERDATA));
-        if (state && state->playerCommunication.chatOpen && !state->runtimeMenuOpen) {
-            auto& draft = state->playerCommunication.chatDraft;
-            if (wParam >= 32 && wParam != 127 && draft.size() < 80)
-                draft.push_back(static_cast<wchar_t>(wParam));
-            state->repaintRequested = true; InvalidateRect(window, nullptr, FALSE);
-            return 0;
+        if (state) {
+            RuntimeChatTextUiHost host(*state, window);
+            if (handleRuntimeChatTextCharacter({static_cast<std::uint64_t>(wParam)},
+                state->playerCommunication, host)) return 0;
         }
         return DefWindowProcW(window, message, wParam, lParam);
     }
@@ -118102,374 +116700,10 @@ LRESULT CALLBACK runtimeWindowProc(
             return DefWindowProcW(window, message, wParam, lParam);
         }
 
-        const bool wasDiplomacyOpen = state->playerCommunication.diplomacyOpen;
-        if (!state->runtimeMenuOpen && !state->skirmishMatchFinished
-            && handleRuntimePlayerModalKey(*state, static_cast<int>(wParam),
-                (lParam & (static_cast<LPARAM>(1) << 30)) != 0)) {
-            if (wasDiplomacyOpen && !state->playerCommunication.diplomacyOpen && GetCapture() == window)
-                ReleaseCapture();
-            InvalidateRect(window, nullptr, FALSE); return 0;
-        }
-        if (handleRuntimeMenuKeyCapture(*state, wParam)) {
-            state->repaintRequested = true;
-            RedrawWindow(
-                window,
-                nullptr,
-                nullptr,
-                RDW_INVALIDATE | RDW_NOERASE
-            );
-            return 0;
-        }
-
-        if (state->skirmishMatchFinished
-            && (wParam == VK_RETURN || wParam == 'R' || wParam == VK_ESCAPE)) {
-            // The persistent menu host is recreated by runRuntimeWindow after
-            // this mission window closes. Campaign progress already points at
-            // the next mission on victory or the same mission on defeat, so
-            // the Campaign selector provides both next and retry paths.
-            // A victorious mission's authored PostScore movie belongs after
-            // this result screen, not at the moment the victory trigger fires.
-            // Esc keeps its advertised direct-to-menu behavior; Enter/R
-            // confirms the result and starts the optional ending.
-            if (state->exitAfterPendingCampaignVideos) {
-                return 0;
-            }
-            if ((lParam & (static_cast<LPARAM>(1) << 30)) != 0) return 0;
-            if (state->resultPresentation.bannerVisible
-                && (!state->campaignMode || wParam != VK_ESCAPE)) {
-                beginRuntimeResultScorePage(*state, GetTickCount64());
-                return 0;
-            }
-            if (state->campaignMode && wParam != VK_ESCAPE
-                && queueRuntimeCampaignPostScore(*state)) {
-                state->repaintRequested = true;
-                return 0;
-            }
-            state->runtimeExitRequested = true;
-            DestroyWindow(window);
-            return 0;
-        }
-
-        if (state->skirmishMatchFinished) {
-            if (!state->campaignMode && !state->resultPresentation.bannerVisible
-                && (wParam == VK_LEFT || wParam == VK_RIGHT || wParam == VK_PRIOR || wParam == VK_NEXT)) {
-                const int lastPage = std::max(0, (static_cast<int>(runtimeMatchScoreRows(*state).size()) - 1) / 8);
-                state->resultPresentation.scorePage = std::clamp(state->resultPresentation.scorePage
-                    + ((wParam == VK_LEFT || wParam == VK_PRIOR) ? -1 : 1), 0, lastPage);
-                state->repaintRequested = true;
-            }
-            return 0;
-        }
-        const bool controlDown = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-        const WPARAM optionsKey = static_cast<WPARAM>(
-            runtimeMenuKeyboardBindingCode(
-                *state,
-                "Options",
-                VK_ESCAPE
-            )
-        );
-        const bool menuNavigationKey =
-            (runtimePlayerCurrentKeyCode(wParam) == static_cast<int>(optionsKey))
-            || (state->runtimeMenuOpen && wParam == VK_ESCAPE);
-        if (menuNavigationKey) {
-            if ((lParam & (static_cast<LPARAM>(1) << 30)) != 0) return 0;
-            if (!state->runtimeMenuOpen && (state->playerCommunication.beaconTargeting
-                || state->playerLocalCommands.followTargeting || state->playerLocalCommands.rallyTargeting
-                || state->activeSidebarTool != RuntimeSidebarTool::None)) {
-                state->playerCommunication.beaconTargeting = false;
-                state->playerLocalCommands.followTargeting = state->playerLocalCommands.rallyTargeting = false;
-                state->activeSidebarTool = RuntimeSidebarTool::None;
-                state->selectionDragActive = state->selectionDragMoved = false;
-                if (GetCapture() == window) ReleaseCapture();
-                state->repaintRequested = true; InvalidateRect(window, nullptr, FALSE); return 0;
-            }
-            if (GetCapture() == window) {
-                ReleaseCapture();
-            }
-            if (!state->runtimeMenuOpen
-                && cancelRuntimeActiveSuperWeaponTargetSelection(
-                    *state,
-                    wParam == VK_ESCAPE ? "escape" : "options"
-                )) {
-                state->repaintRequested = true;
-                RedrawWindow(
-                    window,
-                    nullptr,
-                    nullptr,
-                    RDW_INVALIDATE | RDW_NOERASE
-                );
-                return 0;
-            }
-            if (!state->runtimeMenuOpen && dismissRuntimePlacementFromUi(*state)) {
-                state->repaintRequested = true;
-                InvalidateRect(window, nullptr, FALSE);
-                return 0;
-            }
-            bool openingMenu = false;
-            if (!state->runtimeMenuOpen) {
-                setRuntimeMenuOpen(*state, true);
-                openingMenu = true;
-            } else if (state->runtimeMenuPage != RuntimeMenuPage::Main) {
-                resetRuntimeMenuPage(
-                    *state,
-                    runtimeMenuParentPage(state->runtimeMenuPage)
-                );
-            } else {
-                setRuntimeMenuOpen(*state, false);
-            }
-            emitRuntimeSound(
-                *state,
-                openingMenu
-                    ? runtimeSoundIntentMenuOpen
-                    : runtimeSoundIntentMenuClose
-            );
-            state->repaintRequested = true;
-            RedrawWindow(
-                window,
-                nullptr,
-                nullptr,
-                RDW_INVALIDATE | RDW_NOERASE
-            );
-            return 0;
-        }
-
-        const int actualBindingCode = runtimePlayerCurrentKeyCode(wParam);
-        const bool configuredGameplayBinding = std::any_of(
-            state->runtimeMenuKeyboardBindings.begin(), state->runtimeMenuKeyboardBindings.end(),
-            [&](const auto& binding) {
-                return binding.first != "Options" && binding.second == actualBindingCode;
-            });
-        if (!configuredGameplayBinding
-            && ((controlDown && (wParam == 'S' || wParam == 'L'))
-                || wParam == VK_F5 || wParam == VK_F9)) {
-            std::string errorMessage;
-            const bool save =
-                (controlDown && wParam == 'S') || wParam == VK_F5;
-            const bool ok = dispatchRuntimeSaveLoadFromUi(
-                *state,
-                save,
-                errorMessage
-            );
-            const bool multiplayer = state->multiplayerBridge != nullptr;
-            state->interactionStatus = ok
-                ? (multiplayer
-                    ? std::string(save
-                        ? "multiplayer save proposed"
-                        : "multiplayer load proposed")
-                    : std::string(save ? "saved " : "loaded ")
-                        + runtimeDefaultSavePath(*state))
-                : std::string(save ? "save failed: " : "load failed: ")
-                    + errorMessage;
-            if (!multiplayer) {
-                state->economy.status = state->interactionStatus;
-            }
-            emitRuntimeSound(
-                *state,
-                ok ? (save ? "save" : "load") : "blocked"
-            );
-            state->repaintRequested = true;
-            RedrawWindow(
-                window,
-                nullptr,
-                nullptr,
-                RDW_INVALIDATE | RDW_NOERASE
-            );
-            return 0;
-        }
-        if (state->runtimeMenuOpen) {
-            if (state->runtimeMenuPage==RuntimeMenuPage::Keyboard && (wParam==VK_PRIOR || wParam==VK_NEXT)) {
-                runtimeKeyboardChangePage(*state,wParam==VK_PRIOR?-1:1,false);
-                InvalidateRect(window,nullptr,FALSE);return 0;
-            }
-            RECT menuClientRect{};
-            GetClientRect(window, &menuClientRect);
-            const std::vector<RuntimeMenuButton> buttons =
-                runtimeMenuFocusableButtons(*state, menuClientRect);
-            if (!buttons.empty()
-                && (wParam == VK_UP || wParam == VK_DOWN
-                    || wParam == VK_HOME || wParam == VK_END)) {
-                const int count = static_cast<int>(buttons.size());
-                if (wParam == VK_HOME) {
-                    state->runtimeMenuFocus = 0;
-                } else if (wParam == VK_END) {
-                    state->runtimeMenuFocus = count - 1;
-                } else {
-                    state->runtimeMenuFocus =
-                        (state->runtimeMenuFocus
-                            + (wParam == VK_UP ? count - 1 : 1))
-                        % count;
-                }
-                state->runtimeMenuHover = RuntimeMenuAction::None;
-                state->repaintRequested = true;
-                RedrawWindow(
-                    window,
-                    nullptr,
-                    nullptr,
-                    RDW_INVALIDATE | RDW_NOERASE
-                );
-                return 0;
-            }
-            if (!buttons.empty()
-                && (wParam == VK_LEFT || wParam == VK_RIGHT)) {
-                if (handleRuntimeMenuHorizontalKey(
-                        *state,
-                        menuClientRect,
-                        wParam
-                    )) {
-                    emitRuntimeSound(
-                        *state,
-                        runtimeSoundIntentSidebarButtonClick
-                    );
-                    state->runtimeMenuHover = RuntimeMenuAction::None;
-                    state->repaintRequested = true;
-                    RedrawWindow(
-                        window,
-                        nullptr,
-                        nullptr,
-                        RDW_INVALIDATE | RDW_NOERASE
-                    );
-                    return 0;
-                }
-            }
-            if (!buttons.empty()
-                && (wParam == VK_RETURN || wParam == VK_SPACE)) {
-                const int index = std::clamp(
-                    state->runtimeMenuFocus,
-                    0,
-                    static_cast<int>(buttons.size()) - 1
-                );
-                activateRuntimeMenuAction(
-                    window,
-                    *state,
-                    buttons[static_cast<std::size_t>(index)].action
-                );
-                return 0;
-            }
-            return 0;
-        }
-
-        if (handleRuntimePlayerCommandKey(*state, window, wParam, lParam)) {
-            if (state->playerCommunication.diplomacyOpen && GetCapture() == window) ReleaseCapture();
-            state->repaintRequested = true;
-            InvalidateRect(window, nullptr, FALSE);
-            return 0;
-        }
-        {
-            const int stopKey = runtimeMenuKeyboardBindingCode(
-                *state,
-                "StopObject",
-                'S'
-            );
-            const int guardKey = runtimeMenuKeyboardBindingCode(
-                *state,
-                "GuardObject",
-                'G'
-            );
-            const int scatterKey = runtimeMenuKeyboardBindingCode(
-                *state,
-                "ScatterObject",
-                'X'
-            );
-            const int deployKey = runtimeMenuKeyboardBindingCode(
-                *state,
-                "DeployObject",
-                'D'
-            );
-            const int selectionCode = runtimePlayerCurrentKeyCode(wParam);
-            if ((lParam & (static_cast<LPARAM>(1) << 30)) != 0
-                && (selectionCode == stopKey || selectionCode == guardKey
-                    || selectionCode == scatterKey || selectionCode == deployKey)) return 0;
-            bool commandHandled = true;
-            if (runtimePlayerCurrentKeyCode(wParam) == stopKey) {
-                dispatchRuntimeSelectionCommandFromUi(
-                    *state,
-                    RuntimeMultiplayerGameplayCommandType::Stop
-                );
-            } else if (runtimePlayerCurrentKeyCode(wParam) == guardKey) {
-                dispatchRuntimeSelectionCommandFromUi(
-                    *state,
-                    RuntimeMultiplayerGameplayCommandType::Guard
-                );
-            } else if (runtimePlayerCurrentKeyCode(wParam) == scatterKey) {
-                dispatchRuntimeSelectionCommandFromUi(
-                    *state,
-                    RuntimeMultiplayerGameplayCommandType::Scatter
-                );
-            } else if (runtimePlayerCurrentKeyCode(wParam) == deployKey) {
-                dispatchRuntimeSecondaryActionForSelectionFromUi(*state);
-            } else {
-                commandHandled = false;
-            }
-
-            if (commandHandled) {
-                state->repaintRequested = true;
-                RedrawWindow(
-                    window,
-                    nullptr,
-                    nullptr,
-                    RDW_INVALIDATE | RDW_NOERASE
-                );
-                return 0;
-            }
-        }
-        const int scrollStep = runtimeCameraScrollStep(*state);
-        const int centerViewKey = runtimeMenuKeyboardBindingCode(
-            *state,
-            "CenterView",
-            VK_CLEAR
-        );
-        bool handled = true;
-        if (wParam == VK_LEFT || wParam == VK_RIGHT || wParam == VK_UP || wParam == VK_DOWN)
-            state->playerLocalCommands.cameraFollow = false;
-        if (runtimePlayerCurrentKeyCode(wParam) == centerViewKey) {
-            if (state->visionEnabled
-                && state->economy.skirmishStartApplied
-                && state->economy.skirmishStartCell.x >= 0
-                && state->economy.skirmishStartCell.y >= 0) {
-                RECT homeClientRect{};
-                GetClientRect(window, &homeClientRect);
-                centerRuntimeCameraOnCell(
-                    *state,
-                    homeClientRect,
-                    state->economy.skirmishStartCell
-                );
-            } else {
-                state->camera.initialized = false;
-            }
-            invalidateRuntimeObjectProjectionCache(*state);
-        } else {
-            switch (wParam) {
-            case VK_LEFT:
-                scrollRuntimeMapCameraClamped(*state, -scrollStep, 0);
-                invalidateRuntimeObjectProjectionCache(*state);
-                break;
-            case VK_RIGHT:
-                scrollRuntimeMapCameraClamped(*state, scrollStep, 0);
-                invalidateRuntimeObjectProjectionCache(*state);
-                break;
-            case VK_UP:
-                scrollRuntimeMapCameraClamped(*state, 0, -scrollStep);
-                invalidateRuntimeObjectProjectionCache(*state);
-                break;
-            case VK_DOWN:
-                scrollRuntimeMapCameraClamped(*state, 0, scrollStep);
-                invalidateRuntimeObjectProjectionCache(*state);
-                break;
-            default:
-                handled = false;
-                break;
-            }
-        }
-        if (handled) {
-            state->repaintRequested = true;
-            RedrawWindow(
-                window,
-                nullptr,
-                nullptr,
-                    RDW_INVALIDATE | RDW_NOERASE
-            );
-            return 0;
-        }
+        RuntimeKeyboardIngressUiHost host(*state, window, lParam);
+        const RuntimeKeyboardIngressInput input =
+            runtimeKeyboardIngressInputForMessage(message, wParam, lParam);
+        if (::handleRuntimeKeyboardIngressKey(input, host)) return 0;
         return DefWindowProcW(window, message, wParam, lParam);
     }
     case WM_MOUSEWHEEL:
@@ -118478,20 +116712,8 @@ LRESULT CALLBACK runtimeWindowProc(
             GetWindowLongPtrW(window, GWLP_USERDATA)
         );
         if (state != nullptr) {
-            if (state->runtimeMenuOpen) {
-                return 0;
-            }
-            const int wheelDelta = GET_WHEEL_DELTA_WPARAM(wParam);
-            RECT clientRect{};
-            GetClientRect(window, &clientRect);
-            if (!scrollRuntimeSidebarWheel(*state, runtimeSidebarRect(clientRect), wheelDelta)) return 0;
-            state->repaintRequested = true;
-            RedrawWindow(
-                window,
-                nullptr,
-                nullptr,
-                    RDW_INVALIDATE | RDW_NOERASE
-            );
+            RuntimeSidebarPageUiHost host(*state, window, wParam);
+            handleRuntimeSidebarWheel(host);
             return 0;
         }
         return DefWindowProcW(window, message, wParam, lParam);
@@ -118548,7 +116770,7 @@ LRESULT CALLBACK runtimeWindowProc(
             GetWindowLongPtrW(window, GWLP_USERDATA)
         );
         if (state != nullptr) {
-            const ULONGLONG presentationMs=GetTickCount64();
+            const std::uint64_t presentationMs=runtimeUiClockNow(*state);
             advanceRuntimeResultPresentation(*state,presentationMs);
             expireRuntimePlayerDefeatNotices(*state,presentationMs);
         }
@@ -128617,10 +126839,10 @@ int runRuntimeInteractionSmokeTest(const RuntimeConfig& config) {
 
     const int cameraDragStartX = state.camera.worldOffsetX;
     const int cameraDragStartY = state.camera.worldOffsetY;
-    state.rightDragActive = true;
-    state.rightDragMoved = true;
-    state.rightDragStart = {120, 120};
-    state.rightDragLast = {200, 160};
+    state.rightPointer.active = true;
+    state.rightPointer.moved = true;
+    state.rightPointer.start = {120, 120};
+    state.rightPointer.last = {200, 160};
     const auto cameraDragStartTime = runtimeSmokeNow();
     if (!advanceRuntimeRightMousePan(state)) {
         std::cerr << "Interaction smoke test failed: camera drag did not pan.\n";
@@ -128630,8 +126852,8 @@ int runRuntimeInteractionSmokeTest(const RuntimeConfig& config) {
         runtimeSmokeElapsedMs(cameraDragStartTime);
     const int cameraDragDeltaX = state.camera.worldOffsetX - cameraDragStartX;
     const int cameraDragDeltaY = state.camera.worldOffsetY - cameraDragStartY;
-    state.rightDragActive = false;
-    state.rightDragMoved = false;
+    state.rightPointer.active = false;
+    state.rightPointer.moved = false;
     if (cameraDragDeltaX <= 0 || cameraDragDeltaY <= 0) {
         std::cerr << "Interaction smoke test failed: camera drag direction inverted.\n";
         return 1;
@@ -128656,7 +126878,7 @@ int runRuntimeInteractionSmokeTest(const RuntimeConfig& config) {
               << " hitTestRebuildsDuringDrag=0"
               << " cursorState=dragging"
               << " rightDragMovedAfterPan="
-              << formatBool(state.rightDragMoved)
+              << formatBool(state.rightPointer.moved)
               << "\n";
 
     const RuntimeCameraWorldBounds cameraBounds =
@@ -149152,8 +147374,425 @@ bool runRuntimeNeutralBuildingPaletteRenderContractCheck(
 #include "simulation/abilities/psionic/diagnostics/RuntimeSpyDetectionNoopContract.inl"
 
 #include "simulation/navigation/terrain/diagnostics/RuntimeOriginalMapReadNavigationSmoke.inl"
+#include "ui/time/diagnostics/RuntimeUiClockSmoke.inl"
+#include "ui/input/diagnostics/RuntimeSelectionKeySmoke.inl"
+#include "ui/input/diagnostics/RuntimeTeamKeySmoke.inl"
+#include "ui/input/diagnostics/RuntimeLocalNavigationSmoke.inl"
+#include "ui/input/diagnostics/RuntimeReferencePresentationSmoke.inl"
+#include "ui/input/diagnostics/RuntimeReferenceCommunicationSmoke.inl"
+#include "ui/input/diagnostics/RuntimePlanningFactoryKeySmoke.inl"
+#include "ui/input/diagnostics/RuntimeCameraKeySmoke.inl"
+#include "ui/input/diagnostics/RuntimeMenuKeySmoke.inl"
+#include "ui/input/diagnostics/RuntimeSessionKeySmoke.inl"
+#include "ui/input/diagnostics/RuntimeKeyboardRouterSmoke.inl"
+#include "ui/input/diagnostics/RuntimeKeyboardIngressSmoke.inl"
+#include "ui/input/diagnostics/RuntimeChatTextSmoke.inl"
+#include "ui/input/diagnostics/RuntimeMapRightPointerSmoke.inl"
+#include "ui/input/diagnostics/RuntimeMapLeftPointerSmoke.inl"
+#include "ui/input/diagnostics/RuntimePointerIngressSmoke.inl"
+#include "ui/input/diagnostics/RuntimeCursorSmoke.inl"
+#include "ui/input/diagnostics/RuntimeInputCancellationSmoke.inl"
+#include "simulation/navigation/terrain/diagnostics/RuntimeNavigationTerrainQuerySmoke.inl"
+
+bool runRuntimeKeyboardParentReconciliationSmoke(const RuntimeConfig& config, std::ostream& output);
 
 int runRuntimeCommandSmokeTest(const RuntimeConfig& config) {
+    if (const char* only = std::getenv("CONCORD_COMMAND_SMOKE_KEYBOARD_PARENT_ONLY"); only != nullptr) {
+        if (std::string(only) != "1") {
+            std::cerr << "Keyboard parent: ONLY must be exactly 1\n";
+            return 1;
+        }
+        return runRuntimeKeyboardParentReconciliationSmoke(config, std::cout) ? 0 : 1;
+    }
+    if (const char* only = std::getenv("CONCORD_COMMAND_SMOKE_INPUT_CANCELLATION_ONLY"); only != nullptr) {
+        if (std::string(only) != "1") {
+            std::cerr << "Input cancellation: ONLY must be exactly 1\n";
+            return 1;
+        }
+        auto stock = std::make_unique<RuntimeWindowState>();
+        stock->config = config;
+        stock->runtimePreferencePersistenceEnabled = false;
+        stock->report = buildRuntimeStartupReport(config, &stock->world,
+            &stock->theater, &stock->art, &stock->rules, &stock->mapFacts);
+        stock->rulesLoaded = stock->report.rulesLoaded;
+        stock->artLoaded = stock->report.artLoaded;
+        stock->theaterLoaded = stock->report.theaterLoaded;
+        stock->mapFactsLoaded = stock->report.map.loaded;
+        if (!stock->report.success) {
+            std::cerr << "Input cancellation: original asset startup failed\n";
+            return 1;
+        }
+        return runRuntimeInputCancellationSmokeProbe(*stock, std::cout) ? 0 : 1;
+    }
+
+    if (const char* only = std::getenv("CONCORD_COMMAND_SMOKE_MAP_LEFT_POINTER_ONLY"); only != nullptr) {
+        if (std::string(only) != "1") {
+            std::cerr << "Map left pointer: ONLY must be exactly 1\n";
+            return 1;
+        }
+        auto stock = std::make_unique<RuntimeWindowState>();
+        stock->config = config;
+        stock->runtimePreferencePersistenceEnabled = false;
+        stock->report = buildRuntimeStartupReport(config, &stock->world,
+            &stock->theater, &stock->art, &stock->rules, &stock->mapFacts);
+        stock->rulesLoaded = stock->report.rulesLoaded;
+        stock->artLoaded = stock->report.artLoaded;
+        stock->theaterLoaded = stock->report.theaterLoaded;
+        stock->mapFactsLoaded = stock->report.map.loaded;
+        if (!stock->report.success) {
+            std::cerr << "Map left pointer: original asset startup failed\n";
+            return 1;
+        }
+        return runRuntimeMapLeftPointerSmokeProbe(*stock, std::cout) ? 0 : 1;
+    }
+    if (const char* only = std::getenv("CONCORD_COMMAND_SMOKE_POINTER_INGRESS_ONLY"); only != nullptr) {
+        if (std::string(only) != "1") {
+            std::cerr << "Pointer ingress: ONLY must be exactly 1\n";
+            return 1;
+        }
+        auto stock = std::make_unique<RuntimeWindowState>();
+        stock->config = config;
+        stock->runtimePreferencePersistenceEnabled = false;
+        stock->report = buildRuntimeStartupReport(config, &stock->world,
+            &stock->theater, &stock->art, &stock->rules, &stock->mapFacts);
+        stock->rulesLoaded = stock->report.rulesLoaded;
+        stock->artLoaded = stock->report.artLoaded;
+        stock->theaterLoaded = stock->report.theaterLoaded;
+        stock->mapFactsLoaded = stock->report.map.loaded;
+        if (!stock->report.success) {
+            std::cerr << "Pointer ingress: original asset startup failed\n";
+            return 1;
+        }
+        return runRuntimePointerIngressSmokeProbe(*stock, std::cout) ? 0 : 1;
+    }
+    if (const char* only = std::getenv("CONCORD_COMMAND_SMOKE_CURSOR_ONLY"); only != nullptr) {
+        if (std::string(only) != "1") {
+            std::cerr << "Cursor: ONLY must be exactly 1\n";
+            return 1;
+        }
+        auto stock = std::make_unique<RuntimeWindowState>();
+        stock->config = config;
+        stock->runtimePreferencePersistenceEnabled = false;
+        stock->report = buildRuntimeStartupReport(config, &stock->world,
+            &stock->theater, &stock->art, &stock->rules, &stock->mapFacts);
+        stock->rulesLoaded = stock->report.rulesLoaded;
+        stock->artLoaded = stock->report.artLoaded;
+        stock->theaterLoaded = stock->report.theaterLoaded;
+        stock->mapFactsLoaded = stock->report.map.loaded;
+        if (!stock->report.success) {
+            std::cerr << "Cursor: original asset startup failed\n";
+            return 1;
+        }
+        return runRuntimeCursorSmokeProbe(*stock, std::cout) ? 0 : 1;
+    }
+    if (const char* only = std::getenv("CONCORD_COMMAND_SMOKE_MAP_RIGHT_POINTER_ONLY"); only != nullptr) {
+        if (std::string(only) != "1") {
+            std::cerr << "Map right pointer: ONLY must be exactly 1\n";
+            return 1;
+        }
+        auto stock = std::make_unique<RuntimeWindowState>();
+        stock->config = config;
+        stock->runtimePreferencePersistenceEnabled = false;
+        stock->report = buildRuntimeStartupReport(config, &stock->world,
+            &stock->theater, &stock->art, &stock->rules, &stock->mapFacts);
+        stock->rulesLoaded = stock->report.rulesLoaded;
+        stock->artLoaded = stock->report.artLoaded;
+        stock->theaterLoaded = stock->report.theaterLoaded;
+        stock->mapFactsLoaded = stock->report.map.loaded;
+        if (!stock->report.success) {
+            std::cerr << "Map right pointer: original asset startup failed\n";
+            return 1;
+        }
+        return runRuntimeMapRightPointerSmokeProbe(*stock, std::cout) ? 0 : 1;
+    }
+    if (const char* only = std::getenv("CONCORD_COMMAND_SMOKE_NAVIGATION_TERRAIN_QUERY_ONLY"); only != nullptr) {
+        if (std::string(only) != "1") {
+            std::cerr << "Navigation terrain: ONLY must be exactly 1\n";
+            return 1;
+        }
+        auto stock = std::make_unique<RuntimeWindowState>();
+        stock->config = config;
+        stock->runtimePreferencePersistenceEnabled = false;
+        stock->report = buildRuntimeStartupReport(config, &stock->world,
+            &stock->theater, &stock->art, &stock->rules, &stock->mapFacts);
+        stock->rulesLoaded = stock->report.rulesLoaded;
+        stock->artLoaded = stock->report.artLoaded;
+        stock->theaterLoaded = stock->report.theaterLoaded;
+        stock->mapFactsLoaded = stock->report.map.loaded;
+        if (!stock->report.success) {
+            std::cerr << "Navigation terrain: original asset startup failed\n";
+            return 1;
+        }
+        return runRuntimeNavigationTerrainQuerySmokeProbe(*stock, std::cout) ? 0 : 1;
+    }
+    if (const char* only = std::getenv("CONCORD_COMMAND_SMOKE_CHAT_TEXT_ONLY"); only != nullptr) {
+        if (std::string(only) != "1") {
+            std::cerr << "Chat text: ONLY must be exactly 1\n";
+            return 1;
+        }
+        auto stock = std::make_unique<RuntimeWindowState>();
+        stock->config = config;
+        stock->runtimePreferencePersistenceEnabled = false;
+        stock->report = buildRuntimeStartupReport(config, &stock->world,
+            &stock->theater, &stock->art, &stock->rules, &stock->mapFacts);
+        stock->rulesLoaded = stock->report.rulesLoaded;
+        stock->artLoaded = stock->report.artLoaded;
+        stock->theaterLoaded = stock->report.theaterLoaded;
+        stock->mapFactsLoaded = stock->report.map.loaded;
+        if (!stock->report.success) {
+            std::cerr << "Chat text: original asset startup failed\n";
+            return 1;
+        }
+        return runRuntimeChatTextSmokeProbe(*stock, std::cout) ? 0 : 1;
+    }
+
+    if (const char* only = std::getenv("CONCORD_COMMAND_SMOKE_KEYBOARD_INGRESS_ONLY"); only != nullptr) {
+        if (std::string(only) != "1") {
+            std::cerr << "Session key: ONLY must be exactly 1\n";
+            return 1;
+        }
+        auto stock = std::make_unique<RuntimeWindowState>();
+        stock->config = config;
+        stock->runtimePreferencePersistenceEnabled = false;
+        stock->report = buildRuntimeStartupReport(config, &stock->world,
+            &stock->theater, &stock->art, &stock->rules, &stock->mapFacts);
+        stock->rulesLoaded = stock->report.rulesLoaded;
+        stock->artLoaded = stock->report.artLoaded;
+        stock->theaterLoaded = stock->report.theaterLoaded;
+        stock->mapFactsLoaded = stock->report.map.loaded;
+        if (!stock->report.success) {
+            std::cerr << "Session key: original asset startup failed\n";
+            return 1;
+        }
+        return runRuntimeKeyboardIngressSmokeProbe(*stock, std::cout) ? 0 : 1;
+    }
+    if (const char* only = std::getenv("CONCORD_COMMAND_SMOKE_KEYBOARD_ROUTER_ONLY"); only != nullptr) {
+        if (std::string(only) != "1") {
+            std::cerr << "Session key: ONLY must be exactly 1\n";
+            return 1;
+        }
+        auto stock = std::make_unique<RuntimeWindowState>();
+        stock->config = config;
+        stock->runtimePreferencePersistenceEnabled = false;
+        stock->report = buildRuntimeStartupReport(config, &stock->world,
+            &stock->theater, &stock->art, &stock->rules, &stock->mapFacts);
+        stock->rulesLoaded = stock->report.rulesLoaded;
+        stock->artLoaded = stock->report.artLoaded;
+        stock->theaterLoaded = stock->report.theaterLoaded;
+        stock->mapFactsLoaded = stock->report.map.loaded;
+        if (!stock->report.success) {
+            std::cerr << "Session key: original asset startup failed\n";
+            return 1;
+        }
+        return runRuntimeKeyboardRouterSmokeProbe(*stock, std::cout) ? 0 : 1;
+    }
+    if (const char* only = std::getenv("CONCORD_COMMAND_SMOKE_SESSION_KEY_ONLY"); only != nullptr) {
+        if (std::string(only) != "1") {
+            std::cerr << "Session key: ONLY must be exactly 1\n";
+            return 1;
+        }
+        auto stock = std::make_unique<RuntimeWindowState>();
+        stock->config = config;
+        stock->runtimePreferencePersistenceEnabled = false;
+        stock->report = buildRuntimeStartupReport(config, &stock->world,
+            &stock->theater, &stock->art, &stock->rules, &stock->mapFacts);
+        stock->rulesLoaded = stock->report.rulesLoaded;
+        stock->artLoaded = stock->report.artLoaded;
+        stock->theaterLoaded = stock->report.theaterLoaded;
+        stock->mapFactsLoaded = stock->report.map.loaded;
+        if (!stock->report.success) {
+            std::cerr << "Session key: original asset startup failed\n";
+            return 1;
+        }
+        return runRuntimeSessionKeySmokeProbe(*stock, std::cout) ? 0 : 1;
+    }
+    if (const char* only = std::getenv("CONCORD_COMMAND_SMOKE_MENU_KEY_ONLY"); only != nullptr) {
+        if (std::string(only) != "1") {
+            std::cerr << "Menu key: ONLY must be exactly 1\n";
+            return 1;
+        }
+        auto stock = std::make_unique<RuntimeWindowState>();
+        stock->config = config;
+        stock->runtimePreferencePersistenceEnabled = false;
+        stock->report = buildRuntimeStartupReport(config, &stock->world,
+            &stock->theater, &stock->art, &stock->rules, &stock->mapFacts);
+        stock->rulesLoaded = stock->report.rulesLoaded;
+        stock->artLoaded = stock->report.artLoaded;
+        stock->theaterLoaded = stock->report.theaterLoaded;
+        stock->mapFactsLoaded = stock->report.map.loaded;
+        if (!stock->report.success) {
+            std::cerr << "Menu key: original asset startup failed\n";
+            return 1;
+        }
+        return runRuntimeMenuKeySmokeProbe(*stock, std::cout) ? 0 : 1;
+    }
+    if (const char* only = std::getenv("CONCORD_COMMAND_SMOKE_CAMERA_KEY_ONLY"); only != nullptr) {
+        if (std::string(only) != "1") {
+            std::cerr << "Camera key: ONLY must be exactly 1\n";
+            return 1;
+        }
+        auto stock = std::make_unique<RuntimeWindowState>();
+        stock->config = config;
+        stock->runtimePreferencePersistenceEnabled = false;
+        stock->report = buildRuntimeStartupReport(config, &stock->world,
+            &stock->theater, &stock->art, &stock->rules, &stock->mapFacts);
+        stock->rulesLoaded = stock->report.rulesLoaded;
+        stock->artLoaded = stock->report.artLoaded;
+        stock->theaterLoaded = stock->report.theaterLoaded;
+        stock->mapFactsLoaded = stock->report.map.loaded;
+        if (!stock->report.success) {
+            std::cerr << "Camera key: original asset startup failed\n";
+            return 1;
+        }
+        return runRuntimeCameraKeySmokeProbe(*stock, std::cout) ? 0 : 1;
+    }
+    if (const char* only = std::getenv("CONCORD_COMMAND_SMOKE_PLANNING_FACTORY_KEY_ONLY"); only != nullptr) {
+        if (std::string(only) != "1") {
+            std::cerr << "Planning factory key: ONLY must be exactly 1\n";
+            return 1;
+        }
+        auto stock = std::make_unique<RuntimeWindowState>();
+        stock->config = config;
+        stock->runtimePreferencePersistenceEnabled = false;
+        stock->report = buildRuntimeStartupReport(config, &stock->world,
+            &stock->theater, &stock->art, &stock->rules, &stock->mapFacts);
+        stock->rulesLoaded = stock->report.rulesLoaded;
+        stock->artLoaded = stock->report.artLoaded;
+        stock->theaterLoaded = stock->report.theaterLoaded;
+        stock->mapFactsLoaded = stock->report.map.loaded;
+        if (!stock->report.success) {
+            std::cerr << "Planning factory key: original asset startup failed\n";
+            return 1;
+        }
+        return runRuntimePlanningFactoryKeySmokeProbe(*stock, std::cout) ? 0 : 1;
+    }
+
+
+    if (const char* only = std::getenv("CONCORD_COMMAND_SMOKE_REFERENCE_COMMUNICATION_ONLY"); only != nullptr) {
+        if (std::string(only) != "1") {
+            std::cerr << "Reference communication: ONLY must be exactly 1\n";
+            return 1;
+        }
+        auto stock = std::make_unique<RuntimeWindowState>();
+        stock->config = config;
+        stock->runtimePreferencePersistenceEnabled = false;
+        stock->report = buildRuntimeStartupReport(config, &stock->world,
+            &stock->theater, &stock->art, &stock->rules, &stock->mapFacts);
+        stock->rulesLoaded = stock->report.rulesLoaded;
+        stock->artLoaded = stock->report.artLoaded;
+        stock->theaterLoaded = stock->report.theaterLoaded;
+        stock->mapFactsLoaded = stock->report.map.loaded;
+        if (!stock->report.success) {
+            std::cerr << "Reference communication: original asset startup failed\n";
+            return 1;
+        }
+        return runRuntimeReferenceCommunicationSmokeProbe(*stock, std::cout) ? 0 : 1;
+    }
+
+    if (const char* only = std::getenv("CONCORD_COMMAND_SMOKE_REFERENCE_PRESENTATION_ONLY"); only != nullptr) {
+        if (std::string(only) != "1") {
+            std::cerr << "Reference presentation: ONLY must be exactly 1\n";
+            return 1;
+        }
+        auto stock = std::make_unique<RuntimeWindowState>();
+        stock->config = config;
+        stock->runtimePreferencePersistenceEnabled = false;
+        stock->report = buildRuntimeStartupReport(config, &stock->world,
+            &stock->theater, &stock->art, &stock->rules, &stock->mapFacts);
+        stock->rulesLoaded = stock->report.rulesLoaded;
+        stock->artLoaded = stock->report.artLoaded;
+        stock->theaterLoaded = stock->report.theaterLoaded;
+        stock->mapFactsLoaded = stock->report.map.loaded;
+        if (!stock->report.success) {
+            std::cerr << "Reference presentation: original asset startup failed\n";
+            return 1;
+        }
+        return runRuntimeReferencePresentationSmokeProbe(*stock, std::cout) ? 0 : 1;
+    }
+
+    if (const char* only = std::getenv("CONCORD_COMMAND_SMOKE_LOCAL_NAVIGATION_ONLY"); only != nullptr) {
+        if (std::string(only) != "1") {
+            std::cerr << "Local navigation: ONLY must be exactly 1\n";
+            return 1;
+        }
+        auto stock = std::make_unique<RuntimeWindowState>();
+        stock->config = config;
+        stock->runtimePreferencePersistenceEnabled = false;
+        stock->report = buildRuntimeStartupReport(config, &stock->world,
+            &stock->theater, &stock->art, &stock->rules, &stock->mapFacts);
+        stock->rulesLoaded = stock->report.rulesLoaded;
+        stock->artLoaded = stock->report.artLoaded;
+        stock->theaterLoaded = stock->report.theaterLoaded;
+        stock->mapFactsLoaded = stock->report.map.loaded;
+        if (!stock->report.success) {
+            std::cerr << "Local navigation: original asset startup failed\n";
+            return 1;
+        }
+        return runRuntimeLocalNavigationSmokeProbe(*stock, std::cout) ? 0 : 1;
+    }
+
+    if (const char* only = std::getenv("CONCORD_COMMAND_SMOKE_TEAM_KEYS_ONLY"); only != nullptr) {
+        if (std::string(only) != "1") {
+            std::cerr << "Team keys: ONLY must be exactly 1\n";
+            return 1;
+        }
+        auto stock = std::make_unique<RuntimeWindowState>();
+        stock->config = config;
+        stock->runtimePreferencePersistenceEnabled = false;
+        stock->report = buildRuntimeStartupReport(config, &stock->world,
+            &stock->theater, &stock->art, &stock->rules, &stock->mapFacts);
+        stock->rulesLoaded = stock->report.rulesLoaded;
+        stock->artLoaded = stock->report.artLoaded;
+        stock->theaterLoaded = stock->report.theaterLoaded;
+        stock->mapFactsLoaded = stock->report.map.loaded;
+        if (!stock->report.success) {
+            std::cerr << "Team keys: original asset startup failed\n";
+            return 1;
+        }
+        return runRuntimeTeamKeySmokeProbe(*stock, std::cout) ? 0 : 1;
+    }
+
+    if (const char* only = std::getenv("CONCORD_COMMAND_SMOKE_SELECTION_KEYS_ONLY"); only != nullptr) {
+        if (std::string(only) != "1") {
+            std::cerr << "Selection keys: ONLY must be exactly 1\n";
+            return 1;
+        }
+        auto stock = std::make_unique<RuntimeWindowState>();
+        stock->config = config;
+        stock->runtimePreferencePersistenceEnabled = false;
+        stock->report = buildRuntimeStartupReport(config, &stock->world,
+            &stock->theater, &stock->art, &stock->rules, &stock->mapFacts);
+        stock->rulesLoaded = stock->report.rulesLoaded;
+        stock->artLoaded = stock->report.artLoaded;
+        stock->theaterLoaded = stock->report.theaterLoaded;
+        stock->mapFactsLoaded = stock->report.map.loaded;
+        if (!stock->report.success) {
+            std::cerr << "Selection keys: original asset startup failed\n";
+            return 1;
+        }
+        return runRuntimeSelectionKeySmokeProbe(*stock, std::cout) ? 0 : 1;
+    }
+
+    if (const char* only = std::getenv("CONCORD_COMMAND_SMOKE_UI_CLOCK_ONLY"); only != nullptr) {
+        if (std::string(only) != "1") {
+            std::cerr << "UI clock: ONLY must be exactly 1\n";
+            return 1;
+        }
+        auto stock = std::make_unique<RuntimeWindowState>();
+        stock->config = config;
+        stock->runtimePreferencePersistenceEnabled = false;
+        stock->report = buildRuntimeStartupReport(config, &stock->world,
+            &stock->theater, &stock->art, &stock->rules, &stock->mapFacts);
+        stock->rulesLoaded = stock->report.rulesLoaded;
+        stock->artLoaded = stock->report.artLoaded;
+        stock->theaterLoaded = stock->report.theaterLoaded;
+        stock->mapFactsLoaded = stock->report.map.loaded;
+        if (!stock->report.success) {
+            std::cerr << "UI clock: original asset startup failed\n";
+            return 1;
+        }
+        return runRuntimeUiClockSmokeTest(*stock, std::cout) ? 0 : 1;
+    }
     if (const char* only = std::getenv("CONCORD_COMMAND_SMOKE_TERRAIN_NATIVE_DEPTH_ONLY"); only != nullptr) {
         if (std::string(only) != "1") {
             std::cerr << "Terrain native depth: ONLY must be exactly 1\n";
@@ -172516,7 +171155,7 @@ int runRuntimeMultiplayerAuthoritativeHashSmokeTest() {
         state.camera.worldOffsetY = -333;
         state.camera.initialized = true;
         state.selectedObjectIds = {103, 102};
-        state.selectionDragActive = true;
+        state.leftPointer.active = true;
         state.runtimeMenuOpen = true;
         state.runtimeMenuFocus = 4;
         state.activeSidebarTool = RuntimeSidebarTool::Sell;
@@ -177043,21 +175682,28 @@ RuntimeMultiplayerRuntimeCallbacks makeRuntimeMultiplayerRuntimeCallbacks(
         std::span<const RuntimeMultiplayerLockstepApplyCommand> batch,
         std::string& errorMessage
     ) {
-        return prevalidateRuntimeMultiplayerGameplayBatch(
+        const bool accepted = prevalidateRuntimeMultiplayerGameplayBatch(
             state,
             batch,
             errorMessage
         );
+        RuntimeKeyboardParentDiagnostics::batch("mp-prevalidate", state.tick,
+            state.economy.owner, batch, accepted, errorMessage);
+        return accepted;
     };
     callbacks.applyCommands = [&state](
         std::span<const RuntimeMultiplayerLockstepApplyCommand> batch,
         std::string& errorMessage
     ) {
-        return applyRuntimeMultiplayerGameplayBatch(
+        RuntimeKeyboardParentDiagnostics::packets(state.economy.owner, state.multiplayerBridge);
+        const bool accepted = applyRuntimeMultiplayerGameplayBatch(
             state,
             batch,
             errorMessage
         );
+        RuntimeKeyboardParentDiagnostics::batch("mp-apply", state.tick,
+            state.economy.owner, batch, accepted, errorMessage);
+        return accepted;
     };
     callbacks.currentCompletedTick = [&state]() { return state.tick; };
     callbacks.advanceSimulation = [&state](int completedTick) {
@@ -177078,6 +175724,7 @@ RuntimeMultiplayerRuntimeCallbacks makeRuntimeMultiplayerRuntimeCallbacks(
         updateRuntimeSimulationPerfPeaks(state.perf);
         accumulateRuntimeFrameSimulationDiagnostics(state);
         state.repaintRequested = changed || state.repaintRequested;
+        RuntimeKeyboardParentDiagnostics::advance(completedTick, state.tick, state.economy.owner);
     };
     callbacks.authoritativeStateHash = [&state]() {
         std::string errorMessage;
@@ -177264,6 +175911,7 @@ bool attachRuntimeMultiplayerRuntimeBridge(
 } // namespace
 
 #include "network/session/diagnostics/RuntimeMultiplayerResumeSmoke.inl"
+#include "ui/input/diagnostics/RuntimeKeyboardParentReconciliationSmoke.inl"
 
 int runRuntimeMultiplayerRuntimeBindingSmokeTest() {
     const auto fail = [](const std::string& reason) {
@@ -178527,7 +177175,7 @@ int runRuntimeWindowSession(
             const auto simulationStart = clock::now();
             liveMovement.beforeSimulation(state);
             const bool simulationChanged =
-                advanceRuntimeSimulation(state, state.rightDragActive);
+                advanceRuntimeSimulation(state, state.rightPointer.active);
             waterWakeTickContext.animationTick = state.tick;
             waterWakeTickContext.fixedTickHz = state.config.fixedTickHz;
             waterWakeTickContext.visualDetail = state.runtimeVisualDetail;
@@ -178681,25 +177329,7 @@ int runRuntimeWindowSession(
             continue;
         }
 
-        const std::uint64_t presentationMs = GetTickCount64();
-        advanceRuntimeResultPresentation(state, presentationMs);
-        expireRuntimePlayerDefeatNotices(state,presentationMs);
-        const std::uint64_t readyBlinkPeriod = presentationMs / 500U;
-        if (readyBlinkPeriod != state.lastSidebarReadyBlinkPeriod) {
-            state.lastSidebarReadyBlinkPeriod = readyBlinkPeriod;
-            if (runtimeOldestReadyPlacement(state).has_value()) {
-                // Ready buildings also animate while the world is paused.
-                state.repaintRequested = true;
-            }
-            for (const auto& snapshot : state.superWeapons.sidebarSnapshots()) {
-                if (snapshot.owner == state.economy.owner
-                    && runtimeSuperWeaponHasReadyLabel(snapshot)) {
-                    // A paused world otherwise reuses the cached frame.
-                    state.repaintRequested = true;
-                    break;
-                }
-            }
-        }
+        advanceRuntimeUiPresentation(state);
         if (tickAdvanced) {
             state.repaintRequested = true;
         }

@@ -81,18 +81,18 @@ bool runRuntimePanCursorSmoke(RuntimeWindowState& live, std::string& error) {
         const auto worldHash=s.world.deterministicSimulationStateHash();
         constexpr POINT directions[]={{0,-80},{80,-80},{80,0},{80,80},{0,80},{-80,80},{-80,0},{-80,-80}};
         for(int n=0;n<8;++n) {
-            begin();if(!s.rightDragActive||s.rightDragMoved||GetCapture()!=window||!check(385,true))return fail("neutral/down "+error);
+            begin();if(!s.rightPointer.active||s.rightPointer.moved||GetCapture()!=window||!check(385,true))return fail("neutral/down "+error);
             const int cx=s.camera.worldOffsetX,cy=s.camera.worldOffsetY;
             const POINT end{start.x+directions[n].x,start.y+directions[n].y};
             send(WM_MOUSEMOVE,end,MK_RBUTTON);
             if(coasting&&!advanceRuntimeRightMousePan(s))return fail("coasting movement");
-            if(!s.rightDragMoved||(cx==s.camera.worldOffsetX&&cy==s.camera.worldOffsetY)||!check(386+n,true))return fail("direction/movement "+error);
+            if(!s.rightPointer.moved||(cx==s.camera.worldOffsetX&&cy==s.camera.worldOffsetY)||!check(386+n,true))return fail("direction/movement "+error);
             send(WM_RBUTTONUP,end);
-            if(s.rightDragActive||GetCapture()==window||!check(0))return fail("release "+error);
+            if(s.rightPointer.active||GetCapture()==window||!check(0))return fail("release "+error);
             ++drags;
         }
         begin();send(WM_MOUSEMOVE,{start.x+3,start.y},MK_RBUTTON);
-        if(s.rightDragMoved||!check(385,true))return fail("jitter "+error);
+        if(s.rightPointer.moved||!check(385,true))return fail("jitter "+error);
         send(WM_RBUTTONUP,{start.x+3,start.y});if(!check(0))return false;++boundaries;
         begin();send(WM_MOUSEMOVE,{start.x+80,start.y},MK_RBUTTON);
         send(WM_MOUSEMOVE,{start.x+40,start.y},MK_RBUTTON);
@@ -117,13 +117,13 @@ bool runRuntimePanCursorSmoke(RuntimeWindowState& live, std::string& error) {
             else if(mode==2)SendMessageW(window,WM_ACTIVATEAPP,FALSE,0);
             else SendMessageW(window,WM_CANCELMODE,0,0);
             send(WM_MOUSEMOVE,start);
-            if(s.rightDragActive||GetCapture()==window||!check(0))return fail("interrupted gesture "+error);
+            if(s.rightPointer.active||GetCapture()==window||!check(0))return fail("interrupted gesture "+error);
             send(WM_RBUTTONUP,start);++interruptions;
         }
         begin();send(WM_MOUSEMOVE,{-20,-20},MK_RBUTTON);
         if(runtimeMouseCursorFrameForPoint(s,client,{-20,-20}))return fail("cursor outside viewport");
         send(WM_RBUTTONUP,{-20,-20});send(WM_MOUSEMOVE,start);
-        if(s.rightDragActive||GetCapture()==window||!check(0))return fail("outside release "+error);++boundaries;
+        if(s.rightPointer.active||GetCapture()==window||!check(0))return fail("outside release "+error);++boundaries;
         if(s.world.deterministicSimulationStateHash()!=worldHash)return fail("camera UI mutated simulation");
     }
     std::cout<<"Pan cursor passed: drags="<<drags<<" nativePixelComparisons="<<pixelsCompared

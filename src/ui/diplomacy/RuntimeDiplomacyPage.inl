@@ -16,7 +16,7 @@ RECT runtimeDiplomacyBaseRect(int x, int y, int width, int height) {
     return {sx(x), sy(y), sx(x + width), sy(y + height)};
 }
 
-constexpr std::array<int, 7> runtimeDiplomacyChatControls{{1750,1751,1752,1753,1762,1763,1764}};
+constexpr const auto& runtimeDiplomacyChatControls = runtimeDiplomacyPointerChatControls;
 RECT runtimeDiplomacyControlBase(int id) {
     if (id == 1684) return runtimeDiplomacyBaseRect(425,1,108,10);
     if (id == 1059) return runtimeDiplomacyBaseRect(425,346,108,23);
@@ -115,20 +115,15 @@ std::vector<RuntimeDiplomacyRow> runtimeDiplomacyRows(const RuntimeWindowState& 
     return rows;
 }
 
+#include "ui/input/RuntimePointerIngressUi.inl"
+
 void closeRuntimeDiplomacyPage(RuntimeWindowState& state) {
-    auto& ui=state.playerCommunication;
-    ui.diplomacyOpen=false; ui.diplomacyPressedControl=ui.diplomacyHoveredControl=0;
-    state.rightDragActive=state.rightDragMoved=false;
-    state.repaintRequested=true;
+    RuntimeDiplomacyPointerUiHost host(state);
+    closeRuntimeDiplomacyPointer(host);
 }
 void openRuntimeDiplomacyPage(RuntimeWindowState& state) {
-    auto& ui=state.playerCommunication;
-    ui.diplomacyOpen=true; ui.diplomacyRow=1;
-    ui.diplomacyPressedControl=ui.diplomacyHoveredControl=0;
-    ui.chatOpen=ui.beaconEditing=false; ui.chatDraft.clear();
-    state.selectionDragActive=state.selectionDragMoved=false;
-    state.rightDragActive=state.rightDragMoved=false;
-    state.repaintRequested=true;
+    RuntimeDiplomacyPointerUiHost host(state);
+    openRuntimeDiplomacyPointer(host);
 }
 
 bool runtimeDiplomacyAllianceEnabled(const RuntimeWindowState& state, const RuntimeDiplomacyRow& row) {
@@ -143,58 +138,25 @@ bool runtimeDiplomacyAllianceEnabled(const RuntimeWindowState& state, const Runt
     return !row.self && !row.defeated && validateRuntimePlayerCommunication(state,source,command,error);
 }
 bool runtimeDiplomacyChatEnabled(const RuntimeWindowState& state, const RuntimeDiplomacyRow& row) {
-    return !row.self && row.human && row.slot && *row.slot<8 && runtimePlayerChatRecipientsAvailable(state);
+    RuntimeDiplomacyPointerUiHost host(const_cast<RuntimeWindowState&>(state));
+    return runtimeDiplomacyPointerChatEnabled(runtimePointerIngressOwnedRow(row), host);
 }
 void runtimeDiplomacyToggleChat(RuntimeWindowState& state, const RuntimeDiplomacyRow& row) {
-    if (!runtimeDiplomacyChatEnabled(state,row)) return;
-    auto& ui=state.playerCommunication;
-    if (!ui.chatRecipientsExplicit) ui.chatRecipients=runtimePlayerChatSlotsMask(state);
-    ui.chatRecipientsExplicit=true;
-    ui.chatRecipients^=static_cast<std::uint8_t>(1U<<*row.slot);
-    ui.chatRecipients|=static_cast<std::uint8_t>(1U<<*runtimePlayerChatSlot(state,state.economy.owner));
-    state.repaintRequested=true;
+    RuntimeDiplomacyPointerUiHost host(state);
+    toggleRuntimeDiplomacyPointerChat(runtimePointerIngressOwnedRow(row), host);
 }
 
 void runtimePlayerToggleAlliance(RuntimeWindowState&, const std::string&);
 int runtimeDiplomacyHitControl(const RuntimeWindowState& state, const RECT& client, POINT point) {
-    if (pointInRectInclusive(runtimeDiplomacyControlRect(client,1059),point)) return 1059;
-    const auto rows=runtimeDiplomacyRows(state);
-    for (std::size_t i=1;i<rows.size() && i<8;++i) {
-        if (runtimeDiplomacyAllianceEnabled(state,rows[i])
-            && pointInRectInclusive(runtimeDiplomacyCheckboxRect(client,1742+static_cast<int>(i)),point))
-            return 1742+static_cast<int>(i);
-        if (runtimeDiplomacyChatEnabled(state,rows[i])
-            && pointInRectInclusive(runtimeDiplomacyCheckboxRect(client,runtimeDiplomacyChatControls[i-1]),point))
-            return runtimeDiplomacyChatControls[i-1];
-    }
-    if (pointInRectInclusive(runtimeDiplomacyControlRect(client,1840),point)) return 1840;
-    return 0;
+    RuntimeDiplomacyPointerUiHost host(const_cast<RuntimeWindowState&>(state));
+    return hitRuntimeDiplomacyPointerControl(
+        runtimePointerIngressPixelRect(client), {point.x, point.y}, host);
 }
 void handleRuntimeDiplomacyMouse(RuntimeWindowState& state,const RECT& client,UINT message,POINT point) {
-    auto& ui=state.playerCommunication;
-    const int hit=runtimeDiplomacyHitControl(state,client,point);
-    ui.diplomacyHoveredControl=hit;
-    if (message==WM_LBUTTONDOWN) ui.diplomacyPressedControl=hit;
-    else if (message==WM_LBUTTONUP) {
-        const bool activate=hit!=0 && hit==ui.diplomacyPressedControl;
-        ui.diplomacyPressedControl=0;
-        if (activate) {
-            if (hit==1059) closeRuntimeDiplomacyPage(state);
-            else if (hit==1840) ui.tauntsEnabled=!ui.tauntsEnabled;
-            else {
-                const auto rows=runtimeDiplomacyRows(state);
-                if (hit>=1743 && hit<=1749) {
-                    const auto row=static_cast<std::size_t>(hit-1742);
-                    if (row<rows.size()) {ui.diplomacyRow=static_cast<int>(row);runtimePlayerToggleAlliance(state,rows[row].owner);}
-                } else {
-                    const auto found=std::find(runtimeDiplomacyChatControls.begin(),runtimeDiplomacyChatControls.end(),hit);
-                    const auto row=static_cast<std::size_t>(found-runtimeDiplomacyChatControls.begin()+1);
-                    if (row<rows.size()) {ui.diplomacyRow=static_cast<int>(row);runtimeDiplomacyToggleChat(state,rows[row]);}
-                }
-            }
-        }
-    } else if (message==WM_RBUTTONUP) closeRuntimeDiplomacyPage(state);
-    state.repaintRequested=true;
+    RuntimeDiplomacyPointerUiHost host(state);
+    handleRuntimeDiplomacyPointer(
+        {runtimePointerIngressEventForMessage(message, 0), {point.x, point.y}},
+        runtimePointerIngressPixelRect(client), host);
 }
 
 std::string runtimeDiplomacyFlagId(const std::string& country) {

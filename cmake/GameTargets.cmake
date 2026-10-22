@@ -88,6 +88,22 @@ add_executable(concord_runtime
     src/runtime/campaign/RuntimeCampaignDataSource.cpp
     src/runtime/campaign/RuntimeCampaignMovieResolver.cpp
     src/runtime/host/RuntimeShell.cpp
+    src/simulation/navigation/terrain/RuntimeNavigationTerrainQuery.cpp
+    src/runtime/host/RuntimeUiClockWin32.cpp
+    src/ui/input/RuntimeSelectionKeyController.cpp
+    src/ui/input/RuntimeTeamKeyController.cpp
+    src/ui/input/RuntimeLocalNavigationController.cpp
+    src/ui/input/RuntimeReferencePresentationController.cpp
+    src/ui/input/RuntimeReferenceCommunicationController.cpp
+    src/ui/input/RuntimeChatTextController.cpp
+    src/ui/input/RuntimeMapRightPointerController.cpp
+    src/ui/input/RuntimeMapLeftPointerController.cpp
+    src/ui/input/RuntimePointerIngressController.cpp
+    src/ui/sidebar/RuntimeSidebarPageController.cpp
+    src/ui/input/RuntimePlanningFactoryKeyController.cpp
+    src/ui/input/RuntimeCameraKeyController.cpp
+    src/ui/input/RuntimeMenuKeyController.cpp
+    src/ui/input/RuntimeSessionKeyController.cpp
     src/runtime/config/RuntimeConfig.cpp
     src/core/results/RuntimeMatchScore.cpp
     src/audio/backend/RuntimeVoiceAudio.cpp
@@ -100,6 +116,8 @@ add_executable(concord_runtime
     src/assets/inspection/GameResourceMount.cpp
     src/world/model/GameWorld.cpp
     src/render/core/RuntimeMapRenderer.cpp
+    src/assets/codecs/RuntimeTmpCodec.cpp
+    src/assets/terrain/RuntimeTerrainTmpQuery.cpp
     src/render/lighting/RuntimeLightingSystem.cpp
     src/simulation/buildings/RuntimeGarrisonSystem.cpp
     src/simulation/buildings/RuntimeGateSystem.cpp
@@ -141,3 +159,18 @@ target_include_directories(concord_rules_dump PRIVATE src)
 # S09: the runtime and preview tool share one compatibility-preserving SHP decoder.
 target_sources(concord_runtime PRIVATE src/assets/codecs/ShpCodec.cpp)
 target_sources(concord_rules_dump PRIVATE src/assets/codecs/ShpCodec.cpp)
+# W009-10: same standard keyboard router and force-held policy in production.
+target_sources(concord_runtime PRIVATE
+    "${CMAKE_SOURCE_DIR}/src/ui/input/RuntimeKeyboardRouterController.cpp"
+)
+
+# W009-11: same standard campaign admission and outer keyboard policy in production.
+target_sources(concord_runtime PRIVATE
+    "${CMAKE_SOURCE_DIR}/src/ui/input/RuntimeKeyboardIngressController.cpp"
+)
+
+# W010-04: same complete standard cursor policy in production.
+target_sources(concord_runtime PRIVATE "${CMAKE_SOURCE_DIR}/src/ui/input/RuntimeCursorController.cpp")
+
+# W012-01: same capture-interruption owner in the runtime.
+target_sources(concord_runtime PRIVATE "${CMAKE_SOURCE_DIR}/src/ui/input/RuntimeInputCancellationController.cpp")

@@ -74,7 +74,7 @@
                     || saved.str().find("CHRONOAR") != std::string::npos)
                     return fail("local chrono selection leaked into saved state: " + error);
             }
-            s.mouseClientPointValid = false; s.rightDragActive = true;
+            s.mouseClientPointValid = false; s.rightPointer.active = true;
             s.repaintRequested = false;
             step(s, hz * 20);
             if (selection() != 1 || (routed && !s.repaintRequested))
@@ -100,7 +100,7 @@
             }
             s.economy.owner = "Commander";
             if (selection() != 1) return fail("chrono source lost after owner-only render query");
-            s.rightDragActive = false;
+            s.rightPointer.active = false;
             if (routed) {
                 reject = true;
                 click({103, 100});

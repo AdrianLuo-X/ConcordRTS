@@ -26,7 +26,7 @@ struct RuntimePlayerBeacon {
 struct RuntimePlayerCommunicationState {
     bool chatOpen = false;
     bool chatAllies = false;
-    std::wstring chatDraft;
+    std::u16string chatDraft;
     bool diplomacyOpen = false;
     int diplomacyRow = 0;
     int diplomacyPressedControl = 0;

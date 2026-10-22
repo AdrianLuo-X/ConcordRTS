@@ -1,4 +1,6 @@
 #include "render/core/RuntimeMapRenderer.h"
+#include "assets/codecs/RuntimeTmpCodec.h"
+#include "assets/terrain/RuntimeTerrainTmpQuery.h"
 #include "assets/codecs/ShpCodec.h"
 #include "assets/codecs/PalDecoder.h"
 #include "simulation/abilities/psionic/RuntimeDisguiseBlink.h"
@@ -419,644 +421,6 @@ bool decodeRuntimeShpFrame(
         image,
         errorMessage
     );
-}
-
-std::size_t findNextTmpImageOffset(
-    const std::vector<std::size_t>& imageOffsets,
-    std::size_t currentOffset,
-    std::size_t fileSize
-) {
-    std::size_t nextOffset = fileSize;
-    for (const std::size_t candidate : imageOffsets) {
-        if (candidate > currentOffset && candidate < nextOffset) {
-            nextOffset = candidate;
-        }
-    }
-
-    return nextOffset;
-}
-
-bool isValidTmpImageOffset(
-    std::size_t imageOffset,
-    std::size_t tableEnd,
-    std::size_t fileSize
-) {
-    return imageOffset >= tableEnd && imageOffset < fileSize;
-}
-
-bool validateTmpImageOffsets(
-    const std::vector<std::size_t>& imageOffsets,
-    std::size_t tableEnd,
-    std::size_t fileSize,
-    const std::string& path,
-    std::string& errorMessage
-) {
-    for (const std::size_t imageOffset : imageOffsets) {
-        if (imageOffset == 0) {
-            continue;
-        }
-
-        if (!isValidTmpImageOffset(imageOffset, tableEnd, fileSize)) {
-            errorMessage = "TMP image offset is outside file: " + path;
-            return false;
-        }
-    }
-
-    return true;
-}
-
-bool decodeTmpImagePixels(
-    const std::vector<unsigned char>& bytes,
-    std::size_t imageOffset,
-    std::size_t imageRecordEnd,
-    unsigned int blockWidth,
-    unsigned int blockHeight,
-    RuntimeTmpSubTileImage& image,
-    std::string& errorMessage
-) {
-    constexpr std::size_t imageHeaderBytes = 52;
-
-    if (blockWidth == 0 || blockHeight == 0 || imageRecordEnd <= imageOffset) {
-        errorMessage = "TMP tile has invalid image dimensions.";
-        return false;
-    }
-
-    std::size_t baseColorBytes = 0;
-    unsigned int rowWidth = 4;
-    for (unsigned int y = 0; y < blockHeight; ++y) {
-        if (rowWidth > blockWidth) {
-            errorMessage = "TMP packed diamond row is wider than the tile image.";
-            return false;
-        }
-
-        baseColorBytes += rowWidth;
-        if (y < (blockHeight / 2) - 1) {
-            rowWidth += 4;
-        } else {
-            rowWidth -= 4;
-        }
-    }
-
-    if (baseColorBytes == 0) {
-        errorMessage = "TMP base color data is empty.";
-        return false;
-    }
-
-    const std::size_t imageRecordBytes = imageRecordEnd - imageOffset;
-    if (imageRecordBytes < imageHeaderBytes + baseColorBytes) {
-        errorMessage = "TMP image record is too small for base pixels.";
-        return false;
-    }
-
-    const int rawBaseOffsetX = readInt32(bytes, imageOffset);
-    const int rawBaseOffsetY = readInt32(bytes, imageOffset + 4);
-    const unsigned int dataBlockSize = readUInt32(bytes, imageOffset + 16);
-    const int rawExtraOffsetX = readInt32(bytes, imageOffset + 20);
-    const int rawExtraOffsetY = readInt32(bytes, imageOffset + 24);
-    const unsigned int extraWidth = readUInt32(bytes, imageOffset + 28);
-    const unsigned int extraHeight = readUInt32(bytes, imageOffset + 32);
-    const unsigned int flags = readUInt32(bytes, imageOffset + 36);
-    const unsigned char terrainType = bytes[imageOffset + 41];
-    const unsigned char rampType = bytes[imageOffset + 42];
-    const RuntimePaletteColor radarLeft{
-        bytes[imageOffset + 43],
-        bytes[imageOffset + 44],
-        bytes[imageOffset + 45]
-    };
-    const RuntimePaletteColor radarRight{
-        bytes[imageOffset + 46],
-        bytes[imageOffset + 47],
-        bytes[imageOffset + 48]
-    };
-
-    constexpr unsigned int tmpImageFlagExtraData = 1U;
-    constexpr unsigned int tmpImageFlagZData = 2U;
-
-    std::size_t extraPixelCount = 0;
-    const bool hasBaseZData = (flags & tmpImageFlagZData) != 0;
-    const bool hasExtra =
-        (flags & tmpImageFlagExtraData) != 0
-        && extraWidth > 0
-        && extraHeight > 0
-        && extraWidth <= 512
-        && extraHeight <= 512
-        && checkedMul(
-            static_cast<std::size_t>(extraWidth),
-            static_cast<std::size_t>(extraHeight),
-            extraPixelCount
-        );
-    const std::size_t basePixelDataOffset = imageOffset + imageHeaderBytes;
-    const std::size_t zDataOffset =
-        imageHeaderBytes + baseColorBytes;
-    const std::size_t extraDataOffset =
-        zDataOffset + (hasBaseZData ? baseColorBytes : 0);
-    const std::size_t extraZDataOffset =
-        extraDataOffset + (hasExtra ? extraPixelCount : 0);
-    if (hasBaseZData
-        && zDataOffset + baseColorBytes > imageRecordBytes) {
-        errorMessage = "TMP z-data extends past the image record.";
-        return false;
-    }
-    if (hasExtra
-        && extraDataOffset + extraPixelCount > imageRecordBytes) {
-        errorMessage = "TMP extra data extends past the image record.";
-        return false;
-    }
-
-    const int baseOffsetX = 0;
-    const int baseOffsetY = 0;
-    const int extraOffsetX = rawExtraOffsetX - rawBaseOffsetX;
-    const int extraOffsetY = rawExtraOffsetY - rawBaseOffsetY;
-
-    int minX = baseOffsetX;
-    int minY = baseOffsetY;
-    int maxX = baseOffsetX + static_cast<int>(blockWidth);
-    int maxY = baseOffsetY + static_cast<int>(blockHeight);
-
-    if (hasExtra) {
-        minX = std::min(minX, extraOffsetX);
-        minY = std::min(minY, extraOffsetY);
-        maxX = std::max(maxX, extraOffsetX + static_cast<int>(extraWidth));
-        maxY = std::max(maxY, extraOffsetY + static_cast<int>(extraHeight));
-    }
-
-    if (maxX <= minX || maxY <= minY) {
-        errorMessage = "TMP image bounds are invalid.";
-        return false;
-    }
-
-    image.present = true;
-    image.hasTerrainType = true;
-    image.terrainType = terrainType;
-    image.rampType = rampType;
-    image.hasRadarColors = true;
-    image.radarLeft = radarLeft;
-    image.radarRight = radarRight;
-    image.offsetX = minX;
-    image.offsetY = minY;
-    image.width = maxX - minX;
-    image.height = maxY - minY;
-    image.baseOffsetX = baseOffsetX;
-    image.baseOffsetY = baseOffsetY;
-    image.baseWidth = static_cast<int>(blockWidth);
-    image.baseHeight = static_cast<int>(blockHeight);
-    image.basePixels.assign(baseColorBytes, 0);
-    image.baseZData.clear();
-    image.hasBaseZData = hasBaseZData;
-    if (hasBaseZData) {
-        const std::size_t zDataAbsoluteOffset =
-            imageOffset + static_cast<std::size_t>(zDataOffset);
-        image.baseZData.assign(
-            bytes.begin() + static_cast<std::ptrdiff_t>(zDataAbsoluteOffset),
-            bytes.begin() + static_cast<std::ptrdiff_t>(zDataAbsoluteOffset + baseColorBytes)
-        );
-    }
-    image.hasExtra = hasExtra;
-    image.extraOffsetX = extraOffsetX;
-    image.extraOffsetY = extraOffsetY;
-    image.extraWidth = hasExtra ? static_cast<int>(extraWidth) : 0;
-    image.extraHeight = hasExtra ? static_cast<int>(extraHeight) : 0;
-    image.extraPixels.clear();
-    image.extraZData.clear();
-    image.hasExtraZData = false;
-    image.pixels.assign(
-        static_cast<std::size_t>(image.width) * static_cast<std::size_t>(image.height),
-        0
-    );
-
-    std::size_t sourceIndex = basePixelDataOffset;
-    std::size_t packedBaseIndex = 0;
-    rowWidth = 4;
-    for (unsigned int y = 0; y < blockHeight; ++y) {
-        const unsigned int xStart = (blockWidth - rowWidth) / 2;
-        for (unsigned int x = 0; x < rowWidth; ++x) {
-            const unsigned char paletteIndex = bytes[sourceIndex];
-            ++sourceIndex;
-            image.basePixels[packedBaseIndex] = paletteIndex;
-            ++packedBaseIndex;
-            if (paletteIndex == 0) {
-                continue;
-            }
-
-            const int targetX = baseOffsetX - minX + static_cast<int>(xStart + x);
-            const int targetY = baseOffsetY - minY + static_cast<int>(y);
-            image.pixels[
-                (static_cast<std::size_t>(targetY) * image.width)
-                + static_cast<std::size_t>(targetX)
-            ] = paletteIndex;
-        }
-
-        if (y < (blockHeight / 2) - 1) {
-            rowWidth += 4;
-        } else {
-            rowWidth -= 4;
-        }
-    }
-
-    if (hasExtra) {
-        image.extraPixels.assign(extraPixelCount, 0);
-        image.hasExtraZData =
-            hasBaseZData
-            && dataBlockSize > 0
-            && extraZDataOffset + extraPixelCount <= imageRecordBytes;
-        if (image.hasExtraZData) {
-            const std::size_t extraZDataAbsoluteOffset =
-                imageOffset + extraZDataOffset;
-            image.extraZData.assign(
-                bytes.begin() + static_cast<std::ptrdiff_t>(extraZDataAbsoluteOffset),
-                bytes.begin() + static_cast<std::ptrdiff_t>(extraZDataAbsoluteOffset + extraPixelCount)
-            );
-        }
-
-        const std::size_t extraPixelDataOffset = imageOffset + extraDataOffset;
-        for (unsigned int y = 0; y < extraHeight; ++y) {
-            for (unsigned int x = 0; x < extraWidth; ++x) {
-                const unsigned char paletteIndex =
-                    bytes[
-                        extraPixelDataOffset
-                        + (static_cast<std::size_t>(y) * extraWidth)
-                        + x
-                    ];
-                image.extraPixels[
-                    (static_cast<std::size_t>(y) * extraWidth) + x
-                ] = paletteIndex;
-                if (paletteIndex == 0) {
-                    continue;
-                }
-
-                const int targetX = extraOffsetX - minX + static_cast<int>(x);
-                const int targetY = extraOffsetY - minY + static_cast<int>(y);
-                if (targetX < 0
-                    || targetY < 0
-                    || targetX >= image.width
-                    || targetY >= image.height) {
-                    errorMessage = "TMP extra pixels fall outside computed bounds.";
-                    return false;
-                }
-
-                image.pixels[
-                    (static_cast<std::size_t>(targetY) * image.width)
-                    + static_cast<std::size_t>(targetX)
-                ] = paletteIndex;
-            }
-        }
-    }
-
-    return true;
-}
-
-bool decodeRawTmpFormat3Pixels(
-    const std::vector<unsigned char>& bytes,
-    std::size_t dataOffset,
-    std::size_t dataEnd,
-    unsigned int width,
-    unsigned int height,
-    std::vector<unsigned char>& pixels,
-    std::string& errorMessage
-) {
-    if (dataOffset >= dataEnd || dataEnd > bytes.size()) {
-        errorMessage = "TMP raw image data bounds are invalid.";
-        return false;
-    }
-
-    pixels.assign(static_cast<std::size_t>(width) * static_cast<std::size_t>(height), 0);
-
-    std::size_t cursor = dataOffset;
-    for (unsigned int y = 0; y < height; ++y) {
-        if (cursor + 2 > dataEnd) {
-            errorMessage = "TMP raw format 3 row table ended early.";
-            return false;
-        }
-
-        const std::size_t rowStart = cursor;
-        const std::size_t rowLength = readUInt16(bytes, cursor);
-        if (rowLength < 2) {
-            errorMessage = "TMP raw format 3 row has an invalid length.";
-            return false;
-        }
-
-        const std::size_t rowEnd = rowStart + rowLength;
-        if (rowEnd < rowStart || rowEnd > dataEnd) {
-            errorMessage = "TMP raw format 3 row extends past the image record.";
-            return false;
-        }
-
-        cursor += 2;
-        unsigned int x = 0;
-        while (cursor < rowEnd) {
-            const unsigned char value = bytes[cursor++];
-            if (value != 0) {
-                if (x >= width) {
-                    errorMessage = "TMP raw format 3 row contains too many opaque pixels.";
-                    return false;
-                }
-
-                pixels[(static_cast<std::size_t>(y) * width) + x] = value;
-                ++x;
-                continue;
-            }
-
-            if (cursor >= rowEnd) {
-                errorMessage = "TMP raw format 3 transparent run is truncated.";
-                return false;
-            }
-
-            unsigned int runLength = bytes[cursor++];
-            if (x + runLength > width) {
-                runLength = width - x;
-            }
-
-            x += runLength;
-        }
-
-        cursor = rowEnd;
-    }
-
-    return true;
-}
-
-bool loadRawTmpTileFile(
-    const std::vector<unsigned char>& bytes,
-    const std::string& path,
-    RuntimeTmpTileFile& tileFile,
-    std::string& errorMessage
-) {
-    constexpr std::size_t preludeBytes = 8;
-    constexpr std::size_t slotRecordBytes = 24;
-    constexpr std::size_t dataOffsetOffset = 20;
-
-    // This compatibility format stores SHP pixel dimensions and frame slots,
-    // not the two-dimensional terrain grid found in a standard TMP header.
-    tileFile.gridWidth = 0;
-    tileFile.gridHeight = 0;
-
-    if (bytes.size() < preludeBytes + slotRecordBytes) {
-        errorMessage = "TMP raw slot table is too small: " + path;
-        return false;
-    }
-
-    const unsigned int headerWidth = readUInt16(bytes, 2);
-    const unsigned int headerHeight = readUInt16(bytes, 4);
-    const unsigned int headerSlotCount = readUInt16(bytes, 6);
-
-    std::size_t firstDataOffset = 0;
-    for (
-        std::size_t offsetField = preludeBytes + dataOffsetOffset;
-        offsetField + 4 <= bytes.size();
-        offsetField += slotRecordBytes
-    ) {
-        const unsigned int candidate = readUInt32(bytes, offsetField);
-        if (candidate > preludeBytes
-            && candidate < bytes.size()
-            && ((static_cast<std::size_t>(candidate) - preludeBytes) % slotRecordBytes) == 0
-            && (firstDataOffset == 0 || candidate < firstDataOffset)
-        ) {
-            firstDataOffset = static_cast<std::size_t>(candidate);
-        }
-    }
-
-    if (firstDataOffset == 0 || firstDataOffset <= preludeBytes) {
-        errorMessage = "TMP file has unsupported block dimensions: " + path;
-        return false;
-    }
-
-    const std::size_t tableBytes = firstDataOffset - preludeBytes;
-    if (tableBytes % slotRecordBytes != 0) {
-        errorMessage = "TMP raw slot table size is not aligned: " + path;
-        return false;
-    }
-
-    const std::size_t slotCount = tableBytes / slotRecordBytes;
-    if (slotCount == 0 || slotCount > 4096) {
-        errorMessage = "TMP raw slot count is unsupported: " + path;
-        return false;
-    }
-    if (headerSlotCount != 0 && headerSlotCount != slotCount) {
-        errorMessage = "TMP raw slot count disagrees with header: " + path;
-        return false;
-    }
-
-    std::vector<std::size_t> imageOffsets(slotCount, 0);
-    std::vector<std::pair<unsigned int, unsigned int>> dimensions(slotCount, {0, 0});
-    std::vector<std::pair<int, int>> imageAnchors(slotCount, {0, 0});
-    unsigned int maxWidth = 0;
-    unsigned int maxHeight = 0;
-
-    for (std::size_t i = 0; i < slotCount; ++i) {
-        const std::size_t recordOffset = preludeBytes + (i * slotRecordBytes);
-        const unsigned int packedAnchor = readUInt32(bytes, recordOffset);
-        const unsigned int packedDimensions = readUInt32(bytes, recordOffset + 4);
-        const unsigned int width = packedDimensions & 0xFFFFU;
-        const unsigned int height = (packedDimensions >> 16) & 0xFFFFU;
-        const unsigned int dataOffset = readUInt32(bytes, recordOffset + dataOffsetOffset);
-
-        if (dataOffset == 0) {
-            continue;
-        }
-
-        if (dataOffset < firstDataOffset || dataOffset >= bytes.size()) {
-            errorMessage = "TMP raw image offset is outside file: " + path;
-            return false;
-        }
-
-        if (width == 0 || height == 0 || width > 512 || height > 512) {
-            errorMessage = "TMP raw image dimensions are unsupported: " + path;
-            return false;
-        }
-
-        imageOffsets[i] = static_cast<std::size_t>(dataOffset);
-        dimensions[i] = {width, height};
-        imageAnchors[i] = {
-            signExtendUInt16(packedAnchor & 0xFFFFU),
-            signExtendUInt16((packedAnchor >> 16) & 0xFFFFU)
-        };
-        maxWidth = std::max(maxWidth, width);
-        maxHeight = std::max(maxHeight, height);
-    }
-
-    tileFile.blockWidth = headerWidth > 0
-        ? static_cast<int>(headerWidth)
-        : static_cast<int>(maxWidth);
-    tileFile.blockHeight = headerHeight > 0
-        ? static_cast<int>(headerHeight)
-        : static_cast<int>(maxHeight);
-    tileFile.images.assign(slotCount, RuntimeTmpSubTileImage{});
-
-    int decodedImages = 0;
-    std::string firstImageDecodeWarning;
-    for (std::size_t i = 0; i < slotCount; ++i) {
-        const std::size_t imageOffset = imageOffsets[i];
-        if (imageOffset == 0) {
-            continue;
-        }
-
-        const std::size_t imageRecordEnd =
-            findNextTmpImageOffset(imageOffsets, imageOffset, bytes.size());
-        std::vector<unsigned char> pixels;
-        if (!decodeRawTmpFormat3Pixels(
-                bytes,
-                imageOffset,
-                imageRecordEnd,
-                dimensions[i].first,
-                dimensions[i].second,
-                pixels,
-                errorMessage
-            )
-        ) {
-            if (firstImageDecodeWarning.empty()) {
-                firstImageDecodeWarning =
-                    errorMessage + " slot=" + std::to_string(i)
-                    + " path=" + path;
-            }
-            continue;
-        }
-
-        RuntimeTmpSubTileImage& image = tileFile.images[i];
-        image.present = true;
-        image.offsetX = imageAnchors[i].first;
-        image.offsetY = imageAnchors[i].second;
-        image.width = static_cast<int>(dimensions[i].first);
-        image.height = static_cast<int>(dimensions[i].second);
-        image.globalWidth = tileFile.blockWidth;
-        image.globalHeight = tileFile.blockHeight;
-        image.pixels = std::move(pixels);
-        image.baseOffsetX = 0;
-        image.baseOffsetY = 0;
-        image.baseWidth = 0;
-        image.baseHeight = 0;
-        image.basePixels.clear();
-        image.baseZData.clear();
-        image.hasBaseZData = false;
-        image.hasExtra = false;
-        image.extraOffsetX = 0;
-        image.extraOffsetY = 0;
-        image.extraWidth = 0;
-        image.extraHeight = 0;
-        image.extraPixels.clear();
-        image.extraZData.clear();
-        image.hasExtraZData = false;
-        ++decodedImages;
-    }
-
-    if (decodedImages <= 0) {
-        errorMessage = firstImageDecodeWarning.empty()
-            ? "TMP raw file did not contain any decodable images: " + path
-            : firstImageDecodeWarning;
-        return false;
-    }
-    errorMessage = firstImageDecodeWarning;
-    return true;
-}
-
-bool loadRuntimeTmpTileBytes(
-    const std::vector<unsigned char>& bytes,
-    const std::string& sourceName,
-    RuntimeTmpTileFile& tileFile,
-    std::string& errorMessage
-) {
-    constexpr std::size_t headerBytes = 16;
-    constexpr std::size_t offsetBytes = 4;
-
-    const std::string& path = sourceName;
-
-    if (bytes.size() < headerBytes + offsetBytes) {
-        errorMessage = "TMP file is too small: " + path;
-        return false;
-    }
-
-    const unsigned int xBlocks = readUInt32(bytes, 0);
-    const unsigned int yBlocks = readUInt32(bytes, 4);
-    const unsigned int blockWidth = readUInt32(bytes, 8);
-    const unsigned int blockHeight = readUInt32(bytes, 12);
-
-    if (
-        xBlocks == 0
-        || yBlocks == 0
-        || xBlocks > 64
-        || yBlocks > 64
-        || blockWidth == 0
-        || blockHeight == 0
-        || blockWidth > 512
-        || blockHeight > 512
-    ) {
-        return loadRawTmpTileFile(bytes, path, tileFile, errorMessage);
-    }
-
-    std::size_t slotCount = 0;
-    if (!checkedMul(static_cast<std::size_t>(xBlocks), static_cast<std::size_t>(yBlocks), slotCount)) {
-        errorMessage = "TMP slot count overflows: " + path;
-        return false;
-    }
-
-    std::size_t tableBytes = 0;
-    if (!checkedMul(slotCount, offsetBytes, tableBytes)) {
-        errorMessage = "TMP offset table size overflows: " + path;
-        return false;
-    }
-
-    std::size_t tableEnd = 0;
-    if (!checkedAdd(headerBytes, tableBytes, tableEnd) || tableEnd > bytes.size()) {
-        errorMessage = "TMP offset table points beyond file: " + path;
-        return false;
-    }
-
-    tileFile.blockWidth = static_cast<int>(blockWidth);
-    tileFile.blockHeight = static_cast<int>(blockHeight);
-    tileFile.gridWidth = static_cast<int>(xBlocks);
-    tileFile.gridHeight = static_cast<int>(yBlocks);
-    tileFile.images.assign(slotCount, RuntimeTmpSubTileImage{});
-
-    std::vector<std::size_t> imageOffsets(slotCount, 0);
-    for (std::size_t i = 0; i < slotCount; ++i) {
-        const unsigned int rawOffset = readUInt32(bytes, headerBytes + (i * offsetBytes));
-        if (rawOffset == 0) {
-            continue;
-        }
-
-        imageOffsets[i] = static_cast<std::size_t>(rawOffset);
-    }
-
-    if (!validateTmpImageOffsets(imageOffsets, tableEnd, bytes.size(), path, errorMessage)) {
-        return false;
-    }
-
-    for (std::size_t i = 0; i < slotCount; ++i) {
-        const std::size_t imageOffset = imageOffsets[i];
-        if (imageOffset == 0) {
-            continue;
-        }
-
-        const std::size_t imageRecordEnd =
-            findNextTmpImageOffset(imageOffsets, imageOffset, bytes.size());
-        if (!decodeTmpImagePixels(
-                bytes,
-                imageOffset,
-                imageRecordEnd,
-                blockWidth,
-                blockHeight,
-                tileFile.images[i],
-                errorMessage
-            )
-        ) {
-            errorMessage += " path=" + path;
-            return false;
-        }
-    }
-
-    return true;
-}
-
-bool loadRuntimeTmpTileFile(
-    const std::string& path,
-    RuntimeTmpTileFile& tileFile,
-    std::string& errorMessage
-) {
-    std::vector<unsigned char> bytes;
-    if (!loadBytes(path, bytes, errorMessage)) {
-        return false;
-    }
-
-    return loadRuntimeTmpTileBytes(bytes, path, tileFile, errorMessage);
 }
 
 std::string toLowerAscii(std::string value) {
@@ -14503,20 +13867,54 @@ const std::vector<RuntimePaletteColor>* runtimeNamedPaletteForRender(
     return &entry.palette;
 }
 
+RuntimeTerrainTmpContext runtimeTerrainTmpContextForRender(
+    const RuntimeMapRenderContext& context
+) {
+    return {context.theater, context.tileRootPath, context.assetRootPath,
+        context.structureRootPath};
+}
+
+class RuntimeTerrainTmpRendererByteSource final : public RuntimeTerrainTmpByteSource {
+public:
+    explicit RuntimeTerrainTmpRendererByteSource(
+        RuntimeMapRenderCache& cache,
+        const RuntimeMapRenderContext* context = nullptr
+    ) : cache_(cache), context_(context) {}
+    bool readLooseBytes(
+        const std::string& path, std::vector<unsigned char>& bytes,
+        std::string& errorMessage
+    ) override {
+        return loadBytes(path, bytes, errorMessage);
+    }
+    bool readResourceBytesByName(
+        const std::vector<std::string>& rootPaths,
+        const std::string& assetRootPath, const std::string& fileName,
+        std::vector<unsigned char>& bytes, std::string& sourceName,
+        std::string& errorMessage
+    ) override {
+        return loadRuntimeResourceBytesByName(
+            rootPaths, assetRootPath, fileName, cache_, bytes,
+            sourceName, errorMessage
+        );
+    }
+    std::string cachedMixExportsRoot() override {
+        // Only index/metadata wrappers call this method; each binds context.
+        return cachedRuntimeMixExportsRootForContext(*context_, cache_);
+    }
+    bool assetRootHasMixArchives(const std::string& assetRootPath) override {
+        return runtimeAssetRootHasMixArchives(assetRootPath, cache_);
+    }
+private:
+    RuntimeMapRenderCache& cache_;
+    const RuntimeMapRenderContext* context_;
+};
+
 RuntimeTmpTileFile* loadRuntimeTmpTileFromCache(
     const std::string& path,
     RuntimeMapRenderCache& cache
 ) {
-    auto [it, inserted] = cache.tmpTilesByPath.try_emplace(path);
-    RuntimeTmpTileFile& tileFile = it->second;
-    if (!tileFile.loadAttempted) {
-        tileFile.loadAttempted = true;
-        std::string errorMessage;
-        tileFile.loaded = loadRuntimeTmpTileFile(path, tileFile, errorMessage);
-        tileFile.errorMessage = errorMessage;
-    }
-
-    return tileFile.loaded ? &tileFile : nullptr;
+    RuntimeTerrainTmpRendererByteSource source(cache);
+    return ::loadRuntimeTmpTileFromCache(path, cache, source);
 }
 
 RuntimeTmpTileFile* loadRuntimeTmpTileByNameFromCache(
@@ -14525,49 +13923,10 @@ RuntimeTmpTileFile* loadRuntimeTmpTileByNameFromCache(
     const std::string& fileName,
     RuntimeMapRenderCache& cache
 ) {
-    const std::string cacheKey = "resource:"
-        + normalizedLowerPath(assetRootPath)
-        + "|"
-        + toLowerAscii(fileName);
-    auto found = cache.tmpTilesByPath.find(cacheKey);
-    if (found != cache.tmpTilesByPath.end()
-        && found->second.loadAttempted) {
-        cache.lastTmpTileLoadError = found->second.errorMessage;
-        return found->second.loaded ? &found->second : nullptr;
-    }
-
-    std::vector<unsigned char> bytes;
-    std::string sourceName;
-    std::string errorMessage;
-    const bool bytesLoaded = loadRuntimeResourceBytesByName(
-        rootPaths,
-        assetRootPath,
-        fileName,
-        cache,
-        bytes,
-        sourceName,
-        errorMessage
+    RuntimeTerrainTmpRendererByteSource source(cache);
+    return ::loadRuntimeTmpTileByNameFromCache(
+        rootPaths, assetRootPath, fileName, cache, source
     );
-
-    auto [it, inserted] = cache.tmpTilesByPath.try_emplace(cacheKey);
-    RuntimeTmpTileFile& tileFile = it->second;
-    if (!tileFile.loadAttempted) {
-        tileFile.loadAttempted = true;
-        if (bytesLoaded) {
-            tileFile.loaded = loadRuntimeTmpTileBytes(
-                bytes,
-                sourceName.empty() ? fileName : sourceName,
-                tileFile,
-                errorMessage
-            );
-        } else {
-            tileFile.loaded = false;
-        }
-        tileFile.errorMessage = errorMessage;
-    }
-    cache.lastTmpTileLoadError = tileFile.errorMessage;
-
-    return tileFile.loaded ? &tileFile : nullptr;
 }
 
 const RuntimeTmpSubTileImage* findRuntimeSubTileImage(
@@ -17436,20 +16795,6 @@ enum class RuntimeWaterWakeEligibility {
 
 constexpr int RuntimeLandTypeUnknown = -1;
 constexpr int RuntimeLandTypeWater = 2;
-constexpr std::array<int, 16> RuntimeLandTypeByTmpTerrainType{{
-    0, 8, 8, 8, 8, 10, 9, 3, 3, 2, 6, 1, 1, 0, 7, 3
-}};
-
-int runtimeLandTypeForTmpImage(const RuntimeTmpSubTileImage* terrainImage) {
-    if (terrainImage == nullptr
-        || !terrainImage->hasTerrainType
-        || terrainImage->terrainType
-            >= RuntimeLandTypeByTmpTerrainType.size()) {
-        return RuntimeLandTypeUnknown;
-    }
-    return RuntimeLandTypeByTmpTerrainType[terrainImage->terrainType];
-}
-
 bool runtimeUnitUsesWaterWakeLocomotor(const UnitType& unitType) {
     const std::string locomotor =
         toLowerAscii(trimAsciiForRender(unitType.locomotor));
@@ -28137,156 +27482,46 @@ bool drawRuntimeBridgeOverlaySprite(
 
 #include "render/terrain/RuntimeBridgeViewportBounds.inl"
 
+class RuntimeTerrainTmpRendererMemoPort final : public RuntimeTerrainTmpMemoPort {
+public:
+    RuntimeTerrainTmpRendererMemoPort(
+        const RuntimeMapRenderContext& context, RuntimeMapRenderCache& cache
+    ) : context_(context), cache_(cache) {}
+    bool find(
+        int tileIndex, RuntimeTmpTileFile*& file, bool& updatesLastLoadError
+    ) override {
+        return findRuntimeGeometryTerrainTile(
+            tileIndex, context_, cache_, file, updatesLastLoadError
+        );
+    }
+    void remember(
+        int tileIndex, RuntimeTmpTileFile* file, bool updatesLastLoadError
+    ) override {
+        rememberRuntimeGeometryTerrainTile(
+            tileIndex, context_, cache_, file, updatesLastLoadError
+        );
+    }
+private:
+    const RuntimeMapRenderContext& context_;
+    RuntimeMapRenderCache& cache_;
+};
+
 std::string runtimeTerrainTileLookupCacheRoot(
     const RuntimeMapRenderContext& context
 ) {
-    return normalizedLowerPath(context.tileRootPath)
-        + "|asset="
-        + normalizedLowerPath(context.assetRootPath)
-        + "|theater="
-        + (
-            context.theater == nullptr
-                ? std::string{}
-                : toLowerAscii(context.theater->getTileExtension())
-        );
-}
-
-constexpr const char* runtimeTerrainMixResourcePrefix = "@mix-resource:";
-
-bool runtimeTerrainTileLocatorIsMixResource(const std::string& locator) {
-    return locator.rfind(runtimeTerrainMixResourcePrefix, 0) == 0;
-}
-
-std::string runtimeTerrainTileResourceName(const std::string& locator) {
-    return runtimeTerrainTileLocatorIsMixResource(locator)
-        ? locator.substr(std::char_traits<char>::length(
-            runtimeTerrainMixResourcePrefix
-        ))
-        : std::string{};
-}
-
-RuntimeTmpTileFile* loadRuntimeTerrainTileForIndexUnmemoized(
-    int tileIndex,
-    const RuntimeMapRenderContext& context,
-    RuntimeMapRenderCache& cache
-) {
-    if (context.theater == nullptr
-        || (context.tileRootPath.empty() && context.assetRootPath.empty())) {
-        return nullptr;
-    }
-
-    const std::string lookupRoot =
-        runtimeTerrainTileLookupCacheRoot(context);
-    if (cache.terrainTilePathCacheRoot != lookupRoot) {
-        cache.terrainTilePathCacheRoot = lookupRoot;
-        cache.terrainTilePathByIndex.clear();
-        cache.missingTerrainTilePathByIndex.clear();
-    }
-
-    std::string assetRootPath = context.assetRootPath;
-    if (assetRootPath.empty()) {
-        assetRootPath = cachedRuntimeMixExportsRootForContext(context, cache);
-    }
-    const std::vector<std::string> rootPaths = {
-        context.tileRootPath,
-        context.assetRootPath,
-        context.structureRootPath
-    };
-    const auto loadLocator = [&](const std::string& locator) {
-        if (runtimeTerrainTileLocatorIsMixResource(locator)) {
-            return loadRuntimeTmpTileByNameFromCache(
-                rootPaths,
-                assetRootPath,
-                runtimeTerrainTileResourceName(locator),
-                cache
-            );
-        }
-        return loadRuntimeTmpTileFromCache(locator, cache);
-    };
-
-    const auto cachedPath = cache.terrainTilePathByIndex.find(tileIndex);
-    if (cachedPath != cache.terrainTilePathByIndex.end()) {
-        return loadLocator(cachedPath->second);
-    }
-    if (cache.missingTerrainTilePathByIndex.find(tileIndex)
-        != cache.missingTerrainTilePathByIndex.end()) {
-        return nullptr;
-    }
-
-    // Preserve an explicitly configured tile outside the default export root.
-    // For normal exports, original theater MIX payloads take precedence over
-    // loose copies; loose-only custom installations remain usable.
-    const TheaterTileReference reference =
-        context.theater->resolveTileIndex(tileIndex, context.tileRootPath);
-    if (!reference.validTileSet) {
-        cache.missingTerrainTilePathByIndex.insert(tileIndex);
-        return nullptr;
-    }
-
-    if (reference.fileExists && !reference.resolvedPath.empty()
-        && !runtimePathUsesDefaultAssetRoot(reference.resolvedPath, assetRootPath)) {
-        if (RuntimeTmpTileFile* tileFile =
-                loadRuntimeTmpTileFromCache(reference.resolvedPath, cache)) {
-            cache.terrainTilePathByIndex.emplace(
-                tileIndex,
-                reference.resolvedPath
-            );
-            return tileFile;
-        }
-    }
-
-    for (const std::string& fileName : reference.candidateFileNames) {
-        RuntimeTmpTileFile* tileFile =
-            loadRuntimeTmpTileByNameFromCache(
-                rootPaths,
-                assetRootPath,
-                fileName,
-                cache
-            );
-        if (tileFile == nullptr) {
-            continue;
-        }
-
-        cache.terrainTilePathByIndex.emplace(
-            tileIndex,
-            std::string(runtimeTerrainMixResourcePrefix) + fileName
-        );
-        return tileFile;
-    }
-
-    if (reference.fileExists && !reference.resolvedPath.empty()
-        && !runtimeAssetRootHasMixArchives(assetRootPath, cache)) {
-        if (RuntimeTmpTileFile* tileFile =
-                loadRuntimeTmpTileFromCache(reference.resolvedPath, cache)) {
-            cache.terrainTilePathByIndex.emplace(
-                tileIndex,
-                reference.resolvedPath
-            );
-            return tileFile;
-        }
-    }
-
-    cache.missingTerrainTilePathByIndex.insert(tileIndex);
-    return nullptr;
+    return ::runtimeTerrainTileLookupCacheRoot(
+        runtimeTerrainTmpContextForRender(context)
+    );
 }
 
 RuntimeTmpTileFile* loadRuntimeTerrainTileForIndex(
     int tileIndex, const RuntimeMapRenderContext& context, RuntimeMapRenderCache& cache
 ) {
-    RuntimeTmpTileFile* file = nullptr;
-    bool updatesLastLoadError = false;
-    if (findRuntimeGeometryTerrainTile(tileIndex, context, cache, file, updatesLastLoadError)) {
-        // MIX cache hits update this diagnostic; loose-file and resolved-miss
-        // hits preserve the previous error exactly like the original paths.
-        if (updatesLastLoadError && file) cache.lastTmpTileLoadError = file->errorMessage;
-        return file;
-    }
-    file = loadRuntimeTerrainTileForIndexUnmemoized(tileIndex, context, cache);
-    const auto locator = cache.terrainTilePathByIndex.find(tileIndex);
-    updatesLastLoadError = file && locator != cache.terrainTilePathByIndex.end()
-        && runtimeTerrainTileLocatorIsMixResource(locator->second);
-    rememberRuntimeGeometryTerrainTile(tileIndex, context, cache, file, updatesLastLoadError);
-    return file;
+    RuntimeTerrainTmpRendererByteSource source(cache, &context);
+    RuntimeTerrainTmpRendererMemoPort memo(context, cache);
+    return ::loadRuntimeTerrainTileForIndex(
+        tileIndex, runtimeTerrainTmpContextForRender(context), cache, source, memo
+    );
 }
 
 const RuntimeTmpSubTileImage* resolveTerrainVisualCellImage(
@@ -28389,26 +27624,12 @@ const RuntimeTmpSubTileImage* resolveRuntimeTerrainMetadata(
     const RuntimeMapRenderContext& context,
     RuntimeMapRenderCache& cache
 ) {
-    if (context.theater == nullptr
-        || (context.tileRootPath.empty() && context.assetRootPath.empty())
-        || tileIndex < 0
-        || tileIndex == 65535
-        || subTileIndex < 0) {
-        return nullptr;
-    }
-
-    RuntimeTmpTileFile* tileFile = loadRuntimeTerrainTileForIndex(
-        tileIndex,
-        context,
-        cache
+    RuntimeTerrainTmpRendererByteSource source(cache, &context);
+    RuntimeTerrainTmpRendererMemoPort memo(context, cache);
+    return ::resolveRuntimeTerrainMetadata(
+        tileIndex, subTileIndex, runtimeTerrainTmpContextForRender(context),
+        cache, source, memo
     );
-    if (tileFile == nullptr
-        || static_cast<std::size_t>(subTileIndex) >= tileFile->images.size()) {
-        return nullptr;
-    }
-    const RuntimeTmpSubTileImage& image =
-        tileFile->images[static_cast<std::size_t>(subTileIndex)];
-    return image.present && image.hasTerrainType ? &image : nullptr;
 }
 
 #include "render/units/RuntimeInfantrySwimAnimation.inl"
@@ -30478,28 +29699,23 @@ bool resolveRuntimeTerrainTileGridShape(
     int& gridWidth,
     int& gridHeight
 ) {
-    gridWidth = 0;
-    gridHeight = 0;
-    if (cell.tileIndex < 0 || cell.tileIndex == 65535 || cell.subTileIndex < 0) {
-        return false;
-    }
-    const RuntimeTmpTileFile* tileFile = loadRuntimeTerrainTileForIndex(
-        cell.tileIndex, context, cache);
-    if (tileFile == nullptr || tileFile->gridWidth <= 0 || tileFile->gridHeight <= 0
-        || static_cast<std::size_t>(cell.subTileIndex) >= tileFile->images.size()
-        || static_cast<std::size_t>(tileFile->gridWidth) * tileFile->gridHeight
-            != tileFile->images.size()) {
-        return false;
-    }
-    gridWidth = tileFile->gridWidth;
-    gridHeight = tileFile->gridHeight;
-    return true;
+    RuntimeTerrainTmpRendererByteSource source(cache, &context);
+    RuntimeTerrainTmpRendererMemoPort memo(context, cache);
+    return ::resolveRuntimeTerrainTmpTileGridShape(
+        cell.tileIndex, cell.subTileIndex,
+        runtimeTerrainTmpContextForRender(context), cache, source, memo,
+        gridWidth, gridHeight
+    );
 }
 
 unsigned char resolveRuntimeTerrainSubTileRampType(
     const TerrainCell& cell, const RuntimeMapRenderContext& context, RuntimeMapRenderCache& cache) {
-    const auto* image = resolveRuntimeTerrainMetadata(cell.tileIndex, cell.subTileIndex, context, cache);
-    return image && image->present ? image->rampType : 0;
+    RuntimeTerrainTmpRendererByteSource source(cache, &context);
+    RuntimeTerrainTmpRendererMemoPort memo(context, cache);
+    return ::resolveRuntimeTerrainSubTileRampType(
+        cell.tileIndex, cell.subTileIndex,
+        runtimeTerrainTmpContextForRender(context), cache, source, memo
+    );
 }
 
 RuntimeTerrainLandType resolveRuntimeTerrainSubTileLandType(
@@ -30507,16 +29723,12 @@ RuntimeTerrainLandType resolveRuntimeTerrainSubTileLandType(
     const RuntimeMapRenderContext& context,
     RuntimeMapRenderCache& cache
 ) {
-    const RuntimeTmpSubTileImage* image = resolveRuntimeTerrainMetadata(
-        cell.tileIndex,
-        cell.subTileIndex,
-        context,
-        cache
+    RuntimeTerrainTmpRendererByteSource source(cache, &context);
+    RuntimeTerrainTmpRendererMemoPort memo(context, cache);
+    return ::resolveRuntimeTerrainSubTileLandType(
+        cell.tileIndex, cell.subTileIndex,
+        runtimeTerrainTmpContextForRender(context), cache, source, memo
     );
-    const int landType = runtimeLandTypeForTmpImage(image);
-    return landType == RuntimeLandTypeUnknown
-        ? RuntimeTerrainLandType::Unknown
-        : static_cast<RuntimeTerrainLandType>(landType);
 }
 
 const RuntimeTmpSubTileImage* resolveRuntimeTerrainVisualCellImage(

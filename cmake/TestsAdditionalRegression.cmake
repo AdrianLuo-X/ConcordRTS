@@ -60,3 +60,77 @@ set_tests_properties(runtime_support_target_pan_test PROPERTIES WORKING_DIRECTOR
 
 # Appended after the original registrations; root include order stays intact.
 include(cmake/TestProfiles.cmake)
+
+# W010-01: new right pointer owner, standard contract and actual native path.
+add_test(NAME runtime_map_right_pointer_contract_test COMMAND concord_map_right_pointer_contract)
+set_tests_properties(runtime_map_right_pointer_contract_test PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 60 LABELS "no-assets;platform-input;right-pointer")
+if(WIN32)
+    add_test(NAME runtime_map_right_pointer_integration_smoke_test COMMAND concord_runtime --command-smoke-test
+        --config "${CMAKE_SOURCE_DIR}/tests/fixtures/map_right_pointer_runtime.ini"
+        --resource-root "${CMAKE_SOURCE_DIR}/RedAlert2" --local-data-root "${CMAKE_SOURCE_DIR}/local_data"
+        --map "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/multimd/dryheat.map")
+    set_tests_properties(runtime_map_right_pointer_integration_smoke_test PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 600 RUN_SERIAL TRUE
+        ENVIRONMENT "CONCORD_COMMAND_SMOKE_MAP_RIGHT_POINTER_ONLY=1;CONCORD_MAP_RIGHT_POINTER_OUTPUT=${CMAKE_BINARY_DIR}/map_right_pointer_integration"
+        LABELS "assets;right-pointer;windows-reference")
+endif()
+
+# W010-02: new left pointer owner, standard contract and actual native path.
+add_test(NAME runtime_map_left_pointer_contract_test COMMAND concord_map_left_pointer_contract)
+set_tests_properties(runtime_map_left_pointer_contract_test PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 60 LABELS "no-assets;platform-input;left-pointer")
+if(WIN32)
+    add_test(NAME runtime_map_left_pointer_integration_smoke_test COMMAND concord_runtime --command-smoke-test
+        --config "${CMAKE_SOURCE_DIR}/tests/fixtures/map_left_pointer_runtime.ini"
+        --resource-root "${CMAKE_SOURCE_DIR}/RedAlert2" --local-data-root "${CMAKE_SOURCE_DIR}/local_data"
+        --map "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/multimd/dryheat.map")
+    set_tests_properties(runtime_map_left_pointer_integration_smoke_test PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 1800 RUN_SERIAL TRUE
+        ENVIRONMENT "CONCORD_COMMAND_SMOKE_MAP_LEFT_POINTER_ONLY=1;CONCORD_MAP_LEFT_POINTER_OUTPUT=${CMAKE_BINARY_DIR}/map_left_pointer_integration"
+        LABELS "assets;left-pointer;windows-reference")
+endif()
+
+# W010-03: complete shared pointer admission, diplomacy and sidebar paging.
+add_test(NAME pointer_ingress_controller_contract_test COMMAND concord_pointer_ingress_contract)
+set_tests_properties(pointer_ingress_controller_contract_test PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 60 LABELS "no-assets;platform-input;pointer-ingress;sidebar")
+if(WIN32)
+    add_test(NAME runtime_pointer_ingress_integration_smoke_test COMMAND concord_runtime --command-smoke-test
+        --config "${CMAKE_SOURCE_DIR}/tests/fixtures/pointer_ingress_runtime.ini"
+        --resource-root "${CMAKE_SOURCE_DIR}/RedAlert2" --local-data-root "${CMAKE_SOURCE_DIR}/local_data"
+        --map "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/multimd/dryheat.map")
+    set_tests_properties(runtime_pointer_ingress_integration_smoke_test PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 600 RUN_SERIAL TRUE
+        ENVIRONMENT "CONCORD_COMMAND_SMOKE_POINTER_INGRESS_ONLY=1;CONCORD_POINTER_INGRESS_OUTPUT=${CMAKE_BINARY_DIR}/pointer_ingress_integration"
+        LABELS "assets;pointer-ingress;sidebar;windows-reference")
+endif()
+
+# W010-04: complete cursor helper and WM_SETCURSOR policy.
+add_test(NAME cursor_controller_contract_test COMMAND concord_cursor_controller_contract)
+set_tests_properties(cursor_controller_contract_test PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 60 LABELS "no-assets;platform-input;cursor")
+if(WIN32)
+    add_test(NAME runtime_cursor_integration_smoke_test COMMAND concord_runtime --command-smoke-test
+        --config "${CMAKE_SOURCE_DIR}/tests/fixtures/cursor_runtime.ini"
+        --resource-root "${CMAKE_SOURCE_DIR}/RedAlert2" --local-data-root "${CMAKE_SOURCE_DIR}/local_data"
+        --map "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/multimd/dryheat.map")
+    set_tests_properties(runtime_cursor_integration_smoke_test PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 1800 RUN_SERIAL TRUE
+        ENVIRONMENT "CONCORD_COMMAND_SMOKE_CURSOR_ONLY=1;CONCORD_CURSOR_OUTPUT=${CMAKE_BINARY_DIR}/cursor_integration"
+        LABELS "assets;cursor;windows-reference")
+endif()
+
+add_test(NAME input_cancellation_controller_contract_test COMMAND concord_input_cancellation_contract)
+# W012-01: each registered run owns its config/cwd/save/output/TEMP.
+if(WIN32)
+    add_test(NAME runtime_input_cancellation_integration_smoke_test
+        COMMAND "${CMAKE_COMMAND}"
+            "-DGAME_EXECUTABLE=$<TARGET_FILE:concord_runtime>"
+            "-DFIXTURE=${CMAKE_SOURCE_DIR}/tests/fixtures/input_cancellation_runtime.ini"
+            "-DSOURCE_ROOT=${CMAKE_SOURCE_DIR}"
+            "-DOUTPUT_PARENT=${CMAKE_BINARY_DIR}/input-cancellation-runs"
+            -P "${CMAKE_SOURCE_DIR}/cmake/RunInputCancellationNative.cmake")
+    set_tests_properties(runtime_input_cancellation_integration_smoke_test PROPERTIES
+        TIMEOUT 7300 RUN_SERIAL TRUE LABELS "assets;input-cancellation;windows-reference")
+endif()

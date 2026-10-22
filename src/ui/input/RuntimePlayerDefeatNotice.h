@@ -1,20 +1,24 @@
 #pragma once
 
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
+#include <cstdint>
 
 #include <set>
 #include <string>
 #include <utility>
 #include <vector>
 
-inline constexpr ULONGLONG runtimePlayerDefeatNoticeDurationMs = 15000;
+inline constexpr std::uint64_t runtimePlayerDefeatNoticeDurationMs = 15000;
+
+// Local presentation milliseconds; the host supplies the monotonic clock value.
+inline constexpr std::uint64_t runtimePlayerDefeatNoticeDeadline(std::uint64_t nowMs) noexcept {
+    constexpr std::uint64_t maximumMs = ~std::uint64_t{0};
+    return nowMs > maximumMs - runtimePlayerDefeatNoticeDurationMs
+        ? maximumMs : nowMs + runtimePlayerDefeatNoticeDurationMs;
+}
 
 struct RuntimePlayerDefeatNotice {
     std::string owner;
-    ULONGLONG untilMs = 0;
+    std::uint64_t untilMs = 0;
 };
 
 // Local presentation only; never serialized or included in simulation hashes.

@@ -86,6 +86,9 @@ endif()
 # Stable leaf library profiles; all consumers above exist before this include.
 include(cmake/LeafModuleLibraries.cmake)
 include(cmake/ReplaySnapshotContracts.cmake)
+include(cmake/PlayerDefeatNoticeContracts.cmake)
+include(cmake/InputPixelValuesContracts.cmake)
+include(cmake/UiClockContracts.cmake)
 
 add_executable(concord_campaign_progress_smoke
     tests/campaign/CampaignProgressSmoke.cpp
@@ -838,3 +841,38 @@ target_include_directories(concord_shp_codec_contract PRIVATE src)
 if(CONCORD_MSVC_FRONTEND)
     concord_target_compile_options(concord_shp_codec_contract PRIVATE /utf-8 /W4 /WX /permissive-)
 endif()
+include(cmake/SelectionKeyContracts.cmake)
+
+include(cmake/TeamKeyContracts.cmake)
+
+include(cmake/LocalNavigationContracts.cmake)
+
+include(cmake/ReferencePresentationContracts.cmake)
+
+include(cmake/ReferenceCommunicationContracts.cmake)
+
+include(cmake/PlanningFactoryKeyContracts.cmake)
+
+include(cmake/CameraKeyContracts.cmake)
+
+include(cmake/MenuKeyContracts.cmake)
+include(cmake/SessionKeyContracts.cmake)
+
+include("${CMAKE_SOURCE_DIR}/cmake/KeyboardRouterContracts.cmake")
+
+include("${CMAKE_SOURCE_DIR}/cmake/KeyboardIngressContracts.cmake")
+
+include(cmake/ChatTextContracts.cmake)
+include(cmake/NavigationTerrainQueryContracts.cmake)
+
+include(cmake/TmpTerrainContracts.cmake)
+
+include(cmake/MapRightPointerContracts.cmake)
+
+# W010-02: same production left pointer policy and window-free contract.
+include(cmake/MapLeftPointerContracts.cmake)
+include(cmake/PointerIngressContracts.cmake)
+
+include(cmake/CursorControllerContracts.cmake)
+
+include(cmake/InputCancellationContracts.cmake)

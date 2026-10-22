@@ -1,5 +1,8 @@
 #pragma once
 
+#include "assets/codecs/RuntimeTmpTypes.h"
+#include "assets/terrain/RuntimeTerrainTmpQuery.h"
+
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -18,6 +21,7 @@
 #include "render/shadows/RuntimeShadowOpaqueSpan.h"
 #include "render/voxel/RuntimeVoxelLoadingPrewarm.h"
 #include "data/art/TheaterDatabase.h"
+#include "simulation/navigation/terrain/RuntimeTerrainTypes.h"
 
 #include <array>
 #include <cstdint>
@@ -56,68 +60,12 @@ struct RuntimeGateRenderSnapshot {
     double normalizedProgress = 0.0;
 };
 
-struct RuntimePaletteColor {
-    unsigned char r = 0;
-    unsigned char g = 0;
-    unsigned char b = 0;
-};
-
 struct RuntimePaletteCacheEntry {
     std::string key;
     bool loadAttempted = false;
     bool loaded = false;
     std::vector<RuntimePaletteColor> palette;
     std::string sourcePath;
-};
-
-struct RuntimeTmpSubTileImage {
-    bool present = false;
-    bool hasTerrainType = false;
-    unsigned char terrainType = 0;
-    unsigned char rampType = 0;
-    bool hasRadarColors = false;
-    RuntimePaletteColor radarLeft;
-    RuntimePaletteColor radarRight;
-    int offsetX = 0;
-    int offsetY = 0;
-    int width = 0;
-    int height = 0;
-    int globalWidth = 0;
-    int globalHeight = 0;
-    std::vector<unsigned char> pixels;
-    mutable std::uint64_t packedPixelPaletteHash = 0;
-    mutable std::vector<std::uint32_t> packedPixels;
-    mutable int resourcePixelNonZeroCount = -1;
-    int baseOffsetX = 0;
-    int baseOffsetY = 0;
-    int baseWidth = 0;
-    int baseHeight = 0;
-    std::vector<unsigned char> basePixels;
-    mutable int resourceBaseNonZeroCount = -1;
-    std::vector<unsigned char> baseZData;
-    bool hasBaseZData = false;
-    bool hasExtra = false;
-    int extraOffsetX = 0;
-    int extraOffsetY = 0;
-    int extraWidth = 0;
-    int extraHeight = 0;
-    std::vector<unsigned char> extraPixels;
-    mutable int resourceExtraNonZeroCount = -1;
-    std::vector<unsigned char> extraZData;
-    bool hasExtraZData = false;
-};
-
-struct RuntimeTmpTileFile {
-    bool loadAttempted = false;
-    bool loaded = false;
-    int blockWidth = 0;
-    int blockHeight = 0;
-    std::vector<RuntimeTmpSubTileImage> images;
-    std::string errorMessage;
-    // Authored terrain grid, including empty image slots. SHP-style raw
-    // format-3 resources do not encode a terrain grid and leave this unknown.
-    int gridWidth = 0;
-    int gridHeight = 0;
 };
 
 struct RuntimeTerrainVisualVariant {
@@ -154,20 +102,7 @@ struct RuntimeTerrainVisualCellInfo {
 
 // Retail land-type ids after translating the TMP terrain byte. These values
 // match the engine's LandType table and are simulation data, not art labels.
-enum class RuntimeTerrainLandType : int {
-    Unknown = -1,
-    Clear = 0,
-    Road = 1,
-    Water = 2,
-    Rock = 3,
-    Wall = 4,
-    Tiberium = 5,
-    Beach = 6,
-    Rough = 7,
-    Ice = 8,
-    Railroad = 9,
-    Tunnel = 10
-};
+
 
 struct RuntimeVxlRasterPathStats {
     int pointSamplesWritten = 0;
@@ -671,7 +606,7 @@ struct RuntimeWaterWakeActor {
     std::string imageId;
 };
 
-struct RuntimeMapRenderCache {
+struct RuntimeMapRenderCache : RuntimeTerrainTmpCache {
     // Bounded presentation diagnostics only, excluded from authority/save.
     std::uint64_t terrainViewportFillCalls = 0;
     std::uint64_t terrainViewportFillElisions = 0;
@@ -702,11 +637,6 @@ struct RuntimeMapRenderCache {
     std::string voxelPaletteLookupErrorMessage;
     std::unordered_map<std::string, RuntimePaletteCacheEntry>
         namedPalettesByKey;
-    std::unordered_map<std::string, RuntimeTmpTileFile> tmpTilesByPath;
-    std::string lastTmpTileLoadError;
-    std::string terrainTilePathCacheRoot;
-    std::unordered_map<int, std::string> terrainTilePathByIndex;
-    std::unordered_set<int> missingTerrainTilePathByIndex;
     std::string terrainVisualFamilyCacheRoot;
     std::unordered_map<int, RuntimeTerrainVisualFamily> terrainVisualFamiliesByTileIndex;
     std::unordered_map<std::string, RuntimeObjectShpSpriteCacheEntry>

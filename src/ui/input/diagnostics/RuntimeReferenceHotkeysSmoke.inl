@@ -99,7 +99,7 @@ bool runRuntimeReferenceHotkeysSmokeProbe(std::string& error) {
     key(VK_RETURN);
     runtimeWindowProc(window,WM_KEYDOWN,'S',0);
     runtimeWindowProc(window,WM_CHAR,L'中',0); runtimeWindowProc(window,WM_CHAR,L'文',0);
-    if (!s.playerCommunication.chatOpen || s.playerCommunication.chatDraft!=L"中文"
+    if (!s.playerCommunication.chatOpen || s.playerCommunication.chatDraft!=u"中文"
         || s.world.deterministicSimulationStateHash()!=worldBefore) return fail("chat leaked gameplay keys or lost Unicode");
     runtimeWindowProc(window,WM_KEYDOWN,VK_RETURN,0);
     if (s.playerCommunication.chatOpen || s.playerCommunication.lines.empty()
@@ -157,7 +157,7 @@ bool runRuntimeReferenceHotkeysSmokeProbe(std::string& error) {
         ReleaseDC(nullptr,screen);
         s.playerCommunication.diplomacyOpen=true;
         s.playerCommunication.chatOpen=true; s.playerCommunication.chatAllies=true;
-        s.playerCommunication.chatDraft=L"在这里输入消息，Enter 发送，Esc 取消";
+        s.playerCommunication.chatDraft=u"在这里输入消息，Enter 发送，Esc 取消";
         drawRuntimePlayerHotkeyOverlay(buffer.memoryDc,client,s);
         GdiFlush(); // Complete GDI batches before reading the DIB pixels.
         const bool written=writeRuntimeSmokeBmp(path,buffer.pixels,1000,700,error);

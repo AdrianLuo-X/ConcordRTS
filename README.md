@@ -14,6 +14,15 @@ ConcordRTS 是使用 C++20 开发的 RTS 引擎工程，面向《命令与征服
 
 ## 更新记录
 
+### 2026-10-22
+
+- 提取输入像素点、尺寸、矩形和 UI 毫秒时钟接口，保留原坐标比较、计时边界与调用时机。
+- 将键盘准入与路由、选择编组、菜单会话、聊天文本和侧栏分页整理到类型化控制器，接回原命令与状态接口。
+- 分离左右键手势、光标判断及取消与捕获处理，保留原同步重入、偏好保存和命令提交时机。
+- 为导航地形提取只读查询端口和独立结果类型，保留墙、桥、岸线与地形通行判断。
+- 将 TMP 类型、普通与 raw format 3 解码、资源定位及缓存整理为独立模块，绘图继续使用同一资源实现。
+- 增加所选输入链、地形查询与 TMP 的独立合同和集成诊断，核对保存、命令传输与模拟消费的一致性。
+
 ### 2026-10-18
 
 - 提取独立的席位角色判断与比赛计分模块，保留原记录、保存和哈希语义。
@@ -54,23 +63,29 @@ ConcordRTS/
 │   ├── data/                       规则、美术、地图与战役数据库
 │   ├── assets/                     游戏资源格式读取、检查与导出
 │   │   ├── text/                   共享 CSF 文字解码
-│   │   ├── codecs/                 共享 PAL、SHP 基础解码
+│   │   ├── codecs/                 共享 PAL、SHP、TMP 类型与解码
+│   │   ├── terrain/                TMP 资源定位、缓存与元数据查询
 │   │   └── preview/                地图预览、资源会话与缓存
 │   ├── world/                      世界状态、对象索引与查询
 │   ├── simulation/                 战斗、移动、经济、AI 与特殊机制
+│   │   └── navigation/             导航、寻路与移动查询
+│   │       └── terrain/            导航地形类型与只读查询端口
 │   ├── runtime/                    运行时配置与游戏宿主
 │   │   ├── config/                 配置类型、解析与命令行覆盖
 │   │   ├── contracts/              窄范围回放事件类型
 │   │   └── host/                   启动检查、游戏窗口与战局宿主
 │   ├── render/                     地图、单位、效果与软件绘制
 │   ├── ui/                         菜单、输入、HUD 与偏好保存
+│   │   ├── input/                  输入值、键鼠、聊天与交互控制器
+│   │   ├── time/                   UI 毫秒时钟与原计时策略
+│   │   └── sidebar/                侧栏分页与滚轮控制
 │   ├── audio/                      音频播放、空间音效与世界音频
 │   ├── network/                    联机协议、同步、会话与互联网服务
 │   └── analysis/                   规则分析、命令行工具与报告
 ├── tests/                          按领域分组的专项测试
 │   ├── fixtures/                   自编规则、地图与回放测试输入
 │   ├── assets/                     CSF、SHP 解码合同测试
-│   ├── infrastructure/             配置、文件、状态哈希与索引检查
+│   ├── infrastructure/             配置、文件、输入、时钟与地形资源合同
 │   ├── gameplay/                   战斗、生产、单位行为与机制检查
 │   ├── multiplayer/                局域网、同步、快照与恢复检查
 │   ├── internet/                   互联网服务、TLS 与匹配检查
@@ -237,7 +252,9 @@ pwsh -NoProfile -File .\tools\testing\Run-LocalTests.ps1 -Compiler Clang -BuildD
 
 结果默认保存在 `build/local-tests/` 的独立目录中。`results.json` 分别记录 `passed`、`failed`、`skipped`、`unsupported`、`not-built` 和 `not-run`，跳过、未构建或未执行不能计为通过。清单与条件见 [test-profiles.json](tools/testing/test-profiles.json)。
 
-新增角色、计分、CSF/PAL/SHP、预览会话与回放类型检查由对应 CMake 目标和 CTest 名称独立注册，未自动加入上述 12＋4 集合。按具体目标构建并精确筛选测试名，注册见 [TestsUnitAndNetwork.cmake](cmake/TestsUnitAndNetwork.cmake)。
+角色、计分、解码、预览会话、回放类型，以及新增输入、UI 时钟与地形查询检查，按具体 CMake 目标和 CTest 名称独立注册，未自动加入上述 12＋4 集合。标准合同和部分桥接检查见 [TestsUnitAndNetwork.cmake](cmake/TestsUnitAndNetwork.cmake)，地形与资源运行检查见 [TestsRuntimeRegression.cmake](cmake/TestsRuntimeRegression.cmake)，指针、光标与取消捕获检查见 [TestsAdditionalRegression.cmake](cmake/TestsAdditionalRegression.cmake)。
+
+本轮验证限所选标准合同、Windows 适配、资源查询及命令桥接范围。旧回归中已知的月球剧场深度与部分交互、几何绘制检查失败仍保留；完整物理输入、IME、双端运行游戏、其他窗口后端与平台及性能不据此视为通过。
 
 CMake 保留专项测试目标。部分测试只使用自编夹具，部分需要本地原游戏数据；资源相关测试与调试工具需要按自己的环境配置路径。不能将无素材环境下的编译成功视为全部游戏功能或全部测试通过。
 

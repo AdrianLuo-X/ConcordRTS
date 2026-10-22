@@ -154,18 +154,18 @@
             const int cameraX=s.camera.worldOffsetX, cameraY=s.camera.worldOffsetY;
             send(WM_RBUTTONDOWN,start,MK_RBUTTON);
             const auto panCursor=runtimeMouseCursorFrameForPoint(s,client,start);
-            if (!s.rightDragActive || s.rightDragMoved || GetCapture()!=window
+            if (!s.rightPointer.active || s.rightPointer.moved || GetCapture()!=window
                 || !unchanged() || !panCursor || panCursor->frameIndex!=385)
                 return bad("button-down canceled targeting or did not start pan");
             send(WM_MOUSEMOVE,end,MK_RBUTTON);
             if (coasting && !advanceRuntimeRightMousePan(s)) return bad("coasting did not pan");
-            if (!s.rightDragMoved || !unchanged()
+            if (!s.rightPointer.moved || !unchanged()
                 || (s.camera.worldOffsetX==cameraX && s.camera.worldOffsetY==cameraY))
                 return bad("drag lost targeting or failed to move camera");
             if (!image("during")) return bad("during image: "+error);
             send(WM_RBUTTONUP,end);
             const auto afterCursor=runtimeMouseCursorFrameForPoint(s,client,end);
-            if (s.rightDragActive || s.rightDragMoved || GetCapture()==window || !unchanged()
+            if (s.rightPointer.active || s.rightPointer.moved || GetCapture()==window || !unchanged()
                 || !afterCursor || afterCursor->frameIndex!=initialCursor->frameIndex
                 || afterCursor->atlasId!=initialCursor->atlasId) return bad("release did not restore ability cursor/stage");
             if (!image("after")) return bad("after image: "+error);
@@ -185,7 +185,7 @@
                 if (variant==0) { end=start; send(WM_MOUSEMOVE,end,MK_RBUTTON); }
                 if (variant==2) { end={-20,-20}; send(WM_MOUSEMOVE,end,MK_RBUTTON); }
                 send(WM_RBUTTONUP,end);
-                if (s.rightDragActive || !unchanged()) return bad("return/edge/outside release");
+                if (s.rightPointer.active || !unchanged()) return bad("return/edge/outside release");
                 ++drags;
             }
             centerRuntimeCameraOnCell(s,client,{93,93});
@@ -197,7 +197,7 @@
                 else if (interruption==1) SendMessageW(window,WM_KILLFOCUS,0,0);
                 else if (interruption==2) SendMessageW(window,WM_ACTIVATEAPP,FALSE,0);
                 else SendMessageW(window,WM_CANCELMODE,0,0);
-                if (s.rightDragActive || s.rightDragMoved || GetCapture()==window || !unchanged())
+                if (s.rightPointer.active || s.rightPointer.moved || GetCapture()==window || !unchanged())
                     return bad("capture/focus cancellation lost selection or kept panning");
                 send(WM_RBUTTONUP,end);
                 if (!unchanged()) return bad("stray release canceled retained ability");
@@ -215,7 +215,7 @@
             if (!select()) return bad("reselect for sidebar cancel");
             send(WM_RBUTTONDOWN,*sidebarPoint,MK_RBUTTON);
             send(WM_RBUTTONUP,*sidebarPoint);
-            if (selected() || s.rightDragActive || commands!=0 || s.selectedObjectIds!=std::vector<int>{tank})
+            if (selected() || s.rightPointer.active || commands!=0 || s.selectedObjectIds!=std::vector<int>{tank})
                 return bad("sidebar cancel caused a map gesture or cleared units");
             ++cancels;
             if (!select()) return bad("reselect for launch");

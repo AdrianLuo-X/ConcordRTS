@@ -37,7 +37,7 @@ void prepareRuntimePlayerDefeatNoticeLoadBaseline(RuntimeWindowState& state) {
     }
 }
 
-bool expireRuntimePlayerDefeatNotices(RuntimeWindowState& state, ULONGLONG nowMs) {
+bool expireRuntimePlayerDefeatNotices(RuntimeWindowState& state, std::uint64_t nowMs) {
     auto& lines = state.playerDefeatNotices.lines;
     const auto previousSize = lines.size();
     std::erase_if(lines, [nowMs](const RuntimePlayerDefeatNotice& notice) {
@@ -60,13 +60,11 @@ bool runtimePlayerDefeatNoticeHasParticipant(const RuntimeWindowState& state,
 }
 
 bool appendRuntimePlayerDefeatNotice(RuntimeWindowState& state,
-    const std::string& ownerKey, ULONGLONG nowMs) {
+    const std::string& ownerKey, std::uint64_t nowMs) {
     auto& notices = state.playerDefeatNotices;
     const auto inserted = notices.announcedOwners.insert(ownerKey);
     if (!inserted.second) return false;
-    constexpr ULONGLONG maximumMs = ~ULONGLONG{0};
-    const ULONGLONG untilMs = nowMs > maximumMs - runtimePlayerDefeatNoticeDurationMs
-        ? maximumMs : nowMs + runtimePlayerDefeatNoticeDurationMs;
+    const std::uint64_t untilMs = runtimePlayerDefeatNoticeDeadline(nowMs);
     try {
         notices.lines.push_back({ownerKey, untilMs});
     } catch (...) {
@@ -79,7 +77,7 @@ bool appendRuntimePlayerDefeatNotice(RuntimeWindowState& state,
 
 // Direct accepted events, such as resignation, need not wait for an outcome tick.
 bool enqueueRuntimePlayerDefeatNotice(RuntimeWindowState& state,
-    const std::string& owner, ULONGLONG nowMs = GetTickCount64()) {
+    const std::string& owner, std::uint64_t nowMs) {
     if (state.campaignMode
         || toUpperAsciiLocal(trimAsciiLocal(state.config.gameMode)) == "CAMPAIGNMISSION")
         return false;
@@ -89,8 +87,12 @@ bool enqueueRuntimePlayerDefeatNotice(RuntimeWindowState& state,
     return appendRuntimePlayerDefeatNotice(state, ownerKey, nowMs);
 }
 
+bool enqueueRuntimePlayerDefeatNotice(RuntimeWindowState& state, const std::string& owner) {
+    const std::uint64_t nowMs = runtimeUiClockNow(state);
+    return enqueueRuntimePlayerDefeatNotice(state, owner, nowMs);
+}
 bool observeRuntimePlayerDefeatNotices(RuntimeWindowState& state,
-    ULONGLONG nowMs = GetTickCount64()) {
+    std::uint64_t nowMs) {
     bool changed = expireRuntimePlayerDefeatNotices(state, nowMs);
     if (state.campaignMode
         || toUpperAsciiLocal(trimAsciiLocal(state.config.gameMode)) == "CAMPAIGNMISSION"
@@ -123,4 +125,9 @@ bool observeRuntimePlayerDefeatNotices(RuntimeWindowState& state,
     if (hasParticipant) notices.suppressExisting = false;
     // Terminal outcome ticks must still announce their newly defeated players.
     return changed;
+}
+
+bool observeRuntimePlayerDefeatNotices(RuntimeWindowState& state) {
+    const std::uint64_t nowMs = runtimeUiClockNow(state);
+    return observeRuntimePlayerDefeatNotices(state, nowMs);
 }

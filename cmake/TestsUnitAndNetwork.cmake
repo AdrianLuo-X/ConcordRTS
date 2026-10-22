@@ -15,6 +15,19 @@ add_test(
     COMMAND concord_campaign_progress_smoke
 )
 
+add_test(NAME input_pixel_values_contract_test COMMAND concord_input_pixel_values_contract)
+set_tests_properties(input_pixel_values_contract_test
+    PROPERTIES TIMEOUT 30 LABELS "no-assets;platform-values;input-pixel-values")
+if(TARGET concord_input_pixel_values_win32_reference)
+    add_test(NAME input_pixel_values_win32_reference_test COMMAND concord_input_pixel_values_win32_reference)
+    set_tests_properties(input_pixel_values_win32_reference_test
+        PROPERTIES TIMEOUT 30 LABELS "no-assets;platform-values;input-pixel-values;windows-reference")
+endif()
+
+add_test(NAME player_defeat_notice_contract_test COMMAND concord_player_defeat_notice_contract)
+set_tests_properties(player_defeat_notice_contract_test
+    PROPERTIES TIMEOUT 30 LABELS "no-assets;platform-values;local-presentation-time")
+
 add_test(NAME csf_codec_contract_test COMMAND concord_csf_codec_contract)
 set_tests_properties(csf_codec_contract_test
     PROPERTIES TIMEOUT 30 LABELS "no-assets;csf-codec-contract")
@@ -735,3 +748,258 @@ endforeach()
 
 add_test(NAME shp_codec_contract_test COMMAND concord_shp_codec_contract)
 set_tests_properties(shp_codec_contract_test PROPERTIES TIMEOUT 30 LABELS "no-assets;shp-codec-contract")
+add_test(NAME ui_clock_contract_test COMMAND concord_ui_clock_contract)
+set_tests_properties(ui_clock_contract_test PROPERTIES
+    TIMEOUT 30 LABELS "no-assets;ui-clock;platform-time")
+if(TARGET concord_ui_clock_win32_reference)
+    add_test(NAME ui_clock_win32_reference_test COMMAND concord_ui_clock_win32_reference)
+    set_tests_properties(ui_clock_win32_reference_test PROPERTIES
+        TIMEOUT 30 LABELS "no-assets;ui-clock;windows-reference")
+    add_test(NAME runtime_ui_clock_smoke_test COMMAND concord_runtime
+        --config "${CMAKE_SOURCE_DIR}/tests/fixtures/ui_clock_runtime.ini"
+        --command-smoke-test
+        --resource-root "${CMAKE_SOURCE_DIR}/RedAlert2"
+        --local-data-root "${CMAKE_SOURCE_DIR}/local_data"
+        --map "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/mapsmd03/all01umd.map")
+    set_tests_properties(runtime_ui_clock_smoke_test PROPERTIES
+        TIMEOUT 180 LABELS "assets;ui-clock;windows-reference"
+        ENVIRONMENT "CONCORD_COMMAND_SMOKE_UI_CLOCK_ONLY=1")
+endif()
+
+# W009-01: same production selection-key controller and actual bridge timing.
+add_test(NAME selection_key_controller_contract_test COMMAND concord_selection_key_controller_contract)
+set_tests_properties(selection_key_controller_contract_test PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 30
+    LABELS "no-assets;platform-input;selection-keys")
+add_test(NAME runtime_selection_key_bridge_smoke_test COMMAND concord_selection_key_bridge_smoke)
+set_tests_properties(runtime_selection_key_bridge_smoke_test PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 120
+    LABELS "loopback;selection-keys;bridge-timing")
+if(WIN32)
+    add_test(NAME runtime_selection_key_smoke_test COMMAND concord_runtime
+        --config "${CMAKE_SOURCE_DIR}/tests/fixtures/selection_keys_runtime.ini"
+        --command-smoke-test
+        --resource-root "${CMAKE_SOURCE_DIR}/RedAlert2"
+        --local-data-root "${CMAKE_SOURCE_DIR}/local_data"
+        --map "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/mapsmd03/all01umd.map")
+    set_tests_properties(runtime_selection_key_smoke_test PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 180
+        ENVIRONMENT "CONCORD_COMMAND_SMOKE_SELECTION_KEYS_ONLY=1"
+        LABELS "assets;selection-keys;windows-reference")
+endif()
+
+
+# W009-02: one Team controller in both ordinary and real Win32 input paths.
+add_test(NAME team_key_controller_contract_test COMMAND concord_team_key_controller_contract)
+set_tests_properties(team_key_controller_contract_test PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 30
+    LABELS "no-assets;platform-input;team-keys")
+if(WIN32)
+    add_test(NAME runtime_team_key_smoke_test COMMAND concord_runtime
+        --config "${CMAKE_SOURCE_DIR}/tests/fixtures/team_keys_runtime.ini"
+        --command-smoke-test
+        --resource-root "${CMAKE_SOURCE_DIR}/RedAlert2"
+        --local-data-root "${CMAKE_SOURCE_DIR}/local_data"
+        --map "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/mapsmd03/all01umd.map")
+    set_tests_properties(runtime_team_key_smoke_test PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 180
+        ENVIRONMENT "CONCORD_COMMAND_SMOKE_TEAM_KEYS_ONLY=1"
+        LABELS "assets;team-keys;windows-reference")
+endif()
+
+# W009-03: four local navigation entries, same standard and real native paths.
+add_test(NAME local_navigation_controller_contract_test COMMAND concord_local_navigation_controller_contract)
+set_tests_properties(local_navigation_controller_contract_test PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 30
+    LABELS "no-assets;platform-input;local-navigation")
+if(WIN32)
+    add_test(NAME runtime_local_navigation_smoke_test COMMAND concord_runtime
+        --config "${CMAKE_SOURCE_DIR}/tests/fixtures/local_navigation_runtime.ini"
+        --command-smoke-test
+        --resource-root "${CMAKE_SOURCE_DIR}/RedAlert2"
+        --local-data-root "${CMAKE_SOURCE_DIR}/local_data"
+        --map "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/mapsmd03/all01umd.map")
+    set_tests_properties(runtime_local_navigation_smoke_test PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 600
+        ENVIRONMENT "CONCORD_COMMAND_SMOKE_LOCAL_NAVIGATION_ONLY=1"
+        LABELS "assets;local-navigation;windows-reference")
+endif()
+
+# W009-04: same Reference presentation controller in standard and private native paths.
+add_test(NAME reference_presentation_controller_contract_test COMMAND concord_reference_presentation_controller_contract)
+set_tests_properties(reference_presentation_controller_contract_test PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 30
+    LABELS "no-assets;platform-input;reference-presentation")
+if(WIN32)
+    add_test(NAME runtime_reference_presentation_smoke_test COMMAND concord_runtime
+        --config "${CMAKE_SOURCE_DIR}/tests/fixtures/reference_presentation_runtime.ini"
+        --command-smoke-test
+        --resource-root "${CMAKE_SOURCE_DIR}/RedAlert2"
+        --local-data-root "${CMAKE_SOURCE_DIR}/local_data"
+        --map "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/multimd/dryheat.map")
+    set_tests_properties(runtime_reference_presentation_smoke_test PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 600
+        ENVIRONMENT "CONCORD_COMMAND_SMOKE_REFERENCE_PRESENTATION_ONLY=1"
+        LABELS "assets;reference-presentation;windows-reference")
+endif()
+# W009-05: one communication decision owner in ordinary, real native and bridge paths.
+add_test(NAME reference_communication_controller_contract_test COMMAND concord_reference_communication_controller_contract)
+set_tests_properties(reference_communication_controller_contract_test PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 30
+    LABELS "no-assets;platform-input;reference-communication")
+add_test(NAME reference_communication_bridge_smoke_test COMMAND concord_reference_communication_bridge_smoke)
+set_tests_properties(reference_communication_bridge_smoke_test PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 60 RUN_SERIAL TRUE
+    LABELS "no-assets;platform-input;reference-communication;network")
+if(WIN32)
+    add_test(NAME runtime_reference_communication_smoke_test COMMAND concord_runtime
+        --config "${CMAKE_SOURCE_DIR}/tests/fixtures/reference_communication_runtime.ini"
+        --command-smoke-test
+        --resource-root "${CMAKE_SOURCE_DIR}/RedAlert2"
+        --local-data-root "${CMAKE_SOURCE_DIR}/local_data"
+        --map "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/multimd/dryheat.map")
+    set_tests_properties(runtime_reference_communication_smoke_test PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 600 RUN_SERIAL TRUE
+        ENVIRONMENT "CONCORD_COMMAND_SMOKE_REFERENCE_COMMUNICATION_ONLY=1"
+        LABELS "assets;reference-communication;windows-reference")
+endif()
+# W009-06: one planning/factory decision owner in standard, native and bridge paths.
+add_test(NAME planning_factory_key_controller_contract_test COMMAND concord_planning_factory_key_contract)
+set_tests_properties(planning_factory_key_controller_contract_test PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 30
+    LABELS "no-assets;platform-input;planning-factory-key")
+add_test(NAME planning_factory_key_bridge_smoke_test COMMAND concord_planning_factory_key_bridge_smoke)
+set_tests_properties(planning_factory_key_bridge_smoke_test PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 60 RUN_SERIAL TRUE
+    LABELS "no-assets;platform-input;planning-factory-key;network")
+if(WIN32)
+    add_test(NAME runtime_planning_factory_key_smoke_test COMMAND concord_runtime
+        --config "${CMAKE_SOURCE_DIR}/tests/fixtures/planning_factory_key_runtime.ini"
+        --command-smoke-test
+        --resource-root "${CMAKE_SOURCE_DIR}/RedAlert2"
+        --local-data-root "${CMAKE_SOURCE_DIR}/local_data"
+        --map "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/multimd/dryheat.map")
+    set_tests_properties(runtime_planning_factory_key_smoke_test PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 600 RUN_SERIAL TRUE
+        ENVIRONMENT "CONCORD_COMMAND_SMOKE_PLANNING_FACTORY_KEY_ONLY=1"
+        LABELS "assets;planning-factory-key;windows-reference")
+endif()
+
+add_test(NAME camera_key_controller_contract_test COMMAND concord_camera_key_contract)
+set_tests_properties(camera_key_controller_contract_test PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 30
+    LABELS "no-assets;platform-input;camera-key")
+if(WIN32)
+    add_test(NAME runtime_camera_key_smoke_test COMMAND concord_runtime
+        --config "${CMAKE_SOURCE_DIR}/tests/fixtures/camera_key_runtime.ini"
+        --command-smoke-test
+        --resource-root "${CMAKE_SOURCE_DIR}/RedAlert2"
+        --local-data-root "${CMAKE_SOURCE_DIR}/local_data"
+        --map "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/multimd/dryheat.map")
+    set_tests_properties(runtime_camera_key_smoke_test PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 600 RUN_SERIAL TRUE
+        ENVIRONMENT "CONCORD_COMMAND_SMOKE_CAMERA_KEY_ONLY=1"
+        LABELS "assets;camera-key;windows-reference")
+endif()
+
+
+add_test(NAME menu_key_controller_contract_test COMMAND concord_menu_key_contract)
+set_tests_properties(menu_key_controller_contract_test PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 30
+    LABELS "no-assets;platform-input;menu-key")
+if(WIN32)
+    add_test(NAME runtime_menu_key_smoke_test COMMAND concord_runtime
+        --config "${CMAKE_SOURCE_DIR}/tests/fixtures/menu_key_runtime.ini"
+        --command-smoke-test
+        --resource-root "${CMAKE_SOURCE_DIR}/RedAlert2"
+        --local-data-root "${CMAKE_SOURCE_DIR}/local_data"
+        --map "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/multimd/dryheat.map")
+    set_tests_properties(runtime_menu_key_smoke_test PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 600 RUN_SERIAL TRUE
+        ENVIRONMENT "CONCORD_COMMAND_SMOKE_MENU_KEY_ONLY=1"
+        LABELS "assets;menu-key;windows-reference")
+endif()
+
+
+add_test(NAME session_key_controller_contract_test COMMAND concord_session_key_contract)
+set_tests_properties(session_key_controller_contract_test PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 30
+    LABELS "no-assets;platform-input;session-key")
+if(WIN32)
+    add_test(NAME runtime_session_key_smoke_test COMMAND concord_runtime
+        --config "${CMAKE_SOURCE_DIR}/tests/fixtures/session_key_runtime.ini"
+        --command-smoke-test
+        --resource-root "${CMAKE_SOURCE_DIR}/RedAlert2"
+        --local-data-root "${CMAKE_SOURCE_DIR}/local_data"
+        --map "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/multimd/dryheat.map")
+    set_tests_properties(runtime_session_key_smoke_test PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 600 RUN_SERIAL TRUE
+        ENVIRONMENT "CONCORD_COMMAND_SMOKE_SESSION_KEY_ONLY=1"
+        LABELS "assets;session-key;windows-reference")
+endif()
+
+add_test(NAME keyboard_router_controller_contract_test COMMAND concord_keyboard_router_contract)
+set_tests_properties(keyboard_router_controller_contract_test PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 30
+    LABELS "no-assets;platform-input;keyboard-router")
+if(WIN32)
+    add_test(NAME runtime_keyboard_router_smoke_test COMMAND concord_runtime
+        --config "${CMAKE_SOURCE_DIR}/tests/fixtures/keyboard_router_runtime.ini"
+        --command-smoke-test
+        --resource-root "${CMAKE_SOURCE_DIR}/RedAlert2"
+        --local-data-root "${CMAKE_SOURCE_DIR}/local_data"
+        --map "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/multimd/dryheat.map")
+    set_tests_properties(runtime_keyboard_router_smoke_test PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 600 RUN_SERIAL TRUE
+        ENVIRONMENT "CONCORD_COMMAND_SMOKE_KEYBOARD_ROUTER_ONLY=1"
+        LABELS "assets;keyboard-router;windows-reference")
+endif()
+
+add_test(NAME keyboard_ingress_controller_contract_test COMMAND concord_keyboard_ingress_contract)
+set_tests_properties(keyboard_ingress_controller_contract_test PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 30
+    LABELS "no-assets;platform-input;keyboard-ingress")
+if(WIN32)
+    add_test(NAME runtime_keyboard_ingress_smoke_test COMMAND concord_runtime
+        --config "${CMAKE_SOURCE_DIR}/tests/fixtures/keyboard_ingress_runtime.ini"
+        --command-smoke-test
+        --resource-root "${CMAKE_SOURCE_DIR}/RedAlert2"
+        --local-data-root "${CMAKE_SOURCE_DIR}/local_data"
+        --map "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/multimd/dryheat.map")
+    set_tests_properties(runtime_keyboard_ingress_smoke_test PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 600 RUN_SERIAL TRUE
+        ENVIRONMENT "CONCORD_COMMAND_SMOKE_KEYBOARD_INGRESS_ONLY=1"
+        LABELS "assets;keyboard-ingress;windows-reference")
+endif()
+
+# W011-01: same production UTF-16 text controller, native and running bridge.
+add_test(NAME chat_text_controller_contract_test COMMAND concord_chat_text_controller_contract)
+set_tests_properties(chat_text_controller_contract_test PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 30
+    LABELS "no-assets;platform-input;chat-text")
+add_test(NAME chat_text_bridge_smoke_test COMMAND concord_chat_text_bridge_smoke)
+set_tests_properties(chat_text_bridge_smoke_test PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 60 RUN_SERIAL TRUE
+    LABELS "no-assets;platform-input;chat-text;network")
+if(WIN32)
+    add_test(NAME runtime_chat_text_smoke_test COMMAND concord_runtime
+        --config "${CMAKE_SOURCE_DIR}/tests/fixtures/chat_text_runtime.ini"
+        --command-smoke-test
+        --resource-root "${CMAKE_SOURCE_DIR}/RedAlert2"
+        --local-data-root "${CMAKE_SOURCE_DIR}/local_data"
+        --map "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/multimd/dryheat.map")
+    set_tests_properties(runtime_chat_text_smoke_test PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 600 RUN_SERIAL TRUE
+        ENVIRONMENT "CONCORD_COMMAND_SMOKE_CHAT_TEXT_ONLY=1"
+        LABELS "assets;chat-text;windows-reference")
+endif()
+add_test(NAME navigation_terrain_query_contract_test COMMAND concord_navigation_terrain_query_contract)
+set_tests_properties(navigation_terrain_query_contract_test PROPERTIES TIMEOUT 60 LABELS "navigation-terrain;standard-contract")
+add_test(NAME tmp_codec_contract_test COMMAND concord_tmp_codec_contract)
+set_tests_properties(tmp_codec_contract_test PROPERTIES TIMEOUT 120 LABELS "tmp-codec;standard-contract")
+add_test(NAME terrain_tmp_query_contract_test
+    COMMAND "${CMAKE_COMMAND}"
+        "-DCONTRACT_EXECUTABLE=$<TARGET_FILE:concord_terrain_tmp_query_contract>"
+        "-DOUTPUT_PARENT=${CMAKE_BINARY_DIR}/terrain-tmp-query-contract-runs"
+        -P "${CMAKE_SOURCE_DIR}/cmake/RunTerrainTmpQueryContract.cmake")
+set_tests_properties(terrain_tmp_query_contract_test PROPERTIES TIMEOUT 180 LABELS "tmp-query;standard-contract")

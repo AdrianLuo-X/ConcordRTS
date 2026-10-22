@@ -20,6 +20,10 @@
 | CSF 文字 | 字节解析与显式回车投影 | [CsfCodec.h](src/assets/text/CsfCodec.h) |
 | PAL 调色板 | 原始通道解析与颜色映射策略 | [PalDecoder.h](src/assets/codecs/PalDecoder.h) |
 | SHP 图像 | 索引像素帧与两种兼容策略 | [ShpCodec.h](src/assets/codecs/ShpCodec.h) |
+| TMP 地形资源 | 瓦片解码、资源定位与缓存 | [RuntimeTmpCodec.h](src/assets/codecs/RuntimeTmpCodec.h)、[RuntimeTerrainTmpQuery.h](src/assets/terrain/RuntimeTerrainTmpQuery.h) |
+| 导航地形查询 | 通行类型、坡面与桥面判断 | [RuntimeNavigationTerrainQuery.h](src/simulation/navigation/terrain/RuntimeNavigationTerrainQuery.h) |
+| 输入值与控制器 | 像素值、键盘准入及键鼠交互 | [RuntimeInputPixelValues.h](src/ui/input/RuntimeInputPixelValues.h)、[RuntimeKeyboardIngressController.h](src/ui/input/RuntimeKeyboardIngressController.h) |
+| UI 时钟 | 同步借用毫秒时间与原计时策略 | [RuntimeUiClock.h](src/ui/time/RuntimeUiClock.h) |
 | 预览资源会话 | 资源上下文、缓存和显式刷新 | [MapPreviewResourceContext.h](src/assets/preview/MapPreviewResourceContext.h)、[MapPreviewExporter.h](src/assets/preview/MapPreviewExporter.h) |
 | 回放事件类型 | 独立事件数据及读取、汇总入口 | [RuntimeReplayEventSnapshot.h](src/runtime/contracts/RuntimeReplayEventSnapshot.h)、[ReplaySandbox.h](src/analysis/sandbox/ReplaySandbox.h) |
 | 运行时配置 | 配置类型、加载与偏好保存 | [RuntimeConfig.h](src/runtime/config/RuntimeConfig.h) |
@@ -233,6 +237,52 @@ int runRuntimeWindow(const RuntimeConfig& config,
 
 `saveRuntimeConfigPreferences()` 原子更新指定的用户偏好项，并保留其他段、键和注释；它不保存完整世界状态。`runRuntimeWindow()` 打开并运行游戏窗口，另有接收 `RuntimeMultiplayerRuntimeBridge` 的重载。
 
+## 输入值、UI 时钟与交互
+
+### 像素值
+
+[RuntimeInputPixelValues.h](src/ui/input/RuntimeInputPixelValues.h) 声明 `RuntimeInputPixelPoint`、`RuntimeInputPixelSize` 和 `RuntimeInputPixelRect`，字段均为默认零的 `std::int32_t`。头文件还提供打包鼠标坐标解码、中点与尺寸、镜头偏移、地图视口与侧栏裁剪，以及矩形包含和相交判断。
+
+`runtimeInputPixelPointFromPackedPosition()` 将低 32 位中的两个有符号 16 位坐标解码为点。矩形包含采用闭区间，相交使用四个严格比较；零面积或反向矩形不自动归一化。中点、尺寸、镜头与侧栏计算保留原有符号 32 位运算，调用方须保证相关运算可表示；接口不提供饱和或溢出保护。
+
+### UI 时钟
+
+[RuntimeUiClock.h](src/ui/time/RuntimeUiClock.h) 提供类型化同步依赖：
+
+```cpp
+using RuntimeUiTimeMs = std::uint64_t;
+
+class RuntimeUiClock {
+public:
+    virtual ~RuntimeUiClock() = default;
+    virtual RuntimeUiTimeMs nowMs() const noexcept = 0;
+};
+```
+
+提供者必须比所有借用它的会话和临时载入状态活得更久。该依赖不保存、不参与状态哈希或权威命令提交；它服务于 UI 表现，不替代模拟 tick。Windows 宿主通过 [RuntimeUiClockWin32.h](src/runtime/host/RuntimeUiClockWin32.h) 的 `runtimeWin32UiClock()` 提供原 `GetTickCount64` 时间源。
+
+同头中的双次选择、悬停、横幅、闪烁与计分时间函数分别保留原比较和无符号减法策略。它们没有统一增加回拨过滤或钳制，不能互换各消费者的边界语义。
+
+### 类型化交互控制器
+
+控制器接收明确的输入值，通过各自 `Host` 查询当前状态并同步提交效果。原生窗口、消息解释、资源句柄及生产系统适配仍由私有宿主承担；世界与手势状态的借用应在原同步表达式内使用，外部效果调用后重新查询。Host 的生命期覆盖当前调用，控制器不保留引用或回调。
+
+| 范围 | 接口入口 |
+| --- | --- |
+| 战役输入准入、键盘外层分发与命令路由 | [RuntimeKeyboardIngressController.h](src/ui/input/RuntimeKeyboardIngressController.h)、[RuntimeKeyboardRouterController.h](src/ui/input/RuntimeKeyboardRouterController.h) |
+| 停止、警戒、散开、部署与编组 | [RuntimeSelectionKeyController.h](src/ui/input/RuntimeSelectionKeyController.h)、[RuntimeTeamKeyController.h](src/ui/input/RuntimeTeamKeyController.h) |
+| 镜头、对象循环与快捷选择 | [RuntimeCameraKeyController.h](src/ui/input/RuntimeCameraKeyController.h)、[RuntimeLocalNavigationController.h](src/ui/input/RuntimeLocalNavigationController.h) |
+| 规划、工厂、通信与表现快捷键 | [RuntimePlanningFactoryKeyController.h](src/ui/input/RuntimePlanningFactoryKeyController.h)、[RuntimeReferenceCommunicationController.h](src/ui/input/RuntimeReferenceCommunicationController.h)、[RuntimeReferencePresentationController.h](src/ui/input/RuntimeReferencePresentationController.h) |
+| 终局、选项、保存载入与菜单按键 | [RuntimeSessionKeyController.h](src/ui/input/RuntimeSessionKeyController.h)、[RuntimeMenuKeyController.h](src/ui/input/RuntimeMenuKeyController.h) |
+| 聊天字符、按键与 UTF-16 转 UTF-8 | [RuntimeChatTextController.h](src/ui/input/RuntimeChatTextController.h) |
+| 左右键手势与完成点击 | [RuntimeMapLeftPointerController.h](src/ui/input/RuntimeMapLeftPointerController.h)、[RuntimeMapRightPointerController.h](src/ui/input/RuntimeMapRightPointerController.h) |
+| 公共指针准入、外交界面与侧栏滚轮 | [RuntimePointerIngressController.h](src/ui/input/RuntimePointerIngressController.h)、[RuntimeSidebarPageController.h](src/ui/sidebar/RuntimeSidebarPageController.h) |
+| 光标语义与捕获变化 | [RuntimeCursorController.h](src/ui/input/RuntimeCursorController.h)、[RuntimeInputCancellationController.h](src/ui/input/RuntimeInputCancellationController.h) |
+
+例如 `handleRuntimeSelectionKey(input, host)` 返回 `Unhandled`、`RepeatedConsumed` 或 `DispatchedConsumed`，保留普通与系统按键来源及重复键策略。各控制器的 `bool` 返回值应按对应头文件解释，不能统一理解为命令成功；部分返回值只决定消息是否继续交给原生默认处理。
+
+`encodeRuntimeChatTextUtf8()` 严格处理 UTF-16，保留显式 NUL code unit；无效输入或编码长度超过现有通信标识上限时返回空字符串。光标模块返回 `RuntimeCursorRequest` 语义请求，实际光标资源由宿主设置。`handleRuntimeInputCaptureChanged()` 先调用原右键策略，再处理菜单滑条与偏好；它不新增读取或清除左键手势状态。
+
 ## 席位与比赛计分
 
 ### 席位角色
@@ -305,6 +355,45 @@ bool decodeShpIndexedFrame(
 
 `ShpIndexedFrame` 返回尺寸、偏移、格式元数据和索引像素，不包含调色板颜色。`Preview` 与 `Runtime` 保留原消费者在字段符号、格式接受范围和空帧上的差异，调用方须按用途选择。失败保留原 `frame`，成功保留调用方已有的 `error`；资源路径选择、帧回退、阴影处理与显示缓存留在原消费者。
 
+### TMP 瓦片
+
+[RuntimeTmpTypes.h](src/assets/codecs/RuntimeTmpTypes.h) 声明 `RuntimeTmpTileFile`、`RuntimeTmpSubTileImage` 与颜色数据；[RuntimeTmpCodec.h](src/assets/codecs/RuntimeTmpCodec.h) 提供：
+
+```cpp
+bool loadRuntimeTmpTileBytes(
+    const std::vector<unsigned char>& bytes,
+    const std::string& sourceName,
+    RuntimeTmpTileFile& tileFile,
+    std::string& errorMessage);
+```
+
+接口负责普通 TMP 与 raw format 3 的原完整解码，不执行文件或 MIX 读取。输出包含索引像素、附加图像、Z 数据、地形与雷达元数据。普通瓦片保留地形网格尺寸；不编码该网格的 raw format 3 保持未知。
+
+解码失败可能已经修改 `tileFile` 的部分状态，不能按事务式输出处理；错误和部分成功的警告沿用原语义，调用方应同时检查返回值、文件状态和错误文本。文件选择、调色板投影及实际绘制由资源查询或消费者负责。
+
+## 地形资源与导航查询
+
+[RuntimeTerrainTmpQuery.h](src/assets/terrain/RuntimeTerrainTmpQuery.h) 将地形资源管理与绘图调用分开：
+
+- `RuntimeTerrainTmpContext` 同步借用剧场及瓦片、素材、建筑根路径；它不是拥有这些对象的快照。
+- `RuntimeTerrainTmpCache` 保存瓦片、最近错误、定位根、索引路径与缺失索引缓存，由原渲染器持有。
+- `RuntimeTerrainTmpByteSource` 提供 loose/MIX 字节读取和资源根查询；`RuntimeTerrainTmpMemoPort` 仅桥接原私有帧、上下文和缓存匹配。
+- `loadRuntimeTerrainTileForIndex()` 定位并取得缓存瓦片；`resolveRuntimeTerrainMetadata()`、`resolveRuntimeTerrainSubTileLandType()`、`resolveRuntimeTerrainSubTileRampType()` 和 `resolveRuntimeTerrainTmpTileGridShape()` 查询元数据。
+
+模块保留原资源候选顺序、按需加载、负缓存及错误重放。返回的瓦片和子图像指针借用缓存，调用方须保持所属缓存和上下文有效，并遵守原作用域内的修改约定；清除、替换缓存或恢复世界状态后应重新取得当前对象。此接口没有统一并发访问保证，也不拥有几何帧、原生窗口或全部绘图资源。
+
+[RuntimeNavigationTerrainQuery.h](src/simulation/navigation/terrain/RuntimeNavigationTerrainQuery.h) 提供导航判断：
+
+```cpp
+RuntimeNavigationTerrainInfo queryRuntimeNavigationTerrainInfo(
+    RuntimeNavigationTerrainQueryPort& port,
+    const TerrainCell& terrain);
+```
+
+`RuntimeNavigationTerrainQueryPort` 只公开剧场、墙体、桥面与子瓦片地形的同步只读查询，私有适配器连接当前资源生产者。查询保留墙体短路、sentinel 地形复制、land/ramp/岸线再次查询及断桥处理顺序。
+
+[RuntimeTerrainTypes.h](src/simulation/navigation/terrain/RuntimeTerrainTypes.h) 中的返回值拥有全部 11 个字段：移动地形、坡型、地形种类、原始地形、可通行、水域、岸线、悬崖、坡面、桥面和代价。结果不借用渲染器或世界容器；查询端口和输入地形仍只在同步调用内借用。这一接口边界不表示整个导航或渲染系统已无平台依赖。
+
 ## 预览资源会话
 
 [MapPreviewResourceContext.h](src/assets/preview/MapPreviewResourceContext.h) 声明 `concord::assets::MapPreviewResourceContext` 与 `MapPreviewResourceSession`。上下文绑定包根、瓦片/素材根、普通和建筑调色板路径、配置根顺序策略以及 `mountGeneration`。会话可移动、不可复制，由一个消费者串行持有和刷新。
@@ -355,7 +444,9 @@ ReplayRuntimeEventSourceSummary summarizeRuntimeReplayEventSnapshots(
 
 编译选项、定义和 CRT 设置均为 `PRIVATE`，各变体继承对应消费者约定；运行时 Debug 的 `/MD`、iterator level 0 与工具/普通合同 Debug 的 `/MDd`、默认 iterator level 2 分开保留。消费者仍配置自己的 `src/` 头文件搜索目录。现有静态库范围为上述两份实现，整体产品构建继续按 [README](README.md) 的 Windows 流程执行。
 
-角色、计分、解码、预览会话和回放类型的独立检查见 [TestsUnitAndNetwork.cmake](cmake/TestsUnitAndNetwork.cmake)；回放测试目标定义见 [ReplaySnapshotContracts.cmake](cmake/ReplaySnapshotContracts.cmake)。新增检查按具体 CMake 目标和 CTest 名称选择，未自动并入 `windows-minimal` 的 12 项或 `windows-local-assets` 的 4 项集合。
+角色、计分、解码、预览会话、回放、输入、UI 时钟及地形标准检查见 [TestsUnitAndNetwork.cmake](cmake/TestsUnitAndNetwork.cmake)；回放测试目标定义见 [ReplaySnapshotContracts.cmake](cmake/ReplaySnapshotContracts.cmake)。地形与 TMP 的独立构建配置见 [NavigationTerrainQueryContracts.cmake](cmake/NavigationTerrainQueryContracts.cmake)、[TmpTerrainContracts.cmake](cmake/TmpTerrainContracts.cmake)，资源运行检查见 [TestsRuntimeRegression.cmake](cmake/TestsRuntimeRegression.cmake)。
+
+指针、光标、取消捕获及相应 Windows 集成检查见 [TestsAdditionalRegression.cmake](cmake/TestsAdditionalRegression.cmake)。这些检查按具体 CMake 目标和 CTest 名称选择，未自动并入 `windows-minimal` 的 12 项或 `windows-local-assets` 的 4 项集合；标准合同、素材检查、原生适配与真实网络运行的结果须分别判断，不能相互替代。
 
 ## 命令行接口
 

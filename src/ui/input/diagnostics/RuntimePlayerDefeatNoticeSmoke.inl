@@ -255,9 +255,9 @@ bool runRuntimePlayerDefeatNoticeSmoke(RuntimeWindowState& stock, std::string& e
                 + describeOutcomeFixture(state, mode));
         if (!destroy(state, ids[1])) return fail("real outcome victim missing");
         state.tick += 10;
-        const ULONGLONG before = GetTickCount64();
+        const std::uint64_t before = GetTickCount64();
         advanceRuntimeSkirmishOutcome(state);
-        const ULONGLONG after = GetTickCount64();
+        const std::uint64_t after = GetTickCount64();
         const auto& lines = state.playerDefeatNotices.lines;
         if (state.skirmishMatchFinished || lines.size() != 1 || lines.front().owner != ownerKey(1)
             || lines.front().untilMs < before + runtimePlayerDefeatNoticeDurationMs
@@ -341,7 +341,7 @@ bool runRuntimePlayerDefeatNoticeSmoke(RuntimeWindowState& stock, std::string& e
         auto& state = *storage;
         state.config.fixedTickHz = hz;
         const auto ids = populate(state);
-        const ULONGLONG start = GetTickCount64() + 60000;
+        const std::uint64_t start = GetTickCount64() + 60000;
         if (ids.size() != capacity || !destroy(state, ids[1])
             || !observeRuntimePlayerDefeatNotices(state, start))
             return fail("first timed defeat was not detected");
@@ -430,14 +430,14 @@ bool runRuntimePlayerDefeatNoticeSmoke(RuntimeWindowState& stock, std::string& e
         const RECT viewport = runtimeMapViewport(client);
         auto retained = std::move(state.playerDefeatNotices.lines);
         auto retainedChat = std::move(state.playerCommunication.lines);
-        const ULONGLONG baselinePaintStart = GetTickCount64();
+        const std::uint64_t baselinePaintStart = GetTickCount64();
         const auto baseline = window.paint();
-        const ULONGLONG baselinePaintEnd = GetTickCount64();
+        const std::uint64_t baselinePaintEnd = GetTickCount64();
         state.playerDefeatNotices.lines = std::move(retained);
         state.playerCommunication.lines = std::move(retainedChat);
-        const ULONGLONG actualPaintStart = GetTickCount64();
+        const std::uint64_t actualPaintStart = GetTickCount64();
         const auto actual = window.paint();
-        const ULONGLONG actualPaintEnd = GetTickCount64();
+        const std::uint64_t actualPaintEnd = GetTickCount64();
         if (baseline.size() != static_cast<std::size_t>(window.width * window.height)
             || actual.size() != baseline.size()) return fail("production WM_PAINT surface unavailable");
         RuntimePlayerDefeatNoticeSmokeSurface expected(window.width, window.height);
@@ -615,7 +615,7 @@ bool runRuntimePlayerDefeatNoticeSmoke(RuntimeWindowState& stock, std::string& e
         const int frozenTick = native.tick;
         const int renderedBefore = native.renderedFramesThisSecond;
         native.repaintRequested = false;
-        const ULONGLONG past = GetTickCount64() > 0 ? GetTickCount64() - 1 : 0;
+        const std::uint64_t past = GetTickCount64() > 0 ? GetTickCount64() - 1 : 0;
         for (auto& notice : native.playerDefeatNotices.lines) notice.untilMs = past;
         const auto expired = window.paint(false);
         const RECT viewport = runtimeMapViewport({0, 0, 800, 600});
@@ -697,8 +697,11 @@ bool runRuntimePlayerDefeatNoticeSmoke(RuntimeWindowState& stock, std::string& e
             || native.particles.fixedTickHz() != std::max(1, native.config.fixedTickHz))
             return fail("save fixture did not synchronize the real particle authority");
         if (!verifyPixels(native, window, shortNames, shortColors)) return false;
-        const auto directory = std::filesystem::path(native.config.localDataRootPath).parent_path()
-            / "build" / "23" / "03" / "private";
+        const char* outputRoot = std::getenv("CONCORD_PLAYER_DEFEAT_NOTICE_OUTPUT");
+        const auto directory = outputRoot && *outputRoot
+            ? std::filesystem::path(outputRoot)
+            : std::filesystem::path(native.config.localDataRootPath).parent_path()
+                / "build" / "23" / "03" / "private";
         std::error_code directoryError;
         std::filesystem::create_directories(directory, directoryError);
         if (directoryError) return fail("private native save directory: " + directoryError.message());

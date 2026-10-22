@@ -1,10 +1,12 @@
 // Include immediately before handleRuntimeMapRightClick, after the UI dispatch
 // helpers and camera/selection functions are defined.
 int runtimePlayerCurrentKeyCode(WPARAM key) {
-    return runtimePlayerKeyCode(static_cast<int>(key),
+    const int code = runtimePlayerKeyCode(static_cast<int>(key),
         (GetKeyState(VK_SHIFT) & 0x8000) != 0,
         (GetKeyState(VK_CONTROL) & 0x8000) != 0,
         (GetKeyState(VK_MENU) & 0x8000) != 0);
+    RuntimeKeyboardParentDiagnostics::key(static_cast<std::uint64_t>(key), code);
+    return code;
 }
 
 // This is presentation authority only. The simulation temporarily borrows
@@ -17,7 +19,7 @@ bool runtimePlayerSelectionAllowed(const RuntimeWindowState& state) {
 bool rejectRuntimeObserverSelection(RuntimeWindowState& state) {
     if (runtimePlayerSelectionAllowed(state)) return false;
     state.selectedObjectIds.clear();
-    state.selectionDragActive = state.selectionDragMoved = false;
+    state.leftPointer.active = state.leftPointer.moved = false;
     state.repaintRequested = true;
     return true;
 }
@@ -50,218 +52,228 @@ bool runtimePlayerMobileSelectable(const RuntimeWindowState& state, const WorldO
         && !(type && (type->spawned || type->missileSpawn));
 }
 
+// Private synchronous assembly keeps native authority, validation and effects here.
+class RuntimePlayerFactoryUiHost final : public RuntimePlayerFactoryHost {
+public:
+    explicit RuntimePlayerFactoryUiHost(RuntimeWindowState& state) : state_(state) {}
+    bool usesIntentRouter() override { return runtimeUsesGameplayIntentRouter(state_); }
+    void refreshAuthority() override { refreshRuntimeMultiplayerPlayerIntentAuthority(state_); }
+    bool submitPrimary(std::int32_t id, std::string& error) override {
+        return state_.multiplayerIntentRouter.setPrimaryFactory(id, error);
+    }
+    bool submitRally(std::int32_t id, RuntimeMultiplayerGameplayCell cell,
+        std::string& error) override {
+        return state_.multiplayerIntentRouter.setRallyPoint(id, cell, error);
+    }
+    bool applyPrimary(std::int32_t id) override {
+        return applyRuntimePlayerPrimaryFactory(state_, state_.economy.owner, id);
+    }
+    bool applyRally(std::int32_t id, RuntimeMultiplayerGameplayCell cell) override {
+        return applyRuntimePlayerRallyPoint(state_, state_.economy.owner, id, cell);
+    }
+    void setStatus(const std::string& status) override { state_.interactionStatus = status; }
+    void primarySelectedSound() override { emitRuntimeSound(state_, "EVA_PrimaryBuildingSelected"); }
+    void requestRepaint() override { state_.repaintRequested = true; }
+private:
+    RuntimeWindowState& state_;
+};
+
 bool dispatchRuntimePlayerFactoryFromUi(RuntimeWindowState& state,
     int id, std::optional<RuntimeMultiplayerGameplayCell> cell
 ) {
-    bool accepted = false;
-    std::string error;
-    if (runtimeUsesGameplayIntentRouter(state)) {
-        refreshRuntimeMultiplayerPlayerIntentAuthority(state);
-        accepted = cell ? state.multiplayerIntentRouter.setRallyPoint(id, *cell, error)
-            : state.multiplayerIntentRouter.setPrimaryFactory(id, error);
-    } else accepted = cell ? applyRuntimePlayerRallyPoint(state, state.economy.owner, id, *cell)
-        : applyRuntimePlayerPrimaryFactory(state, state.economy.owner, id);
-    state.interactionStatus = accepted ? (cell ? "factory rally point set" : "primary factory selected")
-        : "select an owned production factory";
-    if (accepted && !cell) emitRuntimeSound(state, "EVA_PrimaryBuildingSelected");
-    state.repaintRequested = true;
-    return accepted;
+    RuntimePlayerFactoryUiHost host(state);
+    return dispatchRuntimePlayerFactory({id, cell}, host);
 }
 
-bool handleRuntimePlayerCommandCode(RuntimeWindowState& state, const RECT& client,
-    int code, bool repeated, std::uint64_t now) {
-    if (state.runtimeMenuOpen || state.skirmishMatchFinished) return false;
-    rejectRuntimeObserverSelection(state);
-    if (handleRuntimePlayerReferenceKey(state, client, code, repeated)) return true;
-    // With NumLock on the keypad is a second set of group-selection keys.
-    const int key = code & 0xff;
-    if (key >= VK_NUMPAD0 && key <= VK_NUMPAD9)
-        code = (code & ~0xff) | ('0' + key - VK_NUMPAD0);
-    const auto matches = [&](const std::string& action, int fallback) {
-        return code == runtimeMenuKeyboardBindingCode(state, action, fallback);
-    };
-    const auto selectable = [&](int id) { return runtimePlayerLocalSelectable(state, id); };
-    const RECT viewport = runtimeMapViewport(client);
-    auto& local = state.playerLocalCommands;
-    const bool previous=matches("PreviousObject",'M');
-    if (previous || matches("NextObject",'N')) {
-        if (repeated) return true;
+// Private Win32 assembly for the same synchronous, platform-free Team loop.
+class RuntimeTeamKeyUiHost final : public RuntimeTeamKeyHost {
+public:
+    RuntimeTeamKeyUiHost(RuntimeWindowState& state, const RECT& client)
+        : state_(state), client_(client) {}
+    std::int32_t binding(const std::string& action, std::int32_t fallback) override {
+        return runtimeMenuKeyboardBindingCode(state_, action, fallback);
+    }
+    bool selectable(int id) override { return runtimePlayerLocalSelectable(state_, id); }
+    void applySelection(const std::vector<int>& ownedResult) override {
+        applyRuntimePlayerSelection(state_, ownedResult, false, false);
+    }
+    void clearSelectedBeacon() override { state_.playerCommunication.selectedBeacon.reset(); }
+    std::optional<RuntimeTeamKeyCell> objectCell(int id) override {
+        if (const auto* object = findObjectById(state_, id))
+            return RuntimeTeamKeyCell{object->x, object->y};
+        return std::nullopt;
+    }
+    void centerCamera(RuntimeTeamKeyCell cell) override {
+        centerRuntimeCameraOnCell(state_, client_, {cell.x, cell.y});
+    }
+    void teamAssigned(std::int32_t number) override {
+        state_.interactionStatus = "team " + std::to_string(number) + " assigned";
+    }
+private:
+    RuntimeWindowState& state_;
+    RECT client_;
+};
+
+// Native queries stay in the original synchronous input assembly. Each owned
+// result is consumed before returning; no projection/world reference escapes.
+class RuntimeObjectCycleUiHost final : public RuntimeObjectCycleKeyHost {
+public:
+    RuntimeObjectCycleUiHost(RuntimeWindowState& state, const RECT& client, const RECT&)
+        : state_(state), client_(client) {}
+    std::int32_t binding(const std::string& action, std::int32_t fallback) override {
+        return runtimeMenuKeyboardBindingCode(state_, action, fallback);
+    }
+    std::vector<int> eligibleMobileObjectIds() override {
         std::vector<int> ids;
-        for (const auto& object:state.world.getObjects()) {
-            if (runtimePlayerMobileSelectable(state, object)) ids.push_back(object.instanceId);
-        }
-        if (ids.empty()) return true;
-        std::sort(ids.begin(),ids.end());
-        const int current=state.selectedObjectIds.empty()?(previous?std::numeric_limits<int>::max():0):state.selectedObjectIds.front();
-        auto next=previous?std::lower_bound(ids.begin(),ids.end(),current):std::upper_bound(ids.begin(),ids.end(),current);
-        if (previous) {if (next==ids.begin()) next=ids.end();--next;}
-        else if (next==ids.end()) next=ids.begin();
-        applyRuntimePlayerSelection(state,{*next},false,false);
-        state.playerCommunication.selectedBeacon.reset();
-        local.cameraFollow=false;
-        runtimePlayerCenterSelection(state,client);
-        return true;
+        for (const auto& object : state_.world.getObjects())
+            if (runtimePlayerMobileSelectable(state_, object)) ids.push_back(object.instanceId);
+        return ids;
     }
-    for (int number = 1; number <= 10; ++number) {
-        const int digit = number == 10 ? '0' : '0' + number;
-        const std::string suffix = "_" + std::to_string(number);
-        const int index = number - 1;
-        if (matches("TeamCreate" + suffix, digit | runtimePlayerControlKey)) {
-            if (!repeated) local.teamCreate(index, state.selectedObjectIds, selectable);
-            state.interactionStatus = "team " + std::to_string(number) + " assigned";
-            return true;
-        }
-        const bool add = matches("TeamAddSelect" + suffix, digit | runtimePlayerShiftKey);
-        const bool center = matches("TeamCenter" + suffix, digit | runtimePlayerAltKey);
-        if (matches("TeamSelect" + suffix, digit) || add || center) {
-            if (repeated) return true;
-            const auto selected = local.teamSelect(index, state.selectedObjectIds, add, selectable);
-            const bool twice = local.lastSelectionKey == digit && now - local.lastSelectionAtMs <= 500;
-            applyRuntimePlayerSelection(state, selected, false, false);
-            state.playerCommunication.selectedBeacon.reset();
-            if ((center || twice) && !selected.empty()) {
-                long long x = 0, y = 0;
-                for (int id : selected) if (const auto* object = findObjectById(state, id)) {
-                    x += object->x; y += object->y;
-                }
-                centerRuntimeCameraOnCell(state, client, {static_cast<int>(x / selected.size()),
-                    static_cast<int>(y / selected.size())});
-            }
-            local.lastSelectionKey = digit; local.lastSelectionAtMs = now;
-            return true;
-        }
+    void applySelection(const std::vector<int>& ownedResult) override {
+        applyRuntimePlayerSelection(state_, ownedResult, false, false);
     }
-    for (int index = 0; index < 4; ++index) {
-        const std::string suffix = std::to_string(index + 1);
-        if (matches("SetView" + suffix, (VK_F1 + index) | runtimePlayerControlKey)) {
-            const POINT point = approximateCellFromScreenPoint(state, viewport,
-                POINT{(viewport.left + viewport.right) / 2, (viewport.top + viewport.bottom) / 2});
-            local.views[static_cast<std::size_t>(index)] = RuntimeMultiplayerGameplayCell{point.x, point.y};
-            state.interactionStatus = "view " + suffix + " saved";
-            return true;
-        }
-        if (matches("View" + suffix, VK_F1 + index)) {
-            const auto& saved = local.views[static_cast<std::size_t>(index)];
-            if (saved) centerRuntimeCameraOnCell(state, client, {saved->x, saved->y});
-            return true;
-        }
+    void clearSelectedBeacon() override { state_.playerCommunication.selectedBeacon.reset(); }
+    void centerCurrentSelection() override { runtimePlayerCenterSelection(state_, client_); }
+private:
+    RuntimeWindowState& state_;
+    RECT client_;
+};
+
+class RuntimeViewNavigationUiHost final : public RuntimeViewNavigationKeyHost {
+public:
+    RuntimeViewNavigationUiHost(RuntimeWindowState& state, const RECT& client, const RECT& viewport)
+        : state_(state), client_(client), viewport_(viewport) {}
+    std::int32_t binding(const std::string& action, std::int32_t fallback) override {
+        return runtimeMenuKeyboardBindingCode(state_, action, fallback);
     }
-    const bool type = matches("TypeSelect", 'T');
-    const bool combat = matches("CombatantSelect", 'P');
-    const bool veteran = matches("VeterancyNav", 'Y');
-    const bool health = matches("HealthNav", 'U');
-    if (type || combat || veteran || health) {
-        if (repeated) return true;
-        const bool wholeMap = local.lastSelectionKey == code && now - local.lastSelectionAtMs <= 500;
+    RuntimeTeamKeyCell currentViewportCenterCell() override {
+        const RuntimeInputPixelPoint center = runtimeInputPixelBoundsMidpoint(
+            {viewport_.left, viewport_.top}, {viewport_.right, viewport_.bottom});
+        const POINT point = approximateCellFromScreenPoint(state_, viewport_, POINT{center.x, center.y});
+        return {point.x, point.y};
+    }
+    void centerCamera(RuntimeTeamKeyCell cell) override {
+        centerRuntimeCameraOnCell(state_, client_, {cell.x, cell.y});
+    }
+    void viewSaved(std::int32_t number) override {
+        state_.interactionStatus = "view " + std::to_string(number) + " saved";
+    }
+    std::optional<RuntimeTeamKeyCell> latestRadarEventCell() override {
+        if (state_.playerLastRadarCell)
+            return RuntimeTeamKeyCell{state_.playerLastRadarCell->x, state_.playerLastRadarCell->y};
+        if (!state_.triggers.campaignRadarEvents.empty()) {
+            const auto& cell = state_.triggers.campaignRadarEvents.back().cell;
+            return RuntimeTeamKeyCell{cell.x, cell.y};
+        }
+        return std::nullopt;
+    }
+private:
+    RuntimeWindowState& state_;
+    RECT client_;
+    RECT viewport_;
+};
+
+class RuntimeQuickSelectionUiHost final : public RuntimeQuickSelectionKeyHost {
+public:
+    RuntimeQuickSelectionUiHost(RuntimeWindowState& state, const RECT&, const RECT& viewport)
+        : state_(state), viewport_(viewport) {}
+    std::int32_t binding(const std::string& action, std::int32_t fallback) override {
+        return runtimeMenuKeyboardBindingCode(state_, action, fallback);
+    }
+    std::set<int> onScreenObjectIds() override {
         std::set<int> onScreen;
-        for (const auto& projected : runtimeProjectedObjectsForViewport(state, viewport))
-            if (projected.object && rectsIntersect(viewport, projected.bounds))
+        for (const auto& projected : runtimeProjectedObjectsForViewport(state_, viewport_))
+            if (projected.object && rectsIntersect(viewport_, projected.bounds))
                 onScreen.insert(projected.object->instanceId);
+        return onScreen;
+    }
+    std::vector<RuntimePlayerSelectionCandidate> mobileCandidates(const std::set<int>& onScreen) override {
         std::vector<RuntimePlayerSelectionCandidate> candidates;
-        for (const auto& object : state.world.getObjects()) {
-            if (!runtimePlayerMobileSelectable(state, object)) continue;
-            const auto* unit = findRuntimeUnitType(state.rules, object);
+        for (const auto& object : state_.world.getObjects()) {
+            if (!runtimePlayerMobileSelectable(state_, object)) continue;
+            const auto* unit = findRuntimeUnitType(state_.rules, object);
             candidates.push_back({object.instanceId, toUpperAsciiLocal(object.type),
                 object.veterancy, unit && unit->isSelectableCombatant, onScreen.contains(object.instanceId),
                 object.health, unit ? std::max(1, unit->strength) : std::max(1, object.health)});
         }
-        const auto selected = local.quickSelect(type ? RuntimePlayerQuickSelection::Type
-            : combat ? RuntimePlayerQuickSelection::Combatant
-            : health ? RuntimePlayerQuickSelection::Health : RuntimePlayerQuickSelection::Veterancy,
-            state.selectedObjectIds, candidates, wholeMap, false, wholeMap);
-        applyRuntimePlayerSelection(state, selected, false, false);
-        state.playerCommunication.selectedBeacon.reset();
-        local.lastSelectionKey = code; local.lastSelectionAtMs = now;
-        return true;
+        return candidates;
     }
-    if (matches("PlanningMode", 'Z')) {
-        if (!repeated) dispatchRuntimePlayerWaypointFromUi(state,
-            local.planning ? RuntimePlayerWaypointOperation::Commit : RuntimePlayerWaypointOperation::Begin);
-        return true;
+    void applySelection(const std::vector<int>& ownedResult) override {
+        applyRuntimePlayerSelection(state_, ownedResult, false, false);
     }
-    if (matches("SetPrimaryFactory", 'U' | runtimePlayerControlKey)) {
-        if (!repeated && state.selectedObjectIds.size() == 1)
-            dispatchRuntimePlayerFactoryFromUi(state, state.selectedObjectIds.front(), std::nullopt);
-        return true;
+    void clearSelectedBeacon() override { state_.playerCommunication.selectedBeacon.reset(); }
+private:
+    RuntimeWindowState& state_;
+    RECT viewport_;
+};
+
+class RuntimePlanningFactoryKeyUiHost final : public RuntimePlanningFactoryKeyHost {
+public:
+    explicit RuntimePlanningFactoryKeyUiHost(RuntimeWindowState& state) : state_(state) {}
+    std::int32_t binding(const std::string& action, std::int32_t fallback) override {
+        return runtimeMenuKeyboardBindingCode(state_, action, fallback);
     }
-    if (matches("SetRallyPoint", 'J')) {
-        local.rallyTargeting = state.selectedObjectIds.size() == 1;
-        local.followTargeting = false;
-        state.interactionStatus = "choose a factory rally point";
-        return true;
+    void dispatchWaypoint(RuntimePlayerWaypointOperation operation, std::uint64_t id) override {
+        dispatchRuntimePlayerWaypointFromUi(state_, operation, id);
     }
-    if (matches("CenterOnRadarEvent", VK_SPACE)) {
-        if (state.playerLastRadarCell) {
-            centerRuntimeCameraOnCell(state, client,
-                {state.playerLastRadarCell->x, state.playerLastRadarCell->y});
-        } else if (!state.triggers.campaignRadarEvents.empty()) {
-            centerRuntimeCameraOnCell(state, client, state.triggers.campaignRadarEvents.back().cell);
-        }
-        return true;
+    void dispatchFactory(RuntimePlayerFactoryRequest request) override {
+        dispatchRuntimePlayerFactoryFromUi(state_, request.objectId, request.cell);
     }
-    return false;
+    void setStatus(const std::string& status) override { state_.interactionStatus = status; }
+private:
+    RuntimeWindowState& state_;
+};
+
+#include "ui/input/RuntimeKeyboardRouterUi.inl"
+
+bool handleRuntimePlayerCommandCode(RuntimeWindowState& state, const RECT& client,
+    int code, bool repeated, std::uint64_t now) {
+    RuntimeKeyboardRouterUiHost host(state, client);
+    return handleRuntimeKeyboardRouterKey({code, repeated, now}, host);
 }
 
 bool handleRuntimePlayerCommandKey(RuntimeWindowState& state, HWND window, WPARAM key, LPARAM flags) {
     RECT client{}; GetClientRect(window, &client);
     return handleRuntimePlayerCommandCode(state, client, runtimePlayerCurrentKeyCode(key),
-        (flags & (static_cast<LPARAM>(1) << 30)) != 0, GetTickCount64());
+        (flags & (static_cast<LPARAM>(1) << 30)) != 0, runtimeUiClockNow(state));
 }
 
-bool handleRuntimePlayerTargetClick(RuntimeWindowState& state, const RECT& viewport, POINT point) {
-    auto& local = state.playerLocalCommands;
-    if (!pointInRectInclusive(viewport, point)) return false;
-    const POINT targetCell = approximateCellFromScreenPoint(state, viewport, point);
-    if (state.playerCommunication.beaconTargeting) {
-        RuntimeMultiplayerGameplayPlayerCommunicationCommand command;
-        command.kind = RuntimePlayerCommunicationKind::PlaceBeacon;
-        command.cell = {targetCell.x, targetCell.y};
-        if (dispatchRuntimePlayerCommunicationFromUi(state, command)) {
-            state.playerCommunication.beaconTargeting = false;
-            applyRuntimePlayerSelection(state,{},false,false);
-            state.playerCommunication.selectedBeacon.reset();
-        }
-        state.selectionDragActive = state.selectionDragMoved = false;
-        state.repaintRequested = true;
-        return true;
+bool handleRuntimePlayerTargetClick(RuntimeWindowState& state, const RECT& viewport, POINT point);
+
+// Private synchronous adapter; each query reborrows the current state root.
+class RuntimeCameraKeyWin32Host final : public RuntimeCameraKeyHost {
+public:
+    RuntimeCameraKeyWin32Host(RuntimeWindowState& state, HWND window)
+        : state_(state), window_(window) {}
+    std::int32_t runtimeScrollRate() override { return state_.runtimeScrollRate; }
+    std::int32_t binding(const std::string& action, std::int32_t fallback) override {
+        return runtimeMenuKeyboardBindingCode(state_, action, fallback);
     }
-    if (handleRuntimePlayerWaypointClick(state, viewport, point)) return true;
-    if (!local.followTargeting && !local.rallyTargeting && state.activeSidebarTool==RuntimeSidebarTool::None
-        && !(GetKeyState(VK_CONTROL)&0x8000) && !(GetKeyState(VK_MENU)&0x8000) && !(GetKeyState(VK_SHIFT)&0x8000)) {
-        const auto owner=runtimePlayerCommunicationViewerOwner(state);
-        for (const auto& beacon:state.playerCommunication.beacons) {
-            if (beacon.owner!=owner || !runtimePlayerBeaconVisibleToLocal(state,beacon)) continue;
-            // The input path resolves ground cell centers. Native selection is
-            // within half a cell of the beacon's stored ground point.
-            const double dx=static_cast<double>(targetCell.x)-beacon.cell.x;
-            const double dy=static_cast<double>(targetCell.y)-beacon.cell.y;
-            if (dx*dx+dy*dy<0.25) {
-                applyRuntimePlayerSelection(state,{},false,false);
-                state.playerCommunication.selectedBeacon=beacon.cell;
-                state.selectionDragActive=state.selectionDragMoved=false;
-                state.repaintRequested=true;
-                return true;
-            }
-        }
-        state.playerCommunication.selectedBeacon.reset();
+    void clearCameraFollow() override { state_.playerLocalCommands.cameraFollow = false; }
+    std::int32_t sampleCurrentKeyCode(const RuntimeCameraKeyInput& input) override {
+        return runtimePlayerCurrentKeyCode(static_cast<WPARAM>(input.rawKey));
     }
-    if (!local.followTargeting && !local.rallyTargeting) return false;
-    if (local.rallyTargeting) {
-        if (state.selectedObjectIds.size() == 1)
-            dispatchRuntimePlayerFactoryFromUi(state, state.selectedObjectIds.front(),
-                RuntimeMultiplayerGameplayCell{targetCell.x, targetCell.y});
-        local.rallyTargeting = false;
-    } else {
-        const auto& projected = runtimeProjectedObjectsForViewport(state, viewport);
-        const auto* picked = findProjectedObjectAtPoint(projected, point);
-        if (picked && picked->object) dispatchRuntimeTargetOrderFromUi(state,
-            RuntimeMultiplayerGameplayTargetOrderKind::Follow,
-            {targetCell.x, targetCell.y}, picked->object);
-        else state.interactionStatus = "follow requires an allied unit";
-        local.followTargeting = false;
+    bool visionEnabled() override { return state_.visionEnabled; }
+    bool skirmishStartApplied() override { return state_.economy.skirmishStartApplied; }
+    std::int32_t skirmishStartCellX() override { return state_.economy.skirmishStartCell.x; }
+    std::int32_t skirmishStartCellY() override { return state_.economy.skirmishStartCell.y; }
+    void prepareCenterClient() override {
+        centerClient_ = {};
+        GetClientRect(window_, &centerClient_);
     }
-    state.selectionDragActive = false;
-    state.selectionDragMoved = false;
-    state.repaintRequested = true;
-    return true;
-}
+    RuntimeTeamKeyCell skirmishStartCell() override {
+        return {state_.economy.skirmishStartCell.x, state_.economy.skirmishStartCell.y};
+    }
+    void centerCamera(RuntimeTeamKeyCell cell) override {
+        centerRuntimeCameraOnCell(state_, centerClient_, {cell.x, cell.y});
+    }
+    void resetCameraInitialized() override { state_.camera.initialized = false; }
+    void scrollCamera(std::int32_t dx, std::int32_t dy) override {
+        scrollRuntimeMapCameraClamped(state_, dx, dy);
+    }
+    void invalidateProjection() override { invalidateRuntimeObjectProjectionCache(state_); }
+private:
+    RuntimeWindowState& state_;
+    HWND window_;
+    RECT centerClient_{};
+};

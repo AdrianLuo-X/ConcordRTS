@@ -128,7 +128,7 @@ bool runRuntimeRemainingControlsSmoke(const RuntimeConfig& config,std::string& e
     if (s.playerCommunication.chatOpen || !runtimePlayerSelectedBeacon(s)
         || runtimePlayerSelectedBeacon(s)->text!="从这里进攻"
         || s.world.deterministicSimulationStateHash()!=worldHash) return fail("Unicode annotation leaked orders or failed");
-    key(VK_RETURN);s.playerCommunication.chatDraft=L"取消的文字";handleRuntimePlayerModalKey(s,VK_ESCAPE,false);
+    key(VK_RETURN);s.playerCommunication.chatDraft=u"取消的文字";handleRuntimePlayerModalKey(s,VK_ESCAPE,false);
     if (runtimePlayerSelectedBeacon(s)->text!="从这里进攻") return fail("cancel changed marker");
     command.kind=RuntimePlayerCommunicationKind::BeaconText;command.text="不能更改他人的信标";
     if (!applyRuntimePlayerCommunication(s,"Russians",command) || runtimePlayerSelectedBeacon(s)->text!="从这里进攻") return fail("foreign annotation changed owner marker");

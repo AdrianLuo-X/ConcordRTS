@@ -34,16 +34,133 @@ std::string runtimePlayerChatUtf8(const std::wstring& text) {
     return encoded;
 }
 
+std::u16string runtimeChatTextDraftFromWide(std::wstring_view text) {
+    static_assert(sizeof(wchar_t) == sizeof(char16_t));
+    std::u16string result;
+    result.reserve(text.size());
+    for (wchar_t unit : text) result.push_back(static_cast<char16_t>(unit));
+    return result;
+}
+
+std::wstring runtimeChatTextDraftToWide(std::u16string_view text) {
+    static_assert(sizeof(wchar_t) == sizeof(char16_t));
+    std::wstring result;
+    result.reserve(text.size());
+    for (char16_t unit : text) result.push_back(static_cast<wchar_t>(unit));
+    return result;
+}
+
+class RuntimeChatTextUiHost final : public RuntimeChatTextHost {
+public:
+    explicit RuntimeChatTextUiHost(RuntimeWindowState& state, HWND window = nullptr)
+        : state_(state), window_(window) {}
+    bool menuOpen() override { return state_.runtimeMenuOpen; }
+    bool selectedBeaconValid() override { return runtimePlayerSelectedBeacon(state_) != nullptr; }
+    RuntimeMultiplayerGameplayCell selectedBeaconCell() override {
+        return *state_.playerCommunication.selectedBeacon;
+    }
+    std::uint8_t outgoingChatMask() override { return runtimePlayerOutgoingChatMask(state_); }
+    bool dispatchCommunication(RuntimeMultiplayerGameplayPlayerCommunicationCommand command) override {
+        return dispatchRuntimePlayerCommunicationFromUi(state_, std::move(command));
+    }
+    void requestRepaint() override { state_.repaintRequested = true; }
+    void invalidate() override { InvalidateRect(window_, nullptr, FALSE); }
+private:
+    RuntimeWindowState& state_;
+    HWND window_;
+};
+
+// Private synchronous root assembly. Standard controllers own the decisions;
+// these adapters retain the existing queries, command consumers and UI owners.
+template<class StandardHost>
+class RuntimeCommunicationAllianceUiHost : public StandardHost {
+public:
+    explicit RuntimeCommunicationAllianceUiHost(RuntimeWindowState& state) : state_(state) {}
+    std::string currentOwner() override { return state_.economy.owner; }
+    std::string canonicalOwner(const std::string& owner) override {
+        return runtimeCanonicalHumanHouseOwner(owner);
+    }
+    std::optional<bool> allianceOffer(const std::string& source, const std::string& target) override {
+        const auto offer = state_.playerCommands.alliances.find({source, target});
+        if (offer == state_.playerCommands.alliances.end()) return std::nullopt;
+        return offer->second;
+    }
+    bool ownersAllied(const std::string& source, const std::string& target) override {
+        return runtimeOwnersAreAllied(state_, source, target);
+    }
+    void dispatchCommunication(RuntimeMultiplayerGameplayPlayerCommunicationCommand command) override {
+        (void)dispatchRuntimePlayerCommunicationFromUi(state_, std::move(command));
+    }
+protected:
+    RuntimeWindowState& state_;
+};
+
+class RuntimeReferenceCommunicationUiHost final
+    : public RuntimeCommunicationAllianceUiHost<RuntimeReferenceCommunicationHost> {
+    using AllianceUiHost = RuntimeCommunicationAllianceUiHost<RuntimeReferenceCommunicationHost>;
+    using AllianceUiHost::state_;
+public:
+    explicit RuntimeReferenceCommunicationUiHost(RuntimeWindowState& state) : AllianceUiHost(state) {}
+    std::int32_t binding(const std::string& id, std::int32_t fallback) override {
+        return runtimeMenuKeyboardBindingCode(state_, id, fallback);
+    }
+    std::optional<std::string> objectOwner(std::int32_t id) override {
+        if (const auto* object = findObjectById(state_, id)) return object->owner;
+        return std::nullopt;
+    }
+    void openDiplomacy() override { openRuntimeDiplomacyPage(state_); }
+    std::optional<RuntimePlayerBeacon> selectedBeacon() override {
+        if (const auto* beacon = runtimePlayerSelectedBeacon(state_)) return *beacon;
+        return std::nullopt;
+    }
+    void setChatDraftUtf8(const std::string& text) override {
+        state_.playerCommunication.chatDraft = runtimeChatTextDraftFromWide(widenUtf8(text));
+    }
+    std::string viewerOwner() override { return runtimePlayerCommunicationViewerOwner(state_); }
+    bool beaconVisible(const RuntimePlayerBeacon& beacon) override {
+        return runtimePlayerBeaconVisibleToLocal(state_, beacon);
+    }
+    void cancelSuperWeapon(const std::string& reason) override {
+        (void)cancelRuntimeActiveSuperWeaponTargetSelection(state_, reason);
+    }
+    void dismissPlacement() override { dismissRuntimePlacementFromUi(state_); }
+    void setSidebarTool(RuntimeSidebarTool tool) override { state_.activeSidebarTool = tool; }
+    void setSelectionDragMoved(bool moved) override { state_.leftPointer.moved = moved; }
+    void setSelectionDragActive(bool active) override { state_.leftPointer.active = active; }
+    void beaconLimitStatus() override { state_.interactionStatus = "信标数量已达上限"; }
+    void dispatchWaypoint(RuntimePlayerWaypointOperation operation, std::uint64_t id) override {
+        dispatchRuntimePlayerWaypointFromUi(state_, operation, id);
+    }
+};
+
+class RuntimeDiplomacyNavigationUiHost final
+    : public RuntimeCommunicationAllianceUiHost<RuntimeDiplomacyNavigationHost> {
+    using AllianceUiHost = RuntimeCommunicationAllianceUiHost<RuntimeDiplomacyNavigationHost>;
+    using AllianceUiHost::state_;
+public:
+    explicit RuntimeDiplomacyNavigationUiHost(RuntimeWindowState& state) : AllianceUiHost(state) {}
+    std::vector<RuntimeCommunicationDiplomacyRow> rows() override {
+        const auto privateRows = runtimeDiplomacyRows(state_);
+        std::vector<RuntimeCommunicationDiplomacyRow> result;
+        result.reserve(privateRows.size());
+        for (const auto& row : privateRows) result.push_back({row.owner, row.self, row.defeated});
+        return result;
+    }
+    std::int32_t binding(const std::string& id, std::int32_t fallback) override {
+        return runtimeMenuKeyboardBindingCode(state_, id, fallback);
+    }
+    void closePage() override { closeRuntimeDiplomacyPage(state_); }
+    bool allianceEnabled(const RuntimeCommunicationDiplomacyRow& row) override {
+        RuntimeDiplomacyRow privateRow;
+        privateRow.owner = row.owner; privateRow.self = row.self; privateRow.defeated = row.defeated;
+        return runtimeDiplomacyAllianceEnabled(state_, privateRow);
+    }
+    void requestRepaint() override { state_.repaintRequested = true; }
+};
+
 void runtimePlayerToggleAlliance(RuntimeWindowState& state, const std::string& target) {
-    if (target.empty()) return;
-    const auto owner = runtimeCanonicalHumanHouseOwner(state.economy.owner);
-    const auto offer = state.playerCommands.alliances.find({owner, target});
-    const bool offered = offer == state.playerCommands.alliances.end()
-        ? runtimeOwnersAreAllied(state, owner, target) : offer->second;
-    RuntimeMultiplayerGameplayPlayerCommunicationCommand command;
-    command.kind = RuntimePlayerCommunicationKind::Alliance;
-    command.text = target; command.value = offered ? 0 : 1;
-    dispatchRuntimePlayerCommunicationFromUi(state, command);
+    RuntimeReferenceCommunicationUiHost host(state);
+    toggleRuntimeCommunicationAlliance(target, host);
 }
 
 void runtimePlayerCenterSelection(RuntimeWindowState& state, const RECT& client) {
@@ -81,184 +198,78 @@ void runtimePlayerCenterBase(RuntimeWindowState& state, const RECT& client) {
 
 bool handleRuntimePlayerModalKey(RuntimeWindowState& state, int key, bool repeated) {
     auto& ui = state.playerCommunication;
-    if (ui.chatOpen) {
-        if (key == VK_ESCAPE) { ui.chatOpen = ui.beaconEditing = false; ui.chatDraft.clear(); }
-        else if (key == VK_BACK && !ui.chatDraft.empty()) {
-            const wchar_t last = ui.chatDraft.back(); ui.chatDraft.pop_back();
-            if (last >= 0xdc00 && last <= 0xdfff && !ui.chatDraft.empty()
-                && ui.chatDraft.back() >= 0xd800 && ui.chatDraft.back() <= 0xdbff)
-                ui.chatDraft.pop_back();
-        } else if (key == VK_RETURN && !repeated) {
-            const auto text = trimAsciiLocal(runtimePlayerChatUtf8(ui.chatDraft));
-            if (ui.beaconEditing && !runtimePlayerSelectedBeacon(state)) {
-                ui.chatOpen=ui.beaconEditing=false;ui.chatDraft.clear();
-            } else if (text.empty() && !ui.beaconEditing) { ui.chatOpen = false; ui.chatDraft.clear(); }
-            else {
-                RuntimeMultiplayerGameplayPlayerCommunicationCommand command;
-                command.kind = ui.beaconEditing ? RuntimePlayerCommunicationKind::BeaconText
-                    : ui.chatAllies ? RuntimePlayerCommunicationKind::ChatAllies : RuntimePlayerCommunicationKind::ChatAll;
-                if (ui.beaconEditing) command.cell=*ui.selectedBeacon;
-                else command.value=runtimePlayerOutgoingChatMask(state);
-                command.text = text;
-                if (dispatchRuntimePlayerCommunicationFromUi(state, command)) {
-                    ui.chatOpen = ui.beaconEditing = false; ui.chatDraft.clear();
-                }
-            }
-        }
-        state.repaintRequested = true;
-        return true;
-    }
-    if (!ui.diplomacyOpen) return false;
-    const auto rows = runtimeDiplomacyRows(state);
-    const int count=static_cast<int>(std::min<std::size_t>(rows.size(),8));
-    if (key == VK_ESCAPE || key == VK_TAB || key == VK_RETURN
-        || key==runtimeMenuKeyboardBindingCode(state,"Diplomacy",VK_TAB)) {
-        if (!repeated) closeRuntimeDiplomacyPage(state);
-    } else if (count>1) {
-        ui.diplomacyRow = std::clamp(ui.diplomacyRow, 1, count-1);
-        if (key == VK_UP) ui.diplomacyRow = ui.diplomacyRow==1?count-1:ui.diplomacyRow-1;
-        else if (key == VK_DOWN) ui.diplomacyRow = ui.diplomacyRow==count-1?1:ui.diplomacyRow+1;
-        else if ((key == 'A' || key == VK_SPACE) && !repeated
-            && runtimeDiplomacyAllianceEnabled(state,rows[ui.diplomacyRow]))
-            runtimePlayerToggleAlliance(state,rows[ui.diplomacyRow].owner);
-    }
-    state.repaintRequested = true;
-    return true;
+    RuntimeChatTextUiHost chatHost(state);
+    if (handleRuntimeChatTextKey({key, repeated}, ui, chatHost)) return true;
+    RuntimeDiplomacyNavigationUiHost host(state);
+    return handleRuntimeDiplomacyNavigationKey({key, repeated}, ui, host);
 }
 
+// Private synchronous assembly; the standard controller owns the decisions.
+class RuntimeReferencePresentationUiHost final : public RuntimeReferencePresentationHost {
+public:
+    RuntimeReferencePresentationUiHost(RuntimeWindowState& state, const RECT& client)
+        : state_(state), client_(client) {}
+    std::int32_t binding(const std::string& id, std::int32_t fallback) override {
+        return runtimeMenuKeyboardBindingCode(state_, id, fallback);
+    }
+    void setActiveBuildTab(RuntimeBuildKind kind) override { state_.activeBuildTab = kind; }
+    RuntimeBuildKind activeBuildTab() override { return state_.activeBuildTab; }
+    void clampActiveBuildPage() override {
+        runtimeClampActiveBuildPage(state_, runtimeSidebarRect(client_));
+    }
+    std::size_t catalogSize() override { return state_.economy.catalog.size(); }
+    RuntimeBuildKind catalogKind(std::size_t ordinal) override {
+        return state_.economy.catalog[ordinal].kind;
+    }
+    std::optional<RuntimeReferencePresentationReady> readyForItem(std::size_t ordinal) override {
+        const auto& item = state_.economy.catalog[ordinal];
+        RuntimeProductionLane lane = RuntimeProductionLane::Structures;
+        if (const auto* ready = runtimeReadyProductionForItem(state_, item, &lane))
+            return RuntimeReferencePresentationReady{ordinal, lane, *ready};
+        return std::nullopt;
+    }
+    bool beginReadyPlacement(const RuntimeReferencePresentationReady& ready) override {
+        const auto& item = state_.economy.catalog[ready.catalogOrdinal];
+        return beginRuntimePlacementFromUi(state_, {ready.lane, ready.order, &item}, true);
+    }
+    RuntimeSidebarTool sidebarTool() override { return state_.activeSidebarTool; }
+    void setSidebarTool(RuntimeSidebarTool tool) override { state_.activeSidebarTool = tool; }
+    void setBeaconTargeting(bool targeting) override { state_.playerCommunication.beaconTargeting = targeting; }
+    void setSelectionDragMoved(bool moved) override { state_.leftPointer.moved = moved; }
+    void setSelectionDragActive(bool active) override { state_.leftPointer.active = active; }
+    void placementStatus(std::size_t ordinal) override {
+        state_.interactionStatus = "placing " + state_.economy.catalog[ordinal].typeId;
+    }
+    std::optional<RuntimeReferencePresentationPreview> stationaryPreviewInput() override {
+        const RECT viewport = runtimeMapViewport(client_);
+        if (!state_.mouseClientPointValid) return std::nullopt;
+        return RuntimeReferencePresentationPreview{
+            {viewport.left, viewport.top, viewport.right, viewport.bottom},
+            {state_.mouseClientPoint.x, state_.mouseClientPoint.y}};
+    }
+    void previewPlacement(const RuntimeReferencePresentationPreview& preview) override {
+        const RECT viewport{preview.viewport.left, preview.viewport.top,
+            preview.viewport.right, preview.viewport.bottom};
+        const POINT point{preview.point.x, preview.point.y};
+        updateRuntimePlacementPreview(state_, viewport, point);
+    }
+    void sidebarClickSound() override { emitRuntimeSound(state_, runtimeSoundIntentSidebarButtonClick); }
+    void requestRepaint() override { state_.repaintRequested = true; }
+    bool selectionEmpty() override { return state_.selectedObjectIds.empty(); }
+    void centerBase() override { runtimePlayerCenterBase(state_, client_); }
+    void centerSelection() override { runtimePlayerCenterSelection(state_, client_); }
+private:
+    RuntimeWindowState& state_;
+    RECT client_;
+};
+
 bool handleRuntimePlayerReferenceKey(RuntimeWindowState& state, const RECT& client, int code, bool repeated) {
-    auto& local = state.playerLocalCommands; auto& ui = state.playerCommunication;
-    const auto matches = [&](const std::string& id, int fallback) {
-        return code == runtimeMenuKeyboardBindingCode(state, id, fallback);
-    };
-    const std::pair<const char*, RuntimeBuildKind> tabs[] = {
-        {"StructureTab", RuntimeBuildKind::Building}, {"DefenseTab", RuntimeBuildKind::Defense},
-        {"InfantryTab", RuntimeBuildKind::Infantry}, {"UnitTab", RuntimeBuildKind::Unit}};
-    constexpr int tabKeys[] = {'Q','W','E','R'};
-    for (int i = 0; i < 4; ++i) if (matches(tabs[i].first, tabKeys[i])) {
-        state.activeBuildTab = tabs[i].second;
-        runtimeClampActiveBuildPage(state, runtimeSidebarRect(client));
-        if (!repeated && runtimeBuildKindUsesSingleStructureSlot(state.activeBuildTab)) {
-            for (const auto& item : state.economy.catalog) {
-                if (item.kind != state.activeBuildTab) continue;
-                RuntimeProductionLane lane = RuntimeProductionLane::Structures;
-                const auto* ready = runtimeReadyProductionForItem(state, item, &lane);
-                if (ready == nullptr) continue;
-                if (beginRuntimePlacementFromUi(state, {lane, *ready, &item}, true)) {
-                    state.activeSidebarTool = RuntimeSidebarTool::None;
-                    local.followTargeting = local.rallyTargeting = ui.beaconTargeting = false;
-                    state.selectionDragActive = state.selectionDragMoved = false;
-                    state.interactionStatus = "placing " + item.typeId;
-                    // A keyboard selection must follow a stationary mouse too.
-                    const RECT viewport = runtimeMapViewport(client);
-                    if (state.mouseClientPointValid
-                        && pointInRectInclusive(viewport, state.mouseClientPoint)) {
-                        updateRuntimePlacementPreview(state, viewport, state.mouseClientPoint);
-                    }
-                    emitRuntimeSound(state, runtimeSoundIntentSidebarButtonClick);
-                    state.repaintRequested = true;
-                }
-                break;
-            }
-        }
-        return true;
-    }
-    if (matches("ToggleRepair", 'K') || matches("ToggleSell", 'L')) {
-        if (!repeated) {
-            const auto tool = matches("ToggleRepair", 'K') ? RuntimeSidebarTool::Repair : RuntimeSidebarTool::Sell;
-            state.activeSidebarTool = state.activeSidebarTool == tool ? RuntimeSidebarTool::None : tool;
-            local.followTargeting = local.rallyTargeting = ui.beaconTargeting = false;
-        }
-        return true;
-    }
-    if (matches("CenterBase", 'H')) { runtimePlayerCenterBase(state, client); return true; }
-    if (matches("ShowCoordinates", 'O')) {
-        if (!repeated) local.showCoordinates = !local.showCoordinates;
-        return true;
-    }
-    if (matches("Follow", 'F')) {
-        if (!repeated) local.cameraFollow = !local.cameraFollow && !state.selectedObjectIds.empty();
-        if (local.cameraFollow) runtimePlayerCenterSelection(state, client);
-        return true;
-    }
-    if (matches("Diplomacy", VK_TAB)) {
-        if (!repeated) openRuntimeDiplomacyPage(state);
-        return true;
-    }
-    if (matches("ToggleAlliance", 'A')) {
-        if (repeated) return true;
-        std::string target;
-        if (!state.selectedObjectIds.empty())
-            if (const auto* object = findObjectById(state, state.selectedObjectIds.front()))
-                if (runtimeCanonicalHumanHouseOwner(object->owner) != runtimeCanonicalHumanHouseOwner(state.economy.owner))
-                    target = runtimeCanonicalHumanHouseOwner(object->owner);
-        if (target.empty()) openRuntimeDiplomacyPage(state);
-        else runtimePlayerToggleAlliance(state, target);
-        return true;
-    }
-    if (matches("ChatToAll", VK_RETURN) || matches("ChatToAllies", VK_HOME)) {
-        if (!repeated) {
-            ui.chatOpen = true; ui.chatAllies = matches("ChatToAllies", VK_HOME); ui.chatDraft.clear();
-            ui.beaconEditing=false;
-            if (!ui.chatAllies) if (const auto* beacon=runtimePlayerSelectedBeacon(state)) {
-                ui.beaconEditing=true;ui.chatDraft=widenUtf8(beacon->text);
-            }
-            ui.beaconTargeting = local.followTargeting = local.rallyTargeting = false;
-            state.selectionDragActive = state.selectionDragMoved = false;
-        }
-        return true;
-    }
-    if (matches("PlaceBeacon", 'B')) {
-        if (!repeated) {
-            if (!ui.beaconTargeting) {
-                const auto owner=runtimePlayerCommunicationViewerOwner(state);
-                const auto count=std::count_if(ui.beacons.begin(),ui.beacons.end(),[&](const auto& beacon) {
-                    return beacon.owner==owner && runtimePlayerBeaconVisibleToLocal(state,beacon);
-                });
-                if (count>=3) {
-                    state.interactionStatus="信标数量已达上限";
-                    return true;
-                }
-                cancelRuntimeActiveSuperWeaponTargetSelection(state,"beacon");
-                dismissRuntimePlacementFromUi(state);
-            }
-            ui.beaconTargeting = !ui.beaconTargeting;
-            ui.selectedBeacon.reset();
-            local.followTargeting = local.rallyTargeting = false;
-            state.activeSidebarTool = RuntimeSidebarTool::None;
-        }
-        return true;
-    }
-    if (matches("DeleteBeacon", VK_DELETE) || code == VK_DECIMAL) {
-        if (repeated) return true;
-        if (local.planning && local.selectedWaypoint) {
-            dispatchRuntimePlayerWaypointFromUi(state, RuntimePlayerWaypointOperation::DeletePoint, local.selectedWaypoint);
-            return true;
-        }
-        if (const auto* beacon=runtimePlayerSelectedBeacon(state)) {
-            RuntimeMultiplayerGameplayPlayerCommunicationCommand command;
-            command.kind = RuntimePlayerCommunicationKind::DeleteBeacon; command.cell = beacon->cell;
-            dispatchRuntimePlayerCommunicationFromUi(state, command);
-        }
-        return true;
-    }
-    if (matches("AllToCheer", 'C')) {
-        if (!repeated) {
-            RuntimeMultiplayerGameplayPlayerCommunicationCommand command;
-            command.kind = RuntimePlayerCommunicationKind::Cheer;
-            dispatchRuntimePlayerCommunicationFromUi(state, command);
-        }
-        return true;
-    }
-    for (int i = 1; i <= 8; ++i) if (matches("Taunt_" + std::to_string(i), VK_F5 + i - 1)) {
-        if (!repeated) {
-            RuntimeMultiplayerGameplayPlayerCommunicationCommand command;
-            command.kind = RuntimePlayerCommunicationKind::Taunt; command.value = static_cast<std::uint8_t>(i);
-            dispatchRuntimePlayerCommunicationFromUi(state, command);
-        }
-        return true;
-    }
-    return false;
+    auto& local = state.playerLocalCommands;
+    RuntimeReferencePresentationUiHost presentationHost(state, client);
+    if (handleRuntimeReferencePresentationKey({code, repeated}, local, presentationHost)) return true;
+    RuntimeReferenceCommunicationUiHost communicationHost(state);
+    return handleRuntimeReferenceCommunicationKey({code, repeated}, local,
+        state.playerCommunication, state.selectedObjectIds, communicationHost);
 }
 
 void drawRuntimePlayerHotkeyOverlay(HDC dc, const RECT& client, RuntimeWindowState& state) {
@@ -283,7 +294,7 @@ void drawRuntimePlayerHotkeyOverlay(HDC dc, const RECT& client, RuntimeWindowSta
     std::erase_if(ui.cheerUntilTick, [&](const auto& c) { return c.second <= state.tick; });
     (void)runtimePlayerSelectedBeacon(state);
     drawRuntimePlayerBeaconOverlay(dc,viewport,state);
-    const int noticeHeight = runtimePlayerDefeatNoticeStackHeight(state,viewport,GetTickCount64());
+    const int noticeHeight = runtimePlayerDefeatNoticeStackHeight(state,viewport,runtimeUiClockNow(state));
     int y = viewport.top + 12 + noticeHeight;
     for (const auto& entry : ui.lines) if (!ui.diplomacyOpen && (entry.untilTick > state.tick || ui.chatOpen)) {
         if (y + 25 > viewport.bottom) break;
@@ -301,7 +312,7 @@ void drawRuntimePlayerHotkeyOverlay(HDC dc, const RECT& client, RuntimeWindowSta
     }
     if (ui.chatOpen) {
         RECT box{viewport.left+12,viewport.bottom-50,viewport.right-12,viewport.bottom-12}; panel(box);
-        std::wstring text = (ui.beaconEditing ? L"[信标文字] " : ui.chatAllies ? L"[盟友] " : L"[所有人] ") + ui.chatDraft + L"▏";
+        std::wstring text = (ui.beaconEditing ? L"[信标文字] " : ui.chatAllies ? L"[盟友] " : L"[所有人] ") + runtimeChatTextDraftToWide(ui.chatDraft) + L"▏";
         SetTextColor(dc,RGB(255,239,169)); DrawTextW(dc,text.c_str(),-1,&box,DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
     } else if (ui.beaconTargeting) line(viewport.left+16,viewport.bottom-40,L"点击地图放置信标 · 右键或 Esc 取消",RGB(255,220,64));
     else if (ui.selectedBeacon) line(viewport.left+16,viewport.bottom-40,

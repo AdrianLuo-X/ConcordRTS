@@ -156,9 +156,9 @@ bool runRuntimeHarvesterCursorSmoke(RuntimeWindowState& live, std::string& error
         if(cursor(point)->frameIndex!=190)return fail("harvest overrode repair mode");++exclusions;
         s.activeSidebarTool=RuntimeSidebarTool::Sell;
         if(cursor(point)->frameIndex!=149)return fail("harvest overrode sell mode");++exclusions;
-        s.activeSidebarTool=RuntimeSidebarTool::None;s.rightDragActive=true;
+        s.activeSidebarTool=RuntimeSidebarTool::None;s.rightPointer.active=true;
         if(cursor(point)->frameIndex!=385)return fail("harvest overrode map pan");++exclusions;
-        s.rightDragActive=false;s.forceAttackHeld=true;
+        s.rightPointer.active=false;s.forceAttackHeld=true;
         if(!attack(ground))return fail("force-fire ground was changed");s.forceAttackHeld=false;++exclusions;
         s.visionEnabled=true;s.vision.reset();
         GameWorld unexplored=s.world;unexplored.accessObjects().clear();

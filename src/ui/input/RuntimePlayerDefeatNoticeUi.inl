@@ -62,7 +62,7 @@ std::wstring runtimePlayerDefeatNoticeFitText(HDC dc,const std::wstring& text,in
 }
 
 int runtimePlayerDefeatNoticeVisibleLineCount(const RuntimeWindowState& state,
-    const RECT& viewport,ULONGLONG nowMs) {
+    const RECT& viewport,std::uint64_t nowMs) {
     if(viewport.right-viewport.left<=20) return 0;
     LONG top=viewport.top+12;
     int count=0;
@@ -75,14 +75,14 @@ int runtimePlayerDefeatNoticeVisibleLineCount(const RuntimeWindowState& state,
 }
 
 int runtimePlayerDefeatNoticeStackHeight(const RuntimeWindowState& state,
-    const RECT& viewport,ULONGLONG nowMs) {
+    const RECT& viewport,std::uint64_t nowMs) {
     return runtimePlayerDefeatNoticeVisibleLineCount(state,viewport,nowMs)*27;
 }
 
 void drawRuntimePlayerDefeatNotices(HDC dc,RuntimeWindowState& state,const RECT& clientRect) {
     if(state.playerDefeatNotices.lines.empty()) return;
     const RECT viewport=runtimeMapViewport(clientRect);
-    const ULONGLONG now=GetTickCount64();
+    const std::uint64_t now=runtimeUiClockNow(state);
     const int rowCount=runtimePlayerDefeatNoticeVisibleLineCount(state,viewport,now);
     if(rowCount==0) return;
     const LONG left=viewport.left+10,right=viewport.right-10;
