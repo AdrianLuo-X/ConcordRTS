@@ -1,0 +1,989 @@
+17|31|157|13|0|3|fixture|2241622564183259963
+RPLS 2 7
+L 0 1 0 0 0
+Q 1 19 10 10 0 0 0 0 0 1 "fixture-Structures"
+L 1 1 0 0 0
+Q 2 26 10 10 0 0 0 0 0 1 "fixture-Armory"
+L 2 1 0 0 0
+Q 3 33 10 10 0 0 0 0 0 0 "fixture-Infantry"
+L 3 1 0 0 0
+Q 4 40 10 10 0 0 0 0 0 0 "fixture-Vehicles"
+L 4 1 0 0 0
+Q 5 47 10 10 0 0 0 0 0 0 "fixture-Aircraft"
+L 5 1 0 0 0
+Q 6 54 10 10 0 0 0 0 0 0 "fixture-Ships"
+
+tick=0 changed=0,1 hooks=S:Structures:1;C:Structures:1;R:Structures:1;I:Structures:1;S:Armory:2;C:Armory:2;R:Armory:2;I:Armory:2;S:Infantry:3;C:Infantry:3;R:Infantry:3;I:Infantry:3;S:Vehicles:4;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;S:Ships:6;C:Ships:6;R:Ships:6;I:Ships:6;S:Aircraft:5;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|0|1|fixture-Structures|10|0|0
+event=0|1|1|fixture-Structures|9|2|2
+event=1|0|2|fixture-Armory|10|0|0
+event=1|1|2|fixture-Armory|9|3|3
+event=2|0|3|fixture-Infantry|10|0|0
+event=2|1|3|fixture-Infantry|9|4|4
+event=3|0|4|fixture-Vehicles|10|0|0
+event=3|1|4|fixture-Vehicles|9|5|5
+event=5|0|6|fixture-Ships|10|0|0
+event=5|1|6|fixture-Ships|10|3|3
+event=4|0|5|fixture-Aircraft|10|0|0
+event=4|2|5|fixture-Aircraft|10|0|0
+0|28|140|12|0|2|fixture|12585147270586166011
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 10 9 2 533333 0 10 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 10 9 3 466666 0 20 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 10 9 4 400000 0 0 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 10 9 5 333333 0 10 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 10 10 0 0 0 0 0 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 10 10 3 0 0 0 0 0 "fixture-Ships"
+
+tick=1 changed=0,0 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|2|1|fixture-Structures|9|2|0
+event=1|2|2|fixture-Armory|9|3|0
+event=2|2|3|fixture-Infantry|9|4|0
+event=3|2|4|fixture-Vehicles|9|5|0
+event=5|2|6|fixture-Ships|10|3|0
+event=4|2|5|fixture-Aircraft|10|0|0
+0|28|140|12|0|1|fixture|12585147270586166011
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 10 9 2 533333 0 10 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 10 9 3 466666 0 20 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 10 9 4 400000 0 0 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 10 9 5 333333 0 10 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 10 10 0 0 0 0 0 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 10 10 3 0 0 0 0 0 "fixture-Ships"
+
+tick=2 changed=0,0 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|2|1|fixture-Structures|9|2|0
+event=1|2|2|fixture-Armory|9|3|0
+event=2|2|3|fixture-Infantry|9|4|0
+event=3|2|4|fixture-Vehicles|9|5|0
+event=5|2|6|fixture-Ships|10|3|0
+event=4|2|5|fixture-Aircraft|10|0|0
+0|28|140|12|0|0|fixture|12585147270586166011
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 10 9 2 533333 0 10 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 10 9 3 466666 0 20 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 10 9 4 400000 0 0 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 10 9 5 333333 0 10 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 10 10 0 0 0 0 0 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 10 10 3 0 0 0 0 0 "fixture-Ships"
+
+tick=3 changed=1,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|8|5|3
+event=1|1|2|fixture-Armory|8|6|3
+event=2|1|3|fixture-Infantry|8|8|4
+event=3|1|4|fixture-Vehicles|8|10|5
+event=5|1|6|fixture-Ships|9|10|7
+event=4|1|5|fixture-Aircraft|9|6|6
+392|23|112|10|1|180|harvester income +420 credits=420|321473777156536445
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 10 8 5 66666 0 20 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 10 8 6 933333 0 10 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 10 8 8 800000 0 0 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 10 8 10 666666 0 20 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 10 9 6 266666 0 20 3 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 10 9 10 200000 0 0 3 0 "fixture-Ships"
+
+tick=4 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|7|7|2
+event=1|1|2|fixture-Armory|7|10|4
+event=2|1|3|fixture-Infantry|7|13|5
+event=3|1|4|fixture-Vehicles|6|16|6
+event=5|1|6|fixture-Ships|7|17|7
+event=4|1|5|fixture-Aircraft|8|12|6
+362|17|82|8|1|179|harvester income +420 credits=420|7479937137617735794
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 10 7 7 600000 0 0 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 10 7 10 400000 0 0 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 10 7 13 200000 0 0 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 10 6 16 0 0 0 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 10 8 12 533333 0 10 3 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 10 7 17 400000 0 0 3 0 "fixture-Ships"
+
+tick=5 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|5|10|3
+event=1|1|2|fixture-Armory|5|13|3
+event=2|1|3|fixture-Infantry|5|17|4
+event=3|1|4|fixture-Vehicles|5|21|5
+event=5|1|6|fixture-Ships|6|24|7
+event=4|1|5|fixture-Aircraft|7|18|6
+334|12|54|6|1|178|harvester income +420 credits=420|6762900051875723623
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 10 5 10 133333 0 10 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 10 5 13 866666 0 20 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 10 5 17 600000 0 0 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 10 5 21 333333 0 10 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 10 7 18 800000 0 0 3 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 10 6 24 600000 0 0 3 0 "fixture-Ships"
+
+tick=6 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|4|12|2
+event=1|1|2|fixture-Armory|4|17|4
+event=2|1|3|fixture-Infantry|4|22|5
+event=3|1|4|fixture-Vehicles|4|26|5
+event=5|1|6|fixture-Ships|5|31|7
+event=4|1|5|fixture-Aircraft|5|25|7
+304|6|24|3|1|177|harvester income +420 credits=420|2188173801848440710
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 10 4 12 666666 0 20 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 10 4 17 333333 0 10 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 10 4 22 0 0 0 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 10 4 26 666666 0 20 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 10 5 25 66666 0 20 3 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 10 5 31 800000 0 0 3 0 "fixture-Ships"
+
+tick=7 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|3|15|3
+event=1|1|2|fixture-Armory|3|20|3
+event=2|1|3|fixture-Infantry|3|26|4
+event=3|1|4|fixture-Vehicles|2|32|6
+event=5|1|6|fixture-Ships|3|39|8
+event=4|1|5|fixture-Aircraft|4|31|6
+274|0|0|0|1|176|harvester income +420 credits=420|15695884871854677165
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 10 3 15 200000 0 0 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 10 3 20 800000 0 0 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 10 3 26 400000 0 0 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 10 2 32 0 0 0 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 10 4 31 333333 0 10 3 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 10 3 39 0 0 0 3 0 "fixture-Ships"
+
+tick=8 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|2|17|2
+event=1|1|2|fixture-Armory|1|24|4
+event=2|1|3|fixture-Infantry|1|30|4
+event=3|1|4|fixture-Vehicles|1|37|5
+event=5|1|6|fixture-Ships|2|46|7
+event=4|1|5|fixture-Aircraft|3|37|6
+246|0|0|0|1|175|harvester income +420 credits=420|16957903020803410394
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 10 2 17 733333 0 10 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 10 1 24 266666 0 20 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 10 1 30 800000 0 0 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 10 1 37 333333 0 10 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 10 3 37 600000 0 0 3 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 10 2 46 200000 0 0 3 0 "fixture-Ships"
+
+tick=9 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|0|19|2
+event=0|5|1|fixture-Structures|0|19|0
+event=1|1|2|fixture-Armory|0|26|2
+event=1|5|2|fixture-Armory|0|26|0
+event=2|1|3|fixture-Infantry|0|33|3
+event=2|7|3|fixture-Infantry|0|33|0
+event=3|1|4|fixture-Vehicles|0|40|3
+event=3|7|4|fixture-Vehicles|0|40|0
+event=5|1|6|fixture-Ships|1|53|7
+event=4|1|5|fixture-Aircraft|1|43|6
+delivery=2:3:1
+delivery=3:4:1
+223|0|0|0|1|174|harvester income +420 credits=420|8311232205318235808
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 1 0 0
+A 5 47 10 1 43 866666 0 20 3 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 10 1 53 400000 0 0 3 0 "fixture-Ships"
+
+tick=10 changed=0,1 hooks=C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=5|1|6|fixture-Ships|0|54|1
+event=5|7|6|fixture-Ships|0|54|0
+event=4|1|5|fixture-Aircraft|0|47|4
+event=4|7|5|fixture-Aircraft|0|47|0
+delivery=4:5:1
+delivery=5:6:1
+218|0|0|0|1|173|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=11 changed=0,0 hooks=
+218|0|0|0|1|172|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=12 changed=0,0 hooks=
+218|0|0|0|1|171|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=13 changed=0,0 hooks=
+218|0|0|0|1|170|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=14 changed=0,0 hooks=
+218|0|0|0|1|169|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=15 changed=0,0 hooks=
+218|0|0|0|1|168|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=16 changed=0,0 hooks=
+218|0|0|0|1|167|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=17 changed=0,0 hooks=
+218|0|0|0|1|166|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=18 changed=0,0 hooks=
+218|0|0|0|1|165|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=19 changed=0,0 hooks=
+218|0|0|0|1|164|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=20 changed=0,0 hooks=
+218|0|0|0|1|163|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=21 changed=0,0 hooks=
+218|0|0|0|1|162|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=22 changed=0,0 hooks=
+218|0|0|0|1|161|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=23 changed=0,0 hooks=
+actual-module-restore=1
+218|0|0|0|1|160|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=24 changed=0,0 hooks=
+218|0|0|0|1|159|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=25 changed=0,0 hooks=
+218|0|0|0|1|158|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=26 changed=0,0 hooks=
+218|0|0|0|1|157|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=27 changed=0,0 hooks=
+218|0|0|0|1|156|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=28 changed=0,0 hooks=
+218|0|0|0|1|155|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=29 changed=0,0 hooks=
+218|0|0|0|1|154|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=30 changed=0,0 hooks=
+218|0|0|0|1|153|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=31 changed=0,0 hooks=
+218|0|0|0|1|152|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=32 changed=0,0 hooks=
+218|0|0|0|1|151|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=33 changed=0,0 hooks=
+218|0|0|0|1|150|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=34 changed=0,0 hooks=
+218|0|0|0|1|149|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=35 changed=0,0 hooks=
+218|0|0|0|1|148|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=36 changed=0,0 hooks=
+218|0|0|0|1|147|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=37 changed=0,0 hooks=
+218|0|0|0|1|146|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=38 changed=0,0 hooks=
+218|0|0|0|1|145|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=39 changed=0,0 hooks=
+218|0|0|0|1|144|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=40 changed=0,0 hooks=
+218|0|0|0|1|143|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=41 changed=0,0 hooks=
+218|0|0|0|1|142|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=42 changed=0,0 hooks=
+218|0|0|0|1|141|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=43 changed=0,0 hooks=
+218|0|0|0|1|140|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=44 changed=0,0 hooks=
+218|0|0|0|1|139|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=45 changed=0,0 hooks=
+218|0|0|0|1|138|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=46 changed=0,0 hooks=
+218|0|0|0|1|137|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=47 changed=0,0 hooks=
+218|0|0|0|1|136|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=48 changed=0,0 hooks=
+218|0|0|0|1|135|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=49 changed=0,0 hooks=
+218|0|0|0|1|134|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=50 changed=0,0 hooks=
+218|0|0|0|1|133|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=51 changed=0,0 hooks=
+218|0|0|0|1|132|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=52 changed=0,0 hooks=
+218|0|0|0|1|131|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=53 changed=0,0 hooks=
+218|0|0|0|1|130|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=54 changed=0,0 hooks=
+218|0|0|0|1|129|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=55 changed=0,0 hooks=
+218|0|0|0|1|128|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=56 changed=0,0 hooks=
+218|0|0|0|1|127|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=57 changed=0,0 hooks=
+218|0|0|0|1|126|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=58 changed=0,0 hooks=
+218|0|0|0|1|125|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=59 changed=0,0 hooks=
+218|0|0|0|1|124|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=60 changed=0,0 hooks=
+218|0|0|0|1|123|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=61 changed=0,0 hooks=
+218|0|0|0|1|122|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=62 changed=0,0 hooks=
+218|0|0|0|1|121|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=63 changed=0,0 hooks=
+218|0|0|0|1|120|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+tick=64 changed=0,0 hooks=
+218|0|0|0|1|119|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+spend=-10:1
+218|0|0|0|1|119|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+spend=0:1
+218|0|0|0|1|119|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+spend=1:1
+217|0|0|0|1|119|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+spend=17:1
+200|0|0|0|1|119|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+spend=100:1
+100|0|0|0|1|119|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+spend=2147483647:0
+100|0|0|0|1|119|harvester income +420 credits=420|16676490927491135568
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 10 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 10 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 0 0 0
+
+deposit=-1:100
+deposit=0:100
+deposit=1:101
+deposit=500:600
+deposit=9223372036854775807:2147483647

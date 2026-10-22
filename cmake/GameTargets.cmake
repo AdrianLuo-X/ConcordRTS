@@ -140,7 +140,7 @@ add_executable(concord_runtime
     src/simulation/abilities/unit_special/RuntimeSpecialMechanisms.cpp
     src/simulation/buildings/RuntimeSpecialBuildingSystem.cpp
     src/simulation/buildings/RuntimeInfantryServiceSystem.cpp
-    src/simulation/superweapons/SuperWeaponSystem.cpp
+    src/simulation/superweapons/SuperWeaponSystem.cpp src/simulation/superweapons/RuntimeChronosphereRelocation.cpp
     src/simulation/vision/RuntimeVision.cpp
     src/data/maps/MapDatabase.cpp
     src/assets/archive/MixArchive.cpp
@@ -174,3 +174,14 @@ target_sources(concord_runtime PRIVATE "${CMAKE_SOURCE_DIR}/src/ui/input/Runtime
 
 # W012-01: same capture-interruption owner in the runtime.
 target_sources(concord_runtime PRIVATE "${CMAKE_SOURCE_DIR}/src/ui/input/RuntimeInputCancellationController.cpp")
+
+# S16-01: the runtime and standard contract share the same storage implementation.
+target_sources(concord_runtime PRIVATE src/simulation/economy/HouseEconomyContext.cpp)
+
+# S18-01: the host and independent contract use the identical codec.
+target_sources(concord_runtime PRIVATE src/simulation/ai/RuntimeComputerMiningCodec.cpp)
+
+# S19-01: narrow economic and production transaction stages.
+target_sources(concord_runtime PRIVATE
+    src/simulation/economy/RuntimeEconomyFixedStep.cpp
+    src/simulation/production/RuntimeProductionFixedStep.cpp)

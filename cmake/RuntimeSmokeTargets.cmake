@@ -158,7 +158,7 @@ target_include_directories(concord_building_economy_smoke PRIVATE src)
 target_compile_features(concord_building_economy_smoke PRIVATE cxx_std_20)
 
 add_executable(concord_superweapon_smoke tests/gameplay/SuperWeaponSmoke.cpp
-    src/simulation/superweapons/SuperWeaponSystem.cpp src/data/rules/RulesDatabase.cpp src/core/io/IniFile.cpp
+    src/simulation/superweapons/SuperWeaponSystem.cpp src/simulation/superweapons/RuntimeChronosphereRelocation.cpp src/data/rules/RulesDatabase.cpp src/core/io/IniFile.cpp
     src/simulation/production/RuntimeFactoryDeliveryState.cpp)
 target_include_directories(concord_superweapon_smoke PRIVATE src)
 target_compile_features(concord_superweapon_smoke PRIVATE cxx_std_20)
@@ -196,3 +196,48 @@ if(CONCORD_MSVC_FRONTEND)
     concord_target_compile_options(concord_building_economy_smoke PRIVATE /utf-8 /FS)
 endif()
 
+
+# S15-01: one Chronosphere commit, also built by the actual runtime owner.
+add_executable(concord_chronosphere_relocation_contract
+    tests/gameplay/RuntimeChronosphereRelocationContract.cpp
+    src/simulation/superweapons/RuntimeChronosphereRelocation.cpp)
+target_include_directories(concord_chronosphere_relocation_contract PRIVATE src)
+target_compile_features(concord_chronosphere_relocation_contract PRIVATE cxx_std_20)
+if(CONCORD_MSVC_FRONTEND)
+    concord_target_compile_options(concord_chronosphere_relocation_contract PRIVATE /utf-8 /W4 /WX /permissive-)
+endif()
+
+# S16-01: compile the identical storage implementation without the runtime host.
+add_executable(concord_house_economy_context_contract
+    tests/gameplay/HouseEconomyContextContract.cpp
+    src/simulation/economy/HouseEconomyContext.cpp)
+target_include_directories(concord_house_economy_context_contract PRIVATE src)
+target_compile_features(concord_house_economy_context_contract PRIVATE cxx_std_20)
+if(CONCORD_MSVC_FRONTEND)
+    concord_target_compile_options(concord_house_economy_context_contract PRIVATE /utf-8 /W4 /WX /permissive-)
+endif()
+# S18-01: the independent contract compiles the actual production codec.
+add_executable(concord_computer_mining_codec_contract
+    tests/infrastructure/RuntimeComputerMiningCodecContract.cpp
+    src/simulation/ai/RuntimeComputerMiningCodec.cpp
+    src/core/io/IniFile.cpp)
+target_include_directories(concord_computer_mining_codec_contract PRIVATE src)
+target_compile_features(concord_computer_mining_codec_contract PRIVATE cxx_std_20)
+if(CONCORD_MSVC_FRONTEND)
+    concord_target_compile_options(concord_computer_mining_codec_contract
+        PRIVATE /utf-8 /W4 /WX /permissive-)
+endif()
+
+# S19-01: compile the same production stages, without the runtime host.
+add_executable(concord_economy_production_fixed_step_contract
+    tests/gameplay/RuntimeEconomyProductionFixedStepContract.cpp
+    tests/gameplay/RuntimeProductionFixedStepHeaderFirst.cpp
+    src/simulation/economy/RuntimeEconomyFixedStep.cpp
+    src/simulation/production/RuntimeProductionFixedStep.cpp
+    src/simulation/production/RuntimeProductionLanes.cpp)
+target_include_directories(concord_economy_production_fixed_step_contract PRIVATE src)
+target_compile_features(concord_economy_production_fixed_step_contract PRIVATE cxx_std_20)
+if(CONCORD_MSVC_FRONTEND)
+    concord_target_compile_options(concord_economy_production_fixed_step_contract
+        PRIVATE /utf-8 /W4 /WX /permissive-)
+endif()

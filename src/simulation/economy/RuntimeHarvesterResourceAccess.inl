@@ -1,5 +1,6 @@
 int runtimeHarvesterDepartureRefineryId(
-    const RuntimeWindowState& state, const WorldObjectInstance& harvester
+    const RuntimeWindowState& state, const WorldObjectInstance& harvester,
+    const std::string* owner = nullptr
 ) {
     if (const auto worker = state.slaveMinerTasks.find(harvester.instanceId);
         worker != state.slaveMinerTasks.end()) {
@@ -14,7 +15,7 @@ int runtimeHarvesterDepartureRefineryId(
     // The dock can replace impassable ground with the refinery's drive row.
     // Retain that same passage for the first journey out after unloading.
     return refinery != nullptr
-        && runtimeHarvesterCanUnloadAtRefinery(state, harvester, *refinery)
+        && runtimeHarvesterCanUnloadAtRefinery(state, harvester, *refinery, owner)
         && runtimeStructureCellIsVehicleDriveRow(
             state, *refinery, runtimeCellPointForObject(harvester), harvester)
         ? refinery->instanceId : -1;
@@ -32,9 +33,9 @@ struct RuntimeHarvesterResourceAccess {
     std::optional<std::unordered_map<int, int>> pathOccupancy;
     std::optional<std::unordered_set<int>> reachableAfterFailure;
 
-    RuntimeHarvesterResourceAccess(const RuntimeWindowState& worldState, const WorldObjectInstance& miner)
+    RuntimeHarvesterResourceAccess(const RuntimeWindowState& worldState, const WorldObjectInstance& miner, const std::string* owner = nullptr)
         : state(worldState), harvester(miner),
-          departureRefineryId(runtimeHarvesterDepartureRefineryId(state, miner)),
+          departureRefineryId(runtimeHarvesterDepartureRefineryId(state, miner, owner)),
           terrain(&state.terrainByCell),
           staticOccupancy(buildRuntimeOccupancyLookup(state, miner.instanceId)) {
         if (terrain->empty()) {
@@ -121,8 +122,9 @@ std::optional<RuntimeCellPoint> findRuntimeHarvesterResourceApproach(
 
 std::optional<RuntimeCellPoint> findRuntimeHarvesterResourceApproach(
     const RuntimeWindowState& state, const WorldObjectInstance& harvester,
-    const RuntimeCellPoint& resource
+    const RuntimeCellPoint& resource,
+    const std::string* owner = nullptr
 ) {
-    RuntimeHarvesterResourceAccess access(state, harvester);
+    RuntimeHarvesterResourceAccess access(state, harvester, owner);
     return findRuntimeHarvesterResourceApproach(access, resource);
 }

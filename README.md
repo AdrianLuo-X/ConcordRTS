@@ -16,6 +16,11 @@ ConcordRTS 是使用 C++20 开发的 RTS 引擎工程，面向《命令与征服
 
 ### 2026-10-22
 
+- 统一超时空传送的位置提交与生命周期通知，保留原地形判断、保存恢复及回调顺序。
+- 将普通矿车、移动奴隶矿车与奴隶矿工的 AI 采矿改为显式户级经济上下文，移除临时替换玩家经济和科技状态的旧作用域。
+- 提取 ComputerMining 状态的保存、读取和哈希接口，保留原保存格式、字段顺序与读取失败时状态不变的语义。
+- 将每户经济收入与生产队列事务整理到独立固定步模块，保留收入、扣款、队列提交、世界交付及界面反馈的先后关系。
+- 增加传送提交、经济上下文、采矿编解码与经济生产固定步测试，保留完整文本预期夹具以及保存恢复、旧新行为对照检查。
 - 提取输入像素点、尺寸、矩形和 UI 毫秒时钟接口，保留原坐标比较、计时边界与调用时机。
 - 将键盘准入与路由、选择编组、菜单会话、聊天文本和侧栏分页整理到类型化控制器，接回原命令与状态接口。
 - 分离左右键手势、光标判断及取消与捕获处理，保留原同步重入、偏好保存和命令提交时机。
@@ -68,8 +73,12 @@ ConcordRTS/
 │   │   └── preview/                地图预览、资源会话与缓存
 │   ├── world/                      世界状态、对象索引与查询
 │   ├── simulation/                 战斗、移动、经济、AI 与特殊机制
-│   │   └── navigation/             导航、寻路与移动查询
-│   │       └── terrain/            导航地形类型与只读查询端口
+│   │   ├── ai/                     AI 采矿状态与保存、哈希接口
+│   │   ├── economy/                户级经济上下文与收入固定步
+│   │   ├── production/             生产队列与扣款事务
+│   │   ├── navigation/             导航、寻路与移动查询
+│   │   │   └── terrain/            导航地形类型与只读查询端口
+│   │   └── superweapons/           特殊武器与传送位置提交
 │   ├── runtime/                    运行时配置与游戏宿主
 │   │   ├── config/                 配置类型、解析与命令行覆盖
 │   │   ├── contracts/              窄范围回放事件类型
@@ -83,7 +92,7 @@ ConcordRTS/
 │   ├── network/                    联机协议、同步、会话与互联网服务
 │   └── analysis/                   规则分析、命令行工具与报告
 ├── tests/                          按领域分组的专项测试
-│   ├── fixtures/                   自编规则、地图与回放测试输入
+│   ├── fixtures/                   自编规则、地图、回放与文本预期夹具
 │   ├── assets/                     CSF、SHP 解码合同测试
 │   ├── infrastructure/             配置、文件、输入、时钟与地形资源合同
 │   ├── gameplay/                   战斗、生产、单位行为与机制检查
@@ -125,6 +134,8 @@ ConcordRTS/
 `tests/fixtures/` 和 `samples/` 中的 INI、MAP 是自编测试输入，用于验证格式、规则和地图逻辑；它们不是完整原版游戏数据包，不能替代运行素材。
 
 源码包不包含 `RedAlert2/`、`local_data/`、`resources/`、原项目 Git 历史、历史备份、截图或已编译程序。
+
+`tests/fixtures/` 还保留自编采矿保存输入、文本预期结果（`.expected`）和经济生产固定步夹具（`.txt`），用于按完整字节比较行为。它们是测试所需的数据，不是玩家存档或私人运行记录。
 
 ## 编译
 
@@ -254,7 +265,9 @@ pwsh -NoProfile -File .\tools\testing\Run-LocalTests.ps1 -Compiler Clang -BuildD
 
 角色、计分、解码、预览会话、回放类型，以及新增输入、UI 时钟与地形查询检查，按具体 CMake 目标和 CTest 名称独立注册，未自动加入上述 12＋4 集合。标准合同和部分桥接检查见 [TestsUnitAndNetwork.cmake](cmake/TestsUnitAndNetwork.cmake)，地形与资源运行检查见 [TestsRuntimeRegression.cmake](cmake/TestsRuntimeRegression.cmake)，指针、光标与取消捕获检查见 [TestsAdditionalRegression.cmake](cmake/TestsAdditionalRegression.cmake)。
 
-本轮验证限所选标准合同、Windows 适配、资源查询及命令桥接范围。旧回归中已知的月球剧场深度与部分交互、几何绘制检查失败仍保留；完整物理输入、IME、双端运行游戏、其他窗口后端与平台及性能不据此视为通过。
+本次经济与传送标准目标定义见 [RuntimeSmokeTargets.cmake](cmake/RuntimeSmokeTargets.cmake)。传送提交和户级经济上下文的测试注册在 [TestsAdditionalRegression.cmake](cmake/TestsAdditionalRegression.cmake)，采矿编解码及经济生产固定步注册在 [TestsUnitAndNetwork.cmake](cmake/TestsUnitAndNetwork.cmake)。这些目标读取源码包内的自编夹具，仍按独立目标运行，不计入固定的 12＋4 集合。
+
+已记录的验证覆盖所选标准合同、Windows 适配、资源查询、命令桥接及经济保存恢复对照。旧回归中已知的月球剧场深度、部分交互和几何绘制，以及 Yuri 采矿收入与完整 AI 经济检查失败仍保留；完整物理输入、IME、双端运行游戏、其他窗口后端与平台及性能不据此视为通过。
 
 CMake 保留专项测试目标。部分测试只使用自编夹具，部分需要本地原游戏数据；资源相关测试与调试工具需要按自己的环境配置路径。不能将无素材环境下的编译成功视为全部游戏功能或全部测试通过。
 

@@ -1,4 +1,5 @@
 #include "simulation/superweapons/SuperWeaponSystem.h"
+#include "simulation/superweapons/RuntimeChronosphereRelocation.h"
 #include "simulation/superweapons/SuperWeaponNuclearFlight.h"
 #include "simulation/superweapons/BuildingSuperWeapons.h"
 #include "simulation/mod_extensions/RuntimeModExtensions.h"
@@ -2834,6 +2835,30 @@ void SuperWeaponSystem::applyChrono(
     if (rule == nullptr || context.objects == nullptr) {
         return;
     }
+    // The adapter borrows only this synchronous invocation. Lifecycle payloads
+    // remain the original owned events queued by the host's existing callback.
+    struct RelocationPort final : RuntimeChronosphereRelocationPort {
+        const Instance& instance;
+        const SuperWeaponWorldContext& context;
+        RelocationPort(const Instance& i, const SuperWeaponWorldContext& c)
+            : instance(i), context(c) {}
+        bool hasTerrainLevel() const noexcept override {
+            return static_cast<bool>(context.terrainLevel);
+        }
+        int terrainLevel(int x, int y) override { return context.terrainLevel(x, y); }
+        void onRelocated(const RuntimeChronosphereRelocationResult& result) override {
+            if (!context.onObjectRelocated) return;
+            SuperWeaponObjectLifecycleEvent event = SuperWeaponSystem::lifecycleEvent(
+                SuperWeaponObjectLifecycleKind::Relocated, instance, context.tick,
+                result.request.objectId);
+            event.healthBefore = event.healthAfter = result.healthAtNotification;
+            event.oldCell = {result.request.oldCellX, result.request.oldCellY};
+            event.newCell = {result.request.targetX, result.request.targetY};
+            event.reason = result.request.arrival == RuntimeChronosphereArrival::FatalWater
+                ? "chronosphere fatal water transfer" : "chronosphere formation transfer";
+            context.onObjectRelocated(std::move(event));
+        }
+    } relocationPort(instance, context);
     const SuperWeaponCell source = instance.firstTarget.cell;
     const SuperWeaponCell destination = instance.secondTarget.cell;
     const int radius = std::max(
@@ -2889,22 +2914,10 @@ void SuperWeaponSystem::applyChrono(
             // Water-domain failure is a real arrival. Expose the destination
             // while still alive so host relocation and death presentation join
             // the transfer instead of destroying the unit at its source.
-            object->x = target.x;
-            object->y = target.y;
-            object->cell = superWeaponObjectCellKey(target.x, target.y);
-            if (context.terrainLevel) object->level = context.terrainLevel(target.x, target.y);
-            object->onBridge = object->renderOnBridge = false;
-            object->hasRenderPosition = false;
-            object->renderMoveActive = false;
-            if (context.onObjectRelocated) {
-                SuperWeaponObjectLifecycleEvent event = lifecycleEvent(
-                    SuperWeaponObjectLifecycleKind::Relocated, instance, context.tick, objectId);
-                event.healthBefore = event.healthAfter = object->health;
-                event.oldCell = oldCell;
-                event.newCell = target;
-                event.reason = "chronosphere fatal water transfer";
-                context.onObjectRelocated(std::move(event));
-            }
+            (void)commitRuntimeChronosphereRelocation(object,
+                {objectId, oldCell.x, oldCell.y, target.x, target.y,
+                    superWeaponObjectCellKey(target.x, target.y),
+                    RuntimeChronosphereArrival::FatalWater}, relocationPort);
         }
         if (!legal || occupied || organic || fatalWater) {
             const int healthBeforeRemoval = object->health;
@@ -2946,27 +2959,10 @@ void SuperWeaponSystem::applyChrono(
             );
             continue;
         }
-        object->x = target.x;
-        object->y = target.y;
-        object->cell = superWeaponObjectCellKey(target.x, target.y);
-        if (context.terrainLevel) object->level = context.terrainLevel(target.x, target.y);
-        object->hasRenderPosition = false;
-        object->renderMoveActive = false;
-        object->mission = object->mission.empty() ? "Guard" : object->mission;
-        if (context.onObjectRelocated) {
-            SuperWeaponObjectLifecycleEvent event = lifecycleEvent(
-                SuperWeaponObjectLifecycleKind::Relocated,
-                instance,
-                context.tick,
-                objectId
-            );
-            event.healthBefore = object->health;
-            event.healthAfter = object->health;
-            event.oldCell = oldCell;
-            event.newCell = target;
-            event.reason = "chronosphere formation transfer";
-            context.onObjectRelocated(std::move(event));
-        }
+        (void)commitRuntimeChronosphereRelocation(object,
+            {objectId, oldCell.x, oldCell.y, target.x, target.y,
+                superWeaponObjectCellKey(target.x, target.y),
+                RuntimeChronosphereArrival::Formation}, relocationPort);
         emit(
             context,
             instance,

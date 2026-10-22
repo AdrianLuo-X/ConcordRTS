@@ -1,79 +1,55 @@
-// The mining state machines operate on a house economy facade. Computers use
-// the same machines, but their actual credit account remains in AI/campaign
-// state. Keep local production, selection feedback and technology out of this
-// short-lived facade, including when a slave miner deploys or repacks.
-class RuntimeComputerMiningScope {
+// Commit one net mining delta after all three paths and after restoring
+// feedback guards. The same boundary commits partial work on stack unwinding.
+void commitRuntimeComputerMiningWork(RuntimeWindowState& state,
+    const std::string& owner, const RuntimeEconomyState& work, int startingCredits) {
+    const std::string key = runtimeRepairDepotCanonicalOwnerId(state, owner);
+    auto& ledger = state.computerMiningByOwner[key];
+    ledger.storedResourceUnits = work.storedResourceUnits;
+    ledger.storedResourceValue = work.storedResourceValue;
+    ledger.storedResourceGemUnits = work.storedResourceGemUnits;
+    ledger.resourceTrips = work.resourceTrips;
+    ledger.harvesterTeleports = work.harvesterTeleports;
+    ledger.slaveMinerLoads = work.slaveMinerLoads;
+    const int income = std::max(0, work.credits - startingCredits);
+    depositRuntimeRepairDepotCredits(state, key, income);
+    const auto ai = state.computerAiByOwner.find(key);
+    if (!state.campaignMode && ai != state.computerAiByOwner.end()) {
+        ai->second.incomeEarned = static_cast<int>(std::min<long long>(std::numeric_limits<int>::max(),
+            static_cast<long long>(ai->second.incomeEarned) + income));
+    }
+}
+
+// Preserve the old synchronous feedback policy without moving either the
+// player's economy or technology tree during explicit computer harvesting.
+class RuntimeComputerMiningFeedbackScope {
 public:
-    RuntimeComputerMiningScope(RuntimeWindowState& state, const std::string& owner)
-        : state_(state), owner_(runtimeRepairDepotCanonicalOwnerId(state, owner)),
-          startingCredits_(runtimeRepairDepotCreditBalance(state, owner)),
-          ledger_(state.computerMiningByOwner[owner_]),
-          interaction_(state.interactionStatus), simulation_(state.simulationStatus),
-          lastCommand_(state.lastCommand),
-          economy_(std::move(state.economy)), techTree_(std::move(state.techTree)),
-          techTreeLoaded_(state.techTreeLoaded),
-          suppressAudio_(state.runtimeSuppressPlayerAudioFeedback) {
-        state.economy = RuntimeEconomyState{};
-        state.economy.owner = owner;
-        state.economy.credits = startingCredits_;
-        state.economy.storedResourceUnits = ledger_.storedResourceUnits;
-        state.economy.storedResourceValue = ledger_.storedResourceValue;
-        state.economy.storedResourceGemUnits = ledger_.storedResourceGemUnits;
-        state.economy.resourceTrips = ledger_.resourceTrips;
-        state.economy.harvesterTeleports = ledger_.harvesterTeleports;
-        state.economy.slaveMinerLoads = ledger_.slaveMinerLoads;
-        state.economy.skirmishStartApplied = economy_.skirmishStartApplied;
-        state.techTree = TechTreeReport{};
-        state.techTreeLoaded = false;
-        state.humanHouseScopeActive = true;
-        state.remoteHumanHouseScopeActive = true;
-        state.computerMiningScopeActive = true;
+    explicit RuntimeComputerMiningFeedbackScope(RuntimeWindowState& state)
+        : state_(state), interaction_(state.interactionStatus), simulation_(state.simulationStatus),
+          command_(state.lastCommand), human_(state.humanHouseScopeActive),
+          remote_(state.remoteHumanHouseScopeActive), computer_(state.computerMiningScopeActive),
+          suppress_(state.runtimeSuppressPlayerAudioFeedback) {
+        state.humanHouseScopeActive = state.remoteHumanHouseScopeActive = state.computerMiningScopeActive = true;
         state.runtimeSuppressPlayerAudioFeedback = true;
-        refreshRuntimeEconomyMetricsForCurrentOwner(state);
     }
-    RuntimeComputerMiningScope(const RuntimeComputerMiningScope&) = delete;
-    RuntimeComputerMiningScope& operator=(const RuntimeComputerMiningScope&) = delete;
-    ~RuntimeComputerMiningScope() {
-        const int income = std::max(0, state_.economy.credits - startingCredits_);
-        ledger_.storedResourceUnits = state_.economy.storedResourceUnits;
-        ledger_.storedResourceValue = state_.economy.storedResourceValue;
-        ledger_.storedResourceGemUnits = state_.economy.storedResourceGemUnits;
-        ledger_.resourceTrips = state_.economy.resourceTrips;
-        ledger_.harvesterTeleports = state_.economy.harvesterTeleports;
-        ledger_.slaveMinerLoads = state_.economy.slaveMinerLoads;
-        state_.economy = std::move(economy_);
-        state_.techTree = std::move(techTree_);
-        state_.techTreeLoaded = techTreeLoaded_;
-        state_.interactionStatus = std::move(interaction_);
-        state_.simulationStatus = std::move(simulation_);
-        state_.lastCommand = std::move(lastCommand_);
-        state_.humanHouseScopeActive = false;
-        state_.remoteHumanHouseScopeActive = false;
-        state_.computerMiningScopeActive = false;
-        state_.runtimeSuppressPlayerAudioFeedback = suppressAudio_;
-        // Restore the facade first: this routes the deposit to its sole real
-        // account, rather than back into the temporary harvesting balance.
-        depositRuntimeRepairDepotCredits(state_, owner_, income);
-        const auto ai = state_.computerAiByOwner.find(owner_);
-        if (!state_.campaignMode && ai != state_.computerAiByOwner.end()) {
-            ai->second.incomeEarned = static_cast<int>(std::min<long long>(
-                std::numeric_limits<int>::max(),
-                static_cast<long long>(ai->second.incomeEarned) + income));
-        }
+    ~RuntimeComputerMiningFeedbackScope() {
+        state_.interactionStatus = std::move(interaction_); state_.simulationStatus = std::move(simulation_);
+        state_.lastCommand = std::move(command_); state_.humanHouseScopeActive = human_;
+        state_.remoteHumanHouseScopeActive = remote_; state_.computerMiningScopeActive = computer_;
+        state_.runtimeSuppressPlayerAudioFeedback = suppress_;
     }
+    RuntimeComputerMiningFeedbackScope(const RuntimeComputerMiningFeedbackScope&) = delete;
+    RuntimeComputerMiningFeedbackScope& operator=(const RuntimeComputerMiningFeedbackScope&) = delete;
 private:
     RuntimeWindowState& state_;
-    std::string owner_;
-    int startingCredits_;
-    RuntimeComputerMiningState& ledger_;
     std::string interaction_, simulation_;
-    decltype(RuntimeWindowState::lastCommand) lastCommand_;
-    RuntimeEconomyState economy_;
-    TechTreeReport techTree_;
-    bool techTreeLoaded_, suppressAudio_;
+    decltype(RuntimeWindowState::lastCommand) command_;
+    bool human_, remote_, computer_, suppress_;
 };
+// Private synchronous fixture override; null in every product session.
+static bool (*runtimeComputerMiningDiagnosticOverride)(RuntimeWindowState&) = nullptr;
 
 bool advanceRuntimeComputerMining(RuntimeWindowState& state) {
+    if (runtimeComputerMiningDiagnosticOverride) return runtimeComputerMiningDiagnosticOverride(state);
     if (!state.rulesLoaded || state.humanHouseScopeActive
         || state.skirmishMatchFinished) return false;
     std::vector<std::string> owners;
@@ -96,10 +72,30 @@ bool advanceRuntimeComputerMining(RuntimeWindowState& state) {
     std::sort(owners.begin(), owners.end());
     bool changed = false;
     for (const std::string& owner : owners) {
-        RuntimeComputerMiningScope scope(state, owner);
-        changed = advanceRuntimeHarvesterEconomy(state) || changed;
-        changed = advanceRuntimeMobileSlaveMinerEconomy(state) || changed;
-        changed = advanceRuntimeSlaveMinerEconomy(state) || changed;
+        RuntimeEconomyState ordinaryWork;
+        ordinaryWork.owner = owner;
+        ordinaryWork.credits = runtimeRepairDepotCreditBalance(state, owner);
+        const auto& ledger = state.computerMiningByOwner[runtimeRepairDepotCanonicalOwnerId(state, owner)];
+        ordinaryWork.storedResourceUnits = ledger.storedResourceUnits;
+        ordinaryWork.storedResourceValue = ledger.storedResourceValue;
+        ordinaryWork.storedResourceGemUnits = ledger.storedResourceGemUnits;
+        ordinaryWork.resourceTrips = ledger.resourceTrips;
+        ordinaryWork.harvesterTeleports = ledger.harvesterTeleports;
+        ordinaryWork.slaveMinerLoads = ledger.slaveMinerLoads;
+        ordinaryWork.skirmishStartApplied = state.economy.skirmishStartApplied;
+        refreshRuntimeEconomyMetricsForOwner(state, ordinaryWork);
+        const int ordinaryStartingCredits = ordinaryWork.credits;
+        try {
+            RuntimeComputerMiningFeedbackScope feedback(state);
+            auto context = makeRuntimeHouseEconomyContext(ordinaryWork, true);
+            changed = advanceRuntimeHarvesterEconomy(state, context, ordinaryWork) || changed;
+            changed = advanceRuntimeMobileSlaveMinerEconomy(state, context, ordinaryWork) || changed;
+            changed = advanceRuntimeSlaveMinerEconomy(state, context, ordinaryWork) || changed;
+        } catch (...) {
+            commitRuntimeComputerMiningWork(state, owner, ordinaryWork, ordinaryStartingCredits);
+            throw;
+        }
+        commitRuntimeComputerMiningWork(state, owner, ordinaryWork, ordinaryStartingCredits);
     }
     return changed;
 }

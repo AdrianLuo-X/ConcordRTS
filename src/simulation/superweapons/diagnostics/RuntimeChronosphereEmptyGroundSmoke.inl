@@ -155,6 +155,8 @@ bool runRuntimeChronosphereEmptyGroundSmoke(RuntimeWindowState& live, std::strin
     const auto step = [](RuntimeWindowState& s) {
         RuntimeSnapshotActiveStateScope active(s); ++s.tick; advanceRuntimeSimulation(s, false); completeRuntimeWorldRefresh(s);
     };
+    if (std::getenv("CONCORD_CHRONOSPHERE_RELOCATION_HOST_CONTRACT"))
+        return runRuntimeChronosphereRelocationHostContract(make, add, step, error);
     const auto animCount = [](const RuntimeWindowState& s, const std::string& anim) {
         return static_cast<int>(std::count_if(s.impactEffects.begin(), s.impactEffects.end(), [&](const auto& e) {
             return e.animId == anim && e.remainingTicks > 0;

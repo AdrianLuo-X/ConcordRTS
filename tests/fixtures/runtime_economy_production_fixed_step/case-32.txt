@@ -1,0 +1,1308 @@
+-37|-3|157|13|0|4|fixture|137692825929702043
+RPLS 2 7
+L 0 1 0 0 0
+Q 1 19 9 9 0 0 0 0 0 1 "fixture-Structures"
+L 1 1 0 0 0
+Q 2 26 9 9 0 0 0 0 0 1 "fixture-Armory"
+L 2 1 0 0 0
+Q 3 33 9 9 0 0 0 0 0 0 "fixture-Infantry"
+L 3 1 0 0 0
+Q 4 40 9 9 0 0 0 0 0 0 "fixture-Vehicles"
+L 4 1 0 0 0
+Q 5 47 9 9 0 0 0 0 0 0 "fixture-Aircraft"
+L 5 1 0 0 0
+Q 6 54 9 9 0 0 0 0 0 0 "fixture-Ships"
+
+tick=0 changed=0,1 hooks=S:Structures:1;C:Structures:1;R:Structures:1;I:Structures:1;S:Armory:2;C:Armory:2;R:Armory:2;I:Armory:2;S:Infantry:3;C:Infantry:3;R:Infantry:3;I:Infantry:3;S:Vehicles:4;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;S:Ships:6;C:Ships:6;R:Ships:6;I:Ships:6;S:Aircraft:5;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|0|1|fixture-Structures|9|0|0
+event=0|2|1|fixture-Structures|9|0|0
+event=1|0|2|fixture-Armory|9|0|0
+event=1|2|2|fixture-Armory|9|0|0
+event=2|0|3|fixture-Infantry|9|0|0
+event=2|2|3|fixture-Infantry|9|0|0
+event=3|0|4|fixture-Vehicles|9|0|0
+event=3|2|4|fixture-Vehicles|9|0|0
+event=5|0|6|fixture-Ships|9|0|0
+event=5|2|6|fixture-Ships|9|0|0
+event=4|0|5|fixture-Aircraft|9|0|0
+event=4|2|5|fixture-Aircraft|9|0|0
+-37|-3|157|13|0|4|fixture|6681541629043594779
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 9 0 0 0 0 0 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 9 0 0 0 0 0 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 9 0 0 0 0 0 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 9 0 0 0 0 0 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 9 0 0 0 0 0 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 9 9 0 0 0 0 0 0 "fixture-Ships"
+
+tick=1 changed=0,0 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|2|1|fixture-Structures|9|0|0
+event=1|2|2|fixture-Armory|9|0|0
+event=2|2|3|fixture-Infantry|9|0|0
+event=3|2|4|fixture-Vehicles|9|0|0
+event=5|2|6|fixture-Ships|9|0|0
+event=4|2|5|fixture-Aircraft|9|0|0
+-37|-3|157|13|0|4|fixture|6681541629043594779
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 9 0 0 0 0 0 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 9 0 0 0 0 0 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 9 0 0 0 0 0 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 9 0 0 0 0 0 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 9 0 0 0 0 0 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 9 9 0 0 0 0 0 0 "fixture-Ships"
+
+tick=2 changed=0,0 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|2|1|fixture-Structures|9|0|0
+event=1|2|2|fixture-Armory|9|0|0
+event=2|2|3|fixture-Infantry|9|0|0
+event=3|2|4|fixture-Vehicles|9|0|0
+event=5|2|6|fixture-Ships|9|0|0
+event=4|2|5|fixture-Aircraft|9|0|0
+-37|-3|157|13|0|4|fixture|6681541629043594779
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 9 0 0 0 0 0 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 9 0 0 0 0 0 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 9 0 0 0 0 0 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 9 0 0 0 0 0 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 9 0 0 0 0 0 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 9 9 0 0 0 0 0 0 "fixture-Ships"
+
+tick=3 changed=0,0 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|2|1|fixture-Structures|9|0|0
+event=1|2|2|fixture-Armory|9|0|0
+event=2|2|3|fixture-Infantry|9|0|0
+event=3|2|4|fixture-Vehicles|9|0|0
+event=5|2|6|fixture-Ships|9|0|0
+event=4|2|5|fixture-Aircraft|9|0|0
+-37|-3|157|13|0|4|fixture|6681541629043594779
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 9 0 0 0 0 0 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 9 0 0 0 0 0 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 9 0 0 0 0 0 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 9 0 0 0 0 0 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 9 0 0 0 0 0 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 9 9 0 0 0 0 0 0 "fixture-Ships"
+
+tick=4 changed=0,0 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|2|1|fixture-Structures|9|0|0
+event=1|2|2|fixture-Armory|9|0|0
+event=2|2|3|fixture-Infantry|9|0|0
+event=3|2|4|fixture-Vehicles|9|0|0
+event=5|2|6|fixture-Ships|9|0|0
+event=4|2|5|fixture-Aircraft|9|0|0
+-37|-3|157|13|0|4|fixture|6681541629043594779
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 9 0 0 0 0 0 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 9 0 0 0 0 0 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 9 0 0 0 0 0 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 9 0 0 0 0 0 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 9 0 0 0 0 0 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 9 9 0 0 0 0 0 0 "fixture-Ships"
+
+tick=5 changed=0,0 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|2|1|fixture-Structures|9|0|0
+event=1|2|2|fixture-Armory|9|0|0
+event=2|2|3|fixture-Infantry|9|0|0
+event=3|2|4|fixture-Vehicles|9|0|0
+event=5|2|6|fixture-Ships|9|0|0
+event=4|2|5|fixture-Aircraft|9|0|0
+-37|-3|157|13|0|4|fixture|6681541629043594779
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 9 0 0 0 0 0 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 9 0 0 0 0 0 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 9 0 0 0 0 0 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 9 0 0 0 0 0 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 9 0 0 0 0 0 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 9 9 0 0 0 0 0 0 "fixture-Ships"
+
+tick=6 changed=0,0 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|2|1|fixture-Structures|9|0|0
+event=1|2|2|fixture-Armory|9|0|0
+event=2|2|3|fixture-Infantry|9|0|0
+event=3|2|4|fixture-Vehicles|9|0|0
+event=5|2|6|fixture-Ships|9|0|0
+event=4|2|5|fixture-Aircraft|9|0|0
+-37|-3|157|13|0|4|fixture|6681541629043594779
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 9 0 0 0 0 0 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 9 0 0 0 0 0 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 9 0 0 0 0 0 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 9 0 0 0 0 0 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 9 0 0 0 0 0 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 9 9 0 0 0 0 0 0 "fixture-Ships"
+
+tick=7 changed=0,0 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|2|1|fixture-Structures|9|0|0
+event=1|2|2|fixture-Armory|9|0|0
+event=2|2|3|fixture-Infantry|9|0|0
+event=3|2|4|fixture-Vehicles|9|0|0
+event=5|2|6|fixture-Ships|9|0|0
+event=4|2|5|fixture-Aircraft|9|0|0
+-37|-3|157|13|0|4|fixture|6681541629043594779
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 9 0 0 0 0 0 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 9 0 0 0 0 0 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 9 0 0 0 0 0 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 9 0 0 0 0 0 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 9 0 0 0 0 0 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 9 9 0 0 0 0 0 0 "fixture-Ships"
+
+tick=8 changed=0,0 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|2|1|fixture-Structures|9|0|0
+event=1|2|2|fixture-Armory|9|0|0
+event=2|2|3|fixture-Infantry|9|0|0
+event=3|2|4|fixture-Vehicles|9|0|0
+event=5|2|6|fixture-Ships|9|0|0
+event=4|2|5|fixture-Aircraft|9|0|0
+-37|-3|157|13|0|4|fixture|6681541629043594779
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 9 0 0 0 0 0 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 9 0 0 0 0 0 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 9 0 0 0 0 0 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 9 0 0 0 0 0 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 9 0 0 0 0 0 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 9 9 0 0 0 0 0 0 "fixture-Ships"
+
+tick=9 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|9|0|0
+event=1|1|2|fixture-Armory|9|0|0
+event=2|1|3|fixture-Infantry|9|1|1
+event=3|1|4|fixture-Vehicles|9|1|1
+event=5|1|6|fixture-Ships|9|2|2
+event=4|1|5|fixture-Aircraft|9|1|1
+206|0|152|0|0|4|fixture|2784592196382756469
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 9 0 703703 0 19 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 9 0 962962 0 26 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 9 1 222222 0 6 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 9 1 481481 0 13 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 9 1 740740 0 20 3 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 9 9 2 0 0 0 3 0 "fixture-Ships"
+
+tick=10 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|9|1|1
+event=1|1|2|fixture-Armory|9|1|1
+event=2|1|3|fixture-Infantry|9|2|1
+event=3|1|4|fixture-Vehicles|9|2|1
+event=5|1|6|fixture-Ships|9|4|2
+event=4|1|5|fixture-Aircraft|9|3|2
+198|0|144|0|0|4|fixture|6805025930802018075
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 9 1 407407 0 11 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 9 1 925925 0 25 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 9 2 444444 0 12 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 9 2 962962 0 26 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 9 3 481481 0 13 3 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 9 9 4 0 0 0 3 0 "fixture-Ships"
+
+tick=11 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|9|2|1
+event=1|1|2|fixture-Armory|9|2|1
+event=2|1|3|fixture-Infantry|9|3|1
+event=3|1|4|fixture-Vehicles|9|4|2
+event=5|1|6|fixture-Ships|8|6|2
+event=4|1|5|fixture-Aircraft|9|5|2
+189|0|135|0|0|4|fixture|2968506554155965467
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 9 2 111111 0 3 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 9 2 888888 0 24 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 9 3 666666 0 18 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 9 4 444444 0 12 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 9 5 222222 0 6 3 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 9 8 6 0 0 0 3 0 "fixture-Ships"
+
+tick=12 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|9|2|0
+event=1|1|2|fixture-Armory|8|3|1
+event=2|1|3|fixture-Infantry|8|4|1
+event=3|1|4|fixture-Vehicles|8|5|1
+event=5|1|6|fixture-Ships|8|8|2
+event=4|1|5|fixture-Aircraft|8|6|1
+183|0|129|0|0|4|fixture|17622285310270372477
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 9 2 814814 0 22 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 8 3 851851 0 23 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 8 4 888888 0 24 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 8 5 925925 0 25 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 8 6 962962 0 26 3 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 9 8 8 0 0 0 3 0 "fixture-Ships"
+
+tick=13 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|8|3|1
+event=1|1|2|fixture-Armory|8|4|1
+event=2|1|3|fixture-Infantry|8|6|2
+event=3|1|4|fixture-Vehicles|8|7|2
+event=5|4|6|fixture-Ships|8|8|0
+event=4|1|5|fixture-Aircraft|8|8|2
+175|0|121|0|0|4|fixture|6885932373300685264
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 8 3 518518 0 14 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 8 4 814814 0 22 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 8 6 111111 0 3 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 8 7 407407 0 11 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 8 8 703703 0 19 3 0 "fixture-Aircraft"
+L 5 0 1 0 1
+A 6 54 9 8 8 0 0 0 3 0 "fixture-Ships"
+
+tick=14 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|8|4|1
+event=1|1|2|fixture-Armory|8|5|1
+event=2|1|3|fixture-Infantry|8|7|1
+event=3|1|4|fixture-Vehicles|8|8|1
+event=5|4|6|fixture-Ships|8|8|0
+event=4|1|5|fixture-Aircraft|8|10|2
+169|0|115|0|0|4|fixture|7079089958120662840
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 8 4 222222 0 6 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 8 5 777777 0 21 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 8 7 333333 0 9 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 8 8 888888 0 24 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 8 10 444444 0 12 3 0 "fixture-Aircraft"
+L 5 0 1 0 1
+A 6 54 9 8 8 0 0 0 3 0 "fixture-Ships"
+
+tick=15 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|8|4|0
+event=1|1|2|fixture-Armory|7|6|1
+event=2|1|3|fixture-Infantry|7|8|1
+event=3|1|4|fixture-Vehicles|7|10|2
+event=5|4|6|fixture-Ships|8|8|0
+event=4|1|5|fixture-Aircraft|7|12|2
+163|0|109|0|0|4|fixture|14538406345898489838
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 8 4 925925 0 25 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 7 6 740740 0 20 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 7 8 555555 0 15 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 7 10 370370 0 10 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 7 12 185185 0 5 3 0 "fixture-Aircraft"
+L 5 0 1 0 1
+A 6 54 9 8 8 0 0 0 3 0 "fixture-Ships"
+
+tick=16 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|7|5|1
+event=1|1|2|fixture-Armory|7|7|1
+event=2|1|3|fixture-Infantry|7|9|1
+event=3|1|4|fixture-Vehicles|7|11|1
+event=5|4|6|fixture-Ships|8|8|0
+event=4|1|5|fixture-Aircraft|7|13|1
+158|0|104|0|0|4|fixture|9620916059573125432
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 7 5 629629 0 17 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 7 7 703703 0 19 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 7 9 777777 0 21 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 7 11 851851 0 23 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 7 13 925925 0 25 3 0 "fixture-Aircraft"
+L 5 0 1 0 1
+A 6 54 9 8 8 0 0 0 3 0 "fixture-Ships"
+
+tick=17 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|7|6|1
+event=1|1|2|fixture-Armory|7|8|1
+event=2|1|3|fixture-Infantry|6|11|2
+event=3|1|4|fixture-Vehicles|7|13|2
+event=5|4|6|fixture-Ships|8|8|0
+event=4|1|5|fixture-Aircraft|7|15|2
+150|0|96|0|0|4|fixture|4908391618251203821
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 7 6 333333 0 9 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 7 8 666666 0 18 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 6 11 0 0 0 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 7 13 333333 0 9 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 7 15 666666 0 18 3 0 "fixture-Aircraft"
+L 5 0 1 0 1
+A 6 54 9 8 8 0 0 0 3 0 "fixture-Ships"
+
+tick=18 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|6|7|1
+event=1|1|2|fixture-Armory|6|9|1
+event=2|1|3|fixture-Infantry|6|12|1
+event=3|1|4|fixture-Vehicles|6|14|1
+event=5|4|6|fixture-Ships|8|8|0
+event=4|1|5|fixture-Aircraft|6|17|2
+144|0|90|0|0|4|fixture|12306621162207335869
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 6 7 37037 0 1 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 6 9 629629 0 17 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 6 12 222222 0 6 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 6 14 814814 0 22 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 6 17 407407 0 11 3 0 "fixture-Aircraft"
+L 5 0 1 0 1
+A 6 54 9 8 8 0 0 0 3 0 "fixture-Ships"
+
+tick=19 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|6|7|0
+event=1|1|2|fixture-Armory|6|10|1
+event=2|1|3|fixture-Infantry|6|13|1
+event=3|1|4|fixture-Vehicles|6|16|2
+event=5|1|6|fixture-Ships|8|10|2
+event=4|1|5|fixture-Aircraft|6|19|2
+136|0|82|0|0|4|fixture|3244961247198010740
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 6 7 740740 0 20 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 6 10 592592 0 16 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 6 13 444444 0 12 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 6 16 296296 0 8 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 6 19 148148 0 4 3 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 9 8 10 0 0 0 3 0 "fixture-Ships"
+
+tick=20 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|6|8|1
+event=1|1|2|fixture-Armory|6|11|1
+event=2|1|3|fixture-Infantry|6|14|1
+event=3|1|4|fixture-Vehicles|6|17|1
+event=5|1|6|fixture-Ships|7|12|2
+event=4|1|5|fixture-Aircraft|6|20|1
+129|0|75|0|0|4|fixture|5073837444567460560
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 6 8 444444 0 12 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 6 11 555555 0 15 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 6 14 666666 0 18 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 6 17 777777 0 21 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 6 20 888888 0 24 3 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 9 7 12 0 0 0 3 0 "fixture-Ships"
+
+tick=21 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|5|9|1
+event=1|1|2|fixture-Armory|5|12|1
+event=2|1|3|fixture-Infantry|5|15|1
+event=3|1|4|fixture-Vehicles|5|19|2
+event=5|1|6|fixture-Ships|7|14|2
+event=4|1|5|fixture-Aircraft|5|22|2
+120|0|66|0|0|4|fixture|9050345239391174890
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 5 9 148148 0 4 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 5 12 518518 0 14 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 5 15 888888 0 24 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 5 19 259259 0 7 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 5 22 629629 0 17 3 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 9 7 14 0 0 0 3 0 "fixture-Ships"
+
+tick=22 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|5|9|0
+event=1|1|2|fixture-Armory|5|13|1
+event=2|1|3|fixture-Infantry|5|17|2
+event=3|1|4|fixture-Vehicles|5|20|1
+event=5|1|6|fixture-Ships|7|16|2
+event=4|1|5|fixture-Aircraft|5|24|2
+112|0|58|0|0|4|fixture|13833908494076763794
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 5 9 851851 0 23 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 5 13 481481 0 13 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 5 17 111111 0 3 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 5 20 740740 0 20 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 5 24 370370 0 10 3 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 9 7 16 0 0 0 3 0 "fixture-Ships"
+
+tick=23 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|5|10|1
+event=1|1|2|fixture-Armory|5|14|1
+event=2|1|3|fixture-Infantry|5|18|1
+event=3|1|4|fixture-Vehicles|5|22|2
+event=5|1|6|fixture-Ships|6|18|2
+event=4|1|5|fixture-Aircraft|5|26|2
+actual-module-restore=1
+103|0|49|0|0|4|fixture|6825596349063235031
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 5 10 555555 0 15 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 5 14 444444 0 12 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 5 18 333333 0 9 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 5 22 222222 0 6 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 5 26 111111 0 3 3 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 9 6 18 0 0 0 3 0 "fixture-Ships"
+
+tick=24 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|4|11|1
+event=1|1|2|fixture-Armory|4|15|1
+event=2|1|3|fixture-Infantry|4|19|1
+event=3|1|4|fixture-Vehicles|4|23|1
+event=5|1|6|fixture-Ships|6|20|2
+event=4|1|5|fixture-Aircraft|4|27|1
+96|0|42|0|0|4|fixture|1989644901809410171
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 4 11 259259 0 7 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 4 15 407407 0 11 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 4 19 555555 0 15 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 4 23 703703 0 19 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 4 27 851851 0 23 3 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 9 6 20 0 0 0 3 0 "fixture-Ships"
+
+tick=25 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|4|11|0
+event=1|1|2|fixture-Armory|4|16|1
+event=2|1|3|fixture-Infantry|4|20|1
+event=3|1|4|fixture-Vehicles|4|25|2
+event=5|1|6|fixture-Ships|6|22|2
+event=4|1|5|fixture-Aircraft|4|29|2
+88|0|34|0|0|4|fixture|11205483702069939111
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 4 11 962962 0 26 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 4 16 370370 0 10 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 4 20 777777 0 21 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 4 25 185185 0 5 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 4 29 592592 0 16 3 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 9 6 22 0 0 0 3 0 "fixture-Ships"
+
+tick=26 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|4|12|1
+event=1|1|2|fixture-Armory|4|17|1
+event=2|1|3|fixture-Infantry|3|22|2
+event=3|1|4|fixture-Vehicles|4|26|1
+event=5|1|6|fixture-Ships|5|24|2
+event=4|1|5|fixture-Aircraft|4|31|2
+79|0|25|0|0|4|fixture|13183672825771209617
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 4 12 666666 0 18 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 4 17 333333 0 9 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 3 22 0 0 0 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 4 26 666666 0 18 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 4 31 333333 0 9 3 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 9 5 24 0 0 0 3 0 "fixture-Ships"
+
+tick=27 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|3|13|1
+event=1|1|2|fixture-Armory|3|18|1
+event=2|1|3|fixture-Infantry|3|23|1
+event=3|1|4|fixture-Vehicles|3|28|2
+event=5|1|6|fixture-Ships|5|26|2
+event=4|1|5|fixture-Aircraft|3|33|2
+70|0|16|0|0|4|fixture|17599512574084386165
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 3 13 370370 0 10 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 3 18 296296 0 8 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 3 23 222222 0 6 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 3 28 148148 0 4 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 3 33 74074 0 2 3 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 9 5 26 0 0 0 3 0 "fixture-Ships"
+
+tick=28 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|3|14|1
+event=1|1|2|fixture-Armory|3|19|1
+event=2|1|3|fixture-Infantry|3|24|1
+event=3|1|4|fixture-Vehicles|3|29|1
+event=5|1|6|fixture-Ships|5|28|2
+event=4|1|5|fixture-Aircraft|3|34|1
+63|0|9|0|0|4|fixture|12433488707751747890
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 3 14 74074 0 2 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 3 19 259259 0 7 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 3 24 444444 0 12 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 3 29 629629 0 17 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 3 34 814814 0 22 3 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 9 5 28 0 0 0 3 0 "fixture-Ships"
+
+tick=29 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|3|14|0
+event=1|1|2|fixture-Armory|3|20|1
+event=2|1|3|fixture-Infantry|3|25|1
+event=3|1|4|fixture-Vehicles|3|31|2
+event=5|1|6|fixture-Ships|4|30|2
+event=4|1|5|fixture-Aircraft|3|36|2
+55|0|1|0|0|4|fixture|12364938386121137607
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 3 14 777777 0 21 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 3 20 222222 0 6 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 3 25 666666 0 18 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 3 31 111111 0 3 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 3 36 555555 0 15 3 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 9 4 30 0 0 0 3 0 "fixture-Ships"
+
+tick=30 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|2|15|1
+event=1|1|2|fixture-Armory|2|21|1
+event=2|1|3|fixture-Infantry|2|26|1
+event=3|1|4|fixture-Vehicles|2|32|1
+event=5|1|6|fixture-Ships|4|32|2
+event=4|1|5|fixture-Aircraft|2|38|2
+47|0|0|0|0|4|fixture|11092120518100474880
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 2 15 481481 0 13 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 2 21 185185 0 5 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 2 26 888888 0 24 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 2 32 592592 0 16 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 2 38 296296 0 8 3 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 9 4 32 0 0 0 3 0 "fixture-Ships"
+
+tick=31 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|2|16|1
+event=1|1|2|fixture-Armory|2|22|1
+event=2|1|3|fixture-Infantry|2|28|2
+event=3|1|4|fixture-Vehicles|2|34|2
+event=5|1|6|fixture-Ships|4|34|2
+event=4|1|5|fixture-Aircraft|2|40|2
+37|0|0|0|0|4|fixture|9519151782766864961
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 2 16 185185 0 5 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 2 22 148148 0 4 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 2 28 111111 0 3 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 2 34 74074 0 2 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 2 40 37037 0 1 3 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 9 4 34 0 0 0 3 0 "fixture-Ships"
+
+tick=32 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|2|16|0
+event=1|1|2|fixture-Armory|2|23|1
+event=2|1|3|fixture-Infantry|2|29|1
+event=3|1|4|fixture-Vehicles|2|35|1
+event=5|1|6|fixture-Ships|3|36|2
+event=4|1|5|fixture-Aircraft|2|41|1
+31|0|0|0|0|4|fixture|16746710365260361840
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 2 16 888888 0 24 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 2 23 111111 0 3 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 2 29 333333 0 9 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 2 35 555555 0 15 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 2 41 777777 0 21 3 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 9 3 36 0 0 0 3 0 "fixture-Ships"
+
+tick=33 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|1|17|1
+event=1|1|2|fixture-Armory|1|24|1
+event=2|1|3|fixture-Infantry|1|30|1
+event=3|1|4|fixture-Vehicles|1|37|2
+event=5|1|6|fixture-Ships|3|38|2
+event=4|1|5|fixture-Aircraft|1|43|2
+22|0|0|0|0|4|fixture|5156044379772403055
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 1 17 592592 0 16 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 1 24 74074 0 2 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 1 30 555555 0 15 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 1 37 37037 0 1 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 1 43 518518 0 14 3 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 9 3 38 0 0 0 3 0 "fixture-Ships"
+
+tick=34 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|1|18|1
+event=1|1|2|fixture-Armory|1|25|1
+event=2|1|3|fixture-Infantry|1|31|1
+event=3|1|4|fixture-Vehicles|1|38|1
+event=5|1|6|fixture-Ships|3|40|2
+event=4|1|5|fixture-Aircraft|1|45|2
+14|0|0|0|0|4|fixture|790119868481635593
+RPLS 2 7
+L 0 0 1 0 0
+A 1 19 9 1 18 296296 0 8 3 1 "fixture-Structures"
+L 1 0 1 0 0
+A 2 26 9 1 25 37037 0 1 3 1 "fixture-Armory"
+L 2 0 1 0 0
+A 3 33 9 1 31 777777 0 21 3 0 "fixture-Infantry"
+L 3 0 1 0 0
+A 4 40 9 1 38 518518 0 14 3 0 "fixture-Vehicles"
+L 4 0 1 0 0
+A 5 47 9 1 45 259259 0 7 3 0 "fixture-Aircraft"
+L 5 0 1 0 0
+A 6 54 9 3 40 0 0 0 3 0 "fixture-Ships"
+
+tick=35 changed=0,1 hooks=C:Structures:1;R:Structures:1;I:Structures:1;C:Armory:2;R:Armory:2;I:Armory:2;C:Infantry:3;R:Infantry:3;I:Infantry:3;C:Vehicles:4;R:Vehicles:4;I:Vehicles:4;C:Ships:6;R:Ships:6;I:Ships:6;C:Aircraft:5;R:Aircraft:5;I:Aircraft:5;
+event=0|1|1|fixture-Structures|0|19|1
+event=0|5|1|fixture-Structures|0|19|0
+event=1|1|2|fixture-Armory|0|26|1
+event=1|5|2|fixture-Armory|0|26|0
+event=2|1|3|fixture-Infantry|0|33|2
+event=2|7|3|fixture-Infantry|0|33|0
+event=3|1|4|fixture-Vehicles|0|40|2
+event=3|7|4|fixture-Vehicles|0|40|0
+event=5|1|6|fixture-Ships|2|42|2
+event=4|1|5|fixture-Aircraft|0|47|2
+event=4|7|5|fixture-Aircraft|0|47|0
+delivery=2:3:1
+delivery=3:4:1
+delivery=4:5:1
+4|0|0|0|0|4|fixture|17897736081943863536
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 42 0 0 0 3 0 "fixture-Ships"
+
+tick=36 changed=0,1 hooks=C:Ships:6;R:Ships:6;I:Ships:6;
+event=5|1|6|fixture-Ships|2|44|2
+2|0|0|0|0|4|fixture|12432610786815562470
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 44 0 0 0 3 0 "fixture-Ships"
+
+tick=37 changed=0,1 hooks=C:Ships:6;R:Ships:6;I:Ships:6;
+event=5|1|6|fixture-Ships|2|46|2
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+tick=38 changed=0,0 hooks=C:Ships:6;R:Ships:6;I:Ships:6;
+event=5|2|6|fixture-Ships|2|46|0
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+tick=39 changed=0,0 hooks=C:Ships:6;R:Ships:6;I:Ships:6;
+event=5|2|6|fixture-Ships|2|46|0
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+tick=40 changed=0,0 hooks=C:Ships:6;R:Ships:6;I:Ships:6;
+event=5|2|6|fixture-Ships|2|46|0
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+tick=41 changed=0,0 hooks=C:Ships:6;R:Ships:6;I:Ships:6;
+event=5|2|6|fixture-Ships|2|46|0
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+tick=42 changed=0,0 hooks=C:Ships:6;R:Ships:6;I:Ships:6;
+event=5|2|6|fixture-Ships|2|46|0
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+tick=43 changed=0,0 hooks=C:Ships:6;R:Ships:6;I:Ships:6;
+event=5|2|6|fixture-Ships|2|46|0
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+tick=44 changed=0,0 hooks=C:Ships:6;R:Ships:6;I:Ships:6;
+event=5|2|6|fixture-Ships|2|46|0
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+tick=45 changed=0,0 hooks=C:Ships:6;R:Ships:6;I:Ships:6;
+event=5|2|6|fixture-Ships|2|46|0
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+tick=46 changed=0,0 hooks=C:Ships:6;R:Ships:6;I:Ships:6;
+event=5|2|6|fixture-Ships|2|46|0
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+tick=47 changed=0,0 hooks=C:Ships:6;R:Ships:6;I:Ships:6;
+event=5|2|6|fixture-Ships|2|46|0
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+tick=48 changed=0,0 hooks=C:Ships:6;R:Ships:6;I:Ships:6;
+event=5|2|6|fixture-Ships|2|46|0
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+tick=49 changed=0,0 hooks=C:Ships:6;R:Ships:6;I:Ships:6;
+event=5|2|6|fixture-Ships|2|46|0
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+tick=50 changed=0,0 hooks=C:Ships:6;R:Ships:6;I:Ships:6;
+event=5|2|6|fixture-Ships|2|46|0
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+tick=51 changed=0,0 hooks=C:Ships:6;R:Ships:6;I:Ships:6;
+event=5|2|6|fixture-Ships|2|46|0
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+tick=52 changed=0,0 hooks=C:Ships:6;R:Ships:6;I:Ships:6;
+event=5|2|6|fixture-Ships|2|46|0
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+tick=53 changed=0,0 hooks=C:Ships:6;R:Ships:6;I:Ships:6;
+event=5|2|6|fixture-Ships|2|46|0
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+tick=54 changed=0,0 hooks=C:Ships:6;R:Ships:6;I:Ships:6;
+event=5|2|6|fixture-Ships|2|46|0
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+tick=55 changed=0,0 hooks=C:Ships:6;R:Ships:6;I:Ships:6;
+event=5|2|6|fixture-Ships|2|46|0
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+tick=56 changed=0,0 hooks=C:Ships:6;R:Ships:6;I:Ships:6;
+event=5|2|6|fixture-Ships|2|46|0
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+tick=57 changed=0,0 hooks=C:Ships:6;R:Ships:6;I:Ships:6;
+event=5|2|6|fixture-Ships|2|46|0
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+tick=58 changed=0,0 hooks=C:Ships:6;R:Ships:6;I:Ships:6;
+event=5|2|6|fixture-Ships|2|46|0
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+tick=59 changed=0,0 hooks=C:Ships:6;R:Ships:6;I:Ships:6;
+event=5|2|6|fixture-Ships|2|46|0
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+tick=60 changed=0,0 hooks=C:Ships:6;R:Ships:6;I:Ships:6;
+event=5|2|6|fixture-Ships|2|46|0
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+tick=61 changed=0,0 hooks=C:Ships:6;R:Ships:6;I:Ships:6;
+event=5|2|6|fixture-Ships|2|46|0
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+tick=62 changed=0,0 hooks=C:Ships:6;R:Ships:6;I:Ships:6;
+event=5|2|6|fixture-Ships|2|46|0
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+tick=63 changed=0,0 hooks=C:Ships:6;R:Ships:6;I:Ships:6;
+event=5|2|6|fixture-Ships|2|46|0
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+tick=64 changed=0,0 hooks=C:Ships:6;R:Ships:6;I:Ships:6;
+event=5|2|6|fixture-Ships|2|46|0
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+spend=-10:1
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+spend=0:1
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+spend=1:0
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+spend=17:0
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+spend=100:0
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+spend=2147483647:0
+0|0|0|0|0|4|fixture|8934677169622668052
+RPLS 2 7
+L 0 0 0 1 0
+R 1 19 9 0 19 0 0 0 0 1 "fixture-Structures"
+L 1 0 0 1 0
+R 2 26 9 0 26 0 0 0 0 1 "fixture-Armory"
+L 2 0 0 0 0
+L 3 0 0 0 0
+L 4 0 0 0 0
+L 5 0 1 0 0
+A 6 54 9 2 46 0 0 0 3 0 "fixture-Ships"
+
+deposit=-1:0
+deposit=0:0
+deposit=1:1
+deposit=500:500
+deposit=9223372036854775807:2147483647

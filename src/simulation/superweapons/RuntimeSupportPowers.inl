@@ -70,6 +70,29 @@ int runtimeSupportPowerParatrooperSubcell(const RuntimeWindowState& state,
     return selected;
 }
 
+void consumeRuntimeSuperWeaponRelocationEvent(RuntimeWindowState& state,
+    WorldObjectInstance& relocated, const SuperWeaponObjectLifecycleEvent& event) {
+    auto* object = &relocated;
+            state.behaviors.erase(event.objectId);
+            object->cell = runtimeCellKey(object->x, object->y);
+            object->level = terrainLevelAtRuntimeCell(state, object->x, object->y);
+            object->onBridge = runtimeCellIsBridge(state, object->x, object->y);
+            object->hasRenderPosition = false;
+            object->renderMoveActive = false;
+            const auto* sourceRule = state.rules.findSuperWeaponType(event.superWeaponId);
+            if (sourceRule && toLowerAsciiLocal(sourceRule->type + " " + sourceRule->action)
+                    .find("chrono") != std::string::npos) {
+                state.specialMechanisms.beginChronosphereRecovery(
+                    *object, event.tick, state.config.fixedTickHz);
+            }
+}
+
+void invalidateRuntimeSuperWeaponWorldQueries(RuntimeWindowState& state) {
+    state.navigationRefreshPending = true;
+    state.projectedObjectsCacheValid = false;
+    state.repaintRequested = true;
+}
+
 bool flushRuntimeSuperWeaponHostEvents(RuntimeWindowState& state) {
     const auto before=state.impactEffects.size();
     std::erase_if(state.impactEffects,[&](const auto& effect) {
@@ -113,18 +136,7 @@ bool flushRuntimeSuperWeaponHostEvents(RuntimeWindowState& state) {
             object->owner = event.oldOwner;
             owners.push_back({event.objectId, event.oldOwner, event.newOwner});
         } else if (event.kind == SuperWeaponObjectLifecycleKind::Relocated) {
-            state.behaviors.erase(event.objectId);
-            object->cell = runtimeCellKey(object->x, object->y);
-            object->level = terrainLevelAtRuntimeCell(state, object->x, object->y);
-            object->onBridge = runtimeCellIsBridge(state, object->x, object->y);
-            object->hasRenderPosition = false;
-            object->renderMoveActive = false;
-            const auto* sourceRule = state.rules.findSuperWeaponType(event.superWeaponId);
-            if (sourceRule && toLowerAsciiLocal(sourceRule->type + " " + sourceRule->action)
-                    .find("chrono") != std::string::npos) {
-                state.specialMechanisms.beginChronosphereRecovery(
-                    *object, event.tick, state.config.fixedTickHz);
-            }
+            consumeRuntimeSuperWeaponRelocationEvent(state, *object, event);
             relocatedGroundObject = relocatedGroundObject || !object->airborne;
         } else if (event.kind == SuperWeaponObjectLifecycleKind::Damaged) {
             state.cloakObservedHealthByObject[event.objectId] = object->health;
@@ -271,8 +283,6 @@ bool flushRuntimeSuperWeaponHostEvents(RuntimeWindowState& state) {
             }
         }
     }
-    state.navigationRefreshPending = true;
-    state.projectedObjectsCacheValid = false;
-    state.repaintRequested = true;
+    invalidateRuntimeSuperWeaponWorldQueries(state);
     return true;
 }

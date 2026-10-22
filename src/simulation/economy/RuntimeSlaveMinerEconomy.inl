@@ -83,12 +83,12 @@ int runtimeSlaveMinerWorkerRegenTicks(
 bool runtimeObjectIsSlaveMinerWorker(
     const RuntimeWindowState& state,
     const WorldObjectInstance& object,
-    const std::string& workerTypeId
+    const std::string& workerTypeId, const std::string* owner = nullptr
 ) {
     if ((!object.alive && !runtimeSlaveMinerWorkerIsStored(state, object))
         || object.health <= 0
         || runtimeCanonicalHumanHouseOwner(object.owner)
-            != runtimeCanonicalHumanHouseOwner(state.economy.owner)
+            != runtimeCanonicalHumanHouseOwner(owner ? *owner : state.economy.owner)
         || object.kind != WorldObjectKind::Infantry
         || toUpperAsciiLocal(object.type) != toUpperAsciiLocal(workerTypeId)) {
         return false;
@@ -124,17 +124,17 @@ std::optional<RuntimeCellPoint> findRuntimeSlaveMinerWorkerSpawnCell(
 std::optional<RuntimeCellPoint> findRuntimeSlaveMinerWorkerExitCell(
     const RuntimeWindowState& state,
     const WorldObjectInstance& refinery,
-    const std::string& workerTypeId
+    const std::string& workerTypeId, const std::string* owner = nullptr
 ) {
     WorldObjectInstance probe;
     probe.instanceId = -1;
     probe.kind = WorldObjectKind::Infantry;
-    probe.owner = state.economy.owner;
+    probe.owner = owner ? *owner : state.economy.owner;
     probe.type = workerTypeId;
     probe.alive = true;
     probe.level = refinery.level;
     probe.onBridge = refinery.onBridge;
-    RuntimeHarvesterResourceAccess access(state, probe);
+    RuntimeHarvesterResourceAccess access(state, probe, owner);
 
     const RuntimeCellPoint origin = runtimeCellPointForObject(refinery);
     const RuntimeStructureFootprint footprint =
@@ -176,7 +176,7 @@ std::optional<RuntimeCellPoint> findRuntimeSlaveMinerWorkerExitCell(
 bool ensureRuntimeSlaveMinerWorkers(
     RuntimeWindowState& state,
     const WorldObjectInstance& refinery,
-    const BuildingType& building
+    const BuildingType& building, const std::string* owner = nullptr
 ) {
     const int refineryId = refinery.instanceId;
     const int refineryFacing = refinery.facing;
@@ -201,7 +201,7 @@ bool ensureRuntimeSlaveMinerWorkers(
         }
         const WorldObjectInstance* worker = findRuntimeObjectByIdIncludingInactive(state, workerId);
         if (worker != nullptr
-            && runtimeObjectIsSlaveMinerWorker(state, *worker, workerTypeId)) {
+            && runtimeObjectIsSlaveMinerWorker(state, *worker, workerTypeId, owner)) {
             ++activeWorkers;
         }
     }
@@ -266,8 +266,9 @@ int releaseRuntimeSlaveMinerWorkersForRefinery(
     RuntimeWindowState& state,
     int refineryId,
     const std::string& reason,
-    const RuntimeObjectExitRequest* request = nullptr
+    const RuntimeObjectExitRequest* request = nullptr, RuntimeEconomyState* miningEconomy = nullptr
 ) {
+    auto& feedback = miningEconomy ? *miningEconomy : state.economy;
     int released = 0;
     state.slaveMinerRegenTicks.erase(refineryId);
     std::optional<WorldObjectInstance> parentSnapshot;
@@ -291,7 +292,7 @@ int releaseRuntimeSlaveMinerWorkersForRefinery(
             && request->mission == "BridgeCollapsed";
         std::optional<RuntimeCellPoint> exitCell;
         if (stored && !collapsed) exitCell = findRuntimeSlaveMinerWorkerExitCell(
-            state, parentSnapshot ? *parentSnapshot : *worker, worker->type);
+            state, parentSnapshot ? *parentSnapshot : *worker, worker->type, miningEconomy ? &feedback.owner : nullptr);
         if (stored && (collapsed || !exitCell)) {
             RuntimeObjectExitRequest exit;
             exit.objectId = workerId;
@@ -348,7 +349,7 @@ int releaseRuntimeSlaveMinerWorkersForRefinery(
     }
 
     if (released > 0) {
-        state.economy.status =
+        feedback.status =
             "released " + std::to_string(released)
             + " slave miners"
             + (reason.empty() ? "" : " " + reason);
@@ -358,9 +359,10 @@ int releaseRuntimeSlaveMinerWorkersForRefinery(
     return released;
 }
 
-void cleanRuntimeSlaveMinerTasks(RuntimeWindowState& state) {
+void cleanRuntimeSlaveMinerTasks(RuntimeWindowState& state, RuntimeEconomyState* miningEconomy = nullptr) {
+    auto& feedback = miningEconomy ? *miningEconomy : state.economy;
     const std::string currentOwner =
-        runtimeCanonicalHumanHouseOwner(state.economy.owner);
+        runtimeCanonicalHumanHouseOwner(feedback.owner);
     std::unordered_set<int> lostRefineryIds;
     for (auto taskIt = state.slaveMinerTasks.begin();
         taskIt != state.slaveMinerTasks.end();) {
@@ -407,11 +409,11 @@ void cleanRuntimeSlaveMinerTasks(RuntimeWindowState& state) {
         releaseRuntimeSlaveMinerWorkersForRefinery(
             state,
             refineryId,
-            "refinery gone"
+            "refinery gone", nullptr, miningEconomy
         );
     }
     if (!lostRefineryIds.empty() && !state.drainingObjectExits)
-        (void)drainRuntimeObjectExitQueue(state);
+        (void)drainRuntimeObjectExitQueue(state, miningEconomy);
 }
 
 bool runtimeSlaveMinerWorkerAtRefinery(
@@ -441,14 +443,14 @@ bool runtimeSlaveMinerWorkerAtRefinery(
 bool issueRuntimeSlaveMinerReturn(
     RuntimeWindowState& state,
     WorldObjectInstance& worker,
-    const WorldObjectInstance& refinery
+    const WorldObjectInstance& refinery, const std::string* owner = nullptr
 ) {
     worker.mission = "Return";
     const auto entry = runtimeObjectIsMobileSlaveMiner(state, refinery)
         ? std::optional<RuntimeCellPoint>(runtimeCellPointForObject(refinery))
         : findRuntimeEngineerEntryCell(state, worker, refinery, "slave-delivery", 2);
     if (entry && issueRuntimeHarvesterMoveToCell(
-            state, worker, *entry, "Return", nullptr, refinery.instanceId, true)) return true;
+            state, worker, *entry, "Return", nullptr, refinery.instanceId, true, owner)) return true;
 
     // A blocked return still replaces an old attack/entry order. Finish any
     // already committed walking segment instead of snapping the body forward.
@@ -473,7 +475,7 @@ bool issueRuntimeSlaveMinerReturn(
 bool advanceRuntimeSlaveMinerWorkerTask(
     RuntimeWindowState& state,
     WorldObjectInstance& worker,
-    RuntimeSlaveMinerTask& task
+    RuntimeSlaveMinerTask& task, HouseEconomyContext& context, RuntimeEconomyState& feedback
 ) {
     WorldObjectInstance* refinery =
         findMutableObjectById(state, task.refineryId);
@@ -524,7 +526,7 @@ bool advanceRuntimeSlaveMinerWorkerTask(
                 || behavior->second.moveTarget != runtimeCellPointForObject(*refinery))) {
             // The home can move after the worker committed its old approach.
             // Reuse the return order to retain that segment and follow the home.
-            return issueRuntimeSlaveMinerReturn(state, worker, *refinery);
+            return issueRuntimeSlaveMinerReturn(state, worker, *refinery, &context.owner);
         }
         return false;
     }
@@ -550,33 +552,33 @@ bool advanceRuntimeSlaveMinerWorkerTask(
             return true;
         }
         int purifierCount = 0;
-        const int purifierBonus = runtimeOrePurifierBonusValue(
-            state,
+        const int purifierBonus = runtimeHarvesterHousePurifierBonus(
+            state, context, feedback,
             task.cargoValue,
             &purifierCount
         );
         const int deliveredValue = task.cargoValue + purifierBonus;
-        depositRuntimeCredits(state, deliveredValue);
-        recordRuntimeResourceDeliveryToStorage(
-            state,
+        context.credits = runtimeCreditBalanceAfterDeposit(context.credits, deliveredValue);
+        recordRuntimeHouseResourceDelivery(
+            state, context, feedback,
             task.cargoUnits,
             task.cargoGemUnits,
             deliveredValue
         );
-        ++state.economy.resourceTrips;
-        state.economy.lastResourceBaseValue = task.cargoValue;
-        state.economy.lastResourcePurifierBonus = purifierBonus;
-        state.economy.lastResourcePurifierCount = purifierCount;
+        ++context.resourceTrips;
+        feedback.lastResourceBaseValue = task.cargoValue;
+        feedback.lastResourcePurifierBonus = purifierBonus;
+        feedback.lastResourcePurifierCount = purifierCount;
         if (!mobile) {
-            spawnRuntimeRefinerySmokeEffects(state, *refinery, worker);
+            spawnRuntimeRefinerySmokeEffects(state, *refinery, worker, &feedback);
             refinery->mission = "Harvest";
         }
         worker.mission = "Harvest";
-        state.economy.status =
+        feedback.status =
             worker.type + " delivered $"
             + std::to_string(deliveredValue)
             + " to " + refinery->type
-            + " credits=" + std::to_string(state.economy.credits);
+            + " credits=" + std::to_string(context.credits);
         task.cargoValue = 0;
         task.cargoUnits = 0;
         task.cargoGemUnits = 0;
@@ -595,7 +597,7 @@ bool advanceRuntimeSlaveMinerWorkerTask(
     if (cargoFull || task.phase == RuntimeSlaveMinerPhase::Returning) {
         task.phase = RuntimeSlaveMinerPhase::Returning;
         task.status = "returning";
-        return issueRuntimeSlaveMinerReturn(state, worker, *refinery);
+        return issueRuntimeSlaveMinerReturn(state, worker, *refinery, &context.owner);
     }
 
     const auto targetStillHasOre =
@@ -611,21 +613,21 @@ bool advanceRuntimeSlaveMinerWorkerTask(
             findNearestRuntimeStructureResourceCell(
                 state,
                 *refinery,
-                runtimeSlaveMinerScanRadius(state), worker
+                runtimeSlaveMinerScanRadius(state), worker, &context.owner
             );
         if (!resourceCell.has_value()) {
             if (task.cargoValue > 0) {
                 task.phase = RuntimeSlaveMinerPhase::Returning;
                 task.status = "returning partial load: no ore";
-                return issueRuntimeSlaveMinerReturn(state, worker, *refinery);
+                return issueRuntimeSlaveMinerReturn(state, worker, *refinery, &context.owner);
             }
             worker.mission = "Guard";
             task.phase = RuntimeSlaveMinerPhase::SeekingOre;
             task.status = "no ore";
             if (runtimeSlaveMinerWorkerAtRefinery(state, worker, *refinery)) {
-                const auto exit = findRuntimeSlaveMinerWorkerExitCell(state, *refinery, worker.type);
+                const auto exit = findRuntimeSlaveMinerWorkerExitCell(state, *refinery, worker.type, &context.owner);
                 if (exit.has_value()) return issueRuntimeHarvesterMoveToCell(
-                    state, worker, *exit, "Move", nullptr, refinery->instanceId, true);
+                    state, worker, *exit, "Move", nullptr, refinery->instanceId, true, &context.owner);
             }
             return false;
         }
@@ -655,7 +657,7 @@ bool advanceRuntimeSlaveMinerWorkerTask(
         return true;
     }
     if (!runtimeSlaveMinerWorkerAtRefinery(state, worker, *refinery)
-        && RuntimeHarvesterResourceAccess(state, worker).canGatherFrom(workerCell, task.targetOre)) {
+        && RuntimeHarvesterResourceAccess(state, worker, &context.owner).canGatherFrom(workerCell, task.targetOre)) {
         if (acquiredNewTarget || task.phase == RuntimeSlaveMinerPhase::MovingToOre
             || task.phase == RuntimeSlaveMinerPhase::SeekingOre) {
             task.workTicksRemaining =
@@ -704,7 +706,7 @@ bool advanceRuntimeSlaveMinerWorkerTask(
         if (wasGem) {
             ++task.cargoGemUnits;
         }
-        ++state.economy.slaveMinerLoads;
+        ++feedback.slaveMinerLoads;
         worker.mission = "HarvestLoad";
         task.status =
             "loaded " + std::to_string(task.cargoUnits)
@@ -734,7 +736,7 @@ bool advanceRuntimeSlaveMinerWorkerTask(
     // A worker leaving the unloading point may cross its own refinery's
     // foundation, but must walk back out to the ore before digging again.
     if (issueRuntimeHarvesterMoveToCell(
-            state, worker, task.targetOre, "Harvest", nullptr, refinery->instanceId, true)) return true;
+            state, worker, task.targetOre, "Harvest", nullptr, refinery->instanceId, true, &context.owner)) return true;
     // A depleted edge or a blocked deposit must not keep the worker attached
     // to an unreachable ore cell forever. The next search checks real access.
     task.targetOre = {-1, -1};
@@ -742,15 +744,22 @@ bool advanceRuntimeSlaveMinerWorkerTask(
     return false;
 }
 
-bool advanceRuntimeSlaveMinerEconomy(RuntimeWindowState& state) {
+bool advanceRuntimeSlaveMinerWorkerTask(
+    RuntimeWindowState& state, WorldObjectInstance& worker, RuntimeSlaveMinerTask& task
+) {
+    auto context = makeRuntimeHouseEconomyContext(state.economy, state.computerMiningScopeActive);
+    return advanceRuntimeSlaveMinerWorkerTask(state, worker, task, context, state.economy);
+}
+bool advanceRuntimeSlaveMinerEconomy(RuntimeWindowState& state,
+    HouseEconomyContext& context, RuntimeEconomyState& feedback) {
     RuntimePerfTraceScope trace("advanceRuntimeSlaveMinerEconomy", state.tick);
-    cleanRuntimeSlaveMinerTasks(state);
+    cleanRuntimeSlaveMinerTasks(state, context.computerControlled ? &feedback : nullptr);
 
     std::vector<int> refineryIds;
     for (const WorldObjectInstance& object : state.world.getObjects()) {
         if (!object.alive || object.health <= 0
             || runtimeCanonicalHumanHouseOwner(object.owner)
-                != runtimeCanonicalHumanHouseOwner(state.economy.owner)) {
+                != runtimeCanonicalHumanHouseOwner(context.owner)) {
             continue;
         }
 
@@ -770,7 +779,7 @@ bool advanceRuntimeSlaveMinerEconomy(RuntimeWindowState& state) {
             continue;
         }
         changed =
-            ensureRuntimeSlaveMinerWorkers(state, *refinery, *building)
+            ensureRuntimeSlaveMinerWorkers(state, *refinery, *building, &context.owner)
             || changed;
     }
 
@@ -788,14 +797,20 @@ bool advanceRuntimeSlaveMinerEconomy(RuntimeWindowState& state) {
             || worker->health <= 0
             || (!worker->alive && !runtimeSlaveMinerWorkerIsStored(state, *worker))
             || runtimeCanonicalHumanHouseOwner(worker->owner)
-                != runtimeCanonicalHumanHouseOwner(state.economy.owner)
+                != runtimeCanonicalHumanHouseOwner(context.owner)
             || taskIt == state.slaveMinerTasks.end()) {
             continue;
         }
         changed =
-            advanceRuntimeSlaveMinerWorkerTask(state, *worker, taskIt->second)
+            advanceRuntimeSlaveMinerWorkerTask(state, *worker, taskIt->second, context, feedback)
             || changed;
     }
 
     return changed;
+}
+
+bool advanceRuntimeSlaveMinerEconomy(RuntimeWindowState& state) {
+    if (runtimeSlaveWorkerMiningDiagnosticOverride) return runtimeSlaveWorkerMiningDiagnosticOverride(state);
+    auto context = makeRuntimeHouseEconomyContext(state.economy, state.computerMiningScopeActive);
+    return advanceRuntimeSlaveMinerEconomy(state, context, state.economy);
 }

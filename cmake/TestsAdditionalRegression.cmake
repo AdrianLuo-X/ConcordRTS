@@ -134,3 +134,17 @@ if(WIN32)
     set_tests_properties(runtime_input_cancellation_integration_smoke_test PROPERTIES
         TIMEOUT 7300 RUN_SERIAL TRUE LABELS "assets;input-cancellation;windows-reference")
 endif()
+
+# S15-01: append without moving any original CTest declaration.
+add_test(NAME chronosphere_relocation_contract_test COMMAND concord_chronosphere_relocation_contract)
+file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/s15-01-chrono-standard-cwd")
+set_tests_properties(chronosphere_relocation_contract_test PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/s15-01-chrono-standard-cwd"
+    TIMEOUT 60 LABELS "no-assets;world-relocation")
+
+# S16-01: append, retaining every complete prior registration and its backtrace.
+add_test(NAME house_economy_context_contract_test COMMAND concord_house_economy_context_contract)
+file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/s16-01-house-standard-cwd")
+set_tests_properties(house_economy_context_contract_test PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/s16-01-house-standard-cwd"
+    TIMEOUT 60 LABELS "no-assets;house-economy")

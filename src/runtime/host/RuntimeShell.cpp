@@ -19,7 +19,10 @@
 #include "simulation/triggers/RuntimeTriggerReinforcements.h"
 #include "simulation/movement/aircraft/RuntimeJumpjetKinematics.h"
 #include "simulation/ai/RuntimeAircraftMotion.h"
-#include "simulation/ai/RuntimeComputerMining.h"
+#include "simulation/ai/RuntimeComputerMiningCodec.h"
+#include "simulation/economy/HouseEconomyContext.h"
+#include "simulation/economy/RuntimeEconomyFixedStep.h"
+#include "simulation/production/RuntimeProductionFixedStep.h"
 #include "simulation/ai/RuntimeComputerTactics.h"
 #include "simulation/ai/RuntimeAutonomousOrderScope.h"
 #include "simulation/production/RuntimeFactoryExitAnimation.h"
@@ -4086,9 +4089,9 @@ RuntimeObjectExitQueueResult queueRuntimeObjectExit(
 );
 RuntimeObjectExitResult finalizeRuntimeObjectExit(
     RuntimeWindowState& state,
-    const RuntimeObjectExitRequest& request
+    const RuntimeObjectExitRequest& request, RuntimeEconomyState* miningEconomy = nullptr
 );
-bool drainRuntimeObjectExitQueue(RuntimeWindowState& state);
+bool drainRuntimeObjectExitQueue(RuntimeWindowState& state, RuntimeEconomyState* miningEconomy = nullptr);
 void resetRuntimePlayerDefeatNotices(RuntimeWindowState& state) noexcept;
 void resetRuntimePlayerDefeatNoticesAfterLoad(RuntimeWindowState& state) noexcept;
 void prepareRuntimePlayerDefeatNoticeLoadBaseline(RuntimeWindowState& state);
@@ -4406,24 +4409,8 @@ bool runtimeSidebarPowerAnimationActive(const RuntimeWindowState& state) {
     return runtimeSidebarPowerDisplay(state).animating;
 }
 
-int runtimeCreditBalanceAfterDeposit(
-    int currentBalance,
-    long long deposit
-) {
-    const int balance = std::clamp(
-        currentBalance,
-        0,
-        runtimeMaximumCreditBalance
-    );
-    if (deposit <= 0) {
-        return balance;
-    }
-    const long long available =
-        static_cast<long long>(runtimeMaximumCreditBalance - balance);
-    if (deposit >= available) {
-        return runtimeMaximumCreditBalance;
-    }
-    return balance + static_cast<int>(deposit);
+int runtimeCreditBalanceAfterDeposit(int currentBalance, long long deposit) {
+    return runtimeEconomyBalanceAfterDeposit(currentBalance, deposit);
 }
 
 void depositRuntimeCredits(
@@ -11241,12 +11228,13 @@ bool runtimeBuildingAcceptsHarvesterUnload(const BuildingType& building) {
 bool runtimeHarvesterCanUnloadAtRefinery(
     const RuntimeWindowState& state,
     const WorldObjectInstance& harvester,
-    const WorldObjectInstance& refinery
+    const WorldObjectInstance& refinery,
+    const std::string* owner = nullptr
 ) {
     if (!harvester.alive
         || !refinery.alive
-        || harvester.owner != state.economy.owner
-        || refinery.owner != state.economy.owner
+        || harvester.owner != (owner ? *owner : state.economy.owner)
+        || refinery.owner != (owner ? *owner : state.economy.owner)
         || refinery.kind != WorldObjectKind::Structure) {
         return false;
     }
@@ -11302,12 +11290,13 @@ bool runtimeObjectHidesRefineryStoragePips(
     return building != nullptr && runtimeBuildingCountsAsRefinery(*building);
 }
 
-int runtimeResourceStorageCapacityForObject(
+int runtimeResourceStorageCapacityForOwnerObject(
     const RuntimeWindowState& state,
-    const WorldObjectInstance& object
+    const WorldObjectInstance& object,
+    const std::string& owner
 ) {
     if (!object.alive
-        || object.owner != state.economy.owner
+        || object.owner != owner
         || object.kind != WorldObjectKind::Structure) {
         return 0;
     }
@@ -11321,65 +11310,30 @@ int runtimeResourceStorageCapacityForObject(
     return std::max(0, building->storage);
 }
 
-int runtimeOwnedResourceStorageCapacity(const RuntimeWindowState& state) {
+int runtimeOwnedResourceStorageCapacityForOwner(const RuntimeWindowState& state, const std::string& owner) {
     int capacity = 0;
     for (const WorldObjectInstance& object : state.world.getObjects()) {
-        capacity += runtimeResourceStorageCapacityForObject(state, object);
+        capacity += runtimeResourceStorageCapacityForOwnerObject(state, object, owner);
     }
     return capacity;
 }
 
-int runtimeScaleResourceValue(
-    int value,
-    int acceptedUnits,
-    int totalUnits
-) {
-    if (value <= 0 || acceptedUnits <= 0 || totalUnits <= 0) {
-        return 0;
-    }
-    if (acceptedUnits >= totalUnits) {
-        return value;
-    }
-    const long long scaled =
-        (static_cast<long long>(value) * acceptedUnits + totalUnits - 1)
-        / totalUnits;
-    return static_cast<int>(std::max<long long>(0, scaled));
+int runtimeResourceStorageCapacityForObject(const RuntimeWindowState& state,
+    const WorldObjectInstance& object) {
+    return runtimeResourceStorageCapacityForOwnerObject(state, object, state.economy.owner);
+}
+int runtimeOwnedResourceStorageCapacity(const RuntimeWindowState& state) {
+    return runtimeOwnedResourceStorageCapacityForOwner(state, state.economy.owner);
+}
+int runtimeScaleResourceValue(int value, int acceptedUnits, int totalUnits) {
+    return runtimeEconomyScaleStoredValue(value, acceptedUnits, totalUnits);
 }
 
-bool spendRuntimeCredits(
-    RuntimeWindowState& state,
-    int requestedAmount
-) {
-    const int amount = std::max(0, requestedAmount);
-    if (state.economy.credits < amount) {
-        return false;
-    }
+HouseEconomyContext makeRuntimeHouseEconomyContext(RuntimeEconomyState& economy, bool computer);
 
-    state.economy.credits -= amount;
-    const int previousStoredValue =
-        std::max(0, state.economy.storedResourceValue);
-    const int storedSpend = std::min(amount, previousStoredValue);
-    if (storedSpend <= 0) {
-        return true;
-    }
-
-    const int remainingStoredValue = previousStoredValue - storedSpend;
-    state.economy.storedResourceUnits = runtimeScaleResourceValue(
-        std::max(0, state.economy.storedResourceUnits),
-        remainingStoredValue,
-        previousStoredValue
-    );
-    state.economy.storedResourceGemUnits = std::clamp(
-        runtimeScaleResourceValue(
-            std::max(0, state.economy.storedResourceGemUnits),
-            remainingStoredValue,
-            previousStoredValue
-        ),
-        0,
-        state.economy.storedResourceUnits
-    );
-    state.economy.storedResourceValue = remainingStoredValue;
-    return true;
+bool spendRuntimeCredits(RuntimeWindowState& state, int requestedAmount) {
+    auto house = makeRuntimeHouseEconomyContext(state.economy, state.computerMiningScopeActive);
+    return spendRuntimeHouseCredits(house, requestedAmount);
 }
 
 void spendRuntimeComputerStoredOre(RuntimeWindowState& state,
@@ -11430,42 +11384,33 @@ int runtimeResourceStorageFilledForCapacity(
     );
 }
 
-void refreshRuntimeResourceStorageCapacity(RuntimeWindowState& state) {
-    const int capacity = runtimeOwnedResourceStorageCapacity(state);
-    state.economy.resourceStorageCapacity = capacity;
-    state.economy.storedResourceUnits =
-        std::max(0, state.economy.storedResourceUnits);
-    state.economy.storedResourceValue =
-        std::max(0, state.economy.storedResourceValue);
-    state.economy.storedResourceGemUnits =
-        std::clamp(
-            state.economy.storedResourceGemUnits,
-            0,
-            state.economy.storedResourceUnits
-        );
-    if (capacity <= 0) {
-        return;
-    }
-    if (state.economy.storedResourceUnits <= capacity) {
-        return;
-    }
-
-    const int previousUnits = state.economy.storedResourceUnits;
-    state.economy.storedResourceUnits = capacity;
-    state.economy.storedResourceValue =
-        runtimeScaleResourceValue(
-            state.economy.storedResourceValue,
-            capacity,
-            previousUnits
-        );
-    state.economy.storedResourceGemUnits =
-        runtimeScaleResourceValue(
-            state.economy.storedResourceGemUnits,
-            capacity,
-            previousUnits
-        );
+HouseEconomyContext makeRuntimeHouseEconomyContext(RuntimeEconomyState& economy, bool computer) {
+    return {economy.owner, economy.credits, economy.storedResourceUnits,
+        economy.storedResourceValue, economy.storedResourceGemUnits, economy.resourceTrips,
+        economy.harvesterTeleports, economy.resourceStorageCapacity,
+        economy.harvesters, economy.refineries, computer};
 }
 
+void refreshRuntimeResourceStorageCapacity(const RuntimeWindowState& state, RuntimeEconomyState& economy) {
+    economy.resourceStorageCapacity = runtimeOwnedResourceStorageCapacityForOwner(state, economy.owner);
+    auto context = makeRuntimeHouseEconomyContext(economy, false);
+    normalizeHouseResourceStorage(context);
+}
+
+void refreshRuntimeResourceStorageCapacity(RuntimeWindowState& state) {
+    refreshRuntimeResourceStorageCapacity(state, state.economy);
+}
+
+void recordRuntimeHouseResourceDelivery(RuntimeWindowState& state, HouseEconomyContext& context,
+    RuntimeEconomyState& feedback, int units, int gems, int value) {
+    context.resourceStorageCapacity = runtimeOwnedResourceStorageCapacityForOwner(state, context.owner);
+    const auto result = recordHouseResourceDelivery(context, units, gems, value);
+    feedback.lastResourceStorageCapacity = result.capacity;
+    feedback.lastResourceStoredUnits = result.storedUnits;
+    feedback.lastResourceStoredValue = result.storedValue;
+    feedback.lastResourceStoredGemUnits = result.storedGemUnits;
+    feedback.lastResourceStorageOverflowUnits = result.overflowUnits;
+}
 void recordRuntimeResourceDeliveryToStorage(
     RuntimeWindowState& state,
     int cargoUnits,
@@ -13181,7 +13126,7 @@ RuntimeObjectExitQueueResult queueRuntimeObjectExit(
     RuntimeWindowState& state,
     RuntimeObjectExitRequest request
 );
-bool drainRuntimeObjectExitQueue(RuntimeWindowState& state);
+bool drainRuntimeObjectExitQueue(RuntimeWindowState& state, RuntimeEconomyState* miningEconomy);
 
 bool runtimeHasSupportFlightPose(const WorldObjectInstance& object);
 bool runtimeSupportPowerCanPlace(const RuntimeWindowState& state,
@@ -25180,11 +25125,11 @@ void applyRuntimeSuperweaponCatalogOption(RuntimeWindowState& state) {
     );
 }
 
-void refreshRuntimeEconomyMetricsForCurrentOwner(
-    RuntimeWindowState& state
+void refreshRuntimeEconomyMetricsForOwner(
+    RuntimeWindowState& state, RuntimeEconomyState& economy
 ) {
     const std::string ownerKey =
-        runtimeCanonicalHumanHouseOwner(state.economy.owner);
+        runtimeCanonicalHumanHouseOwner(economy.owner);
     int produced = 0;
     int used = 0;
     int harvesters = 0;
@@ -25217,14 +25162,17 @@ void refreshRuntimeEconomyMetricsForCurrentOwner(
             }
         }
     }
-    if (runtimeDiskDrainOwnerBlackout(state, state.economy.owner)) produced = 0;
-    state.economy.powerProduced = produced;
-    state.economy.powerUsed = used;
-    state.economy.harvesters = harvesters;
-    state.economy.refineries = refineries;
-    refreshRuntimeResourceStorageCapacity(state);
+    if (runtimeDiskDrainOwnerBlackout(state, economy.owner)) produced = 0;
+    economy.powerProduced = produced;
+    economy.powerUsed = used;
+    economy.harvesters = harvesters;
+    economy.refineries = refineries;
+    refreshRuntimeResourceStorageCapacity(state, economy);
 }
 
+void refreshRuntimeEconomyMetricsForCurrentOwner(RuntimeWindowState& state) {
+    refreshRuntimeEconomyMetricsForOwner(state, state.economy);
+}
 void rebuildRuntimeEconomyPower(RuntimeWindowState& state) {
     RuntimePerfTraceScope trace("rebuildRuntimeEconomyPower", state.tick);
     if (state.remoteHumanHouseScopeActive) {
@@ -28869,7 +28817,7 @@ runtimeAircraftProductionAssignmentForSerial(
 
 bool validateRuntimePadAircraftProductionProjection(
     const RuntimeWindowState& state,
-    std::string& errorMessage
+    std::string& errorMessage, const std::string* miningOwner = nullptr
 ) {
     if (!validateRuntimeAircraftPadSlotCapacity(state, errorMessage)) {
         return false;
@@ -29043,11 +28991,13 @@ bool validateRuntimePadAircraftProductionProjection(
         }
     }
 
-    const RuntimeAircraftProductionMatchResult matched =
-        runtimeAircraftProductionMatchForOwner(
-            state,
-            state.economy.owner
-        );
+    const RuntimeAircraftProductionMatchResult matched = [&] {
+        if (!miningOwner) return runtimeAircraftProductionMatchForOwner(state, state.economy.owner);
+        // The old mining facade has no production catalog or pending orders.
+        auto input = buildRuntimeAircraftProductionMatchInputForOwner(
+            state, *miningOwner, std::nullopt, nullptr, false);
+        return input.error ? std::move(*input.error) : runtimeMatchAircraftProductionDocks(input.input);
+    }();
     if (!matched.inputValid || !matched.feasible) {
         errorMessage = matched.reason.empty()
             ? "saved pad aircraft production is not feasible"
@@ -47083,10 +47033,11 @@ int runtimeResourceDensityAtCell(
 std::optional<RuntimeCellPoint> findHarvestableRuntimeResourceNear(
     const RuntimeWindowState& state,
     const WorldObjectInstance& harvester,
-    const RuntimeCellPoint& preferred
+    const RuntimeCellPoint& preferred,
+    const std::string* owner = nullptr
 ) {
     const RuntimeCellPoint current = runtimeCellPointForObject(harvester);
-    RuntimeHarvesterResourceAccess access(state, harvester);
+    RuntimeHarvesterResourceAccess access(state, harvester, owner);
     if (access.canGatherFrom(current, preferred)) {
         return preferred;
     }
@@ -47143,7 +47094,8 @@ std::optional<RuntimeCellPoint> findNearestRuntimeOreCell(
     const RuntimeWindowState& state,
     const WorldObjectInstance& harvester,
     std::optional<RuntimeCellPoint> scanOrigin = std::nullopt,
-    bool farScan = true
+    bool farScan = true,
+    const std::string* owner = nullptr
 ) {
     const RuntimeCellPoint from = runtimeCellPointForObject(harvester);
     const RuntimeCellPoint origin =
@@ -47203,7 +47155,7 @@ std::optional<RuntimeCellPoint> findNearestRuntimeOreCell(
     // it lazily so an empty scan needs no occupancy work at all.
     std::optional<RuntimeHarvesterResourceAccess> resourceAccess;
     const auto reachable = [&](const RuntimeCellPoint& cell) {
-        if (!resourceAccess) resourceAccess.emplace(state, harvester);
+        if (!resourceAccess) resourceAccess.emplace(state, harvester, owner);
         return findRuntimeHarvesterResourceApproach(*resourceAccess, cell).has_value();
     };
 
@@ -48499,15 +48451,16 @@ bool issueRuntimeHarvesterMoveToCell(
     const std::string& mission,
     std::optional<RuntimeCellPoint>* actualTarget = nullptr,
     int allowedOccupiedObjectId = -1,
-    bool exactTarget = false
+    bool exactTarget = false,
+    const std::string* owner = nullptr
 ) {
     const bool miningApproach = mission == "Harvest"
         && (runtimeObjectIsHarvester(state, harvester) || state.slaveMinerTasks.contains(harvester.instanceId));
     if (miningApproach && allowedOccupiedObjectId < 0)
-        allowedOccupiedObjectId = runtimeHarvesterDepartureRefineryId(state, harvester);
+        allowedOccupiedObjectId = runtimeHarvesterDepartureRefineryId(state, harvester, owner);
     const std::optional<RuntimeCellPoint> passableTarget =
         miningApproach
-            ? findRuntimeHarvesterResourceApproach(state, harvester, targetCell)
+            ? findRuntimeHarvesterResourceApproach(state, harvester, targetCell, owner)
             : exactTarget
             ? findRuntimePassableCellNear(
                 state,
@@ -48564,16 +48517,17 @@ bool issueRuntimeHarvesterMoveToCell(
 const WorldObjectInstance* findRuntimeHarvesterRefineryById(
     const RuntimeWindowState& state,
     const WorldObjectInstance& harvester,
-    int objectId
+    int objectId,
+    const std::string* owner = nullptr
 ) {
     const WorldObjectInstance* object = findObjectById(state, objectId);
     if (object == nullptr
         || !object->alive
-        || object->owner != state.economy.owner
+        || object->owner != (owner ? *owner : state.economy.owner)
         || object->kind != WorldObjectKind::Structure) {
         return nullptr;
     }
-    if (!runtimeHarvesterCanUnloadAtRefinery(state, harvester, *object)) {
+    if (!runtimeHarvesterCanUnloadAtRefinery(state, harvester, *object, owner)) {
         return nullptr;
     }
     return object;
@@ -48581,14 +48535,15 @@ const WorldObjectInstance* findRuntimeHarvesterRefineryById(
 
 std::optional<int> findNearestRuntimeRefineryId(
     const RuntimeWindowState& state,
-    const WorldObjectInstance& harvester
+    const WorldObjectInstance& harvester,
+    const std::string* owner = nullptr
 ) {
     const RuntimeCellPoint from = runtimeCellPointForObject(harvester);
     double bestDistance = std::numeric_limits<double>::max();
     std::optional<int> bestObjectId;
     for (const WorldObjectInstance& object : state.world.getObjects()) {
         if (!object.alive
-            || object.owner != state.economy.owner
+            || object.owner != (owner ? *owner : state.economy.owner)
             || object.kind != WorldObjectKind::Structure) {
             continue;
         }
@@ -48599,7 +48554,7 @@ std::optional<int> findNearestRuntimeRefineryId(
             || !runtimeHarvesterCanUnloadAtRefinery(
                 state,
                 harvester,
-                object
+                object, owner
             )) {
             continue;
         }
@@ -48742,7 +48697,8 @@ double runtimeHarvesterTooFarDistanceForObject(
 bool teleportRuntimeHarvesterToCell(
     RuntimeWindowState& state,
     WorldObjectInstance& harvester,
-    const RuntimeCellPoint& target
+    const RuntimeCellPoint& target,
+    int* teleportCounter = nullptr
 ) {
     if (!handleRuntimeParasiteHostEvent(
             state,
@@ -48770,7 +48726,7 @@ bool teleportRuntimeHarvesterToCell(
     clearRuntimeRenderPosition(harvester);
     refreshRuntimeObjectOccupancyAfterLocalChange(state);
     invalidateRuntimeObjectProjectionCache(state);
-    ++state.economy.harvesterTeleports;
+    ++(teleportCounter ? *teleportCounter : state.economy.harvesterTeleports);
     spawnRuntimeChronoWarpEffect(state, {"ChronoWarpIn", state.tick, harvester.instanceId,
         -1, 0, {harvester.x, harvester.y}, "chrono miner return"}, false);
     if (unit != nullptr && !trimAsciiLocal(unit->chronoInSound).empty()) {
@@ -49192,7 +49148,8 @@ double runtimeWeaponHeightInLevels(int heightLeptons);
 void spawnRuntimeRefinerySmokeEffects(
     RuntimeWindowState& state,
     const WorldObjectInstance& refinery,
-    const WorldObjectInstance& harvester
+    const WorldObjectInstance& harvester,
+    RuntimeEconomyState* economyFeedback = nullptr
 ) {
     const BuildingType* building =
         findRuntimeBuildingTypeById(state.rules, refinery.type);
@@ -49256,13 +49213,14 @@ void spawnRuntimeRefinerySmokeEffects(
     }
 
     if (spawned > 0) {
-        state.economy.lastRefinerySmokeCell = origin;
-        state.economy.lastRefinerySmokeEffects = spawned;
-        state.economy.lastRefinerySmokeParticleSystem =
+        auto& feedback = economyFeedback ? *economyFeedback : state.economy;
+        feedback.lastRefinerySmokeCell = origin;
+        feedback.lastRefinerySmokeEffects = spawned;
+        feedback.lastRefinerySmokeParticleSystem =
             building->refinerySmoke.particleSystem;
-        state.economy.lastRefinerySmokeParticle =
+        feedback.lastRefinerySmokeParticle =
             building->refinerySmoke.particle;
-        state.economy.lastRefinerySmokeImage =
+        feedback.lastRefinerySmokeImage =
             building->refinerySmoke.image;
     }
 }
@@ -49284,9 +49242,9 @@ std::optional<RuntimeCellPoint> findNearestRuntimeStructureResourceCell(
     const RuntimeWindowState& state,
     const WorldObjectInstance& structure,
     int maxRadius,
-    const WorldObjectInstance& worker
+    const WorldObjectInstance& worker, const std::string* owner = nullptr
 ) {
-    RuntimeHarvesterResourceAccess access(state, worker);
+    RuntimeHarvesterResourceAccess access(state, worker, owner);
     const RuntimeCellPoint origin = runtimeCellPointForObject(structure);
     const RuntimeStructureFootprint footprint =
         runtimeStructureFootprintForObject(state, structure);
@@ -49411,7 +49369,8 @@ bool deployRuntimeMcv(
     RuntimeWindowState& state,
     int objectId,
     bool selectResult,
-    std::optional<RuntimeCellPoint> requestedCell = std::nullopt
+    std::optional<RuntimeCellPoint> requestedCell = std::nullopt,
+    RuntimeEconomyState* miningEconomy = nullptr
 );
 bool selectionContains(const RuntimeWindowState& state, int objectId);
 bool eraseRuntimeBehavior(RuntimeWindowState& state, int objectId);
@@ -49451,7 +49410,7 @@ std::optional<RuntimeCellPoint> findNearestRuntimeMobileSlaveMinerOreCell(
     const RuntimeWindowState& state,
     const WorldObjectInstance& miner,
     int maxRadius,
-    std::optional<RuntimeCellPoint>* deployCell = nullptr
+    std::optional<RuntimeCellPoint>* deployCell = nullptr, const std::string* owner = nullptr
 ) {
     const RuntimeCellPoint origin = runtimeCellPointForObject(miner);
     const int radiusLimit = std::max(1, maxRadius);
@@ -49487,7 +49446,7 @@ std::optional<RuntimeCellPoint> findNearestRuntimeMobileSlaveMinerOreCell(
 
     const auto reachable =
         [&](const RuntimeCellPoint& cell) {
-            const auto target = findRuntimeSlaveMinerDeployCellNearOre(state, miner, cell);
+            const auto target = findRuntimeSlaveMinerDeployCellNearOre(state, miner, cell, nullptr, owner);
             if (deployCell != nullptr) *deployCell = target;
             return target.has_value();
         };
@@ -49544,7 +49503,11 @@ std::optional<RuntimeCellPoint> findNearestRuntimeMobileSlaveMinerOreCell(
     return std::nullopt;
 }
 
-bool advanceRuntimeMobileSlaveMinerEconomy(RuntimeWindowState& state) {
+// Private synchronous fixture hook; null in every product session.
+static bool (*runtimeMobileSlaveMiningDiagnosticOverride)(RuntimeWindowState&) = nullptr;
+
+bool advanceRuntimeMobileSlaveMinerEconomy(RuntimeWindowState& state,
+    HouseEconomyContext& context, RuntimeEconomyState& feedback) {
     RuntimePerfTraceScope trace("advanceRuntimeMobileSlaveMinerEconomy", state.tick);
     const int scanInterval = std::max(1, std::min(
         runtimeRuleFramesToTicks(state.rules.getSlaveMinerKickFrameDelay(), state.config.fixedTickHz), state.config.fixedTickHz / 2));
@@ -49555,7 +49518,7 @@ bool advanceRuntimeMobileSlaveMinerEconomy(RuntimeWindowState& state) {
     std::vector<int> minerIds;
     for (const WorldObjectInstance& object : state.world.getObjects()) {
         if (!object.alive
-            || object.owner != state.economy.owner
+            || object.owner != context.owner
             || object.kind != WorldObjectKind::Unit
             || object.buildAnimTicksRemaining > 0
             || state.behaviors.find(object.instanceId)
@@ -49593,12 +49556,12 @@ bool advanceRuntimeMobileSlaveMinerEconomy(RuntimeWindowState& state) {
                 state,
                 *miner,
                 state.rules.getSlaveMinerShortScan(),
-                &deployCell
+                &deployCell, &context.owner
             );
         if (nearbyOre.has_value() && deployCell == runtimeCellPointForObject(*miner)) {
             const bool keepSelection = selectionContains(state, minerId);
-            if (deployRuntimeMcv(state, minerId, keepSelection, deployCell)) {
-                state.economy.status =
+            if (deployRuntimeMcv(state, minerId, keepSelection, deployCell, context.computerControlled ? &feedback : nullptr)) {
+                feedback.status =
                     unit->id + " deployed near ore "
                     + std::to_string(nearbyOre->x)
                     + ","
@@ -49613,11 +49576,11 @@ bool advanceRuntimeMobileSlaveMinerEconomy(RuntimeWindowState& state) {
                 state,
                 *miner,
                 state.rules.getSlaveMinerLongScan(),
-                &deployCell
+                &deployCell, &context.owner
             );
         if (!distantOre.has_value()) {
             miner->mission = "Guard";
-            state.economy.status = unit->id + " found no ore";
+            feedback.status = unit->id + " found no ore";
             continue;
         }
 
@@ -49629,11 +49592,11 @@ bool advanceRuntimeMobileSlaveMinerEconomy(RuntimeWindowState& state) {
                 "Move",
                 &actualTarget,
                 -1,
-                true
+                true, &context.owner
             )) {
             const RuntimeCellPoint target =
                 actualTarget.value_or(*distantOre);
-            state.economy.status =
+            feedback.status =
                 unit->id + " moving to ore "
                 + std::to_string(target.x)
                 + ","
@@ -49645,16 +49608,53 @@ bool advanceRuntimeMobileSlaveMinerEconomy(RuntimeWindowState& state) {
     return changed;
 }
 
+bool advanceRuntimeMobileSlaveMinerEconomy(RuntimeWindowState& state) {
+    if (runtimeMobileSlaveMiningDiagnosticOverride) return runtimeMobileSlaveMiningDiagnosticOverride(state);
+    auto context = makeRuntimeHouseEconomyContext(state.economy, state.computerMiningScopeActive);
+    return advanceRuntimeMobileSlaveMinerEconomy(state, context, state.economy);
+}
 std::string runtimeSlaveMinerWorkerTypeId(const BuildingType& building) {
     return building.enslaves.empty() ? "SLAV" : building.enslaves;
 }
 
+// Private synchronous fixture hook; null in every product session.
+static bool (*runtimeSlaveWorkerMiningDiagnosticOverride)(RuntimeWindowState&) = nullptr;
+int runtimeHarvesterHousePurifierBonus(const RuntimeWindowState& state,
+    const HouseEconomyContext& context, const RuntimeEconomyState& metrics,
+    int baseValue, int* purifierCountOutput);
 #include "simulation/economy/RuntimeSlaveMinerEconomy.inl"
 
-bool advanceRuntimeHarvesterEconomy(RuntimeWindowState& state) {
+int runtimeHarvesterHousePurifierBonus(const RuntimeWindowState& state,
+    const HouseEconomyContext& context, const RuntimeEconomyState& metrics,
+    int baseValue, int* purifierCountOutput) {
+    int owned = 0;
+    const bool lowPower = metrics.powerProduced - metrics.powerUsed < 0
+        || runtimeDiskDrainOwnerBlackout(state, context.owner)
+        || state.spies.blackoutUntilTick(runtimeRepairDepotCanonicalOwnerId(state, context.owner)) > state.tick;
+    if (!lowPower) for (const auto& object : state.world.getObjects()) {
+        if (!object.alive || object.owner != context.owner || object.kind != WorldObjectKind::Structure) continue;
+        const auto* building = findRuntimeBuildingTypeById(state.rules, object.type);
+        if (building && building->orePurifier) ++owned;
+    }
+    int virtualCount = 0;
+    if (context.computerControlled) {
+        if (state.campaignMode) {
+            const std::array<int, 3> campaignCounts{8, 4, 2};
+            virtualCount = campaignCounts[runtimeComputerMiningDifficultyIndex(state.config.campaignDifficulty)];
+        } else {
+            const auto ai = state.computerAiByOwner.find(runtimeRepairDepotCanonicalOwnerId(state, context.owner));
+            if (ai != state.computerAiByOwner.end()) virtualCount = state.rules.getComputerMiningRules().virtualPurifiers[
+                runtimeComputerMiningDifficultyIndex(ai->second.difficulty)];
+        }
+    }
+    const int count = owned + virtualCount;
+    if (purifierCountOutput) *purifierCountOutput = count;
+    return houseOrePurifierBonusValue(baseValue, count, state.rules.getPurifierBonus());
+}
+bool advanceRuntimeHarvesterEconomy(RuntimeWindowState& state, HouseEconomyContext& context, RuntimeEconomyState& feedback) {
     RuntimePerfTraceScope trace("advanceRuntimeHarvesterEconomy", state.tick);
     const std::string currentOwner =
-        runtimeCanonicalHumanHouseOwner(state.economy.owner);
+        runtimeCanonicalHumanHouseOwner(context.owner);
     for (auto taskIt = state.harvesterTasks.begin();
         taskIt != state.harvesterTasks.end();) {
         const WorldObjectInstance* taskObject =
@@ -49671,14 +49671,14 @@ bool advanceRuntimeHarvesterEconomy(RuntimeWindowState& state) {
             ++taskIt;
         }
     }
-    if (state.economy.harvesters <= 0) {
+    if (context.harvesters <= 0) {
         return false;
     }
 
     bool changed = false;
     for (WorldObjectInstance& object : state.world.accessObjects()) {
         if (!object.alive
-            || object.owner != state.economy.owner
+            || object.owner != context.owner
             || !runtimeObjectIsHarvester(state, object)
             || object.harvestAutoSearchSuspended
             || state.behaviors.find(object.instanceId) != state.behaviors.end()) {
@@ -49690,7 +49690,7 @@ bool advanceRuntimeHarvesterEconomy(RuntimeWindowState& state) {
         if (task.phase == RuntimeHarvesterPhase::Docking
             || task.phase == RuntimeHarvesterPhase::PreparingToUnload
             || task.phase == RuntimeHarvesterPhase::Unloading) {
-            if (findRuntimeHarvesterRefineryById(state, object, task.targetRefineryId) == nullptr
+            if (findRuntimeHarvesterRefineryById(state, object, task.targetRefineryId, &context.owner) == nullptr
                 || !runtimeHarvesterIsAtDock(object, task)) {
                 task.phase = RuntimeHarvesterPhase::ReturningToRefinery;
                 task.targetRefineryId = -1;
@@ -49740,7 +49740,7 @@ bool advanceRuntimeHarvesterEconomy(RuntimeWindowState& state) {
             // Consume only the cell that the intake was aligned to. If another
             // miner exhausted it, select and align a new target on the next tick.
             const std::optional<RuntimeCellPoint> resourceCell =
-                RuntimeHarvesterResourceAccess(state, object).canGatherFrom(
+                RuntimeHarvesterResourceAccess(state, object, &context.owner).canGatherFrom(
                     runtimeCellPointForObject(object), task.targetOre)
                     ? std::make_optional(task.targetOre) : std::nullopt;
             if (!resourceCell.has_value()) {
@@ -49780,16 +49780,16 @@ bool advanceRuntimeHarvesterEconomy(RuntimeWindowState& state) {
             }
             const TerrainCell* afterGatherTerrain =
                 findRuntimeTerrainCellAt(state, *resourceCell);
-            state.economy.lastHarvesterGatherCell = *resourceCell;
-            state.economy.lastHarvesterGatherBeforeBails =
+            feedback.lastHarvesterGatherCell = *resourceCell;
+            feedback.lastHarvesterGatherBeforeBails =
                 beforeGatherBails;
-            state.economy.lastHarvesterGatherAfterBails =
+            feedback.lastHarvesterGatherAfterBails =
                 afterGatherTerrain == nullptr
                     ? 0
                     : runtimeResourceBailCountForTerrain(*afterGatherTerrain);
-            state.economy.lastHarvesterGatherOverlayBefore =
+            feedback.lastHarvesterGatherOverlayBefore =
                 beforeGatherOverlay;
-            state.economy.lastHarvesterGatherOverlayAfter =
+            feedback.lastHarvesterGatherOverlayAfter =
                 afterGatherTerrain == nullptr
                     ? "none"
                     : runtimeResourceOverlayDiagnosticName(
@@ -49806,7 +49806,7 @@ bool advanceRuntimeHarvesterEconomy(RuntimeWindowState& state) {
                 "loaded " + std::to_string(task.cargoUnits)
                 + "/" + std::to_string(task.cargoCapacity)
                 + " cargo $" + std::to_string(task.cargoValue);
-            state.economy.status =
+            feedback.status =
                 "harvester #"
                 + std::to_string(object.instanceId)
                 + " " + task.status;
@@ -49854,7 +49854,7 @@ bool advanceRuntimeHarvesterEconomy(RuntimeWindowState& state) {
             object.facing = runtimeAdvanceBodyFacing(state, object, currentFacing, refineryDockFacing);
             object.mission = "Dock";
             task.status = "docking at refinery";
-            state.economy.status =
+            feedback.status =
                 "harvester #"
                 + std::to_string(object.instanceId)
                 + " docking at refinery";
@@ -49883,7 +49883,7 @@ bool advanceRuntimeHarvesterEconomy(RuntimeWindowState& state) {
                 --task.workTicksRemaining;
                 object.mission = "Unload";
                 task.status = "preparing to unload";
-                state.economy.status =
+                feedback.status =
                     "harvester #"
                     + std::to_string(object.instanceId)
                     + " preparing to unload $"
@@ -49920,37 +49920,37 @@ bool advanceRuntimeHarvesterEconomy(RuntimeWindowState& state) {
                         spawnRuntimeRefinerySmokeEffects(
                             state,
                             *refinery,
-                            object
+                            object, &feedback
                         );
                     }
                 }
             }
             if (batchValue > 0) {
                 int purifierCount = 0;
-                const int purifierBonus = runtimeOrePurifierBonusValue(
-                    state,
+                const int purifierBonus = runtimeHarvesterHousePurifierBonus(
+                    state, context, feedback,
                     batchValue,
                     &purifierCount
                 );
                 const int deliveredValue = batchValue + purifierBonus;
-                depositRuntimeCredits(state, deliveredValue);
-                recordRuntimeResourceDeliveryToStorage(
-                    state,
+                context.credits = runtimeCreditBalanceAfterDeposit(context.credits, deliveredValue);
+                recordRuntimeHouseResourceDelivery(
+                    state, context, feedback,
                     batchUnits,
                     batchGemUnits,
                     deliveredValue
                 );
-                if (finalBatch) ++state.economy.resourceTrips;
-                state.economy.lastResourceBaseValue = batchValue;
-                state.economy.lastResourcePurifierBonus = purifierBonus;
-                state.economy.lastResourcePurifierCount = purifierCount;
-                state.economy.status =
+                if (finalBatch) ++context.resourceTrips;
+                feedback.lastResourceBaseValue = batchValue;
+                feedback.lastResourcePurifierBonus = purifierBonus;
+                feedback.lastResourcePurifierCount = purifierCount;
+                feedback.status =
                     "harvester #"
                     + std::to_string(object.instanceId)
                     + " delivered $" + std::to_string(deliveredValue)
                     + " base=$" + std::to_string(batchValue)
                     + " purifier=$" + std::to_string(purifierBonus)
-                    + " credits=" + std::to_string(state.economy.credits);
+                    + " credits=" + std::to_string(context.credits);
                 emitRuntimeSound(state, "harvest unload");
             }
             task.cargoValue -= batchValue;
@@ -49988,13 +49988,13 @@ bool advanceRuntimeHarvesterEconomy(RuntimeWindowState& state) {
         if (cargoFull
             || task.phase == RuntimeHarvesterPhase::ReturningToRefinery
             || task.phase == RuntimeHarvesterPhase::WaitingForRefineryDock) {
-            if (state.economy.refineries <= 0) {
+            if (context.refineries <= 0) {
                 task.phase = RuntimeHarvesterPhase::ReturningToRefinery;
                 task.status = "waiting for refinery";
                 object.mission = "Guard";
                 task.nextThinkTick =
                     state.tick + runtimeHarvesterThinkCooldownTicks(state);
-                state.economy.status =
+                feedback.status =
                     "harvester #"
                     + std::to_string(object.instanceId)
                     + " has cargo but no refinery";
@@ -50006,16 +50006,16 @@ bool advanceRuntimeHarvesterEconomy(RuntimeWindowState& state) {
                 findRuntimeHarvesterRefineryById(
                     state,
                     object,
-                    task.targetRefineryId
+                    task.targetRefineryId, &context.owner
                 );
             if (refinery == nullptr) {
                 const std::optional<int> refineryId =
-                    findNearestRuntimeRefineryId(state, object);
+                    findNearestRuntimeRefineryId(state, object, &context.owner);
                 task.targetRefineryId = refineryId.value_or(-1);
                 refinery = findRuntimeHarvesterRefineryById(
                     state,
                     object,
-                    task.targetRefineryId
+                    task.targetRefineryId, &context.owner
                 );
             }
             if (refinery == nullptr) {
@@ -50057,7 +50057,7 @@ bool advanceRuntimeHarvesterEconomy(RuntimeWindowState& state) {
                             "Return",
                             &actualTarget,
                             -1,
-                            true
+                            true, &context.owner
                         )) {
                         task.phase = RuntimeHarvesterPhase::ReturningToRefinery;
                         task.dockCell = RuntimeCellPoint{};
@@ -50067,15 +50067,15 @@ bool advanceRuntimeHarvesterEconomy(RuntimeWindowState& state) {
                             "approaching refinery #"
                             + std::to_string(task.targetRefineryId);
                         task.nextThinkTick = state.tick + 1;
-                        state.economy.lastHarvesterTooFarApproachTarget =
+                        feedback.lastHarvesterTooFarApproachTarget =
                             task.queueCell;
-                        state.economy.lastHarvesterTooFarDistance =
+                        feedback.lastHarvesterTooFarDistance =
                             refineryDistance;
-                        state.economy.lastHarvesterTooFarThreshold =
+                        feedback.lastHarvesterTooFarThreshold =
                             tooFarThreshold;
-                        state.economy.lastHarvesterTooFarChrono =
+                        feedback.lastHarvesterTooFarChrono =
                             runtimeObjectIsChronoHarvester(state, object);
-                        state.economy.status =
+                        feedback.status =
                             "harvester #"
                             + std::to_string(object.instanceId)
                             + " approaching refinery before dock";
@@ -50103,7 +50103,7 @@ bool advanceRuntimeHarvesterEconomy(RuntimeWindowState& state) {
                         task.nextThinkTick =
                             state.tick + runtimeHarvesterThinkCooldownTicks(state);
                         object.mission = "Return";
-                        state.economy.status =
+                        feedback.status =
                             "harvester #"
                             + std::to_string(object.instanceId)
                             + " waiting for refinery dock";
@@ -50119,7 +50119,7 @@ bool advanceRuntimeHarvesterEconomy(RuntimeWindowState& state) {
                             "Return",
                             &actualQueueTarget,
                             -1,
-                            true
+                            true, &context.owner
                         )) {
                         if (actualQueueTarget.has_value()) {
                             task.queueCell = *actualQueueTarget;
@@ -50130,7 +50130,7 @@ bool advanceRuntimeHarvesterEconomy(RuntimeWindowState& state) {
                             "queueing for refinery #"
                             + std::to_string(task.targetRefineryId);
                         task.nextThinkTick = state.tick + 1;
-                        state.economy.status =
+                        feedback.status =
                             "harvester #"
                             + std::to_string(object.instanceId)
                             + " queueing for refinery dock";
@@ -50142,7 +50142,7 @@ bool advanceRuntimeHarvesterEconomy(RuntimeWindowState& state) {
                 task.status = "refinery dock blocked";
                 task.nextThinkTick =
                     state.tick + runtimeHarvesterThinkCooldownTicks(state);
-                state.economy.status =
+                feedback.status =
                     "harvester #"
                     + std::to_string(object.instanceId)
                     + " cannot dock at " + refinery->type;
@@ -50172,7 +50172,7 @@ bool advanceRuntimeHarvesterEconomy(RuntimeWindowState& state) {
                 if (!teleportRuntimeHarvesterToCell(
                         state,
                         object,
-                        task.dockCell
+                        task.dockCell, &context.harvesterTeleports
                     )) {
                     task.status = "chrono parasite release rejected";
                     changed = true;
@@ -50189,7 +50189,7 @@ bool advanceRuntimeHarvesterEconomy(RuntimeWindowState& state) {
                         mutableRefinery->mission = "Unload";
                     }
                 }
-                state.economy.status =
+                feedback.status =
                     "harvester #"
                     + std::to_string(object.instanceId)
                     + " chrono teleported to refinery";
@@ -50205,7 +50205,7 @@ bool advanceRuntimeHarvesterEconomy(RuntimeWindowState& state) {
                     "Return",
                     &actualTarget,
                     task.targetRefineryId,
-                    true
+                    true, &context.owner
                 )) {
                 if (actualTarget.has_value()) {
                     task.dockCell = *actualTarget;
@@ -50214,7 +50214,7 @@ bool advanceRuntimeHarvesterEconomy(RuntimeWindowState& state) {
                 task.status =
                     "returning to refinery #"
                     + std::to_string(task.targetRefineryId);
-                state.economy.status =
+                feedback.status =
                     "harvester #"
                     + std::to_string(object.instanceId)
                     + " returning cargo $" + std::to_string(task.cargoValue);
@@ -50225,20 +50225,20 @@ bool advanceRuntimeHarvesterEconomy(RuntimeWindowState& state) {
 
         task.phase = RuntimeHarvesterPhase::SeekingOre;
         std::optional<RuntimeCellPoint> loadResourceCell =
-            findHarvestableRuntimeResourceNear(state, object, task.targetOre);
+            findHarvestableRuntimeResourceNear(state, object, task.targetOre, &context.owner);
         const std::optional<RuntimeCellPoint> scanOrigin =
             task.targetOre.x >= 0 && task.targetOre.y >= 0
                 ? std::make_optional(task.targetOre)
                 : std::nullopt;
         const std::optional<RuntimeCellPoint> oreCell = loadResourceCell.has_value()
-            ? loadResourceCell : findNearestRuntimeOreCell(state, object, scanOrigin, true);
+            ? loadResourceCell : findNearestRuntimeOreCell(state, object, scanOrigin, true, &context.owner);
         if (!oreCell.has_value()) {
             if (task.cargoValue > 0) {
                 task.phase = RuntimeHarvesterPhase::ReturningToRefinery;
                 task.status = "returning partial load: no ore found";
                 task.nextThinkTick = state.tick + 1;
                 object.mission = "Return";
-                state.economy.status =
+                feedback.status =
                     "harvester #"
                     + std::to_string(object.instanceId)
                     + " returning partial cargo $"
@@ -50250,7 +50250,7 @@ bool advanceRuntimeHarvesterEconomy(RuntimeWindowState& state) {
             task.nextThinkTick =
                 state.tick + runtimeHarvesterThinkCooldownTicks(state);
             object.mission = "Guard";
-            state.economy.status =
+            feedback.status =
                 "harvester #"
                 + std::to_string(object.instanceId)
                 + " no ore found";
@@ -50260,7 +50260,7 @@ bool advanceRuntimeHarvesterEconomy(RuntimeWindowState& state) {
 
         task.targetOre = *oreCell;
         if (!loadResourceCell.has_value()) {
-            loadResourceCell = findHarvestableRuntimeResourceNear(state, object, task.targetOre);
+            loadResourceCell = findHarvestableRuntimeResourceNear(state, object, task.targetOre, &context.owner);
         }
         if (loadResourceCell.has_value()) {
             // Store the actual adjacent resource before turning, including when
@@ -50290,7 +50290,7 @@ bool advanceRuntimeHarvesterEconomy(RuntimeWindowState& state) {
                 state,
                 object,
                 *oreCell,
-                "Harvest"
+                "Harvest", nullptr, -1, false, &context.owner
             )) {
             task.phase = RuntimeHarvesterPhase::MovingToOre;
             task.workTicksRemaining = 0;
@@ -50300,7 +50300,7 @@ bool advanceRuntimeHarvesterEconomy(RuntimeWindowState& state) {
                 + ","
                 + std::to_string(oreCell->y);
             task.nextThinkTick = state.tick + 1;
-            state.economy.status =
+            feedback.status =
                 "harvester #"
                 + std::to_string(object.instanceId)
                 + " moving to ore "
@@ -50312,7 +50312,7 @@ bool advanceRuntimeHarvesterEconomy(RuntimeWindowState& state) {
             task.status = "ore unreachable";
             task.nextThinkTick =
                 state.tick + runtimeHarvesterThinkCooldownTicks(state);
-            state.economy.status =
+            feedback.status =
                 "harvester #"
                 + std::to_string(object.instanceId)
                 + " ore unreachable";
@@ -50323,19 +50323,16 @@ bool advanceRuntimeHarvesterEconomy(RuntimeWindowState& state) {
     return changed;
 }
 
+bool advanceRuntimeHarvesterEconomy(RuntimeWindowState& state) {
+    auto context = makeRuntimeHouseEconomyContext(state.economy, state.computerMiningScopeActive);
+    return advanceRuntimeHarvesterEconomy(state, context, state.economy);
+}
 bool advanceRuntimeStructureRepairs(RuntimeWindowState& state);
 bool advanceRuntimeTiberiumHealing(RuntimeWindowState& state);
 bool advanceRuntimeSelfHealing(RuntimeWindowState& state);
 
 bool advanceRuntimeProductionEconomy(RuntimeWindowState& state) {
     RuntimePerfTraceScope trace("advanceRuntimeProductionEconomy", state.tick);
-    RuntimeProductionLanesState staged =
-        state.economy.localProductionLanes;
-    const std::uint64_t previousHash =
-        runtimeProductionLanesStateHash(staged);
-    const int creditsBefore = std::max(0, state.economy.credits);
-    int stagedCredits = creditsBefore;
-
     const auto resolveCatalog = [&state](
         RuntimeProductionLane lane,
         const RuntimeProductionLaneOrder& order
@@ -50477,28 +50474,14 @@ bool advanceRuntimeProductionEconomy(RuntimeWindowState& state) {
     hooks.completeImmediately = [&state](RuntimeProductionLane, const RuntimeProductionLaneOrder&) {
         return runtimeNoCooldownForOwner(state, state.economy.owner);
     };
-    const std::vector<RuntimeProductionAdvanceEvent> events =
-        runtimeAdvanceProductionLanes(staged, stagedCredits, hooks);
-    const int creditsDebited = creditsBefore - stagedCredits;
-    const int eventDebits = std::accumulate(
-        events.begin(),
-        events.end(),
-        0,
-        [](int total, const RuntimeProductionAdvanceEvent& event) {
-            return total + std::max(0, event.creditsDebited);
-        }
-    );
-    if (creditsDebited < 0
-        || eventDebits != creditsDebited
-        || (creditsDebited > 0
-            && !spendRuntimeCredits(state, creditsDebited))) {
+    auto house = makeRuntimeHouseEconomyContext(state.economy, state.computerMiningScopeActive);
+    auto stage = advanceRuntimeProductionFixedStep(state.economy.localProductionLanes, house, hooks);
+    if (!stage.accepted) {
         state.economy.status = "production ledger transaction rejected";
         return false;
     }
-    state.economy.localProductionLanes = std::move(staged);
-    bool changed = previousHash != runtimeProductionLanesStateHash(
-        state.economy.localProductionLanes
-    );
+    bool changed = stage.changed;
+    const auto& events = stage.events;
 
     for (const RuntimeProductionAdvanceEvent& event : events) {
         const std::optional<RuntimeProductionCatalogAdapter> catalog =
@@ -52462,18 +52445,7 @@ std::uint64_t runtimeWorldSimulationHash(
     }
     if (trace) trace->emplace_back("block-13-line-414", hash);
 
-    if (!state.computerMiningByOwner.empty()) {
-        runtimeStableHashMixString(hash, "ComputerMining/1");
-        for (const auto& [owner, mining] : state.computerMiningByOwner) {
-            runtimeStableHashMixString(hash, owner);
-            runtimeStableHashMix(hash, mining.storedResourceUnits);
-            runtimeStableHashMix(hash, mining.storedResourceValue);
-            runtimeStableHashMix(hash, mining.storedResourceGemUnits);
-            runtimeStableHashMix(hash, mining.resourceTrips);
-            runtimeStableHashMix(hash, mining.harvesterTeleports);
-            runtimeStableHashMix(hash, mining.slaveMinerLoads);
-        }
-    }
+    mixRuntimeComputerMiningHash(hash, state.computerMiningByOwner);
     if (trace) trace->emplace_back("block-14-line-427", hash);
 
     if (!state.triggers.computerTacticsByOwner.empty()) {
@@ -56473,23 +56445,12 @@ bool advanceRuntimeEconomyForCurrentHumanHouse(
         changed = true;
     }
 
-    if (state.economy.simplifiedHarvesterIncomeEnabled
-        && state.economy.harvesters > 0
-        && state.economy.refineries > 0) {
-        if (state.economy.incomeCooldownTicks > 0) {
-            --state.economy.incomeCooldownTicks;
-        } else {
-            const int income =
-                std::min(420, 140 * std::max(1, state.economy.harvesters));
-            depositRuntimeCredits(state, income);
-            state.economy.incomeCooldownTicks = 180;
-            ++state.economy.resourceTrips;
-            state.economy.status =
-                "harvester income +" + std::to_string(income)
-                + " credits="
-                + std::to_string(state.economy.credits);
-            changed = true;
-        }
+    auto house = makeRuntimeHouseEconomyContext(state.economy, state.computerMiningScopeActive);
+    const auto incomeStage = advanceRuntimeHouseEconomyFixedStep(house,
+        state.economy.simplifiedHarvesterIncomeEnabled, state.economy.incomeCooldownTicks);
+    if (incomeStage.changed) {
+        state.economy.status = incomeStage.status;
+        changed = true;
     }
 
     changed = advanceRuntimeProductionEconomy(state) || changed;
@@ -57200,18 +57161,7 @@ unsigned long long runtimePersistentTransientStateHash(
         runtimeStableHashMixString(hash, computerTactics.str());
     }
 
-    if (!state.computerMiningByOwner.empty()) {
-        runtimeStableHashMixString(hash, "ComputerMining/1");
-        for (const auto& [owner, mining] : state.computerMiningByOwner) {
-            runtimeStableHashMixString(hash, owner);
-            runtimeStableHashMix(hash, mining.storedResourceUnits);
-            runtimeStableHashMix(hash, mining.storedResourceValue);
-            runtimeStableHashMix(hash, mining.storedResourceGemUnits);
-            runtimeStableHashMix(hash, mining.resourceTrips);
-            runtimeStableHashMix(hash, mining.harvesterTeleports);
-            runtimeStableHashMix(hash, mining.slaveMinerLoads);
-        }
-    }
+    mixRuntimeComputerMiningHash(hash, state.computerMiningByOwner);
     RuntimeWorldAudioSystemState hashedWorldAudio =
         state.worldAudioInitialized
         ? state.worldAudio
@@ -65572,7 +65522,7 @@ RuntimeCrushStepResult resolveRuntimeCrushAtDestination(
 
 std::optional<RuntimeBuildCatalogItem> runtimeBuildItemForBuilding(
     const RuntimeWindowState& state,
-    const std::string& buildingId
+    const std::string& buildingId, const TechTreeReport* technology = nullptr
 ) {
     const BuildingType* building =
         findRuntimeBuildingTypeById(state.rules, buildingId);
@@ -65596,7 +65546,7 @@ std::optional<RuntimeBuildCatalogItem> runtimeBuildItemForBuilding(
     item.wall = building->wall;
     item.buildTicks = runtimeBaseBuildTimeTicks(state, item);
     if (const TechTreeNode* node = runtimeFindTechTreeNode(
-            state.techTree,
+            technology ? *technology : state.techTree,
             building->id
         )) {
         item.techTreeKind = node->kind;
@@ -65660,26 +65610,28 @@ bool deployRuntimeMcv(
     RuntimeWindowState& state,
     int objectId,
     bool selectResult = true,
-    std::optional<RuntimeCellPoint> requestedCell
+    std::optional<RuntimeCellPoint> requestedCell, RuntimeEconomyState* miningEconomy
 ) {
+    auto& economy = miningEconomy ? *miningEconomy : state.economy;
+    const TechTreeReport miningTechnology;
     WorldObjectInstance* mcv = findMutableObjectById(state, objectId);
     if (mcv == nullptr || !mcv->alive || mcv->kind != WorldObjectKind::Unit
         || state.specialMechanisms.isChronoMovementLocked(objectId, state.tick)) {
-        state.economy.status = "deploy failed: no selected MCV";
+        economy.status = "deploy failed: no selected MCV";
         return false;
     }
 
     const UnitType* unit = findRuntimeUnitType(state.rules, *mcv);
     if (unit == nullptr || unit->deploysInto.empty()) {
-        state.economy.status =
+        economy.status =
             "deploy failed: " + mcv->type + " has no DeploysInto";
         return false;
     }
 
     const std::optional<RuntimeBuildCatalogItem> buildingItem =
-        runtimeBuildItemForBuilding(state, unit->deploysInto);
+        runtimeBuildItemForBuilding(state, unit->deploysInto, miningEconomy ? &miningTechnology : nullptr);
     if (!buildingItem.has_value()) {
-        state.economy.status =
+        economy.status =
             "deploy failed: missing building " + unit->deploysInto;
         return false;
     }
@@ -65697,14 +65649,14 @@ bool deployRuntimeMcv(
         ? std::optional<RuntimeCellPoint>(deployCenter) : std::nullopt;
 
     if (!deployCell.has_value()) {
-        state.economy.status =
+        economy.status =
             "deploy failed: no legal footprint for " + unit->deploysInto;
-        state.interactionStatus = state.economy.status;
+        state.interactionStatus = economy.status;
         return false;
     }
 
     const int unlockedOptionsBefore =
-        runtimeUnlockedBuildOptionCount(state);
+        miningEconomy ? 0 : runtimeUnlockedBuildOptionCount(state);
 
     const int oldMcvId = mcv->instanceId;
     const int oldVeterancy = mcv->veterancy;
@@ -65721,7 +65673,7 @@ bool deployRuntimeMcv(
         runtimePlacementTopLeftForAnchor(*deployCell, deployFootprint)
     );
     if (constructionYard == nullptr) {
-        state.economy.status = "deploy failed: placement add failed";
+        economy.status = "deploy failed: placement add failed";
         return false;
     }
     constructionYard->facing = resolvedDeployFacing;
@@ -65753,26 +65705,27 @@ bool deployRuntimeMcv(
     objectExit.suppressDeathWeapon = true;
     if (queueRuntimeObjectExit(state, std::move(objectExit))
             != RuntimeObjectExitQueueResult::Queued
-        || !drainRuntimeObjectExitQueue(state)) {
-        state.economy.status = "deploy failed: source exit rejected";
+        || !drainRuntimeObjectExitQueue(state, miningEconomy)) {
+        economy.status = "deploy failed: source exit rejected";
         return false;
     }
 
     // Delayed deployment runs outside the command's house scope.
     // Attribute human builds to the saved source owner, retaining legacy contexts.
     RuntimeEconomyState* deploymentEconomy =
-        runtimeHumanHouseEconomy(state, oldMcvSnapshot.owner);
-    ++(deploymentEconomy != nullptr ? *deploymentEconomy : state.economy)
+        miningEconomy ? miningEconomy : runtimeHumanHouseEconomy(state, oldMcvSnapshot.owner);
+    ++(deploymentEconomy != nullptr ? *deploymentEconomy : economy)
         .completedBuildings;
-    state.economy.status =
+    economy.status =
         "deployed " + oldMcvType + " -> " + constructionYard->type
         + " #"
         + std::to_string(constructionYard->instanceId);
-    state.interactionStatus = state.economy.status;
+    state.interactionStatus = economy.status;
     state.lastCommand.valid = false;
     refreshRuntimeObjectOccupancyAfterLocalChange(state);
-    rebuildRuntimeEconomyPower(state);
-    if (runtimeUnlockedBuildOptionCount(state) > unlockedOptionsBefore) {
+    if (miningEconomy) refreshRuntimeEconomyMetricsForOwner(state, economy);
+    else rebuildRuntimeEconomyPower(state);
+    if ((miningEconomy ? 0 : runtimeUnlockedBuildOptionCount(state)) > unlockedOptionsBefore) {
         emitRuntimeSound(
             state,
             runtimeSoundIntentNewConstructionOptions
@@ -85270,7 +85223,7 @@ bool requestRuntimeChronoMoveWithParasite(
 
 RuntimeObjectExitResult finalizeRuntimeObjectExit(
     RuntimeWindowState& state,
-    const RuntimeObjectExitRequest& request
+    const RuntimeObjectExitRequest& request, RuntimeEconomyState* miningEconomy
 ) {
     RuntimeObjectExitResult result;
     if (state.deathWeapons.hasTriggered(request.objectId)) {
@@ -85585,7 +85538,7 @@ RuntimeObjectExitResult finalizeRuntimeObjectExit(
         state,
         request.objectId,
         request.reason.empty() ? "refinery exited" : request.reason,
-        &request
+        &request, miningEconomy
     );
     if (object->tankBunkerOccupantId >= 0) releaseRuntimeTankBunker(state, *object);
     if (object->tankBunkerHostId >= 0) {
@@ -85823,7 +85776,8 @@ RuntimeObjectExitResult finalizeRuntimeObjectExit(
     return result;
 }
 
-bool drainRuntimeObjectExitQueue(RuntimeWindowState& state) {
+bool drainRuntimeObjectExitQueue(RuntimeWindowState& state, RuntimeEconomyState* miningEconomy) {
+    auto& economy = miningEconomy ? *miningEconomy : state.economy;
     if (state.drainingObjectExits) {
         return false;
     }
@@ -85895,7 +85849,7 @@ bool drainRuntimeObjectExitQueue(RuntimeWindowState& state) {
             RuntimeObjectExitRequest request = std::move(state.pendingObjectExits.front());
             state.pendingObjectExits.pop_front();
             state.pendingObjectExitIds.erase(request.objectId);
-            const RuntimeObjectExitResult result = finalizeRuntimeObjectExit(state, request);
+            const RuntimeObjectExitResult result = finalizeRuntimeObjectExit(state, request, miningEconomy);
             acceptedInWave = result.accepted || acceptedInWave;
             finalizedExit = result.accepted || finalizedExit;
             changed = result.accepted || changed;
@@ -85998,12 +85952,12 @@ bool drainRuntimeObjectExitQueue(RuntimeWindowState& state) {
         const std::string localCanonicalOwner =
             runtimeRepairDepotCanonicalOwnerId(
                 state,
-                state.economy.owner
+                economy.owner
             );
         bool hasLocalPadOrders = false;
         for (const RuntimeProductionLane lane : runtimeProductionLanes) {
             const RuntimeProductionLaneState& laneState =
-                state.economy.localProductionLanes.lanes[
+                economy.localProductionLanes.lanes[
                     runtimeProductionLaneIndex(lane)
                 ];
             hasLocalPadOrders = hasLocalPadOrders
@@ -86038,7 +85992,7 @@ bool drainRuntimeObjectExitQueue(RuntimeWindowState& state) {
         bool normalized = false;
         std::string normalizationError;
         try {
-            beforeLanes.emplace(state.economy.localProductionLanes);
+            beforeLanes.emplace(economy.localProductionLanes);
             std::size_t flexibleAircraftCount = 0U;
             for (const auto& [owner, aircraft] : flexibleAircraftByOwner) {
                 (void)owner;
@@ -86068,13 +86022,13 @@ bool drainRuntimeObjectExitQueue(RuntimeWindowState& state) {
                 const bool localOwner = owner
                     == runtimeRepairDepotCanonicalOwnerId(
                         state,
-                        state.economy.owner
+                        economy.owner
                     );
                 RuntimeAircraftProductionMatchInputBuild inputBuild =
                     buildRuntimeAircraftProductionRecoveryInputForOwner(
                         state,
                         owner,
-                        localOwner
+                        localOwner && miningEconomy == nullptr
                     );
                 if (inputBuild.error.has_value()) {
                     normalizationError = inputBuild.error->reason.empty()
@@ -86129,7 +86083,7 @@ bool drainRuntimeObjectExitQueue(RuntimeWindowState& state) {
                         for (const RuntimeProductionLane lane :
                                 runtimeProductionLanes) {
                             canceled = runtimeCancelProductionSerial(
-                                state.economy.localProductionLanes,
+                                economy.localProductionLanes,
                                 lane,
                                 serial
                             );
@@ -86248,7 +86202,7 @@ bool drainRuntimeObjectExitQueue(RuntimeWindowState& state) {
             if (normalizationError.empty()
                 && !validateRuntimePadAircraftProductionProjection(
                     state,
-                    normalizationError
+                    normalizationError, miningEconomy ? &economy.owner : nullptr
                 )) {
                 normalizationError =
                     "recovered projection is invalid: "
@@ -86261,7 +86215,7 @@ bool drainRuntimeObjectExitQueue(RuntimeWindowState& state) {
         }
         if (!normalized) {
             if (beforeLanes.has_value()) {
-                state.economy.localProductionLanes =
+                economy.localProductionLanes =
                     std::move(*beforeLanes);
             }
             for (auto& [aircraftId, before] : beforeAircraft) {
@@ -86281,8 +86235,8 @@ bool drainRuntimeObjectExitQueue(RuntimeWindowState& state) {
                 "PadAircraft host-loss normalization failed: "
                 + normalizationError;
         } else if (canceledCount > 0U) {
-            depositRuntimeCredits(state, refund);
-            state.economy.status =
+            economy.credits = runtimeCreditBalanceAfterDeposit(economy.credits, refund);
+            economy.status =
                 "canceled " + std::to_string(canceledCount)
                 + " PadAircraft order(s) after support host loss";
         }
@@ -147173,6 +147127,10 @@ bool runRuntimeNeutralBuildingPaletteRenderContractCheck(
 #include "simulation/navigation/planning/diagnostics/RuntimeWaypointPlanningSmoke.inl"
 #include "simulation/combat/damage/diagnostics/RuntimeCrewSurvivorsSmoke.inl"
 #include "simulation/ai/diagnostics/RuntimeComputerMiningSmoke.inl"
+#include "simulation/ai/diagnostics/RuntimeHouseEconomyContextSmoke.inl"
+#include "simulation/economy/diagnostics/RuntimeEconomyProductionFixedStepSmoke.inl"
+#include "simulation/ai/diagnostics/RuntimeMobileSlaveEconomyContextSmoke.inl"
+#include "simulation/ai/diagnostics/RuntimeSlaveWorkerEconomyContextSmoke.inl"
 #include "simulation/ai/diagnostics/RuntimeComputerTacticsSmoke.inl"
 #include "simulation/ai/diagnostics/RuntimeComputerTacticsInteractionSmoke.inl"
 #include "simulation/ai/diagnostics/RuntimeComputerTacticsAssemblySmoke.inl"
@@ -147253,6 +147211,8 @@ bool runRuntimeNeutralBuildingPaletteRenderContractCheck(
 #include "simulation/buildings/diagnostics/RuntimeSellModeSmoke.inl"
 #include "simulation/buildings/diagnostics/RuntimeSellPerformanceSmoke.inl"
 #include "simulation/buildings/diagnostics/RuntimeSellBoundarySmoke.inl"
+#include "simulation/superweapons/diagnostics/RuntimeChronosphereRelocationLegacy.inl"
+#include "simulation/superweapons/diagnostics/RuntimeChronosphereRelocationNative.inl"
 #include "simulation/superweapons/diagnostics/RuntimeChronosphereEmptyGroundSmoke.inl"
 #include "simulation/buildings/diagnostics/RuntimeBuildingPlacementFeedbackSmoke.inl"
 #include "simulation/movement/aircraft/diagnostics/RuntimeNighthawkLandingSmoke.inl"
@@ -149106,6 +149066,26 @@ int runRuntimeCommandSmokeTest(const RuntimeConfig& config) {
     if (std::getenv("CONCORD_COMMAND_SMOKE_COMPUTER_TACTICS_FOUNDATION_ONLY")) {
         std::string error;
         if (!runRuntimeComputerTacticsFoundationSmoke(config, error)) { std::cerr << error << '\n'; return 1; }
+        return 0;
+    }
+    if (std::getenv("CONCORD_COMMAND_SMOKE_SLAVE_WORKER_ECONOMY_ONLY")) {
+        std::string error;
+        if (!runRuntimeSlaveWorkerEconomyContextSmoke(config, error)) { std::cerr << error << '\n'; return 1; }
+        return 0;
+    }
+    if (std::getenv("CONCORD_COMMAND_SMOKE_MOBILE_SLAVE_ECONOMY_ONLY")) {
+        std::string error;
+        if (!runRuntimeMobileSlaveEconomyContextSmoke(config, error)) { std::cerr << error << '\n'; return 1; }
+        return 0;
+    }
+    if (std::getenv("CONCORD_COMMAND_SMOKE_ECONOMY_PRODUCTION_FIXED_STEP_ONLY")) {
+        std::string error;
+        if (!runRuntimeEconomyProductionFixedStepSmoke(config, error)) { std::cerr << error << '\n'; return 1; }
+        return 0;
+    }
+    if (std::getenv("CONCORD_COMMAND_SMOKE_HOUSE_ECONOMY_CONTEXT_ONLY")) {
+        std::string error;
+        if (!runRuntimeHouseEconomyContextSmoke(config, error)) { std::cerr << error << '\n'; return 1; }
         return 0;
     }
     if (std::getenv("CONCORD_COMMAND_SMOKE_COMPUTER_MINING_ONLY")) {

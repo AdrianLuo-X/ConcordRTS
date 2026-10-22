@@ -26,6 +26,10 @@
 | UI 时钟 | 同步借用毫秒时间与原计时策略 | [RuntimeUiClock.h](src/ui/time/RuntimeUiClock.h) |
 | 预览资源会话 | 资源上下文、缓存和显式刷新 | [MapPreviewResourceContext.h](src/assets/preview/MapPreviewResourceContext.h)、[MapPreviewExporter.h](src/assets/preview/MapPreviewExporter.h) |
 | 回放事件类型 | 独立事件数据及读取、汇总入口 | [RuntimeReplayEventSnapshot.h](src/runtime/contracts/RuntimeReplayEventSnapshot.h)、[ReplaySandbox.h](src/analysis/sandbox/ReplaySandbox.h) |
+| 户级经济 | 同步借用单个阵营的余额与储矿记录 | [HouseEconomyContext.h](src/simulation/economy/HouseEconomyContext.h) |
+| 采矿状态保存 | ComputerMining 读写与哈希贡献 | [RuntimeComputerMiningCodec.h](src/simulation/ai/RuntimeComputerMiningCodec.h) |
+| 经济与生产固定步 | 收入、扣款及生产队列事务 | [RuntimeEconomyFixedStep.h](src/simulation/economy/RuntimeEconomyFixedStep.h)、[RuntimeProductionFixedStep.h](src/simulation/production/RuntimeProductionFixedStep.h) |
+| 传送位置提交 | 超时空传送的坐标写入与通知 | [RuntimeChronosphereRelocation.h](src/simulation/superweapons/RuntimeChronosphereRelocation.h) |
 | 运行时配置 | 配置类型、加载与偏好保存 | [RuntimeConfig.h](src/runtime/config/RuntimeConfig.h) |
 | 运行时入口 | 启动检查与游戏窗口 | [RuntimeShell.h](src/runtime/host/RuntimeShell.h) |
 | 互联网服务               | 服务配置、证书、连接和轮询    | [RuntimeInternetServiceHost.h](src/network/internet/RuntimeInternetServiceHost.h)、[RuntimeInternetServiceHostConfig.h](src/network/internet/RuntimeInternetServiceHostConfig.h) |
@@ -314,6 +318,76 @@ void hashRuntimeMatchScore(const RuntimeMatchScoreState& scores, std::uint64_t& 
 
 调用方先完成战局门控、归属与联盟判定，再提交事件。模块累计事件，重复提交会重复计入；对象退出去重仍由游戏宿主负责。销毁事件的空 `creditedOwner` 只记损失。计数保持饱和处理，加载支持原有 Schema 1/2；加载失败保留原状态，缺少保存段时清空状态。`hashRuntimeMatchScore()` 更新传入的哈希累加值。旧 [ui/results/RuntimeMatchScore.h](src/ui/results/RuntimeMatchScore.h) 保留对核心头的兼容包含。
 
+## 户级经济与 AI 采矿
+
+[HouseEconomyContext.h](src/simulation/economy/HouseEconomyContext.h) 定义一个阵营在同步调用期间使用的经济上下文。它按引用借用 owner、余额、储矿单位/价值/宝石数、运输次数、传送次数和容量，以及只读的矿车、精炼厂数量；`computerControlled` 为值标志。上下文不拥有这些对象，调用方须保证引用在调用期间有效。
+
+`normalizeHouseResourceStorage()` 整理储矿记录，`recordHouseResourceDelivery()` 记入一次资源交付并返回容量、储存和溢出结果；`houseOrePurifierBonusValue()` 计算矿石精炼器加成。接口不包含科技树、生产目录或界面模型。
+
+普通矿车、移动奴隶矿车及奴隶矿工使用同一显式户级上下文。AI 适配保留原 owner 顺序和本户工作账本，原同步反馈保护结束后提交净收入；采矿处理不再通过临时替换玩家经济、科技状态实现。相关消费者见 [RuntimeComputerMining.inl](src/simulation/ai/RuntimeComputerMining.inl)、[RuntimeHarvesterResourceAccess.inl](src/simulation/economy/RuntimeHarvesterResourceAccess.inl) 和 [RuntimeSlaveMinerEconomy.inl](src/simulation/economy/RuntimeSlaveMinerEconomy.inl)。
+
+### ComputerMining 保存与哈希
+
+[RuntimeComputerMiningCodec.h](src/simulation/ai/RuntimeComputerMiningCodec.h) 直接操作 `std::map<std::string, RuntimeComputerMiningState>`：
+
+```cpp
+void writeRuntimeComputerMining(
+    std::ostream& output,
+    const std::map<std::string, RuntimeComputerMiningState>& miningByOwner);
+
+bool readRuntimeComputerMining(
+    const IniFile& ini,
+    std::map<std::string, RuntimeComputerMiningState>& output,
+    std::string& error);
+
+void mixRuntimeComputerMiningHash(
+    std::uint64_t& hash,
+    const std::map<std::string, RuntimeComputerMiningState>& miningByOwner);
+```
+
+保存使用原 `[ComputerMining]`、Schema 1 和 owner 排序。读取限制 `Count` 在 0 至 10000，先校验候选状态再提交；缺少该段时成功清空输出，失败时保留原输出状态。字段解析和错误文本沿用实现。哈希函数向调用方已有种子加入原贡献；空 map 不改变种子。完整存档格式编排和其他保存段仍由宿主负责。
+
+## 经济与生产固定步
+
+[RuntimeEconomyFixedStep.h](src/simulation/economy/RuntimeEconomyFixedStep.h) 提供余额存入、储矿价值缩放、扣款和每户收入处理：
+
+```cpp
+RuntimeEconomyFixedStepResult advanceRuntimeHouseEconomyFixedStep(
+    HouseEconomyContext& house,
+    bool simplifiedHarvesterIncomeEnabled,
+    int& incomeCooldownTicks);
+```
+
+结果包含 `changed` 和状态文本；仅递减收入冷却时保持 `changed=false`。`spendRuntimeHouseCredits()` 在余额不足时返回 false，成功后同步调整余额和对应储矿记录。原收入处理位置保持在该户生产事务之前。
+
+[RuntimeProductionFixedStep.h](src/simulation/production/RuntimeProductionFixedStep.h) 提供：
+
+```cpp
+RuntimeProductionFixedStepResult advanceRuntimeProductionFixedStep(
+    RuntimeProductionLanesState& lanes,
+    HouseEconomyContext& house,
+    const RuntimeProductionAdvanceHooks& hooks);
+```
+
+函数先推进候选队列，核对队列扣款与全部事件扣款一致，再向该户经济账本扣款，最后提交队列。结果包含 `accepted`、`changed` 和事件列表；拒绝事务时不提交候选队列，返回的事件不能作为已接受的世界交付执行。`changed` 表示已提交队列的状态哈希是否变化。带类型的查询 hooks 保留原惰性调用顺序，界面、音频及单位实际交付仍由宿主按原位置处理。
+
+这些接口提取收入与队列事务职责，完整固定步主循环的调用顺序、轻量路径和其他模拟阶段保持原有编排。
+
+## 超时空传送的位置提交
+
+[RuntimeChronosphereRelocation.h](src/simulation/superweapons/RuntimeChronosphereRelocation.h) 将一次位置写入和通知集中为：
+
+```cpp
+RuntimeChronosphereRelocationResult commitRuntimeChronosphereRelocation(
+    WorldObjectInstance* object,
+    const RuntimeChronosphereRelocationRequest& request,
+    RuntimeChronosphereRelocationPort& port);
+```
+
+调用方先完成原合法性、占用、存活和生物类型策略。请求携带原坐标、目标坐标与 cell 编码，并区分普通编队到达和致命水域到达；模块依次写入坐标、按需查询高度、处理桥面/绘制/任务标志，再通知 `onRelocated()`。
+
+空指针不产生效果；同格到达仍提交并通知一次。对象与 port 只在当前同步调用内借用，回调可查询或嵌套提交，但不能替换、扩容或重分配当前借用对象的存储。异常保留此前已发生的写入，不自动回滚。返回值拥有通知前捕获的旧/新姿态和通知时生命值，可在之后存储重建后继续读取，但不代表对象的实时状态。
+
 ## 共享资源解码
 
 这些接口接收字节并返回解析数据。素材选择、文件读取、资源优先级及各消费者的显示行为由调用方承担。
@@ -447,6 +521,8 @@ ReplayRuntimeEventSourceSummary summarizeRuntimeReplayEventSnapshots(
 角色、计分、解码、预览会话、回放、输入、UI 时钟及地形标准检查见 [TestsUnitAndNetwork.cmake](cmake/TestsUnitAndNetwork.cmake)；回放测试目标定义见 [ReplaySnapshotContracts.cmake](cmake/ReplaySnapshotContracts.cmake)。地形与 TMP 的独立构建配置见 [NavigationTerrainQueryContracts.cmake](cmake/NavigationTerrainQueryContracts.cmake)、[TmpTerrainContracts.cmake](cmake/TmpTerrainContracts.cmake)，资源运行检查见 [TestsRuntimeRegression.cmake](cmake/TestsRuntimeRegression.cmake)。
 
 指针、光标、取消捕获及相应 Windows 集成检查见 [TestsAdditionalRegression.cmake](cmake/TestsAdditionalRegression.cmake)。这些检查按具体 CMake 目标和 CTest 名称选择，未自动并入 `windows-minimal` 的 12 项或 `windows-local-assets` 的 4 项集合；标准合同、素材检查、原生适配与真实网络运行的结果须分别判断，不能相互替代。
+
+经济与传送的标准目标定义见 [RuntimeSmokeTargets.cmake](cmake/RuntimeSmokeTargets.cmake)，它们直接编译相应生产实现。`chronosphere_relocation_contract_test`、`house_economy_context_contract_test` 在 [TestsAdditionalRegression.cmake](cmake/TestsAdditionalRegression.cmake) 注册；`computer_mining_codec_contract_test` 和 `economy_production_fixed_step_contract_test` 在 [TestsUnitAndNetwork.cmake](cmake/TestsUnitAndNetwork.cmake) 注册。后两项读取 [采矿保存夹具](tests/fixtures/runtime_computer_mining_codec) 和 [固定步夹具](tests/fixtures/runtime_economy_production_fixed_step)，比较完整预期文本；公开构建入口只读取这些夹具。
 
 ## 命令行接口
 

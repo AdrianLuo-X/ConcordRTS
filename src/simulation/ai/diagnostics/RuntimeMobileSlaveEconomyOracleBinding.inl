@@ -1,0 +1,4 @@
+#include "simulation/ai/diagnostics/RuntimeMobileSlaveEconomyOldExitClosure.inl"
+#define drainRuntimeObjectExitQueue s17OldDrainRuntimeObjectExitQueue
+#include "simulation/ai/diagnostics/RuntimeMobileSlaveEconomyOldOracle.inl"
+#undef drainRuntimeObjectExitQueue

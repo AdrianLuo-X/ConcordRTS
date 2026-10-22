@@ -1003,3 +1003,14 @@ add_test(NAME terrain_tmp_query_contract_test
         "-DOUTPUT_PARENT=${CMAKE_BINARY_DIR}/terrain-tmp-query-contract-runs"
         -P "${CMAKE_SOURCE_DIR}/cmake/RunTerrainTmpQueryContract.cmake")
 set_tests_properties(terrain_tmp_query_contract_test PROPERTIES TIMEOUT 180 LABELS "tmp-query;standard-contract")
+add_test(NAME computer_mining_codec_contract_test
+    COMMAND concord_computer_mining_codec_contract
+        "${CMAKE_SOURCE_DIR}/tests/fixtures/runtime_computer_mining_codec")
+set_tests_properties(computer_mining_codec_contract_test PROPERTIES
+    TIMEOUT 120 LABELS "computer-mining-codec;standard-contract")
+
+add_test(NAME economy_production_fixed_step_contract_test
+    COMMAND concord_economy_production_fixed_step_contract
+        "${CMAKE_SOURCE_DIR}/tests/fixtures/runtime_economy_production_fixed_step")
+set_tests_properties(economy_production_fixed_step_contract_test PROPERTIES
+    LABELS "unit;economy;production;determinism" TIMEOUT 60)

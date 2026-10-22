@@ -10,7 +10,7 @@ bool runtimeObjectIsMobileSlaveMiner(
 std::optional<RuntimeCellPoint> findRuntimeSlaveMinerDeployCellNearOre(
     const RuntimeWindowState& state, const WorldObjectInstance& miner,
     const RuntimeCellPoint& ore,
-    const RuntimeManualFormationMappedFilter* manualMappedFilter = nullptr
+    const RuntimeManualFormationMappedFilter* manualMappedFilter = nullptr, const std::string* owner = nullptr
 ) {
     const auto* unit = findRuntimeUnitType(state.rules, miner);
     if (unit == nullptr || !runtimeUnitIsMobileSlaveMiner(*unit)
@@ -34,7 +34,7 @@ std::optional<RuntimeCellPoint> findRuntimeSlaveMinerDeployCellNearOre(
             const RuntimeCellPoint cell{x, y};
             if (terrainLevelAtRuntimeCell(state, x, y)
                     != terrainLevelAtRuntimeCell(state, ore.x, ore.y)
-                || !runtimeCellCanPlaceBuilding(state, item, cell, miner.instanceId, &occupied))
+                || !runtimeCellCanPlaceBuilding(state, item, cell, miner.instanceId, &occupied, owner ? *owner : std::string{}))
                 continue;
             // Vehicle routes, manual mapping and deployment requests use
             // center anchors; the preceding foundation check alone uses a corner.
@@ -63,7 +63,7 @@ std::optional<RuntimeCellPoint> findRuntimeSlaveMinerDeployCellNearOre(
         worker.y = cell.y;
         worker.cell = runtimeCellKey(cell.x, cell.y);
         worker.onBridge = false;
-        if (findRuntimeHarvesterResourceApproach(state, worker, ore).has_value()
+        if (findRuntimeHarvesterResourceApproach(state, worker, ore, owner).has_value()
             && (manualMappedFilter == nullptr || manualMappedFilter->allows(cell))) return cell;
     }
     return std::nullopt;
