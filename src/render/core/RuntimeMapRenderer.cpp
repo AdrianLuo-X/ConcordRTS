@@ -1,4 +1,5 @@
 #include "render/core/RuntimeMapRenderer.h"
+#include "render/core/RuntimeMapTerrainFrameRenderer.h"
 #include "assets/codecs/RuntimeTmpCodec.h"
 #include "assets/terrain/RuntimeTerrainTmpQuery.h"
 #include "assets/codecs/ShpCodec.h"
@@ -75,6 +76,20 @@
 #endif
 
 RuntimeMapRenderContext::RuntimeMapRenderContext() = default;
+
+RuntimeMapRenderContext runtimeMapRenderContextForTerrainFrame(
+    const RuntimeMapTerrainFrame& frame) {
+    RuntimeMapRenderContext context;
+    context.theater = frame.theater;
+    context.art = frame.art;
+    context.rules = frame.rules;
+    context.mapFacts = frame.mapFacts;
+    context.vision = frame.vision;
+    context.visionObserverOwner = frame.visionObserverOwner;
+    context.lightingTint = &frame.lightingTint;
+    context.lightingProfile = frame.lightingProfile;
+    return context;
+}
 RuntimeMapRenderContext::~RuntimeMapRenderContext() = default;
 
 COLORREF runtimeBlendBlack(COLORREF color, int alpha);

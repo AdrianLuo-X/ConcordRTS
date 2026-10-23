@@ -3,6 +3,7 @@
 #include "world/model/GameWorld.h"
 #include "core/io/IniFile.h"
 #include "data/rules/RulesDatabase.h"
+#include "simulation/abilities/unit_special/RuntimeTimedBomb.h"
 
 #include <cstdint>
 #include <functional>
@@ -11,30 +12,10 @@
 #include <string>
 #include <vector>
 
-struct SpecialCell {
-    int x = -1;
-    int y = -1;
-};
-
-// The shell's existing terrain targets use -(base + y * 1000 + x).
-// Only these bounded cell IDs, positive object IDs, and -1 (no target)
-// are accepted by the carrier state machine.
-bool decodeRuntimeCarrierCellTarget(int targetId, SpecialCell& cell, bool& bridge);
-
 struct SpecialWorldPoint {
     double x = 0.0;
     double y = 0.0;
     double z = 0.0;
-};
-
-struct SpecialMechanismEvent {
-    std::string kind;
-    int tick = 0;
-    int objectId = -1;
-    int targetObjectId = -1;
-    int value = 0;
-    SpecialCell cell;
-    std::string reason;
 };
 
 struct MindControlLinkState {
@@ -147,25 +128,6 @@ struct RadiationDamageEvent {
     int sourceObjectId = -1;
     std::string sourceOwner;
     std::string warheadId;
-};
-
-enum class TimedBombKind {
-    C4,
-    Ivan
-};
-
-struct TimedBombState {
-    int targetObjectId = -1;
-    int sourceObjectId = -1;
-    std::string owner;
-    TimedBombKind kind = TimedBombKind::Ivan;
-    int attachedTick = 0;
-    int detonateTick = 0;
-    int damage = 0;
-    std::string warheadId;
-    // Stock C4 uses C4Warhead as the engine's absolute-damage marker and
-    // destroys a building regardless of its current hit points.
-    bool forceDestruction = false;
 };
 
 enum class ParasiteTargetKind {
@@ -291,46 +253,6 @@ struct ParasiteLinkState {
     int cullingThresholdPerMyriad = 0;
     int targetMaximumHealth = 1;
     bool sourceExpectedInLimbo = true;
-};
-
-enum class SpecialMechanismActionKind {
-    TimedBombDetonate,
-    ParasiteEnterLimbo,
-    ParasiteAttachHost,
-    ParasiteReturnFromLimbo,
-    ParasiteKillTarget,
-    ParasiteDamage,
-    ParasiteEject,
-    ParasiteKillParasite,
-    ParasiteReleaseTarget
-};
-
-// RuntimeSpecialMechanismState never owns or mutates the referenced objects
-// for these mechanisms.  Callers consume these value-only actions at a safe
-// point in their world update.
-struct SpecialMechanismAction {
-    SpecialMechanismActionKind kind =
-        SpecialMechanismActionKind::TimedBombDetonate;
-    int tick = 0;
-    int projectileId = -1;
-    int objectId = -1;
-    int targetObjectId = -1;
-    std::string owner;
-    int damage = 0;
-    std::string warheadId;
-    bool forceDestruction = false;
-    int paralyzes = 0;
-    bool culling = false;
-    bool suppressDeathWeapon = false;
-    int stunTicks = 0;
-    SpecialCell cell;
-    std::string reason;
-    // Transient placement permission for this parasite's own lethal bite or
-    // infantry cull. Other host events retain ordinary occupied-cell checks.
-    bool replacesTerminatingHost = false;
-    // Audio provenance only: the source was already inside this host, rather
-    // than still travelling toward a pending launch target. Not persisted.
-    bool sourceWasAttachedToHost = false;
 };
 
 struct ParasiteOperationResult {
@@ -476,7 +398,7 @@ struct SpecialMechanismRenderSnapshot {
 using SpecialAlliancePredicate =
     std::function<bool(const std::string&, const std::string&)>;
 using SpecialCellPredicate = std::function<bool(int, int, int)>;
-using SpecialEventSink = std::function<void(const SpecialMechanismEvent&)>;
+
 
 class RuntimeSpecialMechanismState {
 public:
@@ -929,7 +851,7 @@ private:
     std::map<int, ElectricChargeState> electricChargeByTarget_;
     std::map<int, ElectricArcState> electricArcs_;
     std::map<int, RadiationAreaState> radiationAreas_;
-    std::map<int, TimedBombState> timedBombByTarget_;
+    RuntimeTimedBombState timedBombs_;
     std::map<int, ParasitePendingLaunchState> parasitePendingByProjectile_;
     std::map<int, ParasiteLinkState> parasiteByTarget_;
     std::map<int, ParasiteResolvedLaunchState>

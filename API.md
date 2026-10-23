@@ -30,6 +30,10 @@
 | 采矿状态保存 | ComputerMining 读写与哈希贡献 | [RuntimeComputerMiningCodec.h](src/simulation/ai/RuntimeComputerMiningCodec.h) |
 | 经济与生产固定步 | 收入、扣款及生产队列事务 | [RuntimeEconomyFixedStep.h](src/simulation/economy/RuntimeEconomyFixedStep.h)、[RuntimeProductionFixedStep.h](src/simulation/production/RuntimeProductionFixedStep.h) |
 | 传送位置提交 | 超时空传送的坐标写入与通知 | [RuntimeChronosphereRelocation.h](src/simulation/superweapons/RuntimeChronosphereRelocation.h) |
+| 生产规则解析 | 类型化生产参数与有序诊断 | [ProductionRules.h](src/data/rules/ProductionRules.h)、[ProductionRulesLoader.h](src/data/rules/ProductionRulesLoader.h) |
+| 定时炸弹 | C4、Ivan 状态与值类型动作 | [RuntimeTimedBomb.h](src/simulation/abilities/unit_special/RuntimeTimedBomb.h)、[RuntimeSpecialMechanismEvents.h](src/simulation/abilities/unit_special/RuntimeSpecialMechanismEvents.h) |
+| 寻路目标候选 | 同步生成普通与环形回退候选 | [PathGoalCandidates.h](src/simulation/navigation/pathfinding/PathGoalCandidates.h)、[PathGoalTypes.h](src/simulation/navigation/pathfinding/PathGoalTypes.h) |
+| 地图地形帧 | 资源、光照与视野的短期只读输入 | [RuntimeMapTerrainFrame.h](src/render/core/RuntimeMapTerrainFrame.h)、[RuntimeMapTerrainFrameRenderer.h](src/render/core/RuntimeMapTerrainFrameRenderer.h) |
 | 运行时配置 | 配置类型、加载与偏好保存 | [RuntimeConfig.h](src/runtime/config/RuntimeConfig.h) |
 | 运行时入口 | 启动检查与游戏窗口 | [RuntimeShell.h](src/runtime/host/RuntimeShell.h) |
 | 互联网服务               | 服务配置、证书、连接和轮询    | [RuntimeInternetServiceHost.h](src/network/internet/RuntimeInternetServiceHost.h)、[RuntimeInternetServiceHostConfig.h](src/network/internet/RuntimeInternetServiceHostConfig.h) |
@@ -126,6 +130,36 @@ std::vector<ArtObjectLink> buildLinks(const RulesDatabase& rules) const;
 ```
 
 `buildLinks()` 生成规则对象与美术定义的关联，结果中的 `hasArt` 表示是否找到对应定义。元数据解析和关联本身不加载图像像素，也不会准备运行素材。
+
+## 生产规则解析
+
+[ProductionRulesLoader.h](src/data/rules/ProductionRulesLoader.h) 从已叠加的 `IniFile` 同步读取生产参数：
+
+```cpp
+ProductionRulesLoadResult loadProductionRules(const IniFile& ini);
+double readProductionRuleCoefficient(
+    const IniFile& ini, const std::string& section, const std::string& key,
+    double defaultValue, double maximumValue,
+    std::vector<std::string>& diagnostics);
+```
+
+返回值拥有 `ProductionRules values` 和两组诊断字符串，不保留 INI 引用。`buildupParseDiagnostics` 保存 BuildupTime 数字解析诊断，`diagnostics` 保存其余生产诊断；原数据库在两组之间处理采矿装卸字段，以维持既有警告顺序。
+
+[ProductionRules.h](src/data/rules/ProductionRules.h) 的参数对应 `[General]`：
+
+| INI 键 | 默认值 | 有效范围 |
+| --- | --- | --- |
+| `BuildSpeed` | 0.7 | 大于 0，不大于 100 |
+| `BuildupTime` | 0.05 | 0 至 100，包含端点 |
+| `MultipleFactory` | 0.8 | 大于 0，不大于 1 |
+| `WallBuildSpeedCoefficient` | 3.0 | 大于 0，不大于 100 |
+| `LowPowerPenaltyModifier` | 1.0 | 大于 0，不大于 100 |
+| `MinLowPowerProductionSpeed` | 0.5 | 大于 0，不大于 1 |
+| `MaxLowPowerProductionSpeed` | 0.8 | 大于 0，不大于 1 |
+
+数值须为完整、有限的浮点文本；空值采用默认值，非法或越界值回退并记录诊断。最小低电量速度大于最大值时，两者同时回退为 0.5 和 0.8。对象的 `BuildTimeMultiplier` 使用同一系数读取接口，由对象加载器传入默认值 1 和上限 100。
+
+配置叠加仍由 `IniFile::appendFrom()` 完成。后层提供空值或非法值时，解析器使用默认值，不恢复前层旧值。这里的严格浮点规则不替换其他字段已有的宽松整数或百分比规则；正常游戏加载继续从 `RulesDatabase::loadFromIni()` 进入。
 
 ## 地图与世界状态
 
@@ -388,6 +422,18 @@ RuntimeChronosphereRelocationResult commitRuntimeChronosphereRelocation(
 
 空指针不产生效果；同格到达仍提交并通知一次。对象与 port 只在当前同步调用内借用，回调可查询或嵌套提交，但不能替换、扩容或重分配当前借用对象的存储。异常保留此前已发生的写入，不自动回滚。返回值拥有通知前捕获的旧/新姿态和通知时生命值，可在之后存储重建后继续读取，但不代表对象的实时状态。
 
+## 定时炸弹与特殊机制事件
+
+[RuntimeTimedBomb.h](src/simulation/abilities/unit_special/RuntimeTimedBomb.h) 声明 `RuntimeTimedBombState`，按目标对象 ID 持有有序炸弹记录。`TimedBombRules` 只传入 C4 与 Ivan 所需参数；`TimedBombObjectQuery`、`TimedBombEligibilityQuery` 和 `TimedBombDisarmQuery` 提供对象事实、放置能力与拆除条件，模块不取得完整世界或宿主对象。
+
+- `tryPlantC4()`、`tryAttachIvanBomb()` 和 `tryDisarmTimedBomb()` 返回是否成功，并填写原因字符串；调用方传入原模拟 tick、适用的固定步频率与事件接收器。
+- `tickTimedBombs()` 返回到期动作；`onObjectRemoved()`、`onOwnerChanged()` 和 `reconcile()` 处理对象及归属变化，按接口参数返回动作或发出事件。
+- `records()` 返回内部有序记录的常量引用；其寿命依赖状态对象，修改、重置、交换或加载状态后应重新查询。
+
+[RuntimeSpecialMechanismEvents.h](src/simulation/abilities/unit_special/RuntimeSpecialMechanismEvents.h) 提供 `SpecialCell`、`SpecialMechanismEvent`、`SpecialMechanismAction` 与 `SpecialEventSink`。动作只描述效果，仍由宿主在原世界更新位置消费；模块不直接销毁对象或扣减生命。
+
+原 `RuntimeSpecialMechanismState` 继续作为游戏入口，并负责整个 SpecialMechanisms 的保存、哈希和原子读取事务。新模块没有另立一套独立保存格式。[独立诊断源码](src/simulation/abilities/unit_special/diagnostics/RuntimeSpecialMechanismsSmoke.cpp) 保留原诊断入口与断言。
+
 ## 共享资源解码
 
 这些接口接收字节并返回解析数据。素材选择、文件读取、资源优先级及各消费者的显示行为由调用方承担。
@@ -468,6 +514,45 @@ RuntimeNavigationTerrainInfo queryRuntimeNavigationTerrainInfo(
 
 [RuntimeTerrainTypes.h](src/simulation/navigation/terrain/RuntimeTerrainTypes.h) 中的返回值拥有全部 11 个字段：移动地形、坡型、地形种类、原始地形、可通行、水域、岸线、悬崖、坡面、桥面和代价。结果不借用渲染器或世界容器；查询端口和输入地形仍只在同步调用内借用。这一接口边界不表示整个导航或渲染系统已无平台依赖。
 
+## 寻路目标候选
+
+[PathGoalCandidates.h](src/simulation/navigation/pathfinding/PathGoalCandidates.h) 将目标候选计算与队列搜索分开；基础 `PathCell`、`PathMovementMode` 和 `PathTerrainCell` 见 [PathGoalTypes.h](src/simulation/navigation/pathfinding/PathGoalTypes.h)。
+
+```cpp
+PathGoalCandidateSet generatePathGoalCandidates(
+    const PathGoalCandidateInput& request, const PathGoalTerrainView& terrain);
+PathGoalFallbackCandidates generatePathGoalFallbackCandidates(
+    const PathGoalCandidateInput& request, const PathGoalTerrainView& terrain,
+    const PathBlockedGoalView& blockedComponent);
+```
+
+`PathGoalCandidateInput` 包含起终点、移动方式、目标槽位数、地图查询标志及借用的候选 span。输入由原队列提交入口先做规范化、去重和数量限制；`PathGoalTerrainView` 同步读取原地形与占用快照，索引顺序须保留原始顺序。`PathBlockedGoalView` 提供阻挡连通块的边界与格子集合。
+
+返回值拥有候选向量，不保存输入、view 或 span。普通结果同时报告是否使用地图接近点及是否需要环形回退；回退结果附带距离查询和连通块检查计数。候选顺序与截断仍遵循原规则，邻近目标总数上限 16，环形回退上限 32。生成函数不执行 A* 搜索、更新队列或缓存、轮转槽位，也不消耗搜索预算；这些职责继续由 `PathRequestQueue` 持有。
+
+## 地图与地形绘制帧
+
+[RuntimeMapTerrainFrame.h](src/render/core/RuntimeMapTerrainFrame.h) 定义本次同步绘制使用的短期只读输入：
+
+```cpp
+RuntimeMapTerrainFrame prepareRuntimeMapTerrainFrame(
+    const RuntimeMapTerrainFrameSources& sources,
+    const RuntimeLightingSystemState& lighting);
+```
+
+`RuntimeMapTerrainFrameSources` 显式提供剧场、美术、规则与地图信息指针及各自就绪标志，以及视野限制、观察者、战役状态、离子风暴截止 tick 和当前 tick。未就绪的资源保留空指针策略；战役离子风暴尚未截止且地图信息可用时，选择地图的离子风暴光照。
+
+返回帧拥有计算后的 `lightingTint` 与观察者字符串，只借用数据库、光照 profile 和视野对象。调用方须让帧及借用对象保持有效且不变，直到地图绘制、交互绘制和几何借用全部结束；不能跨资源重载、光照或视野修改、模拟 tick 保留该帧。
+
+[RuntimeMapTerrainFrameRenderer.h](src/render/core/RuntimeMapTerrainFrameRenderer.h) 提供旧绘图上下文的适配器：
+
+```cpp
+RuntimeMapRenderContext runtimeMapRenderContextForTerrainFrame(
+    const RuntimeMapTerrainFrame& frame);
+```
+
+应传入具名的常量帧；右值重载已禁用，避免上下文借用临时帧中的 tint。准备接口不查询几何或视野网格，不改变缓存版本检查时机。离屏入口共用资源与光照准备，同时保留原先稍后调用 `applyVision` 的顺序。窗口、绘图表面和呈现器仍由各自原调用方管理。
+
 ## 预览资源会话
 
 [MapPreviewResourceContext.h](src/assets/preview/MapPreviewResourceContext.h) 声明 `concord::assets::MapPreviewResourceContext` 与 `MapPreviewResourceSession`。上下文绑定包根、瓦片/素材根、普通和建筑调色板路径、配置根顺序策略以及 `mountGeneration`。会话可移动、不可复制，由一个消费者串行持有和刷新。
@@ -523,6 +608,8 @@ ReplayRuntimeEventSourceSummary summarizeRuntimeReplayEventSnapshots(
 指针、光标、取消捕获及相应 Windows 集成检查见 [TestsAdditionalRegression.cmake](cmake/TestsAdditionalRegression.cmake)。这些检查按具体 CMake 目标和 CTest 名称选择，未自动并入 `windows-minimal` 的 12 项或 `windows-local-assets` 的 4 项集合；标准合同、素材检查、原生适配与真实网络运行的结果须分别判断，不能相互替代。
 
 经济与传送的标准目标定义见 [RuntimeSmokeTargets.cmake](cmake/RuntimeSmokeTargets.cmake)，它们直接编译相应生产实现。`chronosphere_relocation_contract_test`、`house_economy_context_contract_test` 在 [TestsAdditionalRegression.cmake](cmake/TestsAdditionalRegression.cmake) 注册；`computer_mining_codec_contract_test` 和 `economy_production_fixed_step_contract_test` 在 [TestsUnitAndNetwork.cmake](cmake/TestsUnitAndNetwork.cmake) 注册。后两项读取 [采矿保存夹具](tests/fixtures/runtime_computer_mining_codec) 和 [固定步夹具](tests/fixtures/runtime_economy_production_fixed_step)，比较完整预期文本；公开构建入口只读取这些夹具。
+
+定时炸弹、寻路候选、生产规则和地形帧的新增独立与对照测试源码见 [README 的测试说明](README.md#测试与开发)。这六份测试目前未注册为工程的 CMake/CTest 目标；开发时使用的私人验证脚本、旧版对照副本和执行记录不随源码发布。
 
 ## 命令行接口
 

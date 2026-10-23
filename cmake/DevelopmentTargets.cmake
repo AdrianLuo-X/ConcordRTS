@@ -876,3 +876,47 @@ include(cmake/PointerIngressContracts.cmake)
 include(cmake/CursorControllerContracts.cmake)
 
 include(cmake/InputCancellationContracts.cmake)
+# S20: keep the legacy diagnostic entry in its own compilation unit.
+target_sources(concord_special_mechanisms_smoke PRIVATE
+    src/simulation/abilities/unit_special/diagnostics/RuntimeSpecialMechanismsSmoke.cpp
+)
+
+# S21: the TimedBomb owner is compiled separately by this actual consumer.
+target_sources(concord_special_mechanisms_smoke PRIVATE src/simulation/abilities/unit_special/RuntimeTimedBomb.cpp)
+
+# S22: candidate generation has an explicit source owner in every existing queue target.
+target_sources(concord_path_request_queue_performance_smoke PRIVATE src/simulation/navigation/pathfinding/PathGoalCandidates.cpp)
+
+# S23-01: explicit existing consumers share the independent production loader.
+foreach(s23_production_rules_owner IN ITEMS
+    concord_map_data_smoke
+    concord_game_world_deterministic_hash_smoke
+    concord_path_request_queue_performance_smoke
+    concord_rules_special_features_smoke
+    concord_rules_poison_policy_smoke
+    concord_mod_extensions_smoke
+    concord_screen_shake_smoke
+    concord_rules_pad_aircraft_smoke
+    concord_rules_production_smoke
+    concord_rules_lookup_dispatch_smoke
+    concord_rules_overlay_identity_smoke
+    concord_rules_crate_smoke
+    concord_art_firing_sequence_smoke
+    concord_particle_system_smoke
+    concord_garrison_system_smoke
+    concord_repair_depot_system_smoke
+    concord_grinding_system_smoke
+    concord_aircraft_service_system_smoke
+    concord_gate_system_smoke
+    concord_power_audio_feedback_smoke
+    concord_production_lanes_smoke
+    concord_spy_system_smoke
+    concord_death_weapon_system_smoke
+    concord_special_mechanisms_smoke
+    concord_special_building_system_smoke
+    concord_hospital_armory_mod_compat_smoke
+    concord_multiplayer_menu_smoke
+)
+    target_sources(${s23_production_rules_owner} PRIVATE src/data/rules/ProductionRulesLoader.cpp)
+endforeach()
+unset(s23_production_rules_owner)

@@ -1,4 +1,5 @@
 #include "data/rules/RulesDatabase.h"
+#include "data/rules/ProductionRulesLoader.h"
 #include "data/rules/RuntimeDetailRulesHash.h"
 
 #include <algorithm>
@@ -2200,68 +2201,18 @@ bool RulesDatabase::loadFromIni(const IniFile& ini) {
         0,
         readInt(ini, "General", "MaximumQueuedObjects", 29)
     );
-    const double buildupMinutes = readDouble(ini, "General", "BuildupTime", 0.05);
+    const ProductionRulesLoadResult productionLoad = loadProductionRules(ini);
+    for (const std::string& warning : productionLoad.buildupParseDiagnostics) {
+        addWarning(warning);
+    }
     harvesterCadenceRules_.loadRate = std::clamp(
         readInt(ini, "General", "HarvesterLoadRate", 2), 1, 1000000);
     const double dumpMinutes = readDouble(ini, "General", "HarvesterDumpRate", 0.016);
     harvesterCadenceRules_.dumpRateMinutes = std::isfinite(dumpMinutes)
         && dumpMinutes >= 0.0 && dumpMinutes <= 100.0 ? dumpMinutes : 0.016;
-    productionRules_.buildupTime = std::isfinite(buildupMinutes)
-        && buildupMinutes >= 0.0 && buildupMinutes <= 100.0 ? buildupMinutes : 0.05;
-    if (productionRules_.buildupTime != buildupMinutes) {
-        addWarning("Invalid buildup value: [General] BuildupTime; using 0.05");
-    }
-    productionRules_.buildSpeed = readProductionDouble(
-        ini,
-        "General",
-        "BuildSpeed",
-        0.7,
-        maximumProductionCoefficient
-    );
-    productionRules_.multipleFactory = readProductionDouble(
-        ini,
-        "General",
-        "MultipleFactory",
-        0.8,
-        maximumProductionRatio
-    );
-    productionRules_.wallBuildSpeedCoefficient = readProductionDouble(
-        ini,
-        "General",
-        "WallBuildSpeedCoefficient",
-        3.0,
-        maximumProductionCoefficient
-    );
-    productionRules_.lowPowerPenaltyModifier = readProductionDouble(
-        ini,
-        "General",
-        "LowPowerPenaltyModifier",
-        1.0,
-        maximumProductionCoefficient
-    );
-    productionRules_.minLowPowerProductionSpeed = readProductionDouble(
-        ini,
-        "General",
-        "MinLowPowerProductionSpeed",
-        0.5,
-        maximumProductionRatio
-    );
-    productionRules_.maxLowPowerProductionSpeed = readProductionDouble(
-        ini,
-        "General",
-        "MaxLowPowerProductionSpeed",
-        0.8,
-        maximumProductionRatio
-    );
-    if (productionRules_.minLowPowerProductionSpeed
-        > productionRules_.maxLowPowerProductionSpeed) {
-        addWarning(
-            "Invalid production range: [General] "
-            "MinLowPowerProductionSpeed must not exceed "
-            "MaxLowPowerProductionSpeed"
-        );
-        productionRules_.minLowPowerProductionSpeed = 0.5;
-        productionRules_.maxLowPowerProductionSpeed = 0.8;
+    productionRules_ = productionLoad.values;
+    for (const std::string& warning : productionLoad.diagnostics) {
+        addWarning(warning);
     }
     const std::string rawRefundPercent = trim(
         ini.getValue("General", "RefundPercent", "")
@@ -3753,22 +3704,8 @@ double RulesDatabase::readProductionDouble(
     double defaultValue,
     double maximumValue
 ) {
-    const std::string value = trim(ini.getValue(section, key, ""));
-    if (value.empty()) {
-        return defaultValue;
-    }
-
-    double parsed = 0.0;
-    if (!parseFiniteDouble(value, parsed)
-        || parsed <= 0.0
-        || parsed > maximumValue) {
-        addWarning(
-            "Invalid production value: [" + section + "] "
-            + key + "=" + value
-        );
-        return defaultValue;
-    }
-    return parsed;
+    return readProductionRuleCoefficient(
+        ini, section, key, defaultValue, maximumValue, warnings_);
 }
 
 double RulesDatabase::readPercent(

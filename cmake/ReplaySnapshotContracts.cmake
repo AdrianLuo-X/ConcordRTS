@@ -39,3 +39,10 @@ unset(_s12_target)
 unset(_s12_leaf_type)
 unset(_s12_leaf_profile)
 unset(_s12_leaf_owner)
+# S23-01: explicit existing consumers share the independent production loader.
+foreach(s23_production_rules_owner IN ITEMS
+    concord_replay_event_snapshot_contract
+)
+    target_sources(${s23_production_rules_owner} PRIVATE src/data/rules/ProductionRulesLoader.cpp)
+endforeach()
+unset(s23_production_rules_owner)

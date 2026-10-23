@@ -241,3 +241,15 @@ if(CONCORD_MSVC_FRONTEND)
     concord_target_compile_options(concord_economy_production_fixed_step_contract
         PRIVATE /utf-8 /W4 /WX /permissive-)
 endif()
+# S23-01: explicit existing consumers share the independent production loader.
+foreach(s23_production_rules_owner IN ITEMS
+    concord_mod_history_noop_smoke
+    concord_water_wake_history_smoke
+    concord_simulation_query_reuse_smoke
+    concord_random_map_smoke
+    concord_building_economy_smoke
+    concord_superweapon_smoke
+)
+    target_sources(${s23_production_rules_owner} PRIVATE src/data/rules/ProductionRulesLoader.cpp)
+endforeach()
+unset(s23_production_rules_owner)

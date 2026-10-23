@@ -1,4 +1,5 @@
 #include "runtime/host/RuntimeShell.h"
+#include "render/core/RuntimeMapTerrainFrameRenderer.h"
 #include "runtime/host/RuntimeUiClockWin32.h"
 #include "runtime/timing/RuntimeGameSpeedTiming.h"
 #include "runtime/timing/RuntimePresentationWorkBudget.h"
@@ -116768,15 +116769,15 @@ LRESULT CALLBACK runtimeWindowProc(
                 // camera used by both this map frame and the radar overlay.
                 ensureRuntimeCameraForViewport(*state, mapViewport);
 
-                RuntimeMapRenderContext renderContext;
-                renderContext.theater =
-                    state->theaterLoaded ? &state->theater : nullptr;
-                renderContext.art =
-                    state->artLoaded ? &state->art : nullptr;
-                renderContext.rules =
-                    state->rulesLoaded ? &state->rules : nullptr;
-                renderContext.mapFacts =
-                    state->mapFactsLoaded ? &state->mapFacts : nullptr;
+                const RuntimeMapTerrainFrame terrainFrame = prepareRuntimeMapTerrainFrame(
+                    {&state->theater, state->theaterLoaded,
+                     &state->art, state->artLoaded, &state->rules, state->rulesLoaded,
+                     &state->mapFacts, state->mapFactsLoaded,
+                     &state->vision, runtimeLocalVisionRestricted(*state), state->economy.owner,
+                     state->campaignMode, state->triggers.campaignIonStormUntilTick, state->tick},
+                    state->lighting);
+                RuntimeMapRenderContext renderContext =
+                    runtimeMapRenderContextForTerrainFrame(terrainFrame);
                 renderContext.ownerRemapColors =
                     state->ownerRemapColors.empty()
                         ? nullptr
@@ -116785,21 +116786,6 @@ LRESULT CALLBACK runtimeWindowProc(
                     state->neutralRemapOwners.empty()
                         ? nullptr
                         : &state->neutralRemapOwners;
-                if (runtimeLocalVisionRestricted(*state)) {
-                    renderContext.vision = &state->vision;
-                    renderContext.visionObserverOwner = state->economy.owner;
-                }
-                const MapLightingProfile* lightingProfile = &state->lighting.currentProfile();
-                RuntimeLightingTint lightingTint = state->lighting.renderTint();
-                if (state->campaignMode
-                    && state->triggers.campaignIonStormUntilTick
-                        > state->tick
-                    && state->mapFactsLoaded) {
-                    lightingProfile = &state->mapFacts.lighting.ion;
-                    lightingTint = runtimeLightingTintForProfile(*lightingProfile);
-                }
-                renderContext.lightingTint = &lightingTint;
-                renderContext.lightingProfile = lightingProfile;
                 refreshRuntimeParticleRenderSnapshots(
                     *state,
                     renderContext
@@ -117653,25 +117639,18 @@ std::optional<RuntimeMapRenderStats> drawRuntimeStateOffscreenAtCell(
     RuntimeMapRenderCache& cache = interactionOverlayProbe
         ? isolatedInteractionCache
         : state.renderCache;
-    RuntimeMapRenderContext context;
-    context.theater = state.theaterLoaded ? &state.theater : nullptr;
-    context.art = state.artLoaded ? &state.art : nullptr;
-    context.rules = state.rulesLoaded ? &state.rules : nullptr;
-    context.mapFacts = state.mapFactsLoaded ? &state.mapFacts : nullptr;
+    // Offscreen diagnostics retain their original later vision binding below.
+    const RuntimeMapTerrainFrame terrainFrame = prepareRuntimeMapTerrainFrame(
+        {&state.theater, state.theaterLoaded,
+         &state.art, state.artLoaded, &state.rules, state.rulesLoaded,
+         &state.mapFacts, state.mapFactsLoaded,
+         nullptr, false, {}, state.campaignMode,
+         state.triggers.campaignIonStormUntilTick, state.tick}, state.lighting);
+    RuntimeMapRenderContext context = runtimeMapRenderContextForTerrainFrame(terrainFrame);
     context.ownerRemapColors =
         state.ownerRemapColors.empty() ? nullptr : &state.ownerRemapColors;
     context.neutralRemapOwners =
         state.neutralRemapOwners.empty() ? nullptr : &state.neutralRemapOwners;
-    const MapLightingProfile* lightingProfile = &state.lighting.currentProfile();
-    RuntimeLightingTint lightingTint = state.lighting.renderTint();
-    if (state.campaignMode
-        && state.triggers.campaignIonStormUntilTick > state.tick
-        && state.mapFactsLoaded) {
-        lightingProfile = &state.mapFacts.lighting.ion;
-        lightingTint = runtimeLightingTintForProfile(*lightingProfile);
-    }
-    context.lightingTint = &lightingTint;
-    context.lightingProfile = lightingProfile;
     refreshRuntimeParticleRenderSnapshots(state, context);
     traceStage("context-base-ready");
     context.projectileActors = runtimeProjectileRenderActorsForRender(state);
@@ -141046,6 +141025,8 @@ bool runRuntimeObjectExitContractSmokeProbe(
     return true;
 }
 
+#include "simulation/abilities/unit_special/diagnostics/RuntimeTimedBombHostContract.inl"
+
 bool runRuntimeTimedBombHostSmokeProbe(
     const RulesDatabase& rules,
     std::string& errorMessage
@@ -141453,7 +141434,10 @@ bool runRuntimeTimedBombHostSmokeProbe(
         return false;
     }
 
-    probe.tick = bomb->second.detonateTick;
+    const int contractDetonateTick = bomb->second.detonateTick;
+    if (!runRuntimeTimedBombContinuationContract(probe, errorMessage)) return false;
+
+    probe.tick = contractDetonateTick;
     if (!advanceRuntimeSpecialMechanisms(probe)) {
         errorMessage = "timer-only state did not advance";
         return false;

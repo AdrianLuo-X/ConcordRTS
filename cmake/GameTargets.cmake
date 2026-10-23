@@ -185,3 +185,27 @@ target_sources(concord_runtime PRIVATE src/simulation/ai/RuntimeComputerMiningCo
 target_sources(concord_runtime PRIVATE
     src/simulation/economy/RuntimeEconomyFixedStep.cpp
     src/simulation/production/RuntimeProductionFixedStep.cpp)
+
+# S20: keep the legacy diagnostic entry in its own compilation unit.
+target_sources(concord_runtime PRIVATE
+    src/simulation/abilities/unit_special/diagnostics/RuntimeSpecialMechanismsSmoke.cpp
+)
+
+# S21: the TimedBomb owner is compiled separately by this actual consumer.
+target_sources(concord_runtime PRIVATE src/simulation/abilities/unit_special/RuntimeTimedBomb.cpp)
+
+# S22: candidate generation has an explicit source owner in every existing queue target.
+target_sources(concord_runtime PRIVATE src/simulation/navigation/pathfinding/PathGoalCandidates.cpp)
+target_sources(concord_rules_dump PRIVATE src/simulation/navigation/pathfinding/PathGoalCandidates.cpp)
+
+# S23-01: explicit existing consumers share the independent production loader.
+foreach(s23_production_rules_owner IN ITEMS
+    concord_rules_dump
+    concord_runtime
+)
+    target_sources(${s23_production_rules_owner} PRIVATE src/data/rules/ProductionRulesLoader.cpp)
+endforeach()
+unset(s23_production_rules_owner)
+
+# S24-01: explicit map/terrain frame preparation owner; no target scan.
+target_sources(concord_runtime PRIVATE src/render/core/RuntimeMapTerrainFrame.cpp)

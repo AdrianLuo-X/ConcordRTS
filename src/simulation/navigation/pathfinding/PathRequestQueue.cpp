@@ -1,3 +1,4 @@
+#include "simulation/navigation/pathfinding/PathGoalCandidates.h"
 #include "simulation/navigation/pathfinding/PathRequestQueue.h"
 #include "simulation/navigation/pathfinding/RuntimePathProfileHash.h"
 #include "simulation/navigation/pathfinding/RuntimePathProfileZeroRuns.h"
@@ -18,6 +19,11 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+
+#ifdef CONCORD_PATH_GOAL_CANDIDATE_TEST_OBSERVER
+// Compiled only by the isolated S22 differential fixture; absent from product targets.
+void recordPathGoalCandidatesForTest(int, int, const std::vector<PathCell>&);
+#endif
 
 namespace {
 
@@ -1341,157 +1347,35 @@ PathResult PathRequestQueue::solve(
         return result;
     }
 
-    const auto targetUsable = [&request](const TerrainNode& node) {
-        if (request.movementMode == PathMovementMode::Air) {
-            return true;
+    // The queue owns the immutable snapshot and component cache. The adapter is
+    // lexical to this solve; the generator retains neither pointers nor spans.
+    class GoalTerrainView final : public PathGoalTerrainView {
+    public:
+        explicit GoalTerrainView(const PathRequestQueue& queue) : queue_(queue) {}
+        const PathTerrainCell* nodeAt(PathCell cell) const override {
+            return queue_.terrainNodeAt(cell);
         }
-        if (!node.passable || node.cliff) {
-            return false;
+        const PathTerrainCell& nodeAtIndex(int index) const override {
+            return queue_.terrain_[index];
         }
-        if (request.movementMode == PathMovementMode::Naval) {
-            return node.water || node.bridge;
+        std::vector<int> indicesInBounds(std::int64_t minX, std::int64_t minY,
+            std::int64_t maxX, std::int64_t maxY) const override {
+            return queue_.terrainIndicesInBounds(minX, minY, maxX, maxY);
         }
-        if (request.movementMode == PathMovementMode::Ground) {
-            return !node.water || node.bridge || node.shore;
-        }
-        return true;
-    };
-
+    private:
+        const PathRequestQueue& queue_;
+    } terrainView(*this);
     const BlockedComponent& blockedComponent = blockedComponentAt(request.goal);
-    const auto distanceToBlockedComponent = [this, &blockedComponent](PathCell cell) {
-        ++fallbackDistanceQueries_;
-        // Filled rectangular foundations have exactly this Chebyshev distance.
-        // Keep the point-set calculation for walls, courtyards and irregular
-        // footprints: their bounding rectangle can include traversable cells.
-        if (blockedComponent.fillsBounds) {
-            const int dx = std::max({0,
-                blockedComponent.minX - cell.x, cell.x - blockedComponent.maxX});
-            const int dy = std::max({0,
-                blockedComponent.minY - cell.y, cell.y - blockedComponent.maxY});
-            return std::max(dx, dy);
-        }
-        fallbackComponentCellChecks_ += blockedComponent.cells.size();
-        int best = std::numeric_limits<int>::max();
-        for (PathCell blocked : blockedComponent.cells) {
-            const int distance = std::max(
-                std::abs(cell.x - blocked.x),
-                std::abs(cell.y - blocked.y)
-            );
-            best = std::min(best, distance);
-        }
-        return best;
-    };
-
-    std::vector<PathCell> targetCandidates;
-    if (request.mapQueryApproach) {
-        targetCandidates.reserve(request.approachCells.size());
-        for (PathCell candidate : request.approachCells) {
-            const TerrainNode* candidateNode = terrainNodeAt(candidate);
-            if (candidateNode != nullptr
-                && targetUsable(*candidateNode)
-                && !sameCell(candidate, request.start)) {
-                targetCandidates.push_back(candidate);
-            }
-        }
-        std::sort(
-            targetCandidates.begin(),
-            targetCandidates.end(),
-            [&request](PathCell left, PathCell right) {
-                const int leftStartScore = octile(left, request.start);
-                const int rightStartScore = octile(right, request.start);
-                if (leftStartScore != rightStartScore) {
-                    return leftStartScore < rightStartScore;
-                }
-                const int leftGoalScore = octile(left, request.goal);
-                const int rightGoalScore = octile(right, request.goal);
-                if (leftGoalScore != rightGoalScore) {
-                    return leftGoalScore < rightGoalScore;
-                }
-                return pathCellsLess(left, right);
-            }
-        );
-    } else if (!request.alternateGoalCells.empty()) {
-        targetCandidates.reserve(request.alternateGoalCells.size());
-        for (PathCell candidate : request.alternateGoalCells) {
-            const TerrainNode* candidateNode = terrainNodeAt(candidate);
-            if (candidateNode != nullptr
-                && targetUsable(*candidateNode)
-                && !sameCell(candidate, request.start)) {
-                targetCandidates.push_back(candidate);
-            }
-        }
-        std::sort(
-            targetCandidates.begin(),
-            targetCandidates.end(),
-            [&request](PathCell left, PathCell right) {
-                const int leftGoalScore = octile(left, request.goal);
-                const int rightGoalScore = octile(right, request.goal);
-                if (leftGoalScore != rightGoalScore) {
-                    return leftGoalScore < rightGoalScore;
-                }
-                const int leftStartScore = octile(left, request.start);
-                const int rightStartScore = octile(right, request.start);
-                if (leftStartScore != rightStartScore) {
-                    return leftStartScore < rightStartScore;
-                }
-                return pathCellsLess(left, right);
-            }
-        );
+    const PathGoalCandidateInput candidateInput{request.start, request.goal,
+        request.movementMode, request.goalSlotCount, request.mapQueryApproach,
+        request.approachCells, request.alternateGoalCells};
+    auto generated = generatePathGoalCandidates(candidateInput, terrainView);
+    std::vector<PathCell> targetCandidates = std::move(generated.cells);
+    if (generated.mapQueryApproachUsed) {
+        result.mapQueryApproachUsed = true;
+        ++mapQueryApproachUsedResults_;
     }
-
-    if (!targetCandidates.empty()) {
-        // Runtime/MapQuery supplied approach cells already encode the footprint/ring.
-        if (request.mapQueryApproach) {
-            result.mapQueryApproachUsed = true;
-            ++mapQueryApproachUsedResults_;
-        }
-    } else if (goalNode != nullptr && targetUsable(*goalNode)) {
-        targetCandidates.push_back(request.goal);
-        if (request.goalSlotCount > 1) {
-            constexpr int AlternateGoalRadius = 2;
-            constexpr std::size_t MaxAlternateGoalTargets = 16U;
-            for (const int index : terrainIndicesInBounds(
-                    static_cast<std::int64_t>(request.goal.x) - AlternateGoalRadius,
-                    static_cast<std::int64_t>(request.goal.y) - AlternateGoalRadius,
-                    static_cast<std::int64_t>(request.goal.x) + AlternateGoalRadius,
-                    static_cast<std::int64_t>(request.goal.y) + AlternateGoalRadius)) {
-                const TerrainNode& node = terrain_[index];
-                if (targetCandidates.size() >= MaxAlternateGoalTargets) {
-                    break;
-                }
-                if (!targetUsable(node)
-                    || sameCell(node.cell, request.start)
-                    || sameCell(node.cell, request.goal)) {
-                    continue;
-                }
-                const int distance = std::max(
-                    std::abs(node.cell.x - request.goal.x),
-                    std::abs(node.cell.y - request.goal.y)
-                );
-                if (distance <= 0 || distance > AlternateGoalRadius) {
-                    continue;
-                }
-                targetCandidates.push_back(node.cell);
-            }
-            std::sort(
-                targetCandidates.begin() + 1,
-                targetCandidates.end(),
-                [&request](PathCell left, PathCell right) {
-                    const int leftGoalScore = octile(left, request.goal);
-                    const int rightGoalScore = octile(right, request.goal);
-                    if (leftGoalScore != rightGoalScore) {
-                        return leftGoalScore < rightGoalScore;
-                    }
-                    const int leftStartScore = octile(left, request.start);
-                    const int rightStartScore = octile(right, request.start);
-                    if (leftStartScore != rightStartScore) {
-                        return leftStartScore < rightStartScore;
-                    }
-                    return pathCellsLess(left, right);
-                }
-            );
-        }
-    } else {
+    if (generated.requiresFallbackRing) {
         result.fallbackRing = true;
         blockedComponentApproachFallbackUsed_ = true;
         ++fallbackRingRequests_;
@@ -1507,88 +1391,13 @@ PathResult PathRequestQueue::solve(
         }
 
         if (targetCandidates.empty()) {
-            constexpr int FallbackRadius = 8;
-            constexpr std::size_t MaxFallbackTargets = 32U;
-            struct ScoredCandidate {
-                PathCell cell;
-                int componentDistance = 0;
-                int goalScore = 0;
-                int startScore = 0;
-            };
-            std::vector<ScoredCandidate> scoredCandidates;
-            scoredCandidates.reserve(MaxFallbackTargets);
-            const std::int64_t minX = blockedComponent.valid
-                ? blockedComponent.minX : request.goal.x;
-            const std::int64_t minY = blockedComponent.valid
-                ? blockedComponent.minY : request.goal.y;
-            const std::int64_t maxX = blockedComponent.valid
-                ? blockedComponent.maxX : request.goal.x;
-            const std::int64_t maxY = blockedComponent.valid
-                ? blockedComponent.maxY : request.goal.y;
-            for (const int index : terrainIndicesInBounds(
-                    minX - FallbackRadius, minY - FallbackRadius,
-                    maxX + FallbackRadius, maxY + FallbackRadius)) {
-                const TerrainNode& node = terrain_[index];
-                if (!targetUsable(node) || sameCell(node.cell, request.start)) {
-                    continue;
-                }
-
-                int componentDistance = 0;
-                if (blockedComponent.valid) {
-                    componentDistance = distanceToBlockedComponent(node.cell);
-                    if (componentDistance <= 0
-                        || componentDistance > FallbackRadius) {
-                        continue;
-                    }
-                } else {
-                    const int dx = std::abs(node.cell.x - request.goal.x);
-                    const int dy = std::abs(node.cell.y - request.goal.y);
-                    if (std::max(dx, dy) > FallbackRadius) {
-                        continue;
-                    }
-                }
-                // Compute expensive footprint distances once per candidate,
-                // instead of rescanning the footprint on every heap comparison.
-                scoredCandidates.push_back({node.cell, componentDistance,
-                    octile(node.cell, request.goal), octile(node.cell, request.start)});
-            }
-
-            std::partial_sort(
-                scoredCandidates.begin(),
-                scoredCandidates.begin() + std::min(
-                    scoredCandidates.size(), MaxFallbackTargets),
-                scoredCandidates.end(),
-                [&blockedComponent](
-                    const ScoredCandidate& left,
-                    const ScoredCandidate& right
-                ) {
-                    if (blockedComponent.valid) {
-                        if (left.componentDistance != right.componentDistance) {
-                            return left.componentDistance < right.componentDistance;
-                        }
-
-                        if (left.startScore != right.startScore) {
-                            return left.startScore < right.startScore;
-                        }
-                    }
-
-                    if (left.goalScore != right.goalScore) {
-                        return left.goalScore < right.goalScore;
-                    }
-
-                    if (left.startScore != right.startScore) {
-                        return left.startScore < right.startScore;
-                    }
-                    return pathCellsLess(left.cell, right.cell);
-                }
-            );
-
-            const std::size_t targetCount = std::min(
-                scoredCandidates.size(), MaxFallbackTargets);
-            targetCandidates.reserve(targetCount);
-            for (std::size_t index = 0; index < targetCount; ++index) {
-                targetCandidates.push_back(scoredCandidates[index].cell);
-            }
+            auto fallback = generatePathGoalFallbackCandidates(candidateInput,
+                terrainView, {blockedComponent.valid, blockedComponent.fillsBounds,
+                    blockedComponent.minX, blockedComponent.minY,
+                    blockedComponent.maxX, blockedComponent.maxY, blockedComponent.cells});
+            targetCandidates = std::move(fallback.cells);
+            fallbackDistanceQueries_ += fallback.distanceQueries;
+            fallbackComponentCellChecks_ += fallback.componentCellChecks;
 
             constexpr std::size_t MaxCachedFallbackTargets = 128U;
             if (fallbackTargetCache_.size() >= MaxCachedFallbackTargets) {
@@ -1598,6 +1407,10 @@ PathResult PathRequestQueue::solve(
             ++fallbackTargetCacheMisses_;
         }
     }
+
+#ifdef CONCORD_PATH_GOAL_CANDIDATE_TEST_OBSERVER
+    recordPathGoalCandidatesForTest(request.id, 0, targetCandidates);
+#endif
 
     if (targetCandidates.empty()) {
         result.cacheMiss = true;
@@ -1639,6 +1452,10 @@ PathResult PathRequestQueue::solve(
             targetCandidates.end()
         );
     }
+
+#ifdef CONCORD_PATH_GOAL_CANDIDATE_TEST_OBSERVER
+    recordPathGoalCandidatesForTest(request.id, 1, targetCandidates);
+#endif
 
     struct OpenNode {
         int f = 0;

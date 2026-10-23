@@ -14,6 +14,15 @@ ConcordRTS 是使用 C++20 开发的 RTS 引擎工程，面向《命令与征服
 
 ## 更新记录
 
+### 2026-10-23
+
+- 将特殊机制的内嵌诊断迁到独立编译单元，保留原诊断入口、测试输入与断言。
+- 提取 C4 与 Ivan 定时炸弹状态模块，通过对象事实、能力查询和事件接口连接原宿主，保留原保存格式、哈希及读取事务。
+- 将寻路目标候选与受阻目标的环形回退候选整理为独立模块，保留候选顺序、截断规则，以及原搜索、队列、缓存和预算行为。
+- 提取生产规则值类型与解析器，保留数值校验、默认值、配置叠加和警告顺序，并接入原游戏及工具目标。
+- 为地图与地形绘制提取短期只读帧输入，集中准备资源就绪状态、光照和视野信息，保留原绘制、缓存查询与离屏视野处理时机。
+- 增加定时炸弹、寻路候选、生产规则与地形帧测试源码，完成所选状态、事件、保存、候选序列及完整画面的前后对照。
+
 ### 2026-10-22
 
 - 统一超时空传送的位置提交与生命周期通知，保留原地形判断、保存恢复及回调顺序。
@@ -66,6 +75,7 @@ ConcordRTS/
 │   │   ├── players/                纯席位角色判断
 │   │   └── results/                比赛计分、保存与哈希
 │   ├── data/                       规则、美术、地图与战役数据库
+│   │   └── rules/                  规则数据库、生产规则类型与解析
 │   ├── assets/                     游戏资源格式读取、检查与导出
 │   │   ├── text/                   共享 CSF 文字解码
 │   │   ├── codecs/                 共享 PAL、SHP、TMP 类型与解码
@@ -76,7 +86,10 @@ ConcordRTS/
 │   │   ├── ai/                     AI 采矿状态与保存、哈希接口
 │   │   ├── economy/                户级经济上下文与收入固定步
 │   │   ├── production/             生产队列与扣款事务
+│   │   ├── abilities/              单位能力与特殊机制
+│   │   │   └── unit_special/       定时炸弹状态、事件与独立诊断
 │   │   ├── navigation/             导航、寻路与移动查询
+│   │   │   ├── pathfinding/        寻路队列、目标候选与回退候选
 │   │   │   └── terrain/            导航地形类型与只读查询端口
 │   │   └── superweapons/           特殊武器与传送位置提交
 │   ├── runtime/                    运行时配置与游戏宿主
@@ -84,6 +97,7 @@ ConcordRTS/
 │   │   ├── contracts/              窄范围回放事件类型
 │   │   └── host/                   启动检查、游戏窗口与战局宿主
 │   ├── render/                     地图、单位、效果与软件绘制
+│   │   └── core/                   地图绘图与短期地形帧输入
 │   ├── ui/                         菜单、输入、HUD 与偏好保存
 │   │   ├── input/                  输入值、键鼠、聊天与交互控制器
 │   │   ├── time/                   UI 毫秒时钟与原计时策略
@@ -267,7 +281,9 @@ pwsh -NoProfile -File .\tools\testing\Run-LocalTests.ps1 -Compiler Clang -BuildD
 
 本次经济与传送标准目标定义见 [RuntimeSmokeTargets.cmake](cmake/RuntimeSmokeTargets.cmake)。传送提交和户级经济上下文的测试注册在 [TestsAdditionalRegression.cmake](cmake/TestsAdditionalRegression.cmake)，采矿编解码及经济生产固定步注册在 [TestsUnitAndNetwork.cmake](cmake/TestsUnitAndNetwork.cmake)。这些目标读取源码包内的自编夹具，仍按独立目标运行，不计入固定的 12＋4 集合。
 
-已记录的验证覆盖所选标准合同、Windows 适配、资源查询、命令桥接及经济保存恢复对照。旧回归中已知的月球剧场深度、部分交互和几何绘制，以及 Yuri 采矿收入与完整 AI 经济检查失败仍保留；完整物理输入、IME、双端运行游戏、其他窗口后端与平台及性能不据此视为通过。
+本次另保留 [定时炸弹模块测试](tests/gameplay/RuntimeTimedBombModuleSmoke.cpp)、[定时炸弹兼容检查](tests/gameplay/RuntimeTimedBombCompatibilitySmoke.cpp)、[寻路候选独立测试](tests/pathfinding/PathGoalCandidatesIndependent.cpp)、[寻路结果对照](tests/pathfinding/PathGoalCandidateDifferential.cpp)、[生产规则合同测试](tests/rules/RulesProductionLoaderContract.cpp) 和 [地形帧测试](tests/rendering/RuntimeMapTerrainFrameSmoke.cpp)。这些新增测试源码在开发环境单独构建验证，尚未注册为当前 CMake/CTest 目标，也未加入固定的 12＋4 集合；公开包不包含私人验证脚本、旧版本对照副本或运行记录。
+
+已记录的验证覆盖所选标准合同、Windows 适配、资源查询、命令桥接及经济保存恢复对照。旧回归中已知的月球剧场深度、部分交互和几何绘制，以及 Yuri 采矿收入、完整 AI 经济、部分编队紧凑度与矿石动画检查失败仍保留；完整物理输入、IME、双端运行游戏、其他窗口后端与平台及性能不据此视为通过。
 
 CMake 保留专项测试目标。部分测试只使用自编夹具，部分需要本地原游戏数据；资源相关测试与调试工具需要按自己的环境配置路径。不能将无素材环境下的编译成功视为全部游戏功能或全部测试通过。
 

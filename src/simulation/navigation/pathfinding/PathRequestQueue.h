@@ -1,6 +1,7 @@
 #pragma once
 
 #include "world/model/GameWorld.h"
+#include "simulation/navigation/pathfinding/PathGoalTypes.h"
 #include "simulation/navigation/pathfinding/RuntimePathQueueTerrainStorage.h"
 #include "simulation/navigation/pathfinding/RuntimePathQueueLayoutStorage.h"
 
@@ -13,20 +14,8 @@
 #include <unordered_map>
 #include <vector>
 
-struct PathCell {
-    int x = -1;
-    int y = -1;
-};
-
 struct PathRequestHandle {
     int id = -1;
-};
-
-enum class PathMovementMode {
-    Ground,
-    Naval,
-    Amphibious,
-    Air
 };
 
 struct PathApproachContext {
@@ -41,20 +30,6 @@ struct PathApproachContext {
     PathMovementMode movementMode = PathMovementMode::Ground;
     std::vector<PathCell> approachCells;
     std::vector<PathCell> alternateGoalCells;
-};
-
-struct PathTerrainCell {
-    PathCell cell;
-    int level = 0;
-    bool passable = true;
-    bool water = false;
-    bool shore = false;
-    bool bridge = false;
-    bool ramp = false;
-    bool cliff = false;
-    bool resource = false;
-    int cost = 10;
-    int hazardCost = 0;
 };
 
 enum class PathResultStatus {
