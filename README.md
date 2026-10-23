@@ -16,6 +16,13 @@ ConcordRTS 是使用 C++20 开发的 RTS 引擎工程，面向《命令与征服
 
 ### 2026-10-23
 
+- 提取 Bink 播放服务，集中管理解码子进程、进程间通信和自有帧像素，保留原视频协议、播放时钟、音量与停止清理行为。
+- 将 LAN 大厅地图传输整理为独立状态机，通过显式输入与动作连接会话，保留原消息格式、重传、超时、完整性检查与缓存提交顺序。
+- 完成本地保存、回放 Reset 与网络快照对计分、采矿、经济生产和定时炸弹状态的恢复一致性检查，补充非法 tick 与零校验值拒绝，保留原保存格式及事务提交顺序。
+- 为离线能力和回放报告标注结论来源、输入方式、覆盖范围及未知项，新增可选 JSON 报告，明确区分输入事件与真实游戏运行验收。
+- 增加结构防回退工具，检查模块依赖、平台类型、源码归属、测试注册和编译参数，并保留逐项审核的历史例外基线。
+- 补充视频服务、地图传输、恢复一致性、离线报告与结构检查的测试源码和自编夹具。
+
 - 将特殊机制的内嵌诊断迁到独立编译单元，保留原诊断入口、测试输入与断言。
 - 提取 C4 与 Ivan 定时炸弹状态模块，通过对象事实、能力查询和事件接口连接原宿主，保留原保存格式、哈希及读取事务。
 - 将寻路目标候选与受阻目标的环形回退候选整理为独立模块，保留候选顺序、截断规则，以及原搜索、队列、缓存和预算行为。
@@ -80,7 +87,8 @@ ConcordRTS/
 │   │   ├── text/                   共享 CSF 文字解码
 │   │   ├── codecs/                 共享 PAL、SHP、TMP 类型与解码
 │   │   ├── terrain/                TMP 资源定位、缓存与元数据查询
-│   │   └── preview/                地图预览、资源会话与缓存
+│   │   ├── preview/                地图预览、资源会话与缓存
+│   │   └── video/                  视频格式、播放服务与帧通信
 │   ├── world/                      世界状态、对象索引与查询
 │   ├── simulation/                 战斗、移动、经济、AI 与特殊机制
 │   │   ├── ai/                     AI 采矿状态与保存、哈希接口
@@ -95,6 +103,8 @@ ConcordRTS/
 │   ├── runtime/                    运行时配置与游戏宿主
 │   │   ├── config/                 配置类型、解析与命令行覆盖
 │   │   ├── contracts/              窄范围回放事件类型
+│   │   ├── persistence/            保存、加载与恢复一致性诊断
+│   │   ├── replay/                 回放封包与宿主恢复内核
 │   │   └── host/                   启动检查、游戏窗口与战局宿主
 │   ├── render/                     地图、单位、效果与软件绘制
 │   │   └── core/                   地图绘图与短期地形帧输入
@@ -104,10 +114,14 @@ ConcordRTS/
 │   │   └── sidebar/                侧栏分页与滚轮控制
 │   ├── audio/                      音频播放、空间音效与世界音频
 │   ├── network/                    联机协议、同步、会话与互联网服务
+│   │   └── lobby/                  大厅状态与地图传输
 │   └── analysis/                   规则分析、命令行工具与报告
+│       ├── reports/                能力报告与证据来源说明
+│       └── sandbox/                离线模拟与回放分析
 ├── tests/                          按领域分组的专项测试
 │   ├── fixtures/                   自编规则、地图、回放与文本预期夹具
-│   ├── assets/                     CSF、SHP 解码合同测试
+│   │   └── offline_report_evidence/  离线报告的合成事件与规则
+│   ├── assets/                     资源解码与视频服务合同测试
 │   ├── infrastructure/             配置、文件、输入、时钟与地形资源合同
 │   ├── gameplay/                   战斗、生产、单位行为与机制检查
 │   ├── multiplayer/                局域网、同步、快照与恢复检查
@@ -121,6 +135,7 @@ ConcordRTS/
 ├── tools/                          构建与开发工具源码
 │   ├── Build-Game.ps1              默认 Clang 构建，兼容显式 MSVC 参考
 │   ├── testing/                    测试清单、分层执行与结果汇总
+│   ├── structure/                  结构检查器、精确基线与合成夹具
 │   ├── toolchain/                  Clang 配置、构建、依赖与部署工具
 │   │   ├── Build-WindowsClang.ps1   Clang 产品构建与部署
 │   │   ├── ClangBuildSupport.ps1    缓存、产物和运行库校验
@@ -279,9 +294,23 @@ pwsh -NoProfile -File .\tools\testing\Run-LocalTests.ps1 -Compiler Clang -BuildD
 
 角色、计分、解码、预览会话、回放类型，以及新增输入、UI 时钟与地形查询检查，按具体 CMake 目标和 CTest 名称独立注册，未自动加入上述 12＋4 集合。标准合同和部分桥接检查见 [TestsUnitAndNetwork.cmake](cmake/TestsUnitAndNetwork.cmake)，地形与资源运行检查见 [TestsRuntimeRegression.cmake](cmake/TestsRuntimeRegression.cmake)，指针、光标与取消捕获检查见 [TestsAdditionalRegression.cmake](cmake/TestsAdditionalRegression.cmake)。
 
-本次经济与传送标准目标定义见 [RuntimeSmokeTargets.cmake](cmake/RuntimeSmokeTargets.cmake)。传送提交和户级经济上下文的测试注册在 [TestsAdditionalRegression.cmake](cmake/TestsAdditionalRegression.cmake)，采矿编解码及经济生产固定步注册在 [TestsUnitAndNetwork.cmake](cmake/TestsUnitAndNetwork.cmake)。这些目标读取源码包内的自编夹具，仍按独立目标运行，不计入固定的 12＋4 集合。
+经济与传送标准目标定义见 [RuntimeSmokeTargets.cmake](cmake/RuntimeSmokeTargets.cmake)。传送提交和户级经济上下文的测试注册在 [TestsAdditionalRegression.cmake](cmake/TestsAdditionalRegression.cmake)，采矿编解码及经济生产固定步注册在 [TestsUnitAndNetwork.cmake](cmake/TestsUnitAndNetwork.cmake)。这些目标读取源码包内的自编夹具，仍按独立目标运行，不计入固定的 12＋4 集合。
 
-本次另保留 [定时炸弹模块测试](tests/gameplay/RuntimeTimedBombModuleSmoke.cpp)、[定时炸弹兼容检查](tests/gameplay/RuntimeTimedBombCompatibilitySmoke.cpp)、[寻路候选独立测试](tests/pathfinding/PathGoalCandidatesIndependent.cpp)、[寻路结果对照](tests/pathfinding/PathGoalCandidateDifferential.cpp)、[生产规则合同测试](tests/rules/RulesProductionLoaderContract.cpp) 和 [地形帧测试](tests/rendering/RuntimeMapTerrainFrameSmoke.cpp)。这些新增测试源码在开发环境单独构建验证，尚未注册为当前 CMake/CTest 目标，也未加入固定的 12＋4 集合；公开包不包含私人验证脚本、旧版本对照副本或运行记录。
+源码还保留 [定时炸弹模块测试](tests/gameplay/RuntimeTimedBombModuleSmoke.cpp)、[定时炸弹兼容检查](tests/gameplay/RuntimeTimedBombCompatibilitySmoke.cpp)、[寻路候选独立测试](tests/pathfinding/PathGoalCandidatesIndependent.cpp)、[寻路结果对照](tests/pathfinding/PathGoalCandidateDifferential.cpp)、[生产规则合同测试](tests/rules/RulesProductionLoaderContract.cpp) 和 [地形帧测试](tests/rendering/RuntimeMapTerrainFrameSmoke.cpp)。这些新增测试源码在开发环境单独构建验证，尚未注册为当前 CMake/CTest 目标，也未加入固定的 12＋4 集合；公开包不包含私人验证脚本、旧版本对照副本或运行记录。
+
+视频服务、回放封包与恢复一致性检查分别以 `bink_playback_service_contract_test`、`match_replay_envelope_contract_test` 和 `runtime_recovery_consistency_contract_test` 注册在 [TestsUnitAndNetwork.cmake](cmake/TestsUnitAndNetwork.cmake)，LAN 地图传输检查 `runtime_lobby_map_transfer_contract_test` 注册在 [TestsAdditionalRegression.cmake](cmake/TestsAdditionalRegression.cmake)。它们仍独立于固定的 12＋4 集合。视频服务的无素材合同只验证服务边界和缺失输入处理，不能代替实际影片播放验收。
+
+[离线报告检查脚本](tools/testing/Test-OfflineReportEvidence.ps1) 使用 [自编规则与事件](tests/fixtures/offline_report_evidence)，核对报告来源、空输入、部分输入、完整字段与错误处理；生成的报告不等同于真实游戏行为通过。
+
+结构检查入口见 [Run-StructureChecks.ps1](tools/testing/Run-StructureChecks.ps1)。它需要本工程已校验的 Clang/Ninja Release 构建目录、PowerShell 7，以及 Python 3.10 或更新版本的绝对路径。先按自己的安装位置修改示例解释器路径：
+
+```powershell
+pwsh -NoProfile -File .\tools\testing\Run-LocalTests.ps1 -Compiler Clang -BuildDirectory build/clang-cl-x64-release -Configuration Release -StructureOnly -PythonExecutable 'C:/Toolchains/Python/python.exe'
+```
+
+`-StructureOnly` 单独执行结构检查，不追加执行 12＋4 测试集合。入口校验缓存、刷新 CMake 元数据、冻结目标清单并运行合成夹具，然后检查依赖与精确例外；它不会构建游戏目标。结果默认写入已忽略的 `build/local-tests/structure-*/`，其中可能包含本机路径和环境信息，应留在本机。
+
+[结构基线](tools/structure/structure-baseline.json) 保留 4,180 条逐项审核的历史例外。新增违规、出现次数增加或已经消失而尚未收紧的例外都会导致失败；工具不会自动扩大豁免范围。它提供所选构建配置的静态结构证据，不表示完整游戏、其他平台或性能已经验收。
 
 已记录的验证覆盖所选标准合同、Windows 适配、资源查询、命令桥接及经济保存恢复对照。旧回归中已知的月球剧场深度、部分交互和几何绘制，以及 Yuri 采矿收入、完整 AI 经济、部分编队紧凑度与矿石动画检查失败仍保留；完整物理输入、IME、双端运行游戏、其他窗口后端与平台及性能不据此视为通过。
 

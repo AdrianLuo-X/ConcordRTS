@@ -1,5 +1,6 @@
 #pragma once
 
+#include "analysis/reports/OfflineReportEvidence.h"
 #include "data/rules/RulesDatabase.h"
 
 #include <cstddef>
@@ -21,6 +22,8 @@ struct ReplaySandboxConfig {
     bool includeCapabilityDetails = false;
     const RuntimeReplayEventSnapshot* runtimeEventSnapshots = nullptr;
     std::size_t runtimeEventSnapshotCount = 0;
+    // Input location for reporting only; never authenticates the producer.
+    std::string runtimeEventInputPath;
 };
 
 struct ReplayCommandRecord {
@@ -192,6 +195,7 @@ struct ReplaySandboxReport {
     int replayPathRequestCount = 0;
     bool capabilityDetailsIncluded = false;
     std::vector<ReplayCapabilityIntentRecord> capabilityIntents;
+    OfflineReportEvidence provenance;
 };
 
 ReplayProjectileLifecycleSummary summarizeProjectileLifecycleRecords(
@@ -233,3 +237,5 @@ ReplaySandboxReport runReplaySandboxWithRuntimeEventFile(
     const std::string& runtimeEventPath,
     std::string* errorMessage = nullptr
 );
+
+void writeReplaySandboxReportJson(std::ostream& output, const ReplaySandboxReport& report);

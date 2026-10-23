@@ -74,6 +74,25 @@ EngineSubsystemStatus makeStatus(
     return status;
 }
 
+const char* evidenceSource(const std::string& subsystem, std::size_t index) {
+    if (subsystem == "Asset") return "asset-file-presence";
+    if (subsystem == "Rules") {
+        if (index < 4U) return "configured-input-path";
+        return index == 4U ? "source-capability-declaration" : "parsed-input-data";
+    }
+    if (subsystem == "Map") return index == 0U ? "configured-input-path" : "parsed-input-data";
+    if (subsystem == "Campaign") {
+        if (index < 9U) return "parsed-input-data";
+        return index == 9U ? "asset-discovery-and-parsed-input-data" : "source-capability-declaration";
+    }
+    if (subsystem == "SuperWeapons" && index < 5U) return "parsed-input-data";
+    if (subsystem == "SpecialMechanisms" && index < 10U) return "parsed-input-data";
+    if (subsystem == "Audio") {
+        if (index < 2U) return "parsed-input-data";
+        if (index < 4U) return "asset-file-presence";
+    }
+    return "source-capability-declaration";
+}
 const char* stateText(EngineSubsystemState state) {
     switch (state) {
     case EngineSubsystemState::Ready:
@@ -106,6 +125,21 @@ void addSubsystem(EngineStatusReport& report, EngineSubsystemStatus status) {
 
 EngineStatusReport buildEngineStatusReport(const EngineStatusInput& input) {
     EngineStatusReport report;
+    report.provenance.kind = "offline-engine-status";
+    report.provenance.conclusionSource = "source-capability-declarations-and-input-inspection";
+    report.provenance.coverage =
+        "Ready/Partial/Missing are legacy inventory classifications, not behavior test results; "
+        "file counts cover accessible loose files with the existing case-sensitive extensions";
+    report.provenance.inputKind = "filesystem-and-parsed-inputs";
+    report.provenance.inputPath = input.assetRootPath;
+    report.provenance.inputStatus = pathExists(input.assetRootPath)
+        ? "path-exists-scan-may-be-partial" : "path-absent-or-unreadable";
+    report.provenance.unknowns = {
+        "asset decoding, MIX contents, inaccessible entries and scan completeness are unverified",
+        "fixed capability statements are maintained source declarations, not dynamic source inspection or executed tests",
+        "legacy gaps are unverified assessments, not confirmed absence in the current engine",
+        "gameplay, rendering, audio, network, save/replay behavior and performance are not tested by this report"
+    };
     const RulesDatabase* rules = input.rules;
     const ArtDatabase* art = input.art;
     const MapDatabase* map = input.map;
@@ -548,6 +582,11 @@ EngineStatusReport buildEngineStatusReport(const EngineStatusInput& input) {
     );
 
     for (EngineSubsystemStatus& subsystem : report.subsystems) {
+        for (std::size_t index = 0; index < subsystem.evidence.size(); ++index) {
+            if (!subsystem.evidence[index].empty()) {
+                subsystem.evidenceSources.emplace_back(evidenceSource(subsystem.name, index));
+            }
+        }
         subsystem.evidence.erase(
             std::remove(subsystem.evidence.begin(), subsystem.evidence.end(), ""),
             subsystem.evidence.end()
@@ -563,6 +602,7 @@ void printEngineStatusReport(std::ostream& output, const EngineStatusReport& rep
     output << "Partial: " << report.partialCount << "\n";
     output << "Missing: " << report.missingCount << "\n";
     output << "Total:   " << report.totalCount << "\n";
+    offline_report::printEvidence(output, report.provenance);
 
     for (const EngineSubsystemStatus& subsystem : report.subsystems) {
         output << "\n[" << subsystem.name << "] " << stateText(subsystem.state) << "\n";
@@ -574,5 +614,34 @@ void printEngineStatusReport(std::ostream& output, const EngineStatusReport& rep
         for (const std::string& gap : subsystem.gaps) {
             output << "- " << gap << "\n";
         }
+        output << "Evidence sources (same row order): ";
+        offline_report::writeJsonStrings(output, subsystem.evidenceSources);
+        output << "\nGap source: unverified-legacy-assessment\n";
     }
+}
+
+void writeEngineStatusReportJson(std::ostream& output, const EngineStatusReport& report) {
+    output << "{\"schema\":\"OfflineEngineStatus/v1\",\"provenance\":";
+    offline_report::writeEvidenceJson(output, report.provenance);
+    output << ",\"readyCount\":" << report.readyCount
+           << ",\"partialCount\":" << report.partialCount
+           << ",\"missingCount\":" << report.missingCount
+           << ",\"totalCount\":" << report.totalCount << ",\"subsystems\":[";
+    bool comma = false;
+    for (const auto& subsystem : report.subsystems) {
+        if (comma) output << ',';
+        output << "{\"name\":";
+        offline_report::writeJsonString(output, subsystem.name);
+        output << ",\"state\":";
+        offline_report::writeJsonString(output, stateText(subsystem.state));
+        output << ",\"evidence\":";
+        offline_report::writeJsonStrings(output, subsystem.evidence);
+        output << ",\"evidenceSources\":";
+        offline_report::writeJsonStrings(output, subsystem.evidenceSources);
+        output << ",\"gaps\":";
+        offline_report::writeJsonStrings(output, subsystem.gaps);
+        output << ",\"gapSource\":\"unverified-legacy-assessment\"}";
+        comma = true;
+    }
+    output << "]}\n";
 }

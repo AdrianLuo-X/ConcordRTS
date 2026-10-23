@@ -186,6 +186,14 @@ CommandLineOptions parseCommandLine(int argc, char** argv) {
             continue;
         }
 
+        if (argument == "--report-json") {
+            if (!readRequiredValue(argc, argv, i, "--report-json",
+                    options.reportJsonPath, options.errorMessage)) {
+                return options;
+            }
+            continue;
+        }
+
         if (argument == "--output") {
             if (!readRequiredValue(
                     argc,
@@ -847,6 +855,13 @@ CommandLineOptions parseCommandLine(int argc, char** argv) {
         return options;
     }
 
+    if (!options.reportJsonPath.empty()
+        && options.mode != CommandMode::EngineStatus
+        && options.mode != CommandMode::ReplaySandbox) {
+        options.errorMessage = "--report-json requires --engine-status or --replay-sandbox.";
+        return options;
+    }
+
     if (options.mode == CommandMode::DumpMapObjects) {
         if (options.mapPath.empty()) {
             options.errorMessage = "Missing required option for --dump-map-objects: --map <path>.";
@@ -1321,6 +1336,7 @@ void printHelp(std::ostream& output, const std::string& programName) {
     output << "  --performance-plan    Print the deterministic multicore performance plan.\n";
     output << "  --workers <count>     Worker thread count for --performance-plan; default auto.\n";
     output << "  --replay-sandbox      Run a deterministic replay/lockstep/desync sandbox.\n";
+    output << "  --report-json <path>  Also write scoped evidence JSON for --engine-status or --replay-sandbox.\n";
     output << "  --seed <value>        Deterministic random seed for --replay-sandbox; default 12345.\n";
     output << "  --desync-at <tick>    Intentionally mutate one peer at tick for desync detection tests.\n";
     output << "  --runtime-events <file>\n";

@@ -2973,6 +2973,11 @@ bool writeReplayFile(
         output << "\n";
     }
 
+    // Additive section: all original v1 fields, command rows and hash rows above
+    // remain byte-for-byte compatible with their old consumers.
+    output << "\n[EvidenceProvenance]\njson=";
+    offline_report::writeEvidenceJson(output, report.provenance);
+    output << '\n';
     return true;
 }
 
@@ -3357,6 +3362,20 @@ ReplaySandboxReport runReplaySandbox(
     const ReplaySandboxConfig& config
 ) {
     ReplaySandboxReport report;
+    report.provenance.kind = "offline-replay-sandbox";
+    report.provenance.conclusionSource = "offline-sandbox";
+    report.provenance.coverage =
+        "replayVerified, stable intents and peer hashes describe the same offline model; "
+        "runtime/runtime-partial labels describe supplied field overlays, not production behavior acceptance";
+    report.provenance.inputKind = config.runtimeEventInputPath.empty() ? "none" : "explicit-event-file";
+    report.provenance.inputPath = config.runtimeEventInputPath;
+    report.provenance.inputStatus = config.runtimeEventInputPath.empty() ? "not-supplied" : "empty";
+    report.provenance.unknowns = {
+        "event producer identity, source build, capture completeness and producer UTC are unverified",
+        "legacy best-effort matching can reuse events and inferred defaults; field flags do not prove per-tick production coverage",
+        "fallback values and all simulated peer state are offline model results",
+        "render intents are not rendered frames; production command/hash/save/network behavior and device output are not tested"
+    };
     report.attackerId = config.attackerId;
     report.defenderId = config.defenderId;
     report.playerCount = std::max(2, config.playerCount);
@@ -3370,15 +3389,23 @@ ReplaySandboxReport runReplaySandbox(
     RuntimeReplaySourceView runtimeSource;
     runtimeSource.events = config.runtimeEventSnapshots;
     runtimeSource.count = config.runtimeEventSnapshotCount;
+    if (runtimeSource.events != nullptr && runtimeSource.count > 0U) {
+        report.provenance.inputKind = config.runtimeEventInputPath.empty()
+            ? "caller-supplied-event-fields" : "explicit-event-file";
+        report.provenance.inputStatus = "provided";
+    }
     if (runtimeSource.events == nullptr || runtimeSource.count == 0U) {
         std::string runtimeEventFilePath;
         if (const char* environmentPath =
                 std::getenv("CONCORD_REPLAY_RUNTIME_EVENTS")) {
             runtimeEventFilePath = environmentPath;
+            if (!runtimeEventFilePath.empty()) report.provenance.inputKind = "environment-event-file";
         }
         if (runtimeEventFilePath.empty()) {
             runtimeEventFilePath = findDefaultRuntimeReplayEventFile();
+            if (!runtimeEventFilePath.empty()) report.provenance.inputKind = "auto-discovered-event-file";
         }
+        if (!runtimeEventFilePath.empty()) report.provenance.inputPath = runtimeEventFilePath;
         std::string loadError;
         if (!runtimeEventFilePath.empty()
             && loadRuntimeReplayEventSnapshotsFromFile(
@@ -3388,6 +3415,11 @@ ReplaySandboxReport runReplaySandbox(
             )) {
             runtimeSource.events = importedRuntimeEvents.data();
             runtimeSource.count = importedRuntimeEvents.size();
+            report.provenance.inputStatus = importedRuntimeEvents.empty() ? "empty" : "loaded";
+        }
+        if (!loadError.empty()) {
+            report.provenance.inputStatus = "load-failed";
+            report.provenance.inputError = loadError;
         }
     }
     runtimeSource.summary = summarizeRuntimeReplayEventSnapshots(
@@ -3395,6 +3427,7 @@ ReplaySandboxReport runReplaySandbox(
         runtimeSource.count
     );
     report.runtimeEventSource = runtimeSource.summary;
+    report.provenance.inputEventCount = report.runtimeEventSource.eventCount;
     report.lockstepRules = {
         "all peers receive identical command records before a tick is simulated",
         "commands are applied in tick/player/sequence order",
@@ -4035,6 +4068,14 @@ ReplaySandboxReport runReplaySandboxWithRuntimeEventFile(
             *errorMessage = loadError;
         }
         ReplaySandboxReport report;
+        report.provenance.kind = "offline-replay-sandbox";
+        report.provenance.conclusionSource = "not-evaluated";
+        report.provenance.coverage = "event input failed before the offline model ran";
+        report.provenance.inputKind = "explicit-event-file";
+        report.provenance.inputPath = runtimeEventPath;
+        report.provenance.inputStatus = "load-failed";
+        report.provenance.inputError = loadError;
+        report.provenance.unknowns = {"event producer, producer UTC and production behavior remain unverified"};
         report.success = false;
         report.errorMessage = loadError;
         return report;
@@ -4043,5 +4084,42 @@ ReplaySandboxReport runReplaySandboxWithRuntimeEventFile(
     if (errorMessage != nullptr) {
         errorMessage->clear();
     }
+    config.runtimeEventInputPath = runtimeEventPath;
     return runReplaySandboxWithRuntimeEvents(rules, config, runtimeEvents);
+}
+
+void writeReplaySandboxReportJson(std::ostream& output, const ReplaySandboxReport& report) {
+    output << "{\"schema\":\"OfflineReplaySandbox/v1\",\"provenance\":";
+    offline_report::writeEvidenceJson(output, report.provenance);
+    output << ",\"success\":" << (report.success ? "true" : "false")
+           << ",\"replayVerified\":" << (report.replayVerified ? "true" : "false")
+           << ",\"desyncDetected\":" << (report.desyncDetected ? "true" : "false")
+           << ",\"ticksSimulated\":" << report.ticksSimulated
+           << ",\"commandCount\":" << report.commandCount << ",\"errorMessage\":";
+    offline_report::writeJsonString(output, report.errorMessage);
+    output << ",\"commandLogHash\":";
+    offline_report::writeJsonString(output, report.commandLogHash);
+    output << ",\"commandIntentHash\":";
+    offline_report::writeJsonString(output, report.commandIntentHash);
+    output << ",\"capabilityIntentHash\":";
+    offline_report::writeJsonString(output, report.capabilityIntentHash);
+    output << ",\"finalStateHash\":";
+    offline_report::writeJsonString(output, report.finalStateHash);
+    output << ",\"runtimeEventSource\":{\"eventCount\":" << report.runtimeEventSource.eventCount
+           << ",\"runtimeEventCount\":" << report.runtimeEventSource.runtimeEventCount
+           << ",\"sandboxFallbackCount\":" << report.runtimeEventSource.sandboxFallbackCount << '}'
+           << ",\"legacyFieldFlags\":{\"capabilityRuntimeFieldCount\":" << report.capabilityRuntimeFieldCount
+           << ",\"capabilitySandboxFallbackFieldCount\":" << report.capabilitySandboxFallbackFieldCount
+           << ",\"projectileLifecycleRuntimeCount\":" << report.projectileLifecycleRuntimeCount
+           << ",\"projectileLifecycleFallbackCount\":" << report.projectileLifecycleFallbackCount << '}'
+           << ",\"hashFrames\":[";
+    bool comma = false;
+    for (const auto& frame : report.hashFrames) {
+        if (comma) output << ',';
+        output << "{\"tick\":" << frame.tick << ",\"commandsApplied\":" << frame.commandsApplied << ",\"peerHashes\":";
+        offline_report::writeJsonStrings(output, frame.peerHashes);
+        output << '}';
+        comma = true;
+    }
+    output << "]}\n";
 }

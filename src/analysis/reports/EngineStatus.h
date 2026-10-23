@@ -1,5 +1,6 @@
 #pragma once
 
+#include "analysis/reports/OfflineReportEvidence.h"
 #include "data/art/ArtDatabase.h"
 #include "core/io/IniFile.h"
 #include "data/maps/MapDatabase.h"
@@ -22,6 +23,8 @@ struct EngineSubsystemStatus {
     EngineSubsystemState state = EngineSubsystemState::Missing;
     std::vector<std::string> evidence;
     std::vector<std::string> gaps;
+    // Parallel to evidence; legacy strings and state retain their old meaning.
+    std::vector<std::string> evidenceSources;
 };
 
 struct EngineStatusInput {
@@ -46,7 +49,10 @@ struct EngineStatusReport {
     int missingCount = 0;
     int totalCount = 0;
     std::vector<EngineSubsystemStatus> subsystems;
+    OfflineReportEvidence provenance;
 };
 
 EngineStatusReport buildEngineStatusReport(const EngineStatusInput& input);
 void printEngineStatusReport(std::ostream& output, const EngineStatusReport& report);
+
+void writeEngineStatusReportJson(std::ostream& output, const EngineStatusReport& report);

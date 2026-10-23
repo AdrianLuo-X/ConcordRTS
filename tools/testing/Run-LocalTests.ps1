@@ -13,10 +13,17 @@ param(
     [ValidateSet('MSVC','Clang')][string]$Compiler = 'MSVC',
     [ValidateSet('windows-minimal','windows-local-assets')][string]$Profile = 'windows-minimal',
     [string]$TestPattern = '.*',
-    [string]$OutputDirectory = ''
+    [string]$OutputDirectory = '',
+    [switch]$StructureOnly,
+    [string]$PythonExecutable = ''
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+if($StructureOnly){
+    if($Compiler -ine 'Clang'){throw 'Structural baseline requires -Compiler Clang.'}
+    & (Join-Path $PSScriptRoot 'Run-StructureChecks.ps1') -BuildDirectory $BuildDirectory -Configuration $Configuration -PythonExecutable $PythonExecutable -OutputDirectory $OutputDirectory
+    exit $LASTEXITCODE
+}
 $Compiler=if($Compiler -ieq 'Clang'){'Clang'}else{'MSVC'}
 $taskRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 . (Join-Path $PSScriptRoot 'TestResult.ps1')

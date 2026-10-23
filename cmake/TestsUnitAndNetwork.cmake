@@ -1014,3 +1014,20 @@ add_test(NAME economy_production_fixed_step_contract_test
         "${CMAKE_SOURCE_DIR}/tests/fixtures/runtime_economy_production_fixed_step")
 set_tests_properties(economy_production_fixed_step_contract_test PROPERTIES
     LABELS "unit;economy;production;determinism" TIMEOUT 60)
+
+add_test(NAME bink_playback_service_contract_test
+    COMMAND concord_bink_playback_service_contract "${CMAKE_BINARY_DIR}/bink-playback-absent-material")
+set_tests_properties(bink_playback_service_contract_test
+    PROPERTIES TIMEOUT 30 SKIP_RETURN_CODE 77 LABELS "no-assets;video-service-contract")
+
+add_test(NAME match_replay_envelope_contract_test COMMAND concord_match_replay_contract)
+set_tests_properties(match_replay_envelope_contract_test PROPERTIES
+    TIMEOUT 60 LABELS "no-assets;replay;recovery")
+file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/recovery-consistency-contract-cwd")
+add_test(NAME runtime_recovery_consistency_contract_test
+    COMMAND concord_runtime --multiplayer-snapshot-v15-smoke-test
+        --config "${CMAKE_SOURCE_DIR}/tests/fixtures/runtime_recovery_consistency.ini")
+set_tests_properties(runtime_recovery_consistency_contract_test PROPERTIES
+    TIMEOUT 120 LABELS "no-assets;recovery;determinism"
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/recovery-consistency-contract-cwd"
+    ENVIRONMENT "CONCORD_RECOVERY_CONSISTENCY_ONLY=1;CONCORD_RECOVERY_CONTRACT_OUTPUT=${CMAKE_BINARY_DIR}/recovery-consistency-contract-runs")

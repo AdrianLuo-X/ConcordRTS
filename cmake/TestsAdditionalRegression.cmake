@@ -148,3 +148,8 @@ file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/s16-01-house-standard-cwd")
 set_tests_properties(house_economy_context_contract_test PROPERTIES
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/s16-01-house-standard-cwd"
     TIMEOUT 60 LABELS "no-assets;house-economy")
+
+# S26-01: no socket owner, session, Shell, window or player files in this target.
+add_test(NAME runtime_lobby_map_transfer_contract_test COMMAND concord_lobby_map_transfer_contract)
+set_tests_properties(runtime_lobby_map_transfer_contract_test PROPERTIES
+    TIMEOUT 60 LABELS "no-assets;lobby-map-state-machine")

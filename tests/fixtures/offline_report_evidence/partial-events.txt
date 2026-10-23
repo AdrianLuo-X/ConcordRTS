@@ -1,0 +1,1 @@
+sequence=1 tick=1 kind=CommandAccepted objectId=1 targetObjectId=2 commandVerb=ATTACK acceptedCount=1

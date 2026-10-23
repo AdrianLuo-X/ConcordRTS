@@ -87,6 +87,7 @@ struct CommandLineOptions {
     bool showHelp = false;
     bool overwriteOutput = false;
     std::string errorMessage;
+    std::string reportJsonPath;
 };
 
 CommandLineOptions parseCommandLine(int argc, char** argv);

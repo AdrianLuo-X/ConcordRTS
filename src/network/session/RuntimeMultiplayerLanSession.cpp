@@ -1,5 +1,6 @@
 #include "network/session/RuntimeMultiplayerLanSession.h"
 #include "network/lobby/RuntimeRoomPassword.h"
+#include "network/lobby/RuntimeMultiplayerLobbyMapTransfer.h"
 
 #include <algorithm>
 #include <chrono>
@@ -210,12 +211,7 @@ struct RuntimeMultiplayerLanSession::Impl {
         bool lobbyResumeChunkSent = false;
         std::chrono::steady_clock::time_point lobbyResumeChunkSentAt{};
         std::chrono::steady_clock::time_point lobbyResumeStartedAt{};
-        std::optional<RuntimeMultiplayerMapRequest> mapRequest;
-        RuntimeMultiplayerSnapshotChunkProducer mapProducer;
-        bool mapOfferSent = false;
-        bool mapChunkSent = false;
-        std::chrono::steady_clock::time_point mapStartedAt{};
-        std::chrono::steady_clock::time_point mapChunkSentAt{};
+        RuntimeMultiplayerLobbyMapTransfer::HostPeer mapTransfer;
     };
 
     struct SuspendedPeer {
@@ -4134,8 +4130,8 @@ RuntimeMultiplayerLanOperationResult RuntimeMultiplayerLanSession::setReady(
         return failedOperation("ready state may change only in a LAN lobby");
     }
     if (ready && !lobbyResumeSnapshotReady()) return failedOperation("resume snapshot transfer is incomplete");
-    if (ready && impl_->requestedMap && impl_->currentMapMatches(impl_->requestedMap->map)
-        && impl_->receivedMapBytes.empty()) return failedOperation("requested map transfer is incomplete");
+    if (ready && impl_->lobbyMapTransfer.clientIncomplete(impl_->session.matchSetup()
+        ? &impl_->session.matchSetup()->map : nullptr)) return failedOperation("requested map transfer is incomplete");
     RuntimeMultiplayerMessage message;
     message.type = RuntimeMultiplayerMessageType::Ready;
     message.body = RuntimeMultiplayerReadyMessage{
@@ -4770,9 +4766,7 @@ bool RuntimeMultiplayerLanSession::setLobbyMap(RuntimeMultiplayerMatchMap map,
         || impl_->phase != RuntimeMultiplayerLanPhase::Lobby || !impl_->currentMapMatches(map)) {
         error = "only the lobby host may publish its current map bytes"; return false;
     }
-    if (impl_->hostedMap && *impl_->hostedMap == map && impl_->hostedMapBytes == bytes) { error.clear(); return true; }
-    if (!validateRuntimeMultiplayerMapBytes(map, bytes, error)) return false;
-    impl_->hostedMap = std::move(map); impl_->hostedMapBytes = std::move(bytes); error.clear(); return true;
+    return impl_->lobbyMapTransfer.publish(std::move(map), std::move(bytes), error);
 }
 
 bool RuntimeMultiplayerLanSession::requestLobbyMap(const RuntimeMultiplayerMatchMap& map, std::string& error) {
@@ -4780,28 +4774,23 @@ bool RuntimeMultiplayerLanSession::requestLobbyMap(const RuntimeMultiplayerMatch
         || impl_->phase != RuntimeMultiplayerLanPhase::Lobby || !impl_->joinAccepted || !impl_->currentMapMatches(map)) {
         error = "map download requires an admitted canonical lobby"; return false;
     }
-    if (impl_->requestedMap && impl_->requestedMap->map == map) { error.clear(); return true; }
-    if (impl_->nextMapRequestId == std::numeric_limits<std::uint64_t>::max()) {
-        error = "map request sequence exhausted"; return false;
-    }
-    RuntimeMultiplayerMapRequest request{impl_->nextMapRequestId, map};
-    if (!validateRuntimeMultiplayerMapRequest(request, error)) return false;
+    if (impl_->lobbyMapTransfer.alreadyRequested(map)) { error.clear(); return true; }
+    RuntimeMultiplayerMapRequest request;
+    if (!impl_->lobbyMapTransfer.prepareRequest(map, request, error)) return false;
     const auto unready = setReady(false);
     if (!unready.succeeded) { error = unready.reason; return false; }
     RuntimeMultiplayerMessage message;
     message.type = RuntimeMultiplayerMessageType::LobbyMapRequest; message.body = request;
     if (!impl_->sendToHost(message, error)) return false;
-    impl_->requestedMap = std::move(request); ++impl_->nextMapRequestId;
-    impl_->receivedMapOffer.reset(); impl_->receivedMapBytes.clear(); impl_->mapAssembler.reset(); impl_->mapLastChunk.reset();
-    impl_->mapRequestedAt = std::chrono::steady_clock::now(); error.clear(); return true;
+    impl_->lobbyMapTransfer.requested(std::move(request), std::chrono::steady_clock::now()); error.clear(); return true;
 }
 
 const RuntimeMultiplayerMapOffer* RuntimeMultiplayerLanSession::lobbyMapOffer() const {
-    return impl_ && impl_->receivedMapOffer ? &*impl_->receivedMapOffer : nullptr;
+    return impl_ ? impl_->lobbyMapTransfer.offer() : nullptr;
 }
 const std::vector<std::uint8_t>& RuntimeMultiplayerLanSession::lobbyMapBytes() const {
     static const std::vector<std::uint8_t> empty;
-    return impl_ ? impl_->receivedMapBytes : empty;
+    return impl_ ? impl_->lobbyMapTransfer.bytes() : empty;
 }
 bool RuntimeMultiplayerLanSession::lobbyMapTransfersComplete() const {
     return impl_ && impl_->role == RuntimeMultiplayerLanRole::Host && impl_->mapTransfersComplete();

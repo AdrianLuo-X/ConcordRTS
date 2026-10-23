@@ -34,6 +34,10 @@
 | 定时炸弹 | C4、Ivan 状态与值类型动作 | [RuntimeTimedBomb.h](src/simulation/abilities/unit_special/RuntimeTimedBomb.h)、[RuntimeSpecialMechanismEvents.h](src/simulation/abilities/unit_special/RuntimeSpecialMechanismEvents.h) |
 | 寻路目标候选 | 同步生成普通与环形回退候选 | [PathGoalCandidates.h](src/simulation/navigation/pathfinding/PathGoalCandidates.h)、[PathGoalTypes.h](src/simulation/navigation/pathfinding/PathGoalTypes.h) |
 | 地图地形帧 | 资源、光照与视野的短期只读输入 | [RuntimeMapTerrainFrame.h](src/render/core/RuntimeMapTerrainFrame.h)、[RuntimeMapTerrainFrameRenderer.h](src/render/core/RuntimeMapTerrainFrameRenderer.h) |
+| 视频播放服务 | 解码子进程、IPC 与自有 BGRA 帧 | [BinkPlaybackService.h](src/assets/video/BinkPlaybackService.h) |
+| LAN 地图传输 | 大厅地图请求、分块与应答状态 | [RuntimeMultiplayerLobbyMapTransfer.h](src/network/lobby/RuntimeMultiplayerLobbyMapTransfer.h) |
+| 回放封包与恢复 | 流式记录、检查点与宿主恢复事务 | [RuntimeMatchReplay.h](src/runtime/replay/RuntimeMatchReplay.h) |
+| 离线报告证据 | 来源、输入、覆盖与未知项 | [OfflineReportEvidence.h](src/analysis/reports/OfflineReportEvidence.h)、[EngineStatus.h](src/analysis/reports/EngineStatus.h) |
 | 运行时配置 | 配置类型、加载与偏好保存 | [RuntimeConfig.h](src/runtime/config/RuntimeConfig.h) |
 | 运行时入口 | 启动检查与游戏窗口 | [RuntimeShell.h](src/runtime/host/RuntimeShell.h) |
 | 互联网服务               | 服务配置、证书、连接和轮询    | [RuntimeInternetServiceHost.h](src/network/internet/RuntimeInternetServiceHost.h)、[RuntimeInternetServiceHostConfig.h](src/network/internet/RuntimeInternetServiceHostConfig.h) |
@@ -232,6 +236,47 @@ ResourceMountReport buildResourceMountReport(
 ```
 
 `ResourceMountRequest` 包含 `kind`、`name`、`rootPath` 和 `recursive`，资源层类型为 `OriginalGame`、`LocalData` 或 `Mod`。报告包含 `success`、资源层统计及 `warnings`。该接口生成扫描报告，完整运行仍需按 [README](README.md) 准备本地资源。
+
+## 视频播放服务
+
+[BinkPlaybackService.h](src/assets/video/BinkPlaybackService.h) 将视频解码子进程及进程间通信集中在一个服务对象中：
+
+```cpp
+static bool supported() noexcept;
+bool start(const BinkPlaybackRequest& request);
+bool poll(BinkVideoFrame& output, std::uint32_t waitMilliseconds = 0);
+void stop() noexcept;
+const std::string& failure() const;
+std::int32_t sequence() const;
+bool finished() const;
+```
+
+以上为 `BinkPlaybackService` 成员。`BinkPlaybackRequest` 提供资源根、导出根、影片路径、Loop/Once 模式和声音设置，路径在 `start()` 中复制。`BinkVideoFrame` 拥有宽高、从上至下排列的 BGRA 字节和来源字符串；成功轮询替换完整帧，失败轮询保留调用方原帧。
+
+服务不可复制或移动，须在所属线程同步调用；接口没有并发启动、轮询或停止保证。`stop()` 与析构只清理本会话的解码子进程及 IPC；停止后序列重置，完成与错误状态保留到下一次启动。公开接口不暴露共享映射或原生句柄，Windows 视频助手继续提供原 Bink 播放时钟与最后一帧保留行为。
+
+使用前调用 `supported()`；当前非 Windows 服务返回不支持。实际播放仍需要使用者自己的影片、Bink 运行库及已构建的视频助手。缺失素材合同通过不表示影片或音频设备播放通过。
+
+## LAN 大厅地图传输
+
+[RuntimeMultiplayerLobbyMapTransfer.h](src/network/lobby/RuntimeMultiplayerLobbyMapTransfer.h) 管理大厅阶段的地图传输状态。对象不拥有 socket、文件系统、时钟或回调；会话负责解码消息、维护 peer 并按返回动作顺序发送或断开连接。
+
+- `publish()` 接收并持有待发布地图及字节；每个主机 peer 使用独立的 `HostPeer` 保存传输进度。
+- `receiveHost()` 与 `pollHost()` 接收明确的 peer、当前大厅状态、地图和单调时间，返回 `Action`。发送成功排队后调用 `sentHost()`；发送失败时停止该 peer 本轮轮询，避免错误推进进度。
+- 客户端先调用 `prepareRequest()`。只有 Ready=false 和请求都成功排队后才调用 `requested()` 提交状态；`receiveClient()`、`pollClient()` 处理接收与期限。
+- `Action` 包含 peer ID、transfer ID、可选发送消息、完成标志及协议或传输失败原因。`offer()` 和 `bytes()` 返回状态内的借用视图，重置或推进状态后须重新取得。
+
+`Input::currentMap` 仅在本次调用内借用。`TimePoint` 使用 `std::chrono::steady_clock`，由调用方传入，保留原 250 毫秒重传与 180 秒期限。缓存文件的完整性检查及原子提交仍在原会话适配层；此接口不接管认证、快照恢复或重连状态。
+
+## 保存、回放封包与恢复
+
+[RuntimeMatchReplay.h](src/runtime/replay/RuntimeMatchReplay.h) 保留版本 1 的回放封包：`RuntimeMatchReplayWriter` 与 `RuntimeMatchReplayReader` 借用调用方的输入输出流，按序读写 Initial、Command、Step、Reset、Finish 与 Selection 记录。流须在读写期间保持有效；完成标志和错误信息按各成员接口读取。
+
+`validateRuntimeMatchReplay()` 读取至 Finish 并拒绝尾随数据。Initial、Reset 和 Finish 需要非零校验值；Step 的零值表示延后到下一检查点验证。需要再次读取时，调用方须回退流并创建新的读取过程。
+
+宿主的共享恢复实现位于 [RuntimeMatchReplayState.inl](src/runtime/replay/RuntimeMatchReplayState.inl)。它是依赖宿主状态的私有实现，不能作为独立公共头文件使用。恢复先在临时状态中解析、重建并核对 tick 与完整运行时哈希，再通过原事务入口提交；非法 tick、零检查点或零恢复哈希会被拒绝。
+
+本地保存、回放 Reset 和网络快照的检查覆盖计分、ComputerMining、经济生产与定时炸弹等已提取状态，继续沿用原保存与快照格式。对应诊断见 [RuntimeRecoveryConsistencySmoke.inl](src/runtime/persistence/diagnostics/RuntimeRecoveryConsistencySmoke.inl)。这些封包与恢复接口不表示已经提供录像界面或自动录制功能。
 
 ## 运行时配置与启动
 
@@ -589,6 +634,24 @@ ReplayRuntimeEventSourceSummary summarizeRuntimeReplayEventSnapshots(
 
 读取函数沿用现有事件文本解析和错误语义。`superWeaponId`、`superWeaponEvent`、`secondTargetCell` 当前未从文件恢复，保持默认值。完整对象容器需要包含窄头，以获得完整类型定义。本次布局对照限实测 Clang Release，不构成跨编译器、配置或版本的稳定 ABI 保证。
 
+## 离线报告与证据来源
+
+[OfflineReportEvidence.h](src/analysis/reports/OfflineReportEvidence.h) 为离线分析提供统一来源信息：`kind`、`conclusionSource`、`coverage`、输入方式与路径、输入状态与错误、事件数量和 `unknowns`。这些字段描述本次分析使用了什么材料，不验证材料的产生者。
+
+[EngineStatus.h](src/analysis/reports/EngineStatus.h) 在 `EngineStatusReport` 中增加 `provenance`，并以 `EngineSubsystemStatus::evidenceSources` 对应原 evidence 行。原 Ready/Partial/Missing 及 evidence/gaps 含义保留：
+
+```cpp
+EngineStatusReport buildEngineStatusReport(const EngineStatusInput& input);
+void writeEngineStatusReportJson(
+    std::ostream& output, const EngineStatusReport& report);
+void writeReplaySandboxReportJson(
+    std::ostream& output, const ReplaySandboxReport& report);
+```
+
+回放报告声明见 [ReplaySandbox.h](src/analysis/sandbox/ReplaySandbox.h)。它保留原 runtime、runtime-partial 和 fallback 字段，同时说明显式文件、环境变量、自动发现或内存输入的来源及覆盖情况。旧文本导出保留原前缀，并追加证据来源段；独立 JSON 不替换旧文本输出。
+
+JSON 中 `productionRuntimeValidation` 为 `not-run`，`productionRuntimeValidated` 与 `producerVerified` 为 false，`producerUtc` 为 null。输入具备完整字段也不代表真实游戏已运行、录像来源已核实或生产行为验收通过。输入路径会进入报告，生成报告应保存在本机。
+
 ## 模块库与独立合同
 
 [LeafModuleLibraries.cmake](cmake/LeafModuleLibraries.cmake) 为 CSF 与 INI 两份实现建立五个单源 `STATIC` 变体：
@@ -610,6 +673,10 @@ ReplayRuntimeEventSourceSummary summarizeRuntimeReplayEventSnapshots(
 经济与传送的标准目标定义见 [RuntimeSmokeTargets.cmake](cmake/RuntimeSmokeTargets.cmake)，它们直接编译相应生产实现。`chronosphere_relocation_contract_test`、`house_economy_context_contract_test` 在 [TestsAdditionalRegression.cmake](cmake/TestsAdditionalRegression.cmake) 注册；`computer_mining_codec_contract_test` 和 `economy_production_fixed_step_contract_test` 在 [TestsUnitAndNetwork.cmake](cmake/TestsUnitAndNetwork.cmake) 注册。后两项读取 [采矿保存夹具](tests/fixtures/runtime_computer_mining_codec) 和 [固定步夹具](tests/fixtures/runtime_economy_production_fixed_step)，比较完整预期文本；公开构建入口只读取这些夹具。
 
 定时炸弹、寻路候选、生产规则和地形帧的新增独立与对照测试源码见 [README 的测试说明](README.md#测试与开发)。这六份测试目前未注册为工程的 CMake/CTest 目标；开发时使用的私人验证脚本、旧版对照副本和执行记录不随源码发布。
+
+视频服务、LAN 地图传输、回放封包与恢复一致性分别注册为 `bink_playback_service_contract_test`、`runtime_lobby_map_transfer_contract_test`、`match_replay_envelope_contract_test`、`runtime_recovery_consistency_contract_test`。前者在不支持的平台使用跳过返回码；跳过不能计作通过。这些检查未并入固定的 12＋4 测试集合。
+
+[结构检查入口](tools/testing/Run-StructureChecks.ps1) 接收已有 Release 构建目录和明确的 Python 路径；[检查器](tools/structure/structure_guard.py)、[精确例外基线](tools/structure/structure-baseline.json) 与 [合成夹具](tools/structure/test_structure_guard.py) 共同检查依赖、平台类型、目标归属和测试注册。接口与运行条件见 [README](README.md#测试与开发)，无需复制私人开发记录。
 
 ## 命令行接口
 
@@ -650,6 +717,15 @@ ReplayRuntimeEventSourceSummary summarizeRuntimeReplayEventSnapshots(
 一次调用只能选择一个动作。其他入口包括 `--dump-units`、`--dump-weapons`；使用 `--export-json <path>` 时可附加 `--art <ini>` 导出美术定义及关联。JSON 导出创建所需父目录，并覆盖同名输出文件。
 
 `--validate` 输出诊断，但诊断问题本身不保证产生非零退出码，应阅读输出结果。完整参数和执行流程见 [CommandLineOptions.cpp](src/analysis/cli/CommandLineOptions.cpp)、[main.cpp](src/analysis/cli/main.cpp)，JSON 字段见 [JsonExporter.cpp](src/analysis/reports/JsonExporter.cpp)。
+
+离线能力或回放报告可附加 `--report-json <path>`。以下例子使用自编测试规则；工具需先按构建说明准备，输出父目录须已存在：
+
+```powershell
+.\build\clang-cl-x64-release\concord_rules_dump.exe --rules .\tests\fixtures\offline_report_evidence\rules.ini --engine-status --report-json .\build\offline-engine-status.json
+.\build\clang-cl-x64-release\concord_rules_dump.exe --rules .\tests\fixtures\offline_report_evidence\rules.ini --replay-sandbox --runtime-events .\tests\fixtures\offline_report_evidence\complete-events.txt --report-json .\build\offline-replay-report.json
+```
+
+`--report-json` 只允许与 `--engine-status` 或 `--replay-sandbox` 一起使用。默认拒绝覆盖已有 JSON，明确传 `--overwrite` 才允许替换；若同时指定旧回放文本的 `--output`，两者必须指向不同文件。报告中的完整事件与成功状态仅表达所选离线分析结果，生产运行验收仍为 `not-run`。
 
 ### 互联网服务
 

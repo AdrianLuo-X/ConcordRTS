@@ -1,4 +1,5 @@
 #include "runtime/host/RuntimeShell.h"
+#include "runtime/replay/RuntimeMatchReplay.h"
 #include "render/core/RuntimeMapTerrainFrameRenderer.h"
 #include "runtime/host/RuntimeUiClockWin32.h"
 #include "runtime/timing/RuntimeGameSpeedTiming.h"
@@ -171591,8 +171592,18 @@ std::uint64_t runtimeMultiplayerSnapshotSmokeMigratedLegacyHash(
 }
 
 #include "network/snapshots/diagnostics/RuntimeDetailSnapshotSmoke.inl"
+#include "runtime/persistence/diagnostics/RuntimeRecoveryConsistencySmoke.inl"
 
 int runRuntimeMultiplayerSnapshotV15SmokeTest() {
+    if (const char* only = std::getenv("CONCORD_RECOVERY_CONSISTENCY_ONLY");
+        only && std::string(only) == "1") {
+        std::string error;
+        if (!runRuntimeRecoveryConsistencySmoke(error)) {
+            std::cerr << error << '\n';
+            return 1;
+        }
+        return 0;
+    }
     const auto fail = [](const std::string& reason) {
         std::cerr << "Multiplayer snapshot v15 smoke failed: "
                   << reason << "\n";

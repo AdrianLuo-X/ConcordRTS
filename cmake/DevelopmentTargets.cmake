@@ -920,3 +920,59 @@ foreach(s23_production_rules_owner IN ITEMS
     target_sources(${s23_production_rules_owner} PRIVATE src/data/rules/ProductionRulesLoader.cpp)
 endforeach()
 unset(s23_production_rules_owner)
+
+
+# S25: the same production video owner, independently linked without menus/Shell.
+add_executable(concord_bink_playback_service_contract
+    tests/assets/BinkPlaybackServiceContract.cpp
+    src/assets/video/BinkPlaybackService.cpp
+)
+target_include_directories(concord_bink_playback_service_contract PRIVATE src)
+if(CONCORD_MSVC_FRONTEND)
+    concord_target_compile_options(concord_bink_playback_service_contract PRIVATE /utf-8 /W4 /WX /permissive-)
+endif()
+
+# S26-01: explicit owners of the shared LAN session, including existing bridge contracts.
+foreach(s26_lobby_map_owner IN ITEMS
+    concord_runtime
+    concord_multiplayer_lan_flow_smoke
+    concord_multiplayer_runtime_bridge_smoke
+    concord_multiplayer_two_process_smoke
+    concord_multiplayer_lobby_flow_smoke
+    concord_internet_lobby_flow_smoke
+    concord_internet_tcp_tunnel_proxy_smoke
+    concord_internet_service_lobby_e2e
+    concord_selection_key_bridge_smoke
+    concord_reference_communication_bridge_smoke
+    concord_planning_factory_key_bridge_smoke
+    concord_chat_text_bridge_smoke
+)
+    target_sources(${s26_lobby_map_owner} PRIVATE src/network/lobby/RuntimeMultiplayerLobbyMapTransfer.cpp)
+endforeach()
+unset(s26_lobby_map_owner)
+
+add_executable(concord_lobby_map_transfer_contract
+    tests/multiplayer/RuntimeLobbyMapTransferContract.cpp
+    src/network/lobby/RuntimeMultiplayerLobbyMapTransfer.cpp
+    src/network/maps/RuntimeMultiplayerMapTransfer.cpp
+    src/network/maps/RuntimeMultiplayerCompatibilityFingerprint.cpp
+    src/network/snapshots/RuntimeMultiplayerSnapshotTransfer.cpp
+)
+target_include_directories(concord_lobby_map_transfer_contract PRIVATE src)
+if(CONCORD_MSVC_FRONTEND)
+    concord_target_compile_options(concord_lobby_map_transfer_contract PRIVATE /utf-8 /W4 /WX /permissive-)
+endif()
+
+# S27-01: compile the existing replay envelope for the actual reset contract.
+# The recorder/viewer UI remains outside this recovery-only batch.
+target_sources(concord_runtime PRIVATE src/runtime/replay/RuntimeMatchReplay.cpp)
+add_executable(concord_match_replay_contract
+    tests/gameplay/RuntimeMatchReplaySmoke.cpp
+    src/runtime/replay/RuntimeMatchReplay.cpp
+    src/network/lockstep/RuntimeMultiplayerGameplayCommand.cpp
+    src/network/snapshots/RuntimeMultiplayerSnapshotTransfer.cpp
+)
+target_include_directories(concord_match_replay_contract PRIVATE src)
+if(CONCORD_MSVC_FRONTEND)
+    concord_target_compile_options(concord_match_replay_contract PRIVATE /utf-8 /W4 /WX /permissive-)
+endif()

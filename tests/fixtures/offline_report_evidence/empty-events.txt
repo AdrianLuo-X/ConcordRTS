@@ -1,0 +1,1 @@
+# Empty synthetic input; no runtime observation.

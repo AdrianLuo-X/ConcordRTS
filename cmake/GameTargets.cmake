@@ -84,6 +84,7 @@ add_executable(concord_runtime
     src/core/io/RuntimeAtomicFile.cpp
     src/ui/settings/RuntimeSettings.cpp
     src/ui/main_menu/RuntimeMainMenu.cpp
+    src/assets/video/BinkPlaybackService.cpp
     src/ui/campaign/RuntimeCampaignMenu.cpp
     src/runtime/campaign/RuntimeCampaignDataSource.cpp
     src/runtime/campaign/RuntimeCampaignMovieResolver.cpp
