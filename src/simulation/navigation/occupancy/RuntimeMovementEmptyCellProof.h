@@ -20,6 +20,8 @@ struct RuntimeMovementEmptyCellProofState {
     // Complete ground bodies for factory admission; not serialized or hashed.
     std::unordered_map<int,std::vector<std::size_t>> allGroundBodyIndicesByCell;
     bool allGroundBodyIndexReady = false;
+    std::unordered_map<int, std::vector<int>> departureBehaviorIdsByCell;
+    std::size_t departureBehaviorCount = 0;
     const void* objectData = nullptr;
     const void* terrainObjectData = nullptr;
     const void* terrainCellData = nullptr;
