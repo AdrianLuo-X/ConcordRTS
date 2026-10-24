@@ -1,0 +1,27 @@
+# W023-02: existing standard PImpl, exact original provider implementation.
+include_guard(GLOBAL)
+function(concord_register_lan_transport_libraries runtime_owner)
+    if(runtime_owner)
+        concord_add_profiled_leaf(concord_lan_transport_runtime_leaf src/network/session/RuntimeLanTransport.cpp ${runtime_owner} Runtime)
+        target_link_libraries(${runtime_owner} PRIVATE concord_lan_transport_runtime_leaf)
+    endif()
+    concord_add_profiled_leaf(concord_lan_transport_contract_leaf src/network/session/RuntimeLanTransport.cpp concord_lan_transport_smoke Contract)
+    target_link_libraries(concord_lan_transport_smoke PRIVATE concord_lan_transport_contract_leaf)
+
+endfunction()
+if(NOT CONCORD_PORTABLE_CORE)
+    concord_register_lan_transport_libraries(concord_runtime)
+endif()
+# Keep the original final owners' ws2_32 link once; no INTERFACE platform or flag
+# propagation. Other old direct consumers retain their original source/owners.
+if(WIN32 AND NOT CONCORD_PORTABLE_CORE)
+    add_executable(concord_tcp_boundary_contract tests/multiplayer/RuntimeTcpBoundaryContract.cpp)
+    target_include_directories(concord_tcp_boundary_contract PRIVATE src)
+    target_compile_features(concord_tcp_boundary_contract PRIVATE cxx_std_20)
+    target_link_libraries(concord_tcp_boundary_contract PRIVATE concord_lan_transport_contract_leaf ws2_32)
+    target_compile_options(concord_tcp_boundary_contract PRIVATE "$<TARGET_GENEX_EVAL:concord_lan_transport_smoke,$<TARGET_PROPERTY:concord_lan_transport_smoke,COMPILE_OPTIONS>>")
+    target_compile_definitions(concord_tcp_boundary_contract PRIVATE "$<TARGET_GENEX_EVAL:concord_lan_transport_smoke,$<TARGET_PROPERTY:concord_lan_transport_smoke,COMPILE_DEFINITIONS>>")
+    if(CONCORD_MSVC_ABI)
+        set_property(TARGET concord_tcp_boundary_contract PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+    endif()
+endif()

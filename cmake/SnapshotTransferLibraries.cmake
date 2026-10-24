@@ -1,0 +1,16 @@
+# H073-01: selected real consumers, unchanged production bytes.
+include_guard(GLOBAL)
+function(concord_register_snapshot_transfer_libraries runtime_owner)
+concord_add_profiled_leaf(concord_snapshot_transfer_runtime_leaf src/network/snapshots/RuntimeMultiplayerSnapshotTransfer.cpp ${runtime_owner} Runtime)
+concord_add_profiled_leaf(concord_snapshot_transfer_contract_leaf src/network/snapshots/RuntimeMultiplayerSnapshotTransfer.cpp concord_multiplayer_snapshot_transfer_smoke Contract)
+target_link_libraries(${runtime_owner} PRIVATE concord_snapshot_transfer_runtime_leaf)
+set_property(TARGET ${runtime_owner} PROPERTY CONCORD_SNAPSHOT_TRANSFER_LIBRARY concord_snapshot_transfer_runtime_leaf)
+foreach(_snapshot_fixture IN ITEMS concord_multiplayer_snapshot_transfer_smoke concord_multiplayer_lockstep_smoke)
+    target_link_libraries(${_snapshot_fixture} PRIVATE concord_snapshot_transfer_contract_leaf)
+    set_property(TARGET ${_snapshot_fixture} PROPERTY CONCORD_SNAPSHOT_TRANSFER_LIBRARY concord_snapshot_transfer_contract_leaf)
+endforeach()
+
+endfunction()
+if(NOT CONCORD_PORTABLE_CORE)
+    concord_register_snapshot_transfer_libraries(concord_runtime)
+endif()
