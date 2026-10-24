@@ -4334,7 +4334,7 @@
       "rule": "host-state-token",
       "path": "src/runtime/host/RuntimeShell.cpp",
       "detail": "RuntimeWindowState",
-      "maxOccurrences": 2220,
+      "maxOccurrences": 2216,
       "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling.",
       "owner_step": "S30",
       "follow_up": "S30 exact ownership: src/runtime/host/RuntimeShell.cpp",
@@ -12538,28 +12538,6 @@
     },
     {
       "rule": "opaque-native",
-      "path": "src/ui/skirmish/RuntimeSkirmishMenu.cpp",
-      "detail": "void*:hostWindow",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P05",
-      "follow_up": "W014",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "opaque-native",
-      "path": "src/ui/skirmish/RuntimeSkirmishMenu.h",
-      "detail": "void*:hostWindow",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P05",
-      "follow_up": "W014",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "opaque-native",
       "path": "tools/BinkFrameExtractor.cpp",
       "detail": "void*:handle",
       "maxOccurrences": 3,
@@ -14146,17 +14124,6 @@
       "rule": "platform-edge",
       "path": "src/runtime/host/RuntimeMain.cpp",
       "detail": "src/ui/network/RuntimeInternetMultiplayerMenu.h",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P05",
-      "follow_up": "W014",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-edge",
-      "path": "src/runtime/host/RuntimeMain.cpp",
-      "detail": "src/ui/skirmish/RuntimeSkirmishMenu.h",
       "maxOccurrences": 1,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P05",
@@ -16510,17 +16477,6 @@
     {
       "rule": "platform-edge",
       "path": "src/runtime/host/RuntimeShell.cpp",
-      "detail": "src/ui/skirmish/RuntimeSkirmishMenu.h",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P05",
-      "follow_up": "W014",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-edge",
-      "path": "src/runtime/host/RuntimeShell.cpp",
       "detail": "src/ui/time/diagnostics/RuntimeUiClockSmoke.inl",
       "maxOccurrences": 1,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
@@ -17015,28 +16971,6 @@
     },
     {
       "rule": "platform-edge",
-      "path": "src/ui/campaign/RuntimeCampaignMenu.cpp",
-      "detail": "src/ui/skirmish/RuntimeSkirmishMenu.h",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P05",
-      "follow_up": "W014",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-edge",
-      "path": "src/ui/campaign/RuntimeCampaignMenu.h",
-      "detail": "src/ui/skirmish/RuntimeSkirmishMenu.h",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P05",
-      "follow_up": "W014",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-edge",
       "path": "src/ui/diplomacy/RuntimeDiplomacyPage.inl",
       "detail": "src/ui/input/RuntimePointerIngressUi.inl",
       "maxOccurrences": 1,
@@ -17093,17 +17027,6 @@
     {
       "rule": "platform-edge",
       "path": "src/ui/main_menu/RuntimeMainMenu.cpp",
-      "detail": "src/render/core/RuntimeMapRenderer.h",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P06",
-      "follow_up": "W020",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-edge",
-      "path": "src/ui/main_menu/RuntimeMainMenu.cpp",
       "detail": "src/ui/campaign/diagnostics/RuntimeCampaignVideoSkipSmoke.inl",
       "maxOccurrences": 1,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
@@ -17127,17 +17050,6 @@
       "rule": "platform-edge",
       "path": "src/ui/main_menu/RuntimeMainMenu.cpp",
       "detail": "src/ui/resources/RuntimeMenuResourceWatch.h",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P05",
-      "follow_up": "W014",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-edge",
-      "path": "src/ui/main_menu/RuntimeMainMenu.cpp",
-      "detail": "src/ui/skirmish/RuntimeSkirmishMenu.h",
       "maxOccurrences": 1,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P05",
@@ -17237,17 +17149,6 @@
       "rule": "platform-edge",
       "path": "src/ui/network/RuntimeMultiplayerMenu.cpp",
       "detail": "src/ui/network/RuntimeResumeMenuCapture.inl",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P05",
-      "follow_up": "W014",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-edge",
-      "path": "src/ui/network/RuntimeMultiplayerMenu.h",
-      "detail": "src/ui/skirmish/RuntimeSkirmishMenu.h",
       "maxOccurrences": 1,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P05",
@@ -17456,17 +17357,6 @@
     {
       "rule": "platform-edge",
       "path": "src/ui/skirmish/RuntimeSkirmishMenu.cpp",
-      "detail": "src/render/core/RuntimeMapRenderer.h",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P06",
-      "follow_up": "W020",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-edge",
-      "path": "src/ui/skirmish/RuntimeSkirmishMenu.cpp",
       "detail": "src/ui/input/diagnostics/RuntimeObserverMenuSmoke.inl",
       "maxOccurrences": 1,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
@@ -17501,17 +17391,6 @@
       "rule": "platform-edge",
       "path": "src/ui/skirmish/RuntimeSkirmishMenu.cpp",
       "detail": "src/ui/skirmish/RuntimeRandomMapMenu.inl",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P05",
-      "follow_up": "W014",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-edge",
-      "path": "src/ui/skirmish/RuntimeSkirmishMenu.cpp",
-      "detail": "src/ui/skirmish/RuntimeSkirmishMenu.h",
       "maxOccurrences": 1,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P05",
@@ -30756,7 +30635,7 @@
       "rule": "platform-type",
       "path": "src/runtime/host/RuntimeShell.cpp",
       "detail": "HINSTANCE",
-      "maxOccurrences": 5,
+      "maxOccurrences": 4,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P05",
       "follow_up": "W013",
@@ -30822,7 +30701,7 @@
       "rule": "platform-type",
       "path": "src/runtime/host/RuntimeShell.cpp",
       "detail": "MSG",
-      "maxOccurrences": 2,
+      "maxOccurrences": 1,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P05",
       "follow_up": "W013",
@@ -30855,7 +30734,7 @@
       "rule": "platform-type",
       "path": "src/runtime/host/RuntimeShell.cpp",
       "detail": "RECT",
-      "maxOccurrences": 413,
+      "maxOccurrences": 412,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P02",
       "follow_up": "W002",
@@ -30888,7 +30767,7 @@
       "rule": "platform-type",
       "path": "src/runtime/host/RuntimeShell.cpp",
       "detail": "WNDCLASSW",
-      "maxOccurrences": 3,
+      "maxOccurrences": 2,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P05",
       "follow_up": "W013",
@@ -40986,7 +40865,7 @@
       "rule": "platform-type",
       "path": "src/ui/skirmish/RuntimeSkirmishMenu.cpp",
       "detail": "BITMAPINFO",
-      "maxOccurrences": 4,
+      "maxOccurrences": 3,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P05",
       "follow_up": "W014",
@@ -40997,7 +40876,7 @@
       "rule": "platform-type",
       "path": "src/ui/skirmish/RuntimeSkirmishMenu.cpp",
       "detail": "COLORREF",
-      "maxOccurrences": 23,
+      "maxOccurrences": 22,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P02",
       "follow_up": "W003",
@@ -41019,7 +40898,7 @@
       "rule": "platform-type",
       "path": "src/ui/skirmish/RuntimeSkirmishMenu.cpp",
       "detail": "HBITMAP",
-      "maxOccurrences": 3,
+      "maxOccurrences": 2,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P06",
       "follow_up": "W019",
@@ -41041,7 +40920,7 @@
       "rule": "platform-type",
       "path": "src/ui/skirmish/RuntimeSkirmishMenu.cpp",
       "detail": "HDC",
-      "maxOccurrences": 33,
+      "maxOccurrences": 32,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P06",
       "follow_up": "W019",
@@ -41063,7 +40942,7 @@
       "rule": "platform-type",
       "path": "src/ui/skirmish/RuntimeSkirmishMenu.cpp",
       "detail": "HGDIOBJ",
-      "maxOccurrences": 11,
+      "maxOccurrences": 10,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P06",
       "follow_up": "W019",
@@ -41096,7 +40975,7 @@
       "rule": "platform-type",
       "path": "src/ui/skirmish/RuntimeSkirmishMenu.cpp",
       "detail": "HWND",
-      "maxOccurrences": 14,
+      "maxOccurrences": 13,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P05",
       "follow_up": "W014",
@@ -41162,7 +41041,7 @@
       "rule": "platform-type",
       "path": "src/ui/skirmish/RuntimeSkirmishMenu.cpp",
       "detail": "POINT",
-      "maxOccurrences": 44,
+      "maxOccurrences": 26,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P02",
       "follow_up": "W002",
@@ -41173,21 +41052,10 @@
       "rule": "platform-type",
       "path": "src/ui/skirmish/RuntimeSkirmishMenu.cpp",
       "detail": "RECT",
-      "maxOccurrences": 145,
+      "maxOccurrences": 141,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P02",
       "follow_up": "W002",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-type",
-      "path": "src/ui/skirmish/RuntimeSkirmishMenu.cpp",
-      "detail": "ULONGLONG",
-      "maxOccurrences": 2,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P05",
-      "follow_up": "W014",
       "status": "pending",
       "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
     },
@@ -45989,17 +45857,6 @@
     },
     {
       "rule": "test-without-target",
-      "path": "test:runtime_input_cancellation_integration_smoke_test",
-      "detail": "None",
-      "maxOccurrences": 1,
-      "reason": "Historical configured or manually built test; no claim of current execution.",
-      "owner_step": "S03",
-      "follow_up": "S03 local inventory/labels: test:runtime_input_cancellation_integration_smoke_test",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "test-without-target",
       "path": "test:terrain_tmp_query_contract_test",
       "detail": "None",
       "maxOccurrences": 1,
@@ -46030,6 +45887,1461 @@
       "follow_up": "S03 owner-specific frozen oracle include: tests/gameplay/RuntimeEconomyProductionFixedStepContract.cpp",
       "status": "pending",
       "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
+    },
+    {
+      "rule": "host-business-inl",
+      "path": "src/runtime/host/RuntimeShell.cpp",
+      "detail": "src/runtime/window/win32/RuntimeWindowLifecycleUi.inl",
+      "maxOccurrences": 1,
+      "reason": "W013-01 private post-state Win32 binding fragment, exactly relocated without token changes; borrows the still-private session only for a synchronous callback. It contains native effect bindings, no business algorithm or public WindowState. H040 final session remains pending.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "host-state-token",
+      "path": "src/runtime/window/win32/RuntimeWindowLifecycleUi.inl",
+      "detail": "RuntimeWindowState",
+      "maxOccurrences": 2,
+      "reason": "W013-01 private post-state Win32 binding fragment, exactly relocated without token changes; borrows the still-private session only for a synchronous callback. It contains native effect bindings, no business algorithm or public WindowState. H040 final session remains pending.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-edge",
+      "path": "src/runtime/host/RuntimeShell.cpp",
+      "detail": "src/runtime/window/win32/RuntimeWindowHostWin32.h",
+      "maxOccurrences": 1,
+      "reason": "W013-01 private Win32 adapter: owns native create/property/dispatch/drain/destruction on the UI thread. Not reachable from the protected generic lifecycle or core library.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-edge",
+      "path": "src/runtime/host/RuntimeShell.cpp",
+      "detail": "src/runtime/window/win32/RuntimeWindowLifecycleUi.inl",
+      "maxOccurrences": 1,
+      "reason": "W013-01 private Win32 adapter: owns native create/property/dispatch/drain/destruction on the UI thread. Not reachable from the protected generic lifecycle or core library.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-edge",
+      "path": "src/runtime/window/win32/RuntimeWindowHostWin32.cpp",
+      "detail": "src/runtime/window/win32/RuntimeWindowHostWin32.h",
+      "maxOccurrences": 1,
+      "reason": "W013-01 private Win32 adapter: owns native create/property/dispatch/drain/destruction on the UI thread. Not reachable from the protected generic lifecycle or core library.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-edge",
+      "path": "tests/infrastructure/RuntimeWindowHostWin32Contract.cpp",
+      "detail": "src/runtime/window/win32/RuntimeWindowHostWin32.h",
+      "maxOccurrences": 1,
+      "reason": "W013-01 explicitly native Windows fixture, exercising real created windows and synchronous close reentry; not a portable core interface.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-header",
+      "path": "src/runtime/window/win32/RuntimeWindowHostWin32.h",
+      "detail": "windows.h",
+      "maxOccurrences": 1,
+      "reason": "W013-01 private Win32 adapter: owns native create/property/dispatch/drain/destruction on the UI thread. Not reachable from the protected generic lifecycle or core library.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_window_host_win32_contract",
+      "detail": "comdlg32",
+      "maxOccurrences": 1,
+      "reason": "W013-01 Windows test assembly inherits the existing CMake Windows standard-library list. Generic lifecycle static library has no link dependency; actual pure executable imports only CRT/KERNEL32. P10 independent core profile must not inherit device defaults.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_window_host_win32_contract",
+      "detail": "gdi32",
+      "maxOccurrences": 1,
+      "reason": "W013-01 Windows test assembly inherits the existing CMake Windows standard-library list. Generic lifecycle static library has no link dependency; actual pure executable imports only CRT/KERNEL32. P10 independent core profile must not inherit device defaults.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_window_host_win32_contract",
+      "detail": "shell32",
+      "maxOccurrences": 1,
+      "reason": "W013-01 Windows test assembly inherits the existing CMake Windows standard-library list. Generic lifecycle static library has no link dependency; actual pure executable imports only CRT/KERNEL32. P10 independent core profile must not inherit device defaults.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_window_host_win32_contract",
+      "detail": "user32",
+      "maxOccurrences": 1,
+      "reason": "W013-01 Windows test assembly inherits the existing CMake Windows standard-library list. Generic lifecycle static library has no link dependency; actual pure executable imports only CRT/KERNEL32. P10 independent core profile must not inherit device defaults.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_window_lifecycle_contract",
+      "detail": "comdlg32",
+      "maxOccurrences": 1,
+      "reason": "W013-01 Windows test assembly inherits the existing CMake Windows standard-library list. Generic lifecycle static library has no link dependency; actual pure executable imports only CRT/KERNEL32. P10 independent core profile must not inherit device defaults.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_window_lifecycle_contract",
+      "detail": "gdi32",
+      "maxOccurrences": 1,
+      "reason": "W013-01 Windows test assembly inherits the existing CMake Windows standard-library list. Generic lifecycle static library has no link dependency; actual pure executable imports only CRT/KERNEL32. P10 independent core profile must not inherit device defaults.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_window_lifecycle_contract",
+      "detail": "shell32",
+      "maxOccurrences": 1,
+      "reason": "W013-01 Windows test assembly inherits the existing CMake Windows standard-library list. Generic lifecycle static library has no link dependency; actual pure executable imports only CRT/KERNEL32. P10 independent core profile must not inherit device defaults.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_window_lifecycle_contract",
+      "detail": "user32",
+      "maxOccurrences": 1,
+      "reason": "W013-01 Windows test assembly inherits the existing CMake Windows standard-library list. Generic lifecycle static library has no link dependency; actual pure executable imports only CRT/KERNEL32. P10 independent core profile must not inherit device defaults.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/window/win32/RuntimeWindowHostWin32.cpp",
+      "detail": "HINSTANCE",
+      "maxOccurrences": 1,
+      "reason": "W013-01 private Win32 adapter: owns native create/property/dispatch/drain/destruction on the UI thread. Not reachable from the protected generic lifecycle or core library.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/window/win32/RuntimeWindowHostWin32.cpp",
+      "detail": "HWND",
+      "maxOccurrences": 2,
+      "reason": "W013-01 private Win32 adapter: owns native create/property/dispatch/drain/destruction on the UI thread. Not reachable from the protected generic lifecycle or core library.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/window/win32/RuntimeWindowHostWin32.cpp",
+      "detail": "LONG_PTR",
+      "maxOccurrences": 1,
+      "reason": "W013-01 private Win32 adapter: owns native create/property/dispatch/drain/destruction on the UI thread. Not reachable from the protected generic lifecycle or core library.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/window/win32/RuntimeWindowHostWin32.cpp",
+      "detail": "LPARAM",
+      "maxOccurrences": 1,
+      "reason": "W013-01 private Win32 adapter: owns native create/property/dispatch/drain/destruction on the UI thread. Not reachable from the protected generic lifecycle or core library.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/window/win32/RuntimeWindowHostWin32.cpp",
+      "detail": "LRESULT",
+      "maxOccurrences": 2,
+      "reason": "W013-01 private Win32 adapter: owns native create/property/dispatch/drain/destruction on the UI thread. Not reachable from the protected generic lifecycle or core library.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/window/win32/RuntimeWindowHostWin32.cpp",
+      "detail": "MSG",
+      "maxOccurrences": 1,
+      "reason": "W013-01 private Win32 adapter: owns native create/property/dispatch/drain/destruction on the UI thread. Not reachable from the protected generic lifecycle or core library.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/window/win32/RuntimeWindowHostWin32.cpp",
+      "detail": "RECT",
+      "maxOccurrences": 1,
+      "reason": "W013-01 private Win32 adapter: owns native create/property/dispatch/drain/destruction on the UI thread. Not reachable from the protected generic lifecycle or core library.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/window/win32/RuntimeWindowHostWin32.cpp",
+      "detail": "WNDCLASSW",
+      "maxOccurrences": 1,
+      "reason": "W013-01 private Win32 adapter: owns native create/property/dispatch/drain/destruction on the UI thread. Not reachable from the protected generic lifecycle or core library.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/window/win32/RuntimeWindowHostWin32.cpp",
+      "detail": "WNDPROC",
+      "maxOccurrences": 1,
+      "reason": "W013-01 private Win32 adapter: owns native create/property/dispatch/drain/destruction on the UI thread. Not reachable from the protected generic lifecycle or core library.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/window/win32/RuntimeWindowHostWin32.cpp",
+      "detail": "WPARAM",
+      "maxOccurrences": 1,
+      "reason": "W013-01 private Win32 adapter: owns native create/property/dispatch/drain/destruction on the UI thread. Not reachable from the protected generic lifecycle or core library.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/window/win32/RuntimeWindowHostWin32.h",
+      "detail": "HWND",
+      "maxOccurrences": 3,
+      "reason": "W013-01 private Win32 adapter: owns native create/property/dispatch/drain/destruction on the UI thread. Not reachable from the protected generic lifecycle or core library.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/window/win32/RuntimeWindowHostWin32.h",
+      "detail": "LONG_PTR",
+      "maxOccurrences": 1,
+      "reason": "W013-01 private Win32 adapter: owns native create/property/dispatch/drain/destruction on the UI thread. Not reachable from the protected generic lifecycle or core library.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/window/win32/RuntimeWindowHostWin32.h",
+      "detail": "LPARAM",
+      "maxOccurrences": 1,
+      "reason": "W013-01 private Win32 adapter: owns native create/property/dispatch/drain/destruction on the UI thread. Not reachable from the protected generic lifecycle or core library.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/window/win32/RuntimeWindowHostWin32.h",
+      "detail": "LRESULT",
+      "maxOccurrences": 1,
+      "reason": "W013-01 private Win32 adapter: owns native create/property/dispatch/drain/destruction on the UI thread. Not reachable from the protected generic lifecycle or core library.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/window/win32/RuntimeWindowHostWin32.h",
+      "detail": "WNDPROC",
+      "maxOccurrences": 2,
+      "reason": "W013-01 private Win32 adapter: owns native create/property/dispatch/drain/destruction on the UI thread. Not reachable from the protected generic lifecycle or core library.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/window/win32/RuntimeWindowHostWin32.h",
+      "detail": "WPARAM",
+      "maxOccurrences": 1,
+      "reason": "W013-01 private Win32 adapter: owns native create/property/dispatch/drain/destruction on the UI thread. Not reachable from the protected generic lifecycle or core library.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/window/win32/RuntimeWindowLifecycleUi.inl",
+      "detail": "HWND",
+      "maxOccurrences": 2,
+      "reason": "W013-01 private post-state Win32 binding fragment, exactly relocated without token changes; borrows the still-private session only for a synchronous callback. It contains native effect bindings, no business algorithm or public WindowState. H040 final session remains pending.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tests/infrastructure/RuntimeWindowHostWin32Contract.cpp",
+      "detail": "HWND",
+      "maxOccurrences": 3,
+      "reason": "W013-01 explicitly native Windows fixture, exercising real created windows and synchronous close reentry; not a portable core interface.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tests/infrastructure/RuntimeWindowHostWin32Contract.cpp",
+      "detail": "LPARAM",
+      "maxOccurrences": 1,
+      "reason": "W013-01 explicitly native Windows fixture, exercising real created windows and synchronous close reentry; not a portable core interface.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tests/infrastructure/RuntimeWindowHostWin32Contract.cpp",
+      "detail": "LRESULT",
+      "maxOccurrences": 1,
+      "reason": "W013-01 explicitly native Windows fixture, exercising real created windows and synchronous close reentry; not a portable core interface.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tests/infrastructure/RuntimeWindowHostWin32Contract.cpp",
+      "detail": "RECT",
+      "maxOccurrences": 1,
+      "reason": "W013-01 explicitly native Windows fixture, exercising real created windows and synchronous close reentry; not a portable core interface.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tests/infrastructure/RuntimeWindowHostWin32Contract.cpp",
+      "detail": "WPARAM",
+      "maxOccurrences": 1,
+      "reason": "W013-01 explicitly native Windows fixture, exercising real created windows and synchronous close reentry; not a portable core interface.",
+      "owner_step": "P05",
+      "follow_up": "W013-01 private adapter/Windows fixture only; protected generic lifecycle must stay native-free. Full game session remains H040; P10 owns its independent core profile."
+    },
+    {
+      "rule": "platform-edge",
+      "path": "src/runtime/host/RuntimeShell.cpp",
+      "detail": "src/runtime/window/win32/RuntimeWindowParentWin32.h",
+      "maxOccurrences": 1,
+      "reason": "W014-03 scoped Win32 parent factory: only private native assembly/implementation owns the typed HWND borrow. Public entry is an allocated RuntimeWindowId, no native integer/pointer cast; scoped revocation and cross-thread rejection actual checks passed.",
+      "owner_step": "P05",
+      "follow_up": "W014-03 selected scene only. P06 owns surface/GDI abstraction; P08 owns music device; random file/native editor and other menus keep original owners. No generic controller/platform exception. P10 independent core profile still required."
+    },
+    {
+      "rule": "platform-edge",
+      "path": "src/runtime/window/win32/RuntimeWindowParentWin32.cpp",
+      "detail": "src/runtime/window/win32/RuntimeWindowParentWin32.h",
+      "maxOccurrences": 1,
+      "reason": "W014-03 scoped Win32 parent factory: only private native assembly/implementation owns the typed HWND borrow. Public entry is an allocated RuntimeWindowId, no native integer/pointer cast; scoped revocation and cross-thread rejection actual checks passed.",
+      "owner_step": "P05",
+      "follow_up": "W014-03 selected scene only. P06 owns surface/GDI abstraction; P08 owns music device; random file/native editor and other menus keep original owners. No generic controller/platform exception. P10 independent core profile still required."
+    },
+    {
+      "rule": "platform-edge",
+      "path": "src/ui/network/RuntimeInternetMultiplayerMenu.cpp",
+      "detail": "src/runtime/window/win32/RuntimeWindowParentWin32.h",
+      "maxOccurrences": 1,
+      "reason": "W014-03 scoped Win32 parent factory: only private native assembly/implementation owns the typed HWND borrow. Public entry is an allocated RuntimeWindowId, no native integer/pointer cast; scoped revocation and cross-thread rejection actual checks passed.",
+      "owner_step": "P05",
+      "follow_up": "W014-03 selected scene only. P06 owns surface/GDI abstraction; P08 owns music device; random file/native editor and other menus keep original owners. No generic controller/platform exception. P10 independent core profile still required."
+    },
+    {
+      "rule": "platform-edge",
+      "path": "src/ui/network/RuntimeMultiplayerMenu.cpp",
+      "detail": "src/runtime/window/win32/RuntimeWindowParentWin32.h",
+      "maxOccurrences": 1,
+      "reason": "W014-03 scoped Win32 parent factory: only private native assembly/implementation owns the typed HWND borrow. Public entry is an allocated RuntimeWindowId, no native integer/pointer cast; scoped revocation and cross-thread rejection actual checks passed.",
+      "owner_step": "P05",
+      "follow_up": "W014-03 selected scene only. P06 owns surface/GDI abstraction; P08 owns music device; random file/native editor and other menus keep original owners. No generic controller/platform exception. P10 independent core profile still required."
+    },
+    {
+      "rule": "platform-edge",
+      "path": "src/ui/skirmish/RuntimeSkirmishMenu.cpp",
+      "detail": "src/runtime/window/win32/RuntimeWindowParentWin32.h",
+      "maxOccurrences": 1,
+      "reason": "W014-03 scoped Win32 parent factory: only private native assembly/implementation owns the typed HWND borrow. Public entry is an allocated RuntimeWindowId, no native integer/pointer cast; scoped revocation and cross-thread rejection actual checks passed.",
+      "owner_step": "P05",
+      "follow_up": "W014-03 selected scene only. P06 owns surface/GDI abstraction; P08 owns music device; random file/native editor and other menus keep original owners. No generic controller/platform exception. P10 independent core profile still required."
+    },
+    {
+      "rule": "platform-edge",
+      "path": "tests/infrastructure/RuntimeWindowParentWin32Contract.cpp",
+      "detail": "src/runtime/window/win32/RuntimeWindowParentWin32.h",
+      "maxOccurrences": 1,
+      "reason": "W014-03 scoped Win32 parent factory: only private native assembly/implementation owns the typed HWND borrow. Public entry is an allocated RuntimeWindowId, no native integer/pointer cast; scoped revocation and cross-thread rejection actual checks passed.",
+      "owner_step": "P05",
+      "follow_up": "W014-03 selected scene only. P06 owns surface/GDI abstraction; P08 owns music device; random file/native editor and other menus keep original owners. No generic controller/platform exception. P10 independent core profile still required."
+    },
+    {
+      "rule": "platform-edge",
+      "path": "src/ui/skirmish/RuntimeSkirmishMenu.cpp",
+      "detail": "src/ui/skirmish/diagnostics/RuntimeSkirmishWindowLifecycleSmoke.inl",
+      "maxOccurrences": 1,
+      "reason": "W014-03 explicitly Windows-owned diagnostic fixture. Actual native window and disposal calls; generic selected controller/selection/config never includes this fragment. Initial cold-process and cached-font fixture failures retained; original assertions preserved, actual native returns/order used.",
+      "owner_step": "P05",
+      "follow_up": "W014-03 selected scene only. P06 owns surface/GDI abstraction; P08 owns music device; random file/native editor and other menus keep original owners. No generic controller/platform exception. P10 independent core profile still required."
+    },
+    {
+      "rule": "platform-header",
+      "path": "src/runtime/window/win32/RuntimeWindowParentWin32.h",
+      "detail": "windows.h",
+      "maxOccurrences": 1,
+      "reason": "W014-03 scoped Win32 parent factory: only private native assembly/implementation owns the typed HWND borrow. Public entry is an allocated RuntimeWindowId, no native integer/pointer cast; scoped revocation and cross-thread rejection actual checks passed.",
+      "owner_step": "P05",
+      "follow_up": "W014-03 selected scene only. P06 owns surface/GDI abstraction; P08 owns music device; random file/native editor and other menus keep original owners. No generic controller/platform exception. P10 independent core profile still required."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_skirmish_controller_contract",
+      "detail": "comdlg32",
+      "maxOccurrences": 1,
+      "reason": "W014-03 Windows local Contract target inherits unchanged CMake Windows standard libraries; pure static production library has no device link closure. This is not the independent P10 portable-core profile; P10 must remove unnecessary device defaults there.",
+      "owner_step": "P05",
+      "follow_up": "W014-03 selected scene only. P06 owns surface/GDI abstraction; P08 owns music device; random file/native editor and other menus keep original owners. No generic controller/platform exception. P10 independent core profile still required."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_skirmish_controller_contract",
+      "detail": "gdi32",
+      "maxOccurrences": 1,
+      "reason": "W014-03 Windows local Contract target inherits unchanged CMake Windows standard libraries; pure static production library has no device link closure. This is not the independent P10 portable-core profile; P10 must remove unnecessary device defaults there.",
+      "owner_step": "P05",
+      "follow_up": "W014-03 selected scene only. P06 owns surface/GDI abstraction; P08 owns music device; random file/native editor and other menus keep original owners. No generic controller/platform exception. P10 independent core profile still required."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_skirmish_controller_contract",
+      "detail": "shell32",
+      "maxOccurrences": 1,
+      "reason": "W014-03 Windows local Contract target inherits unchanged CMake Windows standard libraries; pure static production library has no device link closure. This is not the independent P10 portable-core profile; P10 must remove unnecessary device defaults there.",
+      "owner_step": "P05",
+      "follow_up": "W014-03 selected scene only. P06 owns surface/GDI abstraction; P08 owns music device; random file/native editor and other menus keep original owners. No generic controller/platform exception. P10 independent core profile still required."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_skirmish_controller_contract",
+      "detail": "user32",
+      "maxOccurrences": 1,
+      "reason": "W014-03 Windows local Contract target inherits unchanged CMake Windows standard libraries; pure static production library has no device link closure. This is not the independent P10 portable-core profile; P10 must remove unnecessary device defaults there.",
+      "owner_step": "P05",
+      "follow_up": "W014-03 selected scene only. P06 owns surface/GDI abstraction; P08 owns music device; random file/native editor and other menus keep original owners. No generic controller/platform exception. P10 independent core profile still required."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_skirmish_setup_contract",
+      "detail": "comdlg32",
+      "maxOccurrences": 1,
+      "reason": "W014-03 Windows local Contract target inherits unchanged CMake Windows standard libraries; pure static production library has no device link closure. This is not the independent P10 portable-core profile; P10 must remove unnecessary device defaults there.",
+      "owner_step": "P05",
+      "follow_up": "W014-03 selected scene only. P06 owns surface/GDI abstraction; P08 owns music device; random file/native editor and other menus keep original owners. No generic controller/platform exception. P10 independent core profile still required."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_skirmish_setup_contract",
+      "detail": "gdi32",
+      "maxOccurrences": 1,
+      "reason": "W014-03 Windows local Contract target inherits unchanged CMake Windows standard libraries; pure static production library has no device link closure. This is not the independent P10 portable-core profile; P10 must remove unnecessary device defaults there.",
+      "owner_step": "P05",
+      "follow_up": "W014-03 selected scene only. P06 owns surface/GDI abstraction; P08 owns music device; random file/native editor and other menus keep original owners. No generic controller/platform exception. P10 independent core profile still required."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_skirmish_setup_contract",
+      "detail": "shell32",
+      "maxOccurrences": 1,
+      "reason": "W014-03 Windows local Contract target inherits unchanged CMake Windows standard libraries; pure static production library has no device link closure. This is not the independent P10 portable-core profile; P10 must remove unnecessary device defaults there.",
+      "owner_step": "P05",
+      "follow_up": "W014-03 selected scene only. P06 owns surface/GDI abstraction; P08 owns music device; random file/native editor and other menus keep original owners. No generic controller/platform exception. P10 independent core profile still required."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_skirmish_setup_contract",
+      "detail": "user32",
+      "maxOccurrences": 1,
+      "reason": "W014-03 Windows local Contract target inherits unchanged CMake Windows standard libraries; pure static production library has no device link closure. This is not the independent P10 portable-core profile; P10 must remove unnecessary device defaults there.",
+      "owner_step": "P05",
+      "follow_up": "W014-03 selected scene only. P06 owns surface/GDI abstraction; P08 owns music device; random file/native editor and other menus keep original owners. No generic controller/platform exception. P10 independent core profile still required."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_window_parent_win32_contract",
+      "detail": "comdlg32",
+      "maxOccurrences": 1,
+      "reason": "W014-03 Windows local Contract target inherits unchanged CMake Windows standard libraries; pure static production library has no device link closure. This is not the independent P10 portable-core profile; P10 must remove unnecessary device defaults there.",
+      "owner_step": "P05",
+      "follow_up": "W014-03 selected scene only. P06 owns surface/GDI abstraction; P08 owns music device; random file/native editor and other menus keep original owners. No generic controller/platform exception. P10 independent core profile still required."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_window_parent_win32_contract",
+      "detail": "gdi32",
+      "maxOccurrences": 1,
+      "reason": "W014-03 Windows local Contract target inherits unchanged CMake Windows standard libraries; pure static production library has no device link closure. This is not the independent P10 portable-core profile; P10 must remove unnecessary device defaults there.",
+      "owner_step": "P05",
+      "follow_up": "W014-03 selected scene only. P06 owns surface/GDI abstraction; P08 owns music device; random file/native editor and other menus keep original owners. No generic controller/platform exception. P10 independent core profile still required."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_window_parent_win32_contract",
+      "detail": "shell32",
+      "maxOccurrences": 1,
+      "reason": "W014-03 Windows local Contract target inherits unchanged CMake Windows standard libraries; pure static production library has no device link closure. This is not the independent P10 portable-core profile; P10 must remove unnecessary device defaults there.",
+      "owner_step": "P05",
+      "follow_up": "W014-03 selected scene only. P06 owns surface/GDI abstraction; P08 owns music device; random file/native editor and other menus keep original owners. No generic controller/platform exception. P10 independent core profile still required."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_window_parent_win32_contract",
+      "detail": "user32",
+      "maxOccurrences": 1,
+      "reason": "W014-03 Windows local Contract target inherits unchanged CMake Windows standard libraries; pure static production library has no device link closure. This is not the independent P10 portable-core profile; P10 must remove unnecessary device defaults there.",
+      "owner_step": "P05",
+      "follow_up": "W014-03 selected scene only. P06 owns surface/GDI abstraction; P08 owns music device; random file/native editor and other menus keep original owners. No generic controller/platform exception. P10 independent core profile still required."
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/window/win32/RuntimeWindowParentWin32.cpp",
+      "detail": "HWND",
+      "maxOccurrences": 2,
+      "reason": "W014-03 scoped Win32 parent factory: only private native assembly/implementation owns the typed HWND borrow. Public entry is an allocated RuntimeWindowId, no native integer/pointer cast; scoped revocation and cross-thread rejection actual checks passed.",
+      "owner_step": "P05",
+      "follow_up": "W014-03 selected scene only. P06 owns surface/GDI abstraction; P08 owns music device; random file/native editor and other menus keep original owners. No generic controller/platform exception. P10 independent core profile still required."
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/window/win32/RuntimeWindowParentWin32.h",
+      "detail": "HWND",
+      "maxOccurrences": 2,
+      "reason": "W014-03 scoped Win32 parent factory: only private native assembly/implementation owns the typed HWND borrow. Public entry is an allocated RuntimeWindowId, no native integer/pointer cast; scoped revocation and cross-thread rejection actual checks passed.",
+      "owner_step": "P05",
+      "follow_up": "W014-03 selected scene only. P06 owns surface/GDI abstraction; P08 owns music device; random file/native editor and other menus keep original owners. No generic controller/platform exception. P10 independent core profile still required."
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/ui/skirmish/diagnostics/RuntimeSkirmishWindowLifecycleSmoke.inl",
+      "detail": "DWORD",
+      "maxOccurrences": 5,
+      "reason": "W014-03 explicitly Windows-owned diagnostic fixture. Actual native window and disposal calls; generic selected controller/selection/config never includes this fragment. Initial cold-process and cached-font fixture failures retained; original assertions preserved, actual native returns/order used.",
+      "owner_step": "P05",
+      "follow_up": "W014-03 selected scene only. P06 owns surface/GDI abstraction; P08 owns music device; random file/native editor and other menus keep original owners. No generic controller/platform exception. P10 independent core profile still required."
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/ui/skirmish/diagnostics/RuntimeSkirmishWindowLifecycleSmoke.inl",
+      "detail": "HGDIOBJ",
+      "maxOccurrences": 2,
+      "reason": "W014-03 explicitly Windows-owned diagnostic fixture. Actual native window and disposal calls; generic selected controller/selection/config never includes this fragment. Initial cold-process and cached-font fixture failures retained; original assertions preserved, actual native returns/order used.",
+      "owner_step": "P05",
+      "follow_up": "W014-03 selected scene only. P06 owns surface/GDI abstraction; P08 owns music device; random file/native editor and other menus keep original owners. No generic controller/platform exception. P10 independent core profile still required."
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/ui/skirmish/diagnostics/RuntimeSkirmishWindowLifecycleSmoke.inl",
+      "detail": "HWND",
+      "maxOccurrences": 5,
+      "reason": "W014-03 explicitly Windows-owned diagnostic fixture. Actual native window and disposal calls; generic selected controller/selection/config never includes this fragment. Initial cold-process and cached-font fixture failures retained; original assertions preserved, actual native returns/order used.",
+      "owner_step": "P05",
+      "follow_up": "W014-03 selected scene only. P06 owns surface/GDI abstraction; P08 owns music device; random file/native editor and other menus keep original owners. No generic controller/platform exception. P10 independent core profile still required."
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/ui/skirmish/diagnostics/RuntimeSkirmishWindowLifecycleSmoke.inl",
+      "detail": "RECT",
+      "maxOccurrences": 2,
+      "reason": "W014-03 explicitly Windows-owned diagnostic fixture. Actual native window and disposal calls; generic selected controller/selection/config never includes this fragment. Initial cold-process and cached-font fixture failures retained; original assertions preserved, actual native returns/order used.",
+      "owner_step": "P05",
+      "follow_up": "W014-03 selected scene only. P06 owns surface/GDI abstraction; P08 owns music device; random file/native editor and other menus keep original owners. No generic controller/platform exception. P10 independent core profile still required."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tests/infrastructure/RuntimeWindowParentWin32Contract.cpp",
+      "detail": "HWND",
+      "maxOccurrences": 1,
+      "reason": "W014-03 explicitly Windows-owned diagnostic fixture. Actual native window and disposal calls; generic selected controller/selection/config never includes this fragment. Initial cold-process and cached-font fixture failures retained; original assertions preserved, actual native returns/order used.",
+      "owner_step": "P05",
+      "follow_up": "W014-03 selected scene only. P06 owns surface/GDI abstraction; P08 owns music device; random file/native editor and other menus keep original owners. No generic controller/platform exception. P10 independent core profile still required."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_westwood_font_contract",
+      "detail": "comdlg32",
+      "maxOccurrences": 1,
+      "reason": "R002 local Windows Contract target inherits unchanged CMake Windows standard library defaults. The production font STATIC leaf has no device link dependencies and its header closure is pure. Actual executable imports are checked separately. P10 independent portable-core profile must remove unused device defaults; no generic codec exception.",
+      "owner_step": "S31",
+      "follow_up": "R002 Windows-local test only; P10 portable-core profile has a separate strict no-device link closure."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_westwood_font_contract",
+      "detail": "gdi32",
+      "maxOccurrences": 1,
+      "reason": "R002 local Windows Contract target inherits unchanged CMake Windows standard library defaults. The production font STATIC leaf has no device link dependencies and its header closure is pure. Actual executable imports are checked separately. P10 independent portable-core profile must remove unused device defaults; no generic codec exception.",
+      "owner_step": "S31",
+      "follow_up": "R002 Windows-local test only; P10 portable-core profile has a separate strict no-device link closure."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_westwood_font_contract",
+      "detail": "shell32",
+      "maxOccurrences": 1,
+      "reason": "R002 local Windows Contract target inherits unchanged CMake Windows standard library defaults. The production font STATIC leaf has no device link dependencies and its header closure is pure. Actual executable imports are checked separately. P10 independent portable-core profile must remove unused device defaults; no generic codec exception.",
+      "owner_step": "S31",
+      "follow_up": "R002 Windows-local test only; P10 portable-core profile has a separate strict no-device link closure."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_westwood_font_contract",
+      "detail": "user32",
+      "maxOccurrences": 1,
+      "reason": "R002 local Windows Contract target inherits unchanged CMake Windows standard library defaults. The production font STATIC leaf has no device link dependencies and its header closure is pure. Actual executable imports are checked separately. P10 independent portable-core profile must remove unused device defaults; no generic codec exception.",
+      "owner_step": "S31",
+      "follow_up": "R002 Windows-local test only; P10 portable-core profile has a separate strict no-device link closure."
+    },
+    {
+      "rule": "platform-edge",
+      "path": "src/render/resources/MenuImageResources.cpp",
+      "detail": "src/render/core/RuntimeMapRenderer.h",
+      "maxOccurrences": 1,
+      "reason": "R005 private menu resource provider owns an isolated default renderer context/cache and calls existing PAL/SHP loader. No live world/native handles enter the pure public menu port; main UI renderer dependency retired. Existing renderer resource internals remain original later owners.",
+      "owner_step": "S31",
+      "follow_up": "R005 private provider only; R006 reuses narrow port, P10 strict portable-core separate. Renderer/index/cache internals remain their original later owners."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_menu_image_contract",
+      "detail": "comdlg32",
+      "maxOccurrences": 1,
+      "reason": "R005 Windows-local pure pixel Contract target inherits unchanged CMake Windows standard library defaults. Actual PE imports contain no device DLL, STATIC product leaf has no link dependencies. P10 independent portable-core profile has separate strict no-device defaults.",
+      "owner_step": "S31",
+      "follow_up": "R005 private provider only; R006 reuses narrow port, P10 strict portable-core separate. Renderer/index/cache internals remain their original later owners."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_menu_image_contract",
+      "detail": "gdi32",
+      "maxOccurrences": 1,
+      "reason": "R005 Windows-local pure pixel Contract target inherits unchanged CMake Windows standard library defaults. Actual PE imports contain no device DLL, STATIC product leaf has no link dependencies. P10 independent portable-core profile has separate strict no-device defaults.",
+      "owner_step": "S31",
+      "follow_up": "R005 private provider only; R006 reuses narrow port, P10 strict portable-core separate. Renderer/index/cache internals remain their original later owners."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_menu_image_contract",
+      "detail": "shell32",
+      "maxOccurrences": 1,
+      "reason": "R005 Windows-local pure pixel Contract target inherits unchanged CMake Windows standard library defaults. Actual PE imports contain no device DLL, STATIC product leaf has no link dependencies. P10 independent portable-core profile has separate strict no-device defaults.",
+      "owner_step": "S31",
+      "follow_up": "R005 private provider only; R006 reuses narrow port, P10 strict portable-core separate. Renderer/index/cache internals remain their original later owners."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_menu_image_contract",
+      "detail": "user32",
+      "maxOccurrences": 1,
+      "reason": "R005 Windows-local pure pixel Contract target inherits unchanged CMake Windows standard library defaults. Actual PE imports contain no device DLL, STATIC product leaf has no link dependencies. P10 independent portable-core profile has separate strict no-device defaults.",
+      "owner_step": "S31",
+      "follow_up": "R005 private provider only; R006 reuses narrow port, P10 strict portable-core separate. Renderer/index/cache internals remain their original later owners."
+    },
+    {
+      "rule": "platform-header",
+      "path": "tests/infrastructure/RuntimeColorValuesWin32Contract.cpp",
+      "detail": "windows.h",
+      "maxOccurrences": 1,
+      "reason": "W003 selected RGB contract Windows-local reference fixture only. It verifies actual COLORREF width/unsigned layout and original Win32 RGB/Get*Value macros against the standard product value over all RGB24 inputs and high flags. Generic product header has no native types/includes.",
+      "owner_step": "P02",
+      "follow_up": "W003-01-skirmish-font only. Other menu/renderer color consumers remain original owners; generic value may not include Windows."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tests/infrastructure/RuntimeColorValuesWin32Contract.cpp",
+      "detail": "COLORREF",
+      "maxOccurrences": 4,
+      "reason": "W003 selected RGB contract Windows-local reference fixture only. It verifies actual COLORREF width/unsigned layout and original Win32 RGB/Get*Value macros against the standard product value over all RGB24 inputs and high flags. Generic product header has no native types/includes.",
+      "owner_step": "P02",
+      "follow_up": "W003-01-skirmish-font only. Other menu/renderer color consumers remain original owners; generic value may not include Windows."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_color_values_contract",
+      "detail": "comdlg32",
+      "maxOccurrences": 1,
+      "reason": "W003 local Windows test target unchanged CMake standard library defaults. Both actual PE imports have no GUI/device DLL; P10 strict independent portable-core profile removes unused device defaults and excludes native reference fixture by capability.",
+      "owner_step": "P02",
+      "follow_up": "W003-01-skirmish-font only. Other menu/renderer color consumers remain original owners; generic value may not include Windows."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_color_values_contract",
+      "detail": "gdi32",
+      "maxOccurrences": 1,
+      "reason": "W003 local Windows test target unchanged CMake standard library defaults. Both actual PE imports have no GUI/device DLL; P10 strict independent portable-core profile removes unused device defaults and excludes native reference fixture by capability.",
+      "owner_step": "P02",
+      "follow_up": "W003-01-skirmish-font only. Other menu/renderer color consumers remain original owners; generic value may not include Windows."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_color_values_contract",
+      "detail": "shell32",
+      "maxOccurrences": 1,
+      "reason": "W003 local Windows test target unchanged CMake standard library defaults. Both actual PE imports have no GUI/device DLL; P10 strict independent portable-core profile removes unused device defaults and excludes native reference fixture by capability.",
+      "owner_step": "P02",
+      "follow_up": "W003-01-skirmish-font only. Other menu/renderer color consumers remain original owners; generic value may not include Windows."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_color_values_contract",
+      "detail": "user32",
+      "maxOccurrences": 1,
+      "reason": "W003 local Windows test target unchanged CMake standard library defaults. Both actual PE imports have no GUI/device DLL; P10 strict independent portable-core profile removes unused device defaults and excludes native reference fixture by capability.",
+      "owner_step": "P02",
+      "follow_up": "W003-01-skirmish-font only. Other menu/renderer color consumers remain original owners; generic value may not include Windows."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_color_values_win32_contract",
+      "detail": "comdlg32",
+      "maxOccurrences": 1,
+      "reason": "W003 local Windows test target unchanged CMake standard library defaults. Both actual PE imports have no GUI/device DLL; P10 strict independent portable-core profile removes unused device defaults and excludes native reference fixture by capability.",
+      "owner_step": "P02",
+      "follow_up": "W003-01-skirmish-font only. Other menu/renderer color consumers remain original owners; generic value may not include Windows."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_color_values_win32_contract",
+      "detail": "gdi32",
+      "maxOccurrences": 1,
+      "reason": "W003 local Windows test target unchanged CMake standard library defaults. Both actual PE imports have no GUI/device DLL; P10 strict independent portable-core profile removes unused device defaults and excludes native reference fixture by capability.",
+      "owner_step": "P02",
+      "follow_up": "W003-01-skirmish-font only. Other menu/renderer color consumers remain original owners; generic value may not include Windows."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_color_values_win32_contract",
+      "detail": "shell32",
+      "maxOccurrences": 1,
+      "reason": "W003 local Windows test target unchanged CMake standard library defaults. Both actual PE imports have no GUI/device DLL; P10 strict independent portable-core profile removes unused device defaults and excludes native reference fixture by capability.",
+      "owner_step": "P02",
+      "follow_up": "W003-01-skirmish-font only. Other menu/renderer color consumers remain original owners; generic value may not include Windows."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_color_values_win32_contract",
+      "detail": "user32",
+      "maxOccurrences": 1,
+      "reason": "W003 local Windows test target unchanged CMake standard library defaults. Both actual PE imports have no GUI/device DLL; P10 strict independent portable-core profile removes unused device defaults and excludes native reference fixture by capability.",
+      "owner_step": "P02",
+      "follow_up": "W003-01-skirmish-font only. Other menu/renderer color consumers remain original owners; generic value may not include Windows."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_skirmish_bitmap_text_contract",
+      "detail": "comdlg32",
+      "maxOccurrences": 1,
+      "reason": "W015-02 Windows-local pure bitmap Contract target inherits unchanged CMake standard Windows library defaults. Actual pure font STATIC chain has only the unique font-byte leaf, public/implementation closure has no native/host/renderer dependency; actual PE imports checked. P10 independent portable-core profile removes unused device defaults separately. No product font/layout exception.",
+      "owner_step": "P07",
+      "follow_up": "W015-02 local test only; pure source/interface forbidden native types and host/device code, other W015 consumers retain owners."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_skirmish_bitmap_text_contract",
+      "detail": "gdi32",
+      "maxOccurrences": 1,
+      "reason": "W015-02 Windows-local pure bitmap Contract target inherits unchanged CMake standard Windows library defaults. Actual pure font STATIC chain has only the unique font-byte leaf, public/implementation closure has no native/host/renderer dependency; actual PE imports checked. P10 independent portable-core profile removes unused device defaults separately. No product font/layout exception.",
+      "owner_step": "P07",
+      "follow_up": "W015-02 local test only; pure source/interface forbidden native types and host/device code, other W015 consumers retain owners."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_skirmish_bitmap_text_contract",
+      "detail": "shell32",
+      "maxOccurrences": 1,
+      "reason": "W015-02 Windows-local pure bitmap Contract target inherits unchanged CMake standard Windows library defaults. Actual pure font STATIC chain has only the unique font-byte leaf, public/implementation closure has no native/host/renderer dependency; actual PE imports checked. P10 independent portable-core profile removes unused device defaults separately. No product font/layout exception.",
+      "owner_step": "P07",
+      "follow_up": "W015-02 local test only; pure source/interface forbidden native types and host/device code, other W015 consumers retain owners."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_skirmish_bitmap_text_contract",
+      "detail": "user32",
+      "maxOccurrences": 1,
+      "reason": "W015-02 Windows-local pure bitmap Contract target inherits unchanged CMake standard Windows library defaults. Actual pure font STATIC chain has only the unique font-byte leaf, public/implementation closure has no native/host/renderer dependency; actual PE imports checked. P10 independent portable-core profile removes unused device defaults separately. No product font/layout exception.",
+      "owner_step": "P07",
+      "follow_up": "W015-02 local test only; pure source/interface forbidden native types and host/device code, other W015 consumers retain owners."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_menu_pixel_surface_contract",
+      "detail": "comdlg32",
+      "maxOccurrences": 1,
+      "reason": "W018-03 Windows-local pure contract standard CMake Windows defaults; independent actual pure PE imports are checked. No CPU surface native source dependency; portable-core profile handles device defaults separately.",
+      "owner_step": "P06",
+      "follow_up": "W018-03 precise local diagnostic/test boundary; W019-02 native owner follows."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_menu_pixel_surface_contract",
+      "detail": "gdi32",
+      "maxOccurrences": 1,
+      "reason": "W018-03 Windows-local pure contract standard CMake Windows defaults; independent actual pure PE imports are checked. No CPU surface native source dependency; portable-core profile handles device defaults separately.",
+      "owner_step": "P06",
+      "follow_up": "W018-03 precise local diagnostic/test boundary; W019-02 native owner follows."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_menu_pixel_surface_contract",
+      "detail": "shell32",
+      "maxOccurrences": 1,
+      "reason": "W018-03 Windows-local pure contract standard CMake Windows defaults; independent actual pure PE imports are checked. No CPU surface native source dependency; portable-core profile handles device defaults separately.",
+      "owner_step": "P06",
+      "follow_up": "W018-03 precise local diagnostic/test boundary; W019-02 native owner follows."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_menu_pixel_surface_contract",
+      "detail": "user32",
+      "maxOccurrences": 1,
+      "reason": "W018-03 Windows-local pure contract standard CMake Windows defaults; independent actual pure PE imports are checked. No CPU surface native source dependency; portable-core profile handles device defaults separately.",
+      "owner_step": "P06",
+      "follow_up": "W018-03 precise local diagnostic/test boundary; W019-02 native owner follows."
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/ui/skirmish/diagnostics/RuntimeSkirmishPixelSurfaceSmoke.inl",
+      "detail": "HDC",
+      "maxOccurrences": 1,
+      "reason": "W018-03 private native-only diagnostic proves actual-resource CPU composition BEFORE its first DIB, then identical bytes through original Windows buffer. HDC and include edge confined to this real CLI probe, not the pure CPU storage/raster library; no full OS-free resource initialization claim.",
+      "owner_step": "P06",
+      "follow_up": "W018-03 precise local diagnostic/test boundary; W019-02 native owner follows."
+    },
+    {
+      "rule": "platform-edge",
+      "path": "src/ui/skirmish/RuntimeSkirmishMenu.cpp",
+      "detail": "src/ui/skirmish/diagnostics/RuntimeSkirmishPixelSurfaceSmoke.inl",
+      "maxOccurrences": 1,
+      "reason": "W018-03 private native-only diagnostic proves actual-resource CPU composition BEFORE its first DIB, then identical bytes through original Windows buffer. HDC and include edge confined to this real CLI probe, not the pure CPU storage/raster library; no full OS-free resource initialization claim.",
+      "owner_step": "P06",
+      "follow_up": "W018-03 precise local diagnostic/test boundary; W019-02 native owner follows."
+    },
+    {
+      "rule": "platform-edge",
+      "path": "src/ui/skirmish/RuntimeSkirmishMenu.cpp",
+      "detail": "src/ui/skirmish/win32/RuntimeSkirmishBackBufferWin32.h",
+      "maxOccurrences": 1,
+      "reason": "W019-02 exact selected Win32 DIB/DC private backend or its native failure/lifetime contract. No core/public presentation native dependency; Runtime uses existing Windows system-link contract once, independent native test links GDI explicitly. Actual API creation/rollback/flush/cleanup retry/resize/GDI balance and PE checked. Not a general platform exemption.",
+      "owner_step": "P06",
+      "follow_up": "W019-02 selected skirmish only; other menu/world buffers retain their owners. S38 Presenter separate."
+    },
+    {
+      "rule": "platform-edge",
+      "path": "src/ui/skirmish/win32/RuntimeSkirmishBackBufferWin32.cpp",
+      "detail": "src/ui/skirmish/win32/RuntimeSkirmishBackBufferWin32.h",
+      "maxOccurrences": 1,
+      "reason": "W019-02 exact selected Win32 DIB/DC private backend or its native failure/lifetime contract. No core/public presentation native dependency; Runtime uses existing Windows system-link contract once, independent native test links GDI explicitly. Actual API creation/rollback/flush/cleanup retry/resize/GDI balance and PE checked. Not a general platform exemption.",
+      "owner_step": "P06",
+      "follow_up": "W019-02 selected skirmish only; other menu/world buffers retain their owners. S38 Presenter separate."
+    },
+    {
+      "rule": "platform-edge",
+      "path": "tests/infrastructure/RuntimeSkirmishBackBufferWin32Contract.cpp",
+      "detail": "src/ui/skirmish/win32/RuntimeSkirmishBackBufferWin32.h",
+      "maxOccurrences": 1,
+      "reason": "W019-02 exact selected Win32 DIB/DC private backend or its native failure/lifetime contract. No core/public presentation native dependency; Runtime uses existing Windows system-link contract once, independent native test links GDI explicitly. Actual API creation/rollback/flush/cleanup retry/resize/GDI balance and PE checked. Not a general platform exemption.",
+      "owner_step": "P06",
+      "follow_up": "W019-02 selected skirmish only; other menu/world buffers retain their owners. S38 Presenter separate."
+    },
+    {
+      "rule": "platform-header",
+      "path": "src/ui/skirmish/win32/RuntimeSkirmishBackBufferWin32.h",
+      "detail": "windows.h",
+      "maxOccurrences": 1,
+      "reason": "W019-02 exact selected Win32 DIB/DC private backend or its native failure/lifetime contract. No core/public presentation native dependency; Runtime uses existing Windows system-link contract once, independent native test links GDI explicitly. Actual API creation/rollback/flush/cleanup retry/resize/GDI balance and PE checked. Not a general platform exemption.",
+      "owner_step": "P06",
+      "follow_up": "W019-02 selected skirmish only; other menu/world buffers retain their owners. S38 Presenter separate."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_skirmish_back_buffer_win32_contract",
+      "detail": "comdlg32",
+      "maxOccurrences": 1,
+      "reason": "W019-02 exact selected Win32 DIB/DC private backend or its native failure/lifetime contract. No core/public presentation native dependency; Runtime uses existing Windows system-link contract once, independent native test links GDI explicitly. Actual API creation/rollback/flush/cleanup retry/resize/GDI balance and PE checked. Not a general platform exemption.",
+      "owner_step": "P06",
+      "follow_up": "W019-02 selected skirmish only; other menu/world buffers retain their owners. S38 Presenter separate."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_skirmish_back_buffer_win32_contract",
+      "detail": "gdi32",
+      "maxOccurrences": 2,
+      "reason": "W019-02 exact selected Win32 DIB/DC private backend or its native failure/lifetime contract. No core/public presentation native dependency; Runtime uses existing Windows system-link contract once, independent native test links GDI explicitly. Actual API creation/rollback/flush/cleanup retry/resize/GDI balance and PE checked. Not a general platform exemption.",
+      "owner_step": "P06",
+      "follow_up": "W019-02 selected skirmish only; other menu/world buffers retain their owners. S38 Presenter separate."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_skirmish_back_buffer_win32_contract",
+      "detail": "shell32",
+      "maxOccurrences": 1,
+      "reason": "W019-02 exact selected Win32 DIB/DC private backend or its native failure/lifetime contract. No core/public presentation native dependency; Runtime uses existing Windows system-link contract once, independent native test links GDI explicitly. Actual API creation/rollback/flush/cleanup retry/resize/GDI balance and PE checked. Not a general platform exemption.",
+      "owner_step": "P06",
+      "follow_up": "W019-02 selected skirmish only; other menu/world buffers retain their owners. S38 Presenter separate."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_skirmish_back_buffer_win32_contract",
+      "detail": "user32",
+      "maxOccurrences": 1,
+      "reason": "W019-02 exact selected Win32 DIB/DC private backend or its native failure/lifetime contract. No core/public presentation native dependency; Runtime uses existing Windows system-link contract once, independent native test links GDI explicitly. Actual API creation/rollback/flush/cleanup retry/resize/GDI balance and PE checked. Not a general platform exemption.",
+      "owner_step": "P06",
+      "follow_up": "W019-02 selected skirmish only; other menu/world buffers retain their owners. S38 Presenter separate."
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/ui/skirmish/win32/RuntimeSkirmishBackBufferWin32.cpp",
+      "detail": "BITMAPINFO",
+      "maxOccurrences": 1,
+      "reason": "W019-02 exact selected Win32 DIB/DC private backend or its native failure/lifetime contract. No core/public presentation native dependency; Runtime uses existing Windows system-link contract once, independent native test links GDI explicitly. Actual API creation/rollback/flush/cleanup retry/resize/GDI balance and PE checked. Not a general platform exemption.",
+      "owner_step": "P06",
+      "follow_up": "W019-02 selected skirmish only; other menu/world buffers retain their owners. S38 Presenter separate."
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/ui/skirmish/win32/RuntimeSkirmishBackBufferWin32.cpp",
+      "detail": "HDC",
+      "maxOccurrences": 1,
+      "reason": "W019-02 exact selected Win32 DIB/DC private backend or its native failure/lifetime contract. No core/public presentation native dependency; Runtime uses existing Windows system-link contract once, independent native test links GDI explicitly. Actual API creation/rollback/flush/cleanup retry/resize/GDI balance and PE checked. Not a general platform exemption.",
+      "owner_step": "P06",
+      "follow_up": "W019-02 selected skirmish only; other menu/world buffers retain their owners. S38 Presenter separate."
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/ui/skirmish/win32/RuntimeSkirmishBackBufferWin32.h",
+      "detail": "HBITMAP",
+      "maxOccurrences": 2,
+      "reason": "W019-02 exact selected Win32 DIB/DC private backend or its native failure/lifetime contract. No core/public presentation native dependency; Runtime uses existing Windows system-link contract once, independent native test links GDI explicitly. Actual API creation/rollback/flush/cleanup retry/resize/GDI balance and PE checked. Not a general platform exemption.",
+      "owner_step": "P06",
+      "follow_up": "W019-02 selected skirmish only; other menu/world buffers retain their owners. S38 Presenter separate."
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/ui/skirmish/win32/RuntimeSkirmishBackBufferWin32.h",
+      "detail": "HDC",
+      "maxOccurrences": 3,
+      "reason": "W019-02 exact selected Win32 DIB/DC private backend or its native failure/lifetime contract. No core/public presentation native dependency; Runtime uses existing Windows system-link contract once, independent native test links GDI explicitly. Actual API creation/rollback/flush/cleanup retry/resize/GDI balance and PE checked. Not a general platform exemption.",
+      "owner_step": "P06",
+      "follow_up": "W019-02 selected skirmish only; other menu/world buffers retain their owners. S38 Presenter separate."
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/ui/skirmish/win32/RuntimeSkirmishBackBufferWin32.h",
+      "detail": "HGDIOBJ",
+      "maxOccurrences": 1,
+      "reason": "W019-02 exact selected Win32 DIB/DC private backend or its native failure/lifetime contract. No core/public presentation native dependency; Runtime uses existing Windows system-link contract once, independent native test links GDI explicitly. Actual API creation/rollback/flush/cleanup retry/resize/GDI balance and PE checked. Not a general platform exemption.",
+      "owner_step": "P06",
+      "follow_up": "W019-02 selected skirmish only; other menu/world buffers retain their owners. S38 Presenter separate."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tests/infrastructure/RuntimeSkirmishBackBufferWin32Contract.cpp",
+      "detail": "BITMAPINFO",
+      "maxOccurrences": 1,
+      "reason": "W019-02 exact selected Win32 DIB/DC private backend or its native failure/lifetime contract. No core/public presentation native dependency; Runtime uses existing Windows system-link contract once, independent native test links GDI explicitly. Actual API creation/rollback/flush/cleanup retry/resize/GDI balance and PE checked. Not a general platform exemption.",
+      "owner_step": "P06",
+      "follow_up": "W019-02 selected skirmish only; other menu/world buffers retain their owners. S38 Presenter separate."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tests/infrastructure/RuntimeSkirmishBackBufferWin32Contract.cpp",
+      "detail": "DWORD",
+      "maxOccurrences": 2,
+      "reason": "W019-02 exact selected Win32 DIB/DC private backend or its native failure/lifetime contract. No core/public presentation native dependency; Runtime uses existing Windows system-link contract once, independent native test links GDI explicitly. Actual API creation/rollback/flush/cleanup retry/resize/GDI balance and PE checked. Not a general platform exemption.",
+      "owner_step": "P06",
+      "follow_up": "W019-02 selected skirmish only; other menu/world buffers retain their owners. S38 Presenter separate."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tests/infrastructure/RuntimeSkirmishBackBufferWin32Contract.cpp",
+      "detail": "HANDLE",
+      "maxOccurrences": 1,
+      "reason": "W019-02 exact selected Win32 DIB/DC private backend or its native failure/lifetime contract. No core/public presentation native dependency; Runtime uses existing Windows system-link contract once, independent native test links GDI explicitly. Actual API creation/rollback/flush/cleanup retry/resize/GDI balance and PE checked. Not a general platform exemption.",
+      "owner_step": "P06",
+      "follow_up": "W019-02 selected skirmish only; other menu/world buffers retain their owners. S38 Presenter separate."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tests/infrastructure/RuntimeSkirmishBackBufferWin32Contract.cpp",
+      "detail": "HBITMAP",
+      "maxOccurrences": 1,
+      "reason": "W019-02 exact selected Win32 DIB/DC private backend or its native failure/lifetime contract. No core/public presentation native dependency; Runtime uses existing Windows system-link contract once, independent native test links GDI explicitly. Actual API creation/rollback/flush/cleanup retry/resize/GDI balance and PE checked. Not a general platform exemption.",
+      "owner_step": "P06",
+      "follow_up": "W019-02 selected skirmish only; other menu/world buffers retain their owners. S38 Presenter separate."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tests/infrastructure/RuntimeSkirmishBackBufferWin32Contract.cpp",
+      "detail": "HDC",
+      "maxOccurrences": 5,
+      "reason": "W019-02 exact selected Win32 DIB/DC private backend or its native failure/lifetime contract. No core/public presentation native dependency; Runtime uses existing Windows system-link contract once, independent native test links GDI explicitly. Actual API creation/rollback/flush/cleanup retry/resize/GDI balance and PE checked. Not a general platform exemption.",
+      "owner_step": "P06",
+      "follow_up": "W019-02 selected skirmish only; other menu/world buffers retain their owners. S38 Presenter separate."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tests/infrastructure/RuntimeSkirmishBackBufferWin32Contract.cpp",
+      "detail": "HGDIOBJ",
+      "maxOccurrences": 3,
+      "reason": "W019-02 exact selected Win32 DIB/DC private backend or its native failure/lifetime contract. No core/public presentation native dependency; Runtime uses existing Windows system-link contract once, independent native test links GDI explicitly. Actual API creation/rollback/flush/cleanup retry/resize/GDI balance and PE checked. Not a general platform exemption.",
+      "owner_step": "P06",
+      "follow_up": "W019-02 selected skirmish only; other menu/world buffers retain their owners. S38 Presenter separate."
+    },
+    {
+      "rule": "platform-header",
+      "path": "src/audio/menu/win32/RuntimeSkirmishMusicWin32.cpp",
+      "detail": "windows.h",
+      "maxOccurrences": 1,
+      "reason": "W021-03-02 exact private Win32 waveaudio implementation/native ownership fixture or Windows-local test defaults. Pure policy/device header/unsupported library closures and actual pure PE have no device dependency. Native winmm is private Contract link; Runtime retains existing UI/SFX winmm contract. No public core/native type exception.",
+      "owner_step": "P08",
+      "follow_up": "Selected skirmish music only; other W021/H003/H109/SFX/World/Voice/Bink owners remain. NonWindows capability explicitly unsupported, no playback claim."
+    },
+    {
+      "rule": "platform-header",
+      "path": "src/audio/menu/win32/RuntimeSkirmishMusicWin32.cpp",
+      "detail": "mmsystem.h",
+      "maxOccurrences": 1,
+      "reason": "W021-03-02 exact private Win32 waveaudio implementation/native ownership fixture or Windows-local test defaults. Pure policy/device header/unsupported library closures and actual pure PE have no device dependency. Native winmm is private Contract link; Runtime retains existing UI/SFX winmm contract. No public core/native type exception.",
+      "owner_step": "P08",
+      "follow_up": "Selected skirmish music only; other W021/H003/H109/SFX/World/Voice/Bink owners remain. NonWindows capability explicitly unsupported, no playback claim."
+    },
+    {
+      "rule": "platform-header",
+      "path": "tests/infrastructure/RuntimeSkirmishMusicWin32Contract.cpp",
+      "detail": "windows.h",
+      "maxOccurrences": 1,
+      "reason": "W021-03-02 exact private Win32 waveaudio implementation/native ownership fixture or Windows-local test defaults. Pure policy/device header/unsupported library closures and actual pure PE have no device dependency. Native winmm is private Contract link; Runtime retains existing UI/SFX winmm contract. No public core/native type exception.",
+      "owner_step": "P08",
+      "follow_up": "Selected skirmish music only; other W021/H003/H109/SFX/World/Voice/Bink owners remain. NonWindows capability explicitly unsupported, no playback claim."
+    },
+    {
+      "rule": "platform-header",
+      "path": "tests/infrastructure/RuntimeSkirmishMusicWin32Contract.cpp",
+      "detail": "mmsystem.h",
+      "maxOccurrences": 1,
+      "reason": "W021-03-02 exact private Win32 waveaudio implementation/native ownership fixture or Windows-local test defaults. Pure policy/device header/unsupported library closures and actual pure PE have no device dependency. Native winmm is private Contract link; Runtime retains existing UI/SFX winmm contract. No public core/native type exception.",
+      "owner_step": "P08",
+      "follow_up": "Selected skirmish music only; other W021/H003/H109/SFX/World/Voice/Bink owners remain. NonWindows capability explicitly unsupported, no playback claim."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_skirmish_music_policy_contract",
+      "detail": "comdlg32",
+      "maxOccurrences": 1,
+      "reason": "W021-03-02 exact private Win32 waveaudio implementation/native ownership fixture or Windows-local test defaults. Pure policy/device header/unsupported library closures and actual pure PE have no device dependency. Native winmm is private Contract link; Runtime retains existing UI/SFX winmm contract. No public core/native type exception.",
+      "owner_step": "P08",
+      "follow_up": "Selected skirmish music only; other W021/H003/H109/SFX/World/Voice/Bink owners remain. NonWindows capability explicitly unsupported, no playback claim."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_skirmish_music_policy_contract",
+      "detail": "gdi32",
+      "maxOccurrences": 1,
+      "reason": "W021-03-02 exact private Win32 waveaudio implementation/native ownership fixture or Windows-local test defaults. Pure policy/device header/unsupported library closures and actual pure PE have no device dependency. Native winmm is private Contract link; Runtime retains existing UI/SFX winmm contract. No public core/native type exception.",
+      "owner_step": "P08",
+      "follow_up": "Selected skirmish music only; other W021/H003/H109/SFX/World/Voice/Bink owners remain. NonWindows capability explicitly unsupported, no playback claim."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_skirmish_music_policy_contract",
+      "detail": "shell32",
+      "maxOccurrences": 1,
+      "reason": "W021-03-02 exact private Win32 waveaudio implementation/native ownership fixture or Windows-local test defaults. Pure policy/device header/unsupported library closures and actual pure PE have no device dependency. Native winmm is private Contract link; Runtime retains existing UI/SFX winmm contract. No public core/native type exception.",
+      "owner_step": "P08",
+      "follow_up": "Selected skirmish music only; other W021/H003/H109/SFX/World/Voice/Bink owners remain. NonWindows capability explicitly unsupported, no playback claim."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_skirmish_music_policy_contract",
+      "detail": "user32",
+      "maxOccurrences": 1,
+      "reason": "W021-03-02 exact private Win32 waveaudio implementation/native ownership fixture or Windows-local test defaults. Pure policy/device header/unsupported library closures and actual pure PE have no device dependency. Native winmm is private Contract link; Runtime retains existing UI/SFX winmm contract. No public core/native type exception.",
+      "owner_step": "P08",
+      "follow_up": "Selected skirmish music only; other W021/H003/H109/SFX/World/Voice/Bink owners remain. NonWindows capability explicitly unsupported, no playback claim."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_skirmish_music_win32_contract",
+      "detail": "comdlg32",
+      "maxOccurrences": 1,
+      "reason": "W021-03-02 exact private Win32 waveaudio implementation/native ownership fixture or Windows-local test defaults. Pure policy/device header/unsupported library closures and actual pure PE have no device dependency. Native winmm is private Contract link; Runtime retains existing UI/SFX winmm contract. No public core/native type exception.",
+      "owner_step": "P08",
+      "follow_up": "Selected skirmish music only; other W021/H003/H109/SFX/World/Voice/Bink owners remain. NonWindows capability explicitly unsupported, no playback claim."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_skirmish_music_win32_contract",
+      "detail": "gdi32",
+      "maxOccurrences": 1,
+      "reason": "W021-03-02 exact private Win32 waveaudio implementation/native ownership fixture or Windows-local test defaults. Pure policy/device header/unsupported library closures and actual pure PE have no device dependency. Native winmm is private Contract link; Runtime retains existing UI/SFX winmm contract. No public core/native type exception.",
+      "owner_step": "P08",
+      "follow_up": "Selected skirmish music only; other W021/H003/H109/SFX/World/Voice/Bink owners remain. NonWindows capability explicitly unsupported, no playback claim."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_skirmish_music_win32_contract",
+      "detail": "shell32",
+      "maxOccurrences": 1,
+      "reason": "W021-03-02 exact private Win32 waveaudio implementation/native ownership fixture or Windows-local test defaults. Pure policy/device header/unsupported library closures and actual pure PE have no device dependency. Native winmm is private Contract link; Runtime retains existing UI/SFX winmm contract. No public core/native type exception.",
+      "owner_step": "P08",
+      "follow_up": "Selected skirmish music only; other W021/H003/H109/SFX/World/Voice/Bink owners remain. NonWindows capability explicitly unsupported, no playback claim."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_skirmish_music_win32_contract",
+      "detail": "user32",
+      "maxOccurrences": 1,
+      "reason": "W021-03-02 exact private Win32 waveaudio implementation/native ownership fixture or Windows-local test defaults. Pure policy/device header/unsupported library closures and actual pure PE have no device dependency. Native winmm is private Contract link; Runtime retains existing UI/SFX winmm contract. No public core/native type exception.",
+      "owner_step": "P08",
+      "follow_up": "Selected skirmish music only; other W021/H003/H109/SFX/World/Voice/Bink owners remain. NonWindows capability explicitly unsupported, no playback claim."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_skirmish_music_win32_contract",
+      "detail": "winmm",
+      "maxOccurrences": 1,
+      "reason": "W021-03-02 exact private Win32 waveaudio implementation/native ownership fixture or Windows-local test defaults. Pure policy/device header/unsupported library closures and actual pure PE have no device dependency. Native winmm is private Contract link; Runtime retains existing UI/SFX winmm contract. No public core/native type exception.",
+      "owner_step": "P08",
+      "follow_up": "Selected skirmish music only; other W021/H003/H109/SFX/World/Voice/Bink owners remain. NonWindows capability explicitly unsupported, no playback claim."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tests/infrastructure/RuntimeSkirmishMusicWin32Contract.cpp",
+      "detail": "DWORD",
+      "maxOccurrences": 3,
+      "reason": "W021-03-02 exact private Win32 waveaudio implementation/native ownership fixture or Windows-local test defaults. Pure policy/device header/unsupported library closures and actual pure PE have no device dependency. Native winmm is private Contract link; Runtime retains existing UI/SFX winmm contract. No public core/native type exception.",
+      "owner_step": "P08",
+      "follow_up": "Selected skirmish music only; other W021/H003/H109/SFX/World/Voice/Bink owners remain. NonWindows capability explicitly unsupported, no playback claim."
+    },
+    {
+      "rule": "platform-header",
+      "path": "tests/multiplayer/RuntimeTcpBoundaryContract.cpp",
+      "detail": "winsock2.h",
+      "maxOccurrences": 1,
+      "reason": "W023-02 private native loopback failure/ownership test or Windows-local Contract link defaults. Public standard PImpl and header-only data PE have no SDK/device import. Existing production provider source and original LAN test unchanged.",
+      "owner_step": "P09",
+      "follow_up": "Selected TCP packaging only; UDP discovery and TLS/entropy/service-host remain original owners. POSIX native matrix W030/P12."
+    },
+    {
+      "rule": "platform-header",
+      "path": "tests/multiplayer/RuntimeTcpBoundaryContract.cpp",
+      "detail": "ws2tcpip.h",
+      "maxOccurrences": 1,
+      "reason": "W023-02 private native loopback failure/ownership test or Windows-local Contract link defaults. Public standard PImpl and header-only data PE have no SDK/device import. Existing production provider source and original LAN test unchanged.",
+      "owner_step": "P09",
+      "follow_up": "Selected TCP packaging only; UDP discovery and TLS/entropy/service-host remain original owners. POSIX native matrix W030/P12."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tests/multiplayer/RuntimeTcpBoundaryContract.cpp",
+      "detail": "DWORD",
+      "maxOccurrences": 2,
+      "reason": "W023-02 private native loopback failure/ownership test or Windows-local Contract link defaults. Public standard PImpl and header-only data PE have no SDK/device import. Existing production provider source and original LAN test unchanged.",
+      "owner_step": "P09",
+      "follow_up": "Selected TCP packaging only; UDP discovery and TLS/entropy/service-host remain original owners. POSIX native matrix W030/P12."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tests/multiplayer/RuntimeTcpBoundaryContract.cpp",
+      "detail": "SOCKET",
+      "maxOccurrences": 3,
+      "reason": "W023-02 private native loopback failure/ownership test or Windows-local Contract link defaults. Public standard PImpl and header-only data PE have no SDK/device import. Existing production provider source and original LAN test unchanged.",
+      "owner_step": "P09",
+      "follow_up": "Selected TCP packaging only; UDP discovery and TLS/entropy/service-host remain original owners. POSIX native matrix W030/P12."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tests/multiplayer/RuntimeTcpBoundaryContract.cpp",
+      "detail": "WSADATA",
+      "maxOccurrences": 1,
+      "reason": "W023-02 private native loopback failure/ownership test or Windows-local Contract link defaults. Public standard PImpl and header-only data PE have no SDK/device import. Existing production provider source and original LAN test unchanged.",
+      "owner_step": "P09",
+      "follow_up": "Selected TCP packaging only; UDP discovery and TLS/entropy/service-host remain original owners. POSIX native matrix W030/P12."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_tcp_boundary_contract",
+      "detail": "comdlg32",
+      "maxOccurrences": 1,
+      "reason": "W023-02 private native loopback failure/ownership test or Windows-local Contract link defaults. Public standard PImpl and header-only data PE have no SDK/device import. Existing production provider source and original LAN test unchanged.",
+      "owner_step": "P09",
+      "follow_up": "Selected TCP packaging only; UDP discovery and TLS/entropy/service-host remain original owners. POSIX native matrix W030/P12."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_tcp_boundary_contract",
+      "detail": "gdi32",
+      "maxOccurrences": 1,
+      "reason": "W023-02 private native loopback failure/ownership test or Windows-local Contract link defaults. Public standard PImpl and header-only data PE have no SDK/device import. Existing production provider source and original LAN test unchanged.",
+      "owner_step": "P09",
+      "follow_up": "Selected TCP packaging only; UDP discovery and TLS/entropy/service-host remain original owners. POSIX native matrix W030/P12."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_tcp_boundary_contract",
+      "detail": "shell32",
+      "maxOccurrences": 1,
+      "reason": "W023-02 private native loopback failure/ownership test or Windows-local Contract link defaults. Public standard PImpl and header-only data PE have no SDK/device import. Existing production provider source and original LAN test unchanged.",
+      "owner_step": "P09",
+      "follow_up": "Selected TCP packaging only; UDP discovery and TLS/entropy/service-host remain original owners. POSIX native matrix W030/P12."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_tcp_boundary_contract",
+      "detail": "user32",
+      "maxOccurrences": 1,
+      "reason": "W023-02 private native loopback failure/ownership test or Windows-local Contract link defaults. Public standard PImpl and header-only data PE have no SDK/device import. Existing production provider source and original LAN test unchanged.",
+      "owner_step": "P09",
+      "follow_up": "Selected TCP packaging only; UDP discovery and TLS/entropy/service-host remain original owners. POSIX native matrix W030/P12."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_tcp_boundary_contract",
+      "detail": "ws2_32",
+      "maxOccurrences": 1,
+      "reason": "W023-02 private native loopback failure/ownership test or Windows-local Contract link defaults. Public standard PImpl and header-only data PE have no SDK/device import. Existing production provider source and original LAN test unchanged.",
+      "owner_step": "P09",
+      "follow_up": "Selected TCP packaging only; UDP discovery and TLS/entropy/service-host remain original owners. POSIX native matrix W030/P12."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_snapshot_session_contract",
+      "detail": "comdlg32",
+      "maxOccurrences": 1,
+      "reason": "H043 pure state-machine Contract Windows-local CMake unused default system link; actual two PE and recursive source closure have no window/audio/socket/TLS/device import. No production or public native facts.",
+      "owner_step": "S30/H043",
+      "follow_up": "P10 core capability profile removes device defaults; native second OS W030/P12 remains."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_snapshot_session_contract",
+      "detail": "gdi32",
+      "maxOccurrences": 1,
+      "reason": "H043 pure state-machine Contract Windows-local CMake unused default system link; actual two PE and recursive source closure have no window/audio/socket/TLS/device import. No production or public native facts.",
+      "owner_step": "S30/H043",
+      "follow_up": "P10 core capability profile removes device defaults; native second OS W030/P12 remains."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_snapshot_session_contract",
+      "detail": "shell32",
+      "maxOccurrences": 1,
+      "reason": "H043 pure state-machine Contract Windows-local CMake unused default system link; actual two PE and recursive source closure have no window/audio/socket/TLS/device import. No production or public native facts.",
+      "owner_step": "S30/H043",
+      "follow_up": "P10 core capability profile removes device defaults; native second OS W030/P12 remains."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_snapshot_session_contract",
+      "detail": "user32",
+      "maxOccurrences": 1,
+      "reason": "H043 pure state-machine Contract Windows-local CMake unused default system link; actual two PE and recursive source closure have no window/audio/socket/TLS/device import. No production or public native facts.",
+      "owner_step": "S30/H043",
+      "follow_up": "P10 core capability profile removes device defaults; native second OS W030/P12 remains."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_production_core_hash_smoke",
+      "detail": "comdlg32",
+      "maxOccurrences": 1,
+      "reason": "W027-01 full-product-config Runtime-profile world fixture only: Windows-local unused default system link. Same actual Runtime world/Ini archive and current20 pure PE have no device import; source and library dependency closure contain no native code. This is not independent core profile acceptance.",
+      "owner_step": "P10/W027-01",
+      "follow_up": "W027-02 must configure clean portable-core capability with window/device default LINK fragments removed. P10 stage exit not activated by W027-01 alone."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_production_core_hash_smoke",
+      "detail": "gdi32",
+      "maxOccurrences": 1,
+      "reason": "W027-01 full-product-config Runtime-profile world fixture only: Windows-local unused default system link. Same actual Runtime world/Ini archive and current20 pure PE have no device import; source and library dependency closure contain no native code. This is not independent core profile acceptance.",
+      "owner_step": "P10/W027-01",
+      "follow_up": "W027-02 must configure clean portable-core capability with window/device default LINK fragments removed. P10 stage exit not activated by W027-01 alone."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_production_core_hash_smoke",
+      "detail": "shell32",
+      "maxOccurrences": 1,
+      "reason": "W027-01 full-product-config Runtime-profile world fixture only: Windows-local unused default system link. Same actual Runtime world/Ini archive and current20 pure PE have no device import; source and library dependency closure contain no native code. This is not independent core profile acceptance.",
+      "owner_step": "P10/W027-01",
+      "follow_up": "W027-02 must configure clean portable-core capability with window/device default LINK fragments removed. P10 stage exit not activated by W027-01 alone."
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_production_core_hash_smoke",
+      "detail": "user32",
+      "maxOccurrences": 1,
+      "reason": "W027-01 full-product-config Runtime-profile world fixture only: Windows-local unused default system link. Same actual Runtime world/Ini archive and current20 pure PE have no device import; source and library dependency closure contain no native code. This is not independent core profile acceptance.",
+      "owner_step": "P10/W027-01",
+      "follow_up": "W027-02 must configure clean portable-core capability with window/device default LINK fragments removed. P10 stage exit not activated by W027-01 alone."
+    }
+  ],
+  "reviewedUpdates": [
+    {
+      "batch": "P05/W013-01",
+      "utc": "2026-10-23T16:24:01.906406+00:00",
+      "reviewedNewPrivateOrWindowsFixtureFacts": 37,
+      "tightened": 5,
+      "retired": 1,
+      "existingOccurrenceBudgetIncreases": 0,
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "batch": "P05/W014-03",
+      "utc": "2026-10-23T18:02:28.957587+00:00",
+      "reviewedNewPrivateOrWindowsFixtureFacts": 29,
+      "tightened": 3,
+      "retired": 9,
+      "existingOccurrenceBudgetIncreases": 0,
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "batch": "S31/R002",
+      "utc": "2026-10-23T18:50:01.220204+00:00",
+      "reviewedWindowsTestLinkDefaults": 4,
+      "existingOccurrenceBudgetIncreases": 0,
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "batch": "S31/R005",
+      "utc": "2026-10-23T19:03:51.920242+00:00",
+      "reviewedPrivateOrWindowsTestFacts": 5,
+      "retiredUiRendererEdge": 1,
+      "existingOccurrenceBudgetIncreases": 0,
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "batch": "S31/R006",
+      "utc": "2026-10-23T19:15:31.919177+00:00",
+      "retiredSkirmishUiRendererEdge": 1,
+      "newExceptions": 0,
+      "existingOccurrenceBudgetIncreases": 0,
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "batch": "P02/W003-01-skirmish-font",
+      "utc": "2026-10-23T19:26:45.754113+00:00",
+      "reviewedWindowsTestFacts": 10,
+      "tightenedOldColorOccurrences": "23->22",
+      "existingOccurrenceBudgetIncreases": 0,
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "batch": "P07/W015-02",
+      "utc": "2026-10-23T19:56:15.201002+00:00",
+      "reviewedWindowsLocalTestDefaults": 4,
+      "productNativeFacts": 0,
+      "existingOccurrenceBudgetIncreases": 0,
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "batch": "P06/W018-03",
+      "utc": "2026-10-23T20:22:13.577956+00:00",
+      "newLocalTestDefaults": 4,
+      "newPrivateDiagnosticFacts": 2,
+      "pureProductNativeFacts": 0,
+      "oldBudgetIncreases": 0,
+      "tightenedRect": "144to141",
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "batch": "P06/W019-02",
+      "newPreciseNativeBackendOrTestFacts": 19,
+      "tightenedFacts": [
+        {
+          "rule": "platform-type",
+          "path": "src/ui/skirmish/RuntimeSkirmishMenu.cpp",
+          "detail": "BITMAPINFO",
+          "old": 4,
+          "new": 3
+        },
+        {
+          "rule": "platform-type",
+          "path": "src/ui/skirmish/RuntimeSkirmishMenu.cpp",
+          "detail": "HBITMAP",
+          "old": 3,
+          "new": 2
+        },
+        {
+          "rule": "platform-type",
+          "path": "src/ui/skirmish/RuntimeSkirmishMenu.cpp",
+          "detail": "HDC",
+          "old": 33,
+          "new": 32
+        },
+        {
+          "rule": "platform-type",
+          "path": "src/ui/skirmish/RuntimeSkirmishMenu.cpp",
+          "detail": "HGDIOBJ",
+          "old": 11,
+          "new": 10
+        }
+      ],
+      "retiredFacts": [
+        {
+          "rule": "platform-edge",
+          "path": "src/ui/skirmish/RuntimeSkirmishMenu.cpp",
+          "detail": "src/ui/skirmish/win32/RuntimeSkirmishGdiLifetimeWin32.inl",
+          "maxOccurrences": 1,
+          "reason": "W014-03 explicitly Windows-owned diagnostic fixture. Actual native window and disposal calls; generic selected controller/selection/config never includes this fragment. Initial cold-process and cached-font fixture failures retained; original assertions preserved, actual native returns/order used.",
+          "owner_step": "P05",
+          "follow_up": "W014-03 selected scene only. P06 owns surface/GDI abstraction; P08 owns music device; random file/native editor and other menus keep original owners. No generic controller/platform exception. P10 independent core profile still required."
+        },
+        {
+          "rule": "platform-type",
+          "path": "src/ui/skirmish/win32/RuntimeSkirmishGdiLifetimeWin32.inl",
+          "detail": "HGDIOBJ",
+          "maxOccurrences": 1,
+          "reason": "W014-03 explicitly Windows-owned diagnostic fixture. Actual native window and disposal calls; generic selected controller/selection/config never includes this fragment. Initial cold-process and cached-font fixture failures retained; original assertions preserved, actual native returns/order used. Exact inline destructor body preserved; normal trace null; resource ownership remains native for P06.",
+          "owner_step": "P05",
+          "follow_up": "W014-03 selected scene only. P06 owns surface/GDI abstraction; P08 owns music device; random file/native editor and other menus keep original owners. No generic controller/platform exception. P10 independent core profile still required."
+        }
+      ],
+      "oldBudgetIncreases": 0,
+      "duplicateRuntimeGdiLinkRemoved": true,
+      "utc": "2026-10-23T20:32:04.904734+00:00"
+    },
+    {
+      "batch": "P03/W007-02-skirmish-music",
+      "retiredExactFacts": 1,
+      "sourceOccurrences": "ULONGLONG2to0",
+      "newNativeFacts": 0,
+      "oldBudgetIncreases": 0,
+      "utc": "2026-10-23T20:47:32.127772+00:00"
+    },
+    {
+      "batch": "P08/W021-03-02",
+      "newExactPrivateOrLocalTestFacts": 14,
+      "newPublicPureNativeFacts": 0,
+      "oldBudgetIncreases": 0,
+      "utc": "2026-10-23T21:07:57.877163+00:00"
+    },
+    {
+      "batch": "P09/W023-02",
+      "newExactPrivateOrLocalTestFacts": 10,
+      "newPublicPureNativeFacts": 0,
+      "oldBudgetIncreases": 0
+    },
+    {
+      "batch": "S30/H043",
+      "newExactLocalTestFacts": 4,
+      "newPublicPureNativeFacts": 0,
+      "oldBudgetIncreases": 0
+    },
+    {
+      "batch": "P10/W027-01",
+      "newExactLocalTestDefaultFacts": 4,
+      "newPureNativeFacts": 0,
+      "oldBudgetIncreases": 0
     }
   ]
 }

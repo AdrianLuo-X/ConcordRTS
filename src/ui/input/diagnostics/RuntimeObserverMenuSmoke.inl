@@ -62,7 +62,7 @@ bool runRuntimeObserverMenuSmoke(
         ? fs::path(state.config.localDataRootPath) / "runtime_observer_menu.bmp"
         : fs::path(lobbyPath);
     screenshot.replace_filename(screenshot.stem().string() + "_observer_dropdown.bmp");
-    if (!writeBgraBmp(pathString(screenshot), state.composePixels.data(),
+    if (!writeBgraBmp(pathString(screenshot), state.composeFrame.bytes().data(),
             kBaseWidth, kBaseHeight, error)) return fail(error);
     selectDropdownOption(state, static_cast<int>(observerOption - options.begin()));
     if (state.selection.playerCountry != "Observer"
@@ -90,7 +90,7 @@ bool runRuntimeObserverMenuSmoke(
     if (!renderShellBackBuffer(state)) return fail("selected observer lobby render failed");
     screenshot.replace_filename(fs::path(lobbyPath.empty() ? "runtime_observer_menu" : lobbyPath).stem().string()
         + "_observer_selected.bmp");
-    if (!writeBgraBmp(pathString(screenshot), state.composePixels.data(),
+    if (!writeBgraBmp(pathString(screenshot), state.composeFrame.bytes().data(),
             kBaseWidth, kBaseHeight, error)) return fail(error);
 
     RuntimeConfig reopen = state.config;

@@ -1,5 +1,10 @@
 include("${CMAKE_CURRENT_LIST_DIR}/CompilerContract.cmake")
 
+if(CONCORD_PORTABLE_CORE)
+    include("${CMAKE_CURRENT_LIST_DIR}/CxxContractDefaults.cmake")
+    return()
+endif()
+
 add_executable(concord_missile_acceleration_smoke tests/gameplay/RuntimeMissileAccelerationSmoke.cpp)
 target_include_directories(concord_missile_acceleration_smoke PRIVATE src)
 target_compile_features(concord_missile_acceleration_smoke PRIVATE cxx_std_20)
@@ -166,16 +171,7 @@ if(CONCORD_MSVC_FRONTEND)
     concord_target_compile_options(concord_superweapon_smoke PRIVATE /utf-8 /FS)
 endif()
 
-if(CONCORD_MSVC_FRONTEND)
-    # /RTC1 cannot be combined with the optimized playable Debug runtime.
-    # cl.exe adds it back only to the non-optimized command-line tool below.
-    # clang-cl has no /RTC1 implementation; its tool target reports that omission.
-    string(REPLACE "/RTC1" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
-endif()
-
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
+include("${CMAKE_CURRENT_LIST_DIR}/CxxContractDefaults.cmake")
 
 add_executable(concord_multiplayer_resume_save_smoke
     tests/multiplayer/RuntimeMultiplayerResumeSaveSmoke.cpp src/network/snapshots/RuntimeMultiplayerResumeSave.cpp

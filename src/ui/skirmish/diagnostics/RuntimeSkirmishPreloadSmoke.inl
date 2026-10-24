@@ -14,6 +14,7 @@ bool runSkirmishPreloadSmoke(const RuntimeConfig& config, const fs::path& output
         HWND window;
         ~HostGuard() { if (IsWindow(window)) DestroyWindow(window); }
     } hostGuard{host};
+    RuntimeWindowParentWin32 skirmishParent(host);
 
     // An unfinished future must never be joined by the readiness poll. A
     // gate makes this deterministic even on very fast machines.
@@ -119,7 +120,7 @@ bool runSkirmishPreloadSmoke(const RuntimeConfig& config, const fs::path& output
         const auto entryStarted = Clock::now();
         prewarmRuntimeSkirmishMenu(entryConfig);
         if (!runtimeSkirmishMenuReady(entryConfig)) return false;
-        const RuntimeSkirmishSelection result = runRuntimeSkirmishMenu(entryConfig, host);
+        const RuntimeSkirmishSelection result = runRuntimeSkirmishMenu(entryConfig, skirmishParent.id());
         const double entryMs = milliseconds(entryStarted);
         maxEntryMs = std::max(maxEntryMs, entryMs);
         if (!probe.called || !probe.valid || result.accepted || !IsWindow(host)
@@ -179,7 +180,7 @@ bool runSkirmishPreloadSmoke(const RuntimeConfig& config, const fs::path& output
             return state;
         });
     PostMessageW(host, WM_CLOSE, 0, 0);
-    const RuntimeSkirmishSelection closed = runRuntimeSkirmishMenu(config, host);
+    const RuntimeSkirmishSelection closed = runRuntimeSkirmishMenu(config, skirmishParent.id());
     closeGate.set_value();
     pendingMenuState.get();
     const bool closedWhilePending = !closed.accepted && !IsWindow(host);

@@ -72,7 +72,7 @@ bool runRuntimeSkirmishCursorSmoke(
                 const std::size_t dest = static_cast<std::size_t>(
                     (dy * kBaseWidth + dx) * 4);
                 for (int channel = 0; channel < 3; ++channel)
-                    if (state.composePixels[dest + channel]
+                    if (state.composeFrame.bytes()[dest + channel]
                         != state.mouse.bgra[source + channel]) return false;
                 ++checked;
             }
@@ -81,7 +81,7 @@ bool runRuntimeSkirmishCursorSmoke(
     };
     SendMessageW(guard.child, WM_MOUSELEAVE, 0, 0);
     if (!render()) return fail("initial hidden shell render failed");
-    const std::vector<unsigned char> noCursor = state.composePixels;
+    const std::vector<unsigned char> noCursor = state.composeFrame.bytes();
     move(POINT{575, 260});
     if (!state.backDirty || !render() || state.mousePoint.x != 575
         || state.mousePoint.y != 260 || !cursorMatches())
@@ -102,12 +102,12 @@ bool runRuntimeSkirmishCursorSmoke(
             const std::size_t at = static_cast<std::size_t>(
                 ((y + 260) * kBaseWidth + x + 575) * 4);
             for (int channel = 0; channel < 3; ++channel)
-                if (state.composePixels[at + channel] != noCursor[at + channel])
+                if (state.composeFrame.bytes()[at + channel] != noCursor[at + channel])
                     return fail("moving the pointer left pixels at its old position");
         }
     SendMessageW(guard.child, WM_MOUSELEAVE, 0, 0);
     if (state.mouseVisible || !state.backDirty || !render()
-        || state.composePixels != noCursor)
+        || state.composeFrame.bytes() != noCursor)
         return fail("mouse leave did not clear the painted arrow");
 
     const auto slider = std::find_if(state.hits.begin(), state.hits.end(),
@@ -167,7 +167,7 @@ bool runRuntimeSkirmishCursorSmoke(
         / "runtime_skirmish_ui_smoke.bmp";
     screenshot.replace_filename(screenshot.stem().string() + "_cursor.bmp");
     if (!screenshot.parent_path().empty()) fs::create_directories(screenshot.parent_path());
-    if (!writeBgraBmp(pathString(screenshot), state.composePixels.data(),
+    if (!writeBgraBmp(pathString(screenshot), state.composeFrame.bytes().data(),
             kBaseWidth, kBaseHeight, error)) return fail(error);
 
     // Cancel/reentry reuses decoded resources but must discard the old pointer.

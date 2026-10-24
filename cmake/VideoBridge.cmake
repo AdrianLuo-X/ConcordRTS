@@ -1,3 +1,7 @@
+if(CONCORD_PORTABLE_CORE)
+    return()
+endif()
+
 # The 32-bit retail Bink decoder is a required product dependency on Windows.
 # VS retains its original Win32 sub-build. Ninja gets an independent x86 target.
 if (WIN32 AND TARGET concord_runtime AND CMAKE_SIZEOF_VOID_P EQUAL 8)

@@ -38,6 +38,12 @@
 | LAN 地图传输 | 大厅地图请求、分块与应答状态 | [RuntimeMultiplayerLobbyMapTransfer.h](src/network/lobby/RuntimeMultiplayerLobbyMapTransfer.h) |
 | 回放封包与恢复 | 流式记录、检查点与宿主恢复事务 | [RuntimeMatchReplay.h](src/runtime/replay/RuntimeMatchReplay.h) |
 | 离线报告证据 | 来源、输入、覆盖与未知项 | [OfflineReportEvidence.h](src/analysis/reports/OfflineReportEvidence.h)、[EngineStatus.h](src/analysis/reports/EngineStatus.h) |
+| 窗口生命周期 | 逻辑窗口标识与同步关闭、销毁动作 | [RuntimeWindowId.h](src/runtime/window/RuntimeWindowId.h)、[RuntimeWindowLifecycle.h](src/runtime/window/RuntimeWindowLifecycle.h) |
+| 遭遇战菜单控制 | 菜单状态、输入动作与选择配置映射 | [RuntimeSkirmishController.h](src/runtime/menu/RuntimeSkirmishController.h)、[RuntimeSkirmishSetup.h](src/ui/skirmish/RuntimeSkirmishSetup.h) |
+| 菜单图像与字体 | 自有 BGRA 图像、资源会话与只读字形 | [MenuImageResources.h](src/assets/menu/MenuImageResources.h)、[WestwoodFontCodec.h](src/assets/text/WestwoodFontCodec.h) |
+| CPU 菜单绘图 | 像素缓冲、颜色值与位图文字 | [RuntimeMenuPixelSurface.h](src/ui/surface/RuntimeMenuPixelSurface.h)、[RuntimeSkirmishBitmapText.h](src/ui/text/RuntimeSkirmishBitmapText.h) |
+| 菜单音乐 | UI 计时策略与设备能力接口 | [RuntimeSkirmishMusicPolicy.h](src/ui/audio/RuntimeSkirmishMusicPolicy.h)、[RuntimeMenuMusicDevice.h](src/audio/menu/RuntimeMenuMusicDevice.h) |
+| 联机快照会话 | 传输、暂存、校验及提交动作 | [RuntimeMultiplayerSnapshotSession.h](src/network/snapshots/RuntimeMultiplayerSnapshotSession.h) |
 | 运行时配置 | 配置类型、加载与偏好保存 | [RuntimeConfig.h](src/runtime/config/RuntimeConfig.h) |
 | 运行时入口 | 启动检查与游戏窗口 | [RuntimeShell.h](src/runtime/host/RuntimeShell.h) |
 | 互联网服务               | 服务配置、证书、连接和轮询    | [RuntimeInternetServiceHost.h](src/network/internet/RuntimeInternetServiceHost.h)、[RuntimeInternetServiceHostConfig.h](src/network/internet/RuntimeInternetServiceHostConfig.h) |
@@ -366,6 +372,60 @@ public:
 
 `encodeRuntimeChatTextUtf8()` 严格处理 UTF-16，保留显式 NUL code unit；无效输入或编码长度超过现有通信标识上限时返回空字符串。光标模块返回 `RuntimeCursorRequest` 语义请求，实际光标资源由宿主设置。`handleRuntimeInputCaptureChanged()` 先调用原右键策略，再处理菜单滑条与偏好；它不新增读取或清除左键手势状态。
 
+## 窗口生命周期与遭遇战菜单
+
+[RuntimeWindowId](src/runtime/window/RuntimeWindowId.h) 是分配的 `uint64_t` 标识，0 表示没有宿主窗口。它不是原生句柄；后端只在相应父窗口租约有效期间解析标识。
+
+[RuntimeWindowLifecycle.h](src/runtime/window/RuntimeWindowLifecycle.h) 将 `Hidden`、`Minimized`、`Close`、`Destroyed` 交给 `handleRuntimeWindowLifecycle(event, sessionAttached, port)`。返回 `true` 表示原生适配层已消费消息；隐藏和最小化在必要的帧计量重置后仍返回 `false`。有会话时关闭先报告离开，再请求销毁；销毁依次停止 EVA、停止音乐、释放图形资源，最后发送退出。调用同步发生在 UI 线程，销毁请求可在返回前重入 `Destroyed`，接入方必须保留这个顺序。
+
+[RuntimeSkirmishController](src/runtime/menu/RuntimeSkirmishController.h) 位于 `concord::skirmish`，保存菜单页、地图筛选、槽位、命中区域及交互状态；`RuntimeSkirmishServices` 提供重绘、音效、时间、偏好保存、预览等同步操作。`handleSkirmishMouseMove`、`handleSkirmishLeftDown`、`handleSkirmishLeftUp`、`handleSkirmishKey` 和 `handleSkirmishWheel` 接收已转换的坐标或按键值；原生消息转换仍由适配层负责。
+
+选择数据见 [RuntimeSkirmishSelection.h](src/runtime/contracts/RuntimeSkirmishSelection.h)。调用方接受选择后，才通过 [applyRuntimeSkirmishSelection](src/ui/skirmish/RuntimeSkirmishSetup.h) 写入 `RuntimeConfig`；固定步、随机种子、联机身份及无关设置继续由调用方管理。
+
+## 菜单图像、字体与 CPU 绘图
+
+### 图像与资源
+
+[MenuImage.h](src/assets/menu/MenuImage.h) 中的 `concord::assets::MenuImage` 持有尺寸、BGRA 像素及来源字符串。`makeMenuImage()` 在本次调用中借用索引帧和调色板，返回的图像拥有自己的像素。索引 0 是否透明由 `transparentZero` 显式指定。
+
+[MenuImageResources](src/assets/menu/MenuImageResources.h) 是可移动、不可复制的菜单资源所有者，通过 `configureRoots()`、`loadPalette()`、`loadFrame()` 复用既有资源实现，输出图像和调色板均为独立数据。配置根路径不自动清空已有缓存；它复用预览根目录配置类型，不共用预览会话的九类缓存。实现位于 [MenuImageResources.cpp](src/render/resources/MenuImageResources.cpp)，接口不接收设备、世界状态或原生句柄。
+
+`loadMenuLooseFrame()` 保留主菜单帧零、全局画布与偏移策略；`loadMenuFrameLocalShp()` 保留遭遇战的帧局部画布策略，并在尝试前重置输出。这两种原有兼容语义分别保留。
+
+### 字体与颜色
+
+[WestwoodFontCodec.h](src/assets/text/WestwoodFontCodec.h) 的 `decodeWestwoodFontHeader(bytes, metrics)` 只解析字节。输入过短或魔数错误时保持原 metrics；可识别的完整头即使语义校验失败，也按原结果页约定写入原始字段，因此失败不总是意味着输出未变。
+
+`westwoodFontGlyph()` 接收一个 `uint16_t` 码元，返回借用的字形记录；字节所有者重载或释放后指针失效。`MissingReferenceOnly` 与 `AnyUnavailableRecord` 分别保留缺映射和无效宽度时的不同问号回退规则；编码组合、排版和资源选择由调用方负责。
+
+[RuntimeRgbColorValue](src/ui/values/RuntimeColorValues.h) 只保存 `0x00BBGGRR` 颜色数据，可用 `fromChannels()`、`fromPackedRgb()` 构造，高位标志被忽略，alpha 由绘图操作决定。
+
+### 像素缓冲与文字
+
+[RuntimeMenuPixelSurface.h](src/ui/surface/RuntimeMenuPixelSurface.h) 提供 `concord::ui::MenuPixelBuffer`、可写及只读视图。像素为自上而下的 BGRA8，`rowStride` 可包含行尾填充，最后一行至少需要 `width * 4` 字节。`reset()`、`release()` 会使旧视图失效；借用仅适用于同步调用，`owns()` 用于核对缓冲所有权。
+
+`clearMenuPixels()`、`fillMenuPixels()`、`darkenMenuPixels()`、`frameMenuPixels()`、`blitMenuPixels()` 和 `scaleMenuPixels()` 保留现有菜单绘图规则。混合沿用除以 255 的运算，中间透明度保留目标 alpha；缩放采用最近邻采样，并将复制像素的 alpha 置为 255。
+
+[RuntimeSkirmishBitmapText.h](src/ui/text/RuntimeSkirmishBitmapText.h) 的 `SkirmishBitmapFontView` 借用字体字节和 metrics。`measureSkirmishBitmapText()`、`drawSkirmishBitmapText()` 分别接收 `wstring_view` 或 `u16string_view`；按 UTF-16 码元保留原遭遇战排版，不合并代理项。绘制目标是本次调用借用的连续 BGRA 缓冲，字体无效或缓冲尺寸不足时不绘制。
+
+Windows DIB、DC 和 GDI 对象由 [RuntimeSkirmishBackBufferWin32](src/ui/skirmish/win32/RuntimeSkirmishBackBufferWin32.h) 私有管理。CPU 表面只提供存储与绘图输入，不代表一个通用的完整帧呈现接口。
+
+## 菜单音乐策略与设备
+
+[SkirmishMusicPolicy](src/ui/audio/RuntimeSkirmishMusicPolicy.h) 同步借用 `RuntimeUiClock` 和文件存在检查函数，二者须按接口约定保持有效。`start()`、`poll()`、`stop()` 接收同一所有者管理的 [MenuMusicDevice](src/audio/menu/RuntimeMenuMusicDevice.h)，保留原启停、约一秒轮询、循环重播与失败重开顺序。
+
+设备提供 `supported()`、`open()`、`playFromStart()`、`isPlaying()`、`stop()`、`close()`。`isPlaying()` 的空可选值表示无法取得播放状态，不能当成已播放；`makeUnsupportedMenuMusicDevice()` 明确报告不支持，打开和播放返回失败。关闭或停用偏好需要调用方按原流程调用 `stop()`，单独传入 `enabled=false` 的轮询不会自动关闭设备。
+
+实际 Windows 实现见 [RuntimeSkirmishMusicWin32.h](src/audio/menu/win32/RuntimeSkirmishMusicWin32.h)，构造不打开设备，所有操作在 UI 线程同步执行。设备所有权用于避免旧实例析构关闭已经替换的播放会话；Bink 视频服务保持自己的独立生命周期。
+
+## TCP 边界与联机快照会话
+
+[RuntimeLanTransport.h](src/network/session/RuntimeLanTransport.h) 保持标准类型和私有实现边界，所选消费者通过 [LanTransportProviders.cmake](cmake/LanTransportProviders.cmake) 链接对应编译约定的生产实现。Winsock 依赖保留在实际 Windows 消费者的私有链接中；该整理没有改变网络协议，也不表示所有联机职责均已隔离。
+
+[RuntimeMultiplayerSnapshotSession](src/network/snapshots/RuntimeMultiplayerSnapshotSession.h) 管理分块传输、已校验候选及提交状态，同步借用会话、快照 hooks、本地 peer 字符串和当前阶段；这些引用的所有者必须比组件长寿。组件不拥有规范会话状态或原生传输，状态视图不得跨越 reset 使用。
+
+`stageSnapshotBytes()`、`commitSnapshot()`、`postSnapshotSessionCommit()` 对接原暂存与提交流程；`handleClientSnapshotChunk()`、`handleClientSnapshotCommit()`、`issueHostSnapshotCommit()` 和主机轮询接口继续使用原消息、完整性校验及应答状态。`RuntimeMultiplayerSnapshotSessionPort` 同步提供发包、广播、协议失败、提交事件及中止动作；它不向组件暴露套接字、文件系统或窗口状态。
+
 ## 席位与比赛计分
 
 ### 席位角色
@@ -664,7 +724,11 @@ JSON 中 `productionRuntimeValidation` 为 `not-run`，`productionRuntimeValidat
 | `concord_ini_tools_leaf` | `IniFile.cpp` | 规则与分析工具 |
 | `concord_ini_contract_leaf` | `IniFile.cpp` | 普通独立合同测试 |
 
-编译选项、定义和 CRT 设置均为 `PRIVATE`，各变体继承对应消费者约定；运行时 Debug 的 `/MD`、iterator level 0 与工具/普通合同 Debug 的 `/MDd`、默认 iterator level 2 分开保留。消费者仍配置自己的 `src/` 头文件搜索目录。现有静态库范围为上述两份实现，整体产品构建继续按 [README](README.md) 的 Windows 流程执行。
+编译选项、定义和 CRT 设置均为 `PRIVATE`，各变体继承对应消费者约定；运行时 Debug 的 `/MD`、iterator level 0 与工具/普通合同 Debug 的 `/MDd`、默认 iterator level 2 分开保留。消费者仍配置自己的 `src/` 头文件搜索目录。上述五个变体继续保留；[ProfiledLeaf.cmake](cmake/ProfiledLeaf.cmake) 提供共用工厂，窗口、菜单、资源、传输及核心模块按各自实际消费者建立静态库。
+
+[ProductionCoreLibraries.cmake](cmake/ProductionCoreLibraries.cmake) 复用实际世界、地图、规则、INI、游戏命令、比赛设置、会话与锁步实现，配合 [SnapshotTransferLibraries.cmake](cmake/SnapshotTransferLibraries.cmake)、[CompatibilityFingerprintLibraries.cmake](cmake/CompatibilityFingerprintLibraries.cmake) 和 [LanTransportProviders.cmake](cmake/LanTransportProviders.cmake) 管理共有实现。完整产品使用 `concord_runtime` 作为运行时编译约定所有者；独立核心使用真实的生产世界哈希入口，不创建空游戏目标。
+
+根配置选项 `CONCORD_PORTABLE_CORE` 控制所选核心目标与测试，完整产品和核心缓存不得混用。`concord_core_check` 构建并串行执行 10 项必需测试，具体名称以 [CoreTestSuite.cmake](cmake/CoreTestSuite.cmake) 为准。当前已验证 Windows Release、Debug 配置；核心不包含窗口和设备后端，但原子文件与 LAN 保留私有系统实现。完整产品及核心操作示例见 [README](README.md#编译)。
 
 角色、计分、解码、预览会话、回放、输入、UI 时钟及地形标准检查见 [TestsUnitAndNetwork.cmake](cmake/TestsUnitAndNetwork.cmake)；回放测试目标定义见 [ReplaySnapshotContracts.cmake](cmake/ReplaySnapshotContracts.cmake)。地形与 TMP 的独立构建配置见 [NavigationTerrainQueryContracts.cmake](cmake/NavigationTerrainQueryContracts.cmake)、[TmpTerrainContracts.cmake](cmake/TmpTerrainContracts.cmake)，资源运行检查见 [TestsRuntimeRegression.cmake](cmake/TestsRuntimeRegression.cmake)。
 

@@ -30,6 +30,7 @@
 
 #if defined(_WIN32)
 #define NOMINMAX
+#include "runtime/window/win32/RuntimeWindowParentWin32.h"
 #include <windows.h>
 #include <bcrypt.h>
 #include <commdlg.h>
@@ -291,6 +292,7 @@ bool fillSecureRandom(
     return true;
 }
 
+#if !defined(RUNTIME_MULTIPLAYER_MENU_PURE_HELPERS_ONLY)
 bool secureRandomU64(std::uint64_t& value, std::string& errorMessage) {
     std::array<std::uint8_t, 8> bytes{};
     for (int attempt = 0; attempt < 4; ++attempt) {
@@ -307,6 +309,7 @@ bool secureRandomU64(std::uint64_t& value, std::string& errorMessage) {
     }
     return fail(errorMessage, "secure random generator returned only zero");
 }
+#endif
 
 bool validMapExtension(const fs::path& path) {
     const std::string extension = lowerAscii(path.extension().string());
@@ -1799,7 +1802,8 @@ bool startHosting(
         auto hostConfig = state.baseConfig;
         hostConfig.multiplayerActive = true;
         hostConfig.noCooldown = false;
-        selection = runRuntimeSkirmishMenu(hostConfig, state.hostWindow);
+        RuntimeWindowParentWin32 skirmishParent(state.hostWindow);
+        selection = runRuntimeSkirmishMenu(hostConfig, skirmishParent.id());
         if (state.window != nullptr && IsWindow(state.window)) {
             ShowWindow(state.window, SW_SHOW);SetForegroundWindow(state.window);
         }

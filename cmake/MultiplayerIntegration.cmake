@@ -1,3 +1,7 @@
+if(CONCORD_PORTABLE_CORE)
+    return()
+endif()
+
 # Lobby map downloads share the same transport in LAN and Internet. Attach
 # the implementation to every executable/static core that owns that layer.
 get_property(_map_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
@@ -22,9 +26,25 @@ foreach(_map_target IN LISTS _map_targets)
     endif()
     if("src/network/protocol/RuntimeMultiplayerProtocol.cpp" IN_LIST _map_sources OR
        "src/ui/network/RuntimeMultiplayerMenu.cpp" IN_LIST _map_sources)
+        get_target_property(_explicit_snapshot_library ${_map_target} CONCORD_SNAPSHOT_TRANSFER_LIBRARY)
+        get_target_property(_explicit_fingerprint_library ${_map_target} CONCORD_FINGERPRINT_LIBRARY)
         foreach(_map_source src/network/maps/RuntimeMultiplayerMapTransfer.cpp
                 src/network/maps/RuntimeMultiplayerCompatibilityFingerprint.cpp
                 src/network/snapshots/RuntimeMultiplayerSnapshotTransfer.cpp)
+            if(_map_source STREQUAL "src/network/maps/RuntimeMultiplayerCompatibilityFingerprint.cpp"
+                    AND _explicit_fingerprint_library)
+                if(NOT TARGET "${_explicit_fingerprint_library}")
+                    message(FATAL_ERROR "Missing explicit Fingerprint library for ${_map_target}")
+                endif()
+                continue()
+            endif()
+            if(_map_source STREQUAL "src/network/snapshots/RuntimeMultiplayerSnapshotTransfer.cpp"
+                    AND _explicit_snapshot_library)
+                if(NOT TARGET "${_explicit_snapshot_library}")
+                    message(FATAL_ERROR "Missing explicit SnapshotTransfer library for ${_map_target}")
+                endif()
+                continue()
+            endif()
             if(NOT "${_map_source}" IN_LIST _map_sources)
                 target_sources(${_map_target} PRIVATE ${_map_source})
             endif()

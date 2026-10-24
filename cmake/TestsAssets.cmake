@@ -1,3 +1,7 @@
+if(CONCORD_PORTABLE_CORE)
+    return()
+endif()
+
 if (WIN32
     AND EXISTS "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/ra2/neutral.mix"
     AND EXISTS "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/ra2/cache.mix"

@@ -1,20 +1,20 @@
 # with the same container element layout.
 set(CONCORD_RULES_ABI_REVISION 2026092202)
+include("${CMAKE_CURRENT_LIST_DIR}/CoreCompilerProfiles.cmake")
+if(CONCORD_PORTABLE_CORE)
+    include("${CMAKE_CURRENT_LIST_DIR}/CoreCompilerAndPlatform.cmake")
+    return()
+endif()
+
 target_compile_definitions(
     concord_rules_dump PRIVATE
     CONCORD_RULES_ABI_REVISION=${CONCORD_RULES_ABI_REVISION}
 )
-target_compile_definitions(
-    concord_runtime PRIVATE
-    CONCORD_RULES_ABI_REVISION=${CONCORD_RULES_ABI_REVISION}
-)
+concord_runtime_abi_definition(concord_runtime)
 
 if(CONCORD_MSVC_FRONTEND)
-    concord_target_compile_options(concord_map_data_smoke PRIVATE /utf-8 /FS)
-    concord_target_compile_options(
-        concord_game_world_deterministic_hash_smoke
-        PRIVATE /utf-8 /FS /W4 /WX /permissive- /wd4189 /wd4996
-    )
+    concord_core_fixture_options(concord_map_data_smoke)
+    concord_core_fixture_options(concord_game_world_deterministic_hash_smoke)
     concord_target_compile_options(concord_campaign_progress_smoke PRIVATE /utf-8 /FS)
     concord_target_compile_options(
         concord_campaign_map_selection_smoke PRIVATE /utf-8 /FS
@@ -51,7 +51,7 @@ if(CONCORD_MSVC_FRONTEND)
     concord_target_compile_options(concord_lighting_system_smoke PRIVATE /utf-8 /FS)
     concord_target_compile_options(concord_production_lanes_smoke PRIVATE /utf-8 /FS)
     concord_target_compile_options(concord_production_timing_smoke PRIVATE /utf-8 /FS)
-    concord_target_compile_options(concord_runtime_atomic_file_smoke PRIVATE /utf-8 /FS)
+    concord_core_fixture_options(concord_runtime_atomic_file_smoke)
     concord_target_compile_options(concord_runtime_map_package_smoke PRIVATE /utf-8 /FS)
     concord_target_compile_options(concord_spy_system_smoke PRIVATE /utf-8 /FS)
     concord_target_compile_options(concord_airstrike_system_smoke PRIVATE /utf-8 /FS)
@@ -73,21 +73,13 @@ if(CONCORD_MSVC_FRONTEND)
         concord_multiplayer_session_system_smoke
         PRIVATE /utf-8 /FS /W4 /WX /permissive-
     )
-    concord_target_compile_options(
-        concord_lan_transport_smoke PRIVATE /utf-8 /FS /W4 /WX /permissive-
-    )
+    concord_core_fixture_options(concord_lan_transport_smoke)
     concord_target_compile_options(
         concord_multiplayer_protocol_smoke
         PRIVATE /utf-8 /FS /W4 /WX /permissive-
     )
-    concord_target_compile_options(
-        concord_multiplayer_gameplay_command_smoke
-        PRIVATE /utf-8 /FS /W4 /WX /permissive-
-    )
-    concord_target_compile_options(
-        concord_multiplayer_lockstep_smoke
-        PRIVATE /utf-8 /FS /W4 /WX /permissive-
-    )
+    concord_core_fixture_options(concord_multiplayer_gameplay_command_smoke)
+    concord_core_fixture_options(concord_multiplayer_lockstep_smoke)
     concord_target_compile_options(
         concord_multiplayer_weak_network_smoke
         PRIVATE /utf-8 /FS /W4 /WX /permissive-
@@ -96,18 +88,9 @@ if(CONCORD_MSVC_FRONTEND)
         concord_multiplayer_lan_flow_smoke
         PRIVATE /utf-8 /FS /W4 /WX /permissive-
     )
-    concord_target_compile_options(
-        concord_multiplayer_match_setup_smoke
-        PRIVATE /utf-8 /FS /W4 /WX /permissive-
-    )
-    concord_target_compile_options(
-        concord_multiplayer_snapshot_transfer_smoke
-        PRIVATE /utf-8 /FS /W4 /WX /permissive-
-    )
-    concord_target_compile_options(
-        concord_multiplayer_compatibility_fingerprint_smoke
-        PRIVATE /utf-8 /FS /W4 /WX /permissive-
-    )
+    concord_core_fixture_options(concord_multiplayer_match_setup_smoke)
+    concord_core_fixture_options(concord_multiplayer_snapshot_transfer_smoke)
+    concord_core_fixture_options(concord_multiplayer_compatibility_fingerprint_smoke)
     concord_target_compile_options(
         concord_multiplayer_launch_config_smoke
         PRIVATE /utf-8 /FS /W4 /WX /permissive-
@@ -203,21 +186,10 @@ if(CONCORD_MSVC_FRONTEND)
     # libraries. Use the production CRT in every configuration as well: the
     # Debug heap otherwise adds bookkeeping to the hot simulation allocations.
     # Keep the existing Debug symbols/assertions and iterator ABI setting.
-    concord_target_compile_options(
-        concord_runtime PRIVATE
-        /utf-8
-        /FS
-        /bigobj
-        $<$<CONFIG:Debug>:/O2>
-        $<$<CONFIG:Debug>:/Ob2>
-    )
+    concord_runtime_compile_options(concord_runtime)
 endif()
 
-if(CONCORD_MSVC_ABI)
-    # CRT choice and STL iterator layout belong to the ABI, not the driver.
-    set_property(TARGET concord_runtime PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
-    target_compile_definitions(concord_runtime PRIVATE $<$<CONFIG:Debug>:_ITERATOR_DEBUG_LEVEL=0>)
-endif()
+concord_runtime_crt_profile(concord_runtime)
 if (WIN32)
     # Explorer/shortcut launches should open only the game window.
     set_property(TARGET concord_runtime PROPERTY WIN32_EXECUTABLE TRUE)

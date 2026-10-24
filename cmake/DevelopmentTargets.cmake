@@ -1,20 +1,17 @@
+if(CONCORD_PORTABLE_CORE)
+    include("${CMAKE_CURRENT_LIST_DIR}/CoreTargets.cmake")
+    return()
+endif()
+
 add_executable(concord_map_data_smoke
+    # W027 same production component, explicit ABI-profile library.
     tests/maps/MapDataSmoke.cpp
-    src/world/model/GameWorld.cpp
-    src/core/io/IniFile.cpp
-    src/data/maps/MapDatabase.cpp
-    src/data/rules/RulesDatabase.cpp
-    src/data/art/TheaterDatabase.cpp
 )
 target_include_directories(concord_map_data_smoke PRIVATE src)
 
 add_executable(concord_game_world_deterministic_hash_smoke
+    # W027 same production component, explicit ABI-profile library.
     tests/infrastructure/GameWorldDeterministicHashSmoke.cpp
-    src/world/model/GameWorld.cpp
-    src/core/io/IniFile.cpp
-    src/data/maps/MapDatabase.cpp
-    src/data/rules/RulesDatabase.cpp
-    src/data/art/TheaterDatabase.cpp
 )
 target_include_directories(
     concord_game_world_deterministic_hash_smoke PRIVATE src
@@ -467,7 +464,7 @@ target_include_directories(
 
 add_executable(concord_lan_transport_smoke
     tests/multiplayer/RuntimeLanTransportSmoke.cpp
-    src/network/session/RuntimeLanTransport.cpp
+    # Same production provider, explicit S11 Contract dependency below.
 )
 target_include_directories(concord_lan_transport_smoke PRIVATE src)
 
@@ -482,20 +479,17 @@ add_executable(concord_multiplayer_protocol_smoke
 target_include_directories(concord_multiplayer_protocol_smoke PRIVATE src)
 
 add_executable(concord_multiplayer_gameplay_command_smoke
+    # W027 same production component, explicit ABI-profile library.
     tests/multiplayer/RuntimeMultiplayerGameplayCommandSmoke.cpp
-    src/network/lockstep/RuntimeMultiplayerGameplayCommand.cpp
 )
 target_include_directories(
     concord_multiplayer_gameplay_command_smoke PRIVATE src
 )
 
 add_executable(concord_multiplayer_lockstep_smoke
+    # W027 same production component, explicit ABI-profile library.
     tests/multiplayer/RuntimeMultiplayerLockstepSmoke.cpp
-    src/network/lockstep/RuntimeMultiplayerLockstep.cpp
-    src/network/lockstep/RuntimeMultiplayerGameplayCommand.cpp
-    src/network/session/RuntimeMultiplayerSessionSystem.cpp
-    src/network/protocol/RuntimeMultiplayerMatchSetup.cpp
-    src/network/snapshots/RuntimeMultiplayerSnapshotTransfer.cpp
+    # H073 explicit Contract SnapshotTransfer dependency below.
 )
 target_include_directories(
     concord_multiplayer_lockstep_smoke PRIVATE src
@@ -527,14 +521,14 @@ add_executable(concord_multiplayer_lan_flow_smoke
 target_include_directories(concord_multiplayer_lan_flow_smoke PRIVATE src)
 
 add_executable(concord_multiplayer_match_setup_smoke
+    # W027 same production component, explicit ABI-profile library.
     tests/multiplayer/RuntimeMultiplayerMatchSetupSmoke.cpp
-    src/network/protocol/RuntimeMultiplayerMatchSetup.cpp
 )
 target_include_directories(concord_multiplayer_match_setup_smoke PRIVATE src)
 
 add_executable(concord_multiplayer_snapshot_transfer_smoke
     tests/multiplayer/RuntimeMultiplayerSnapshotTransferSmoke.cpp
-    src/network/snapshots/RuntimeMultiplayerSnapshotTransfer.cpp
+    # H073 explicit Contract SnapshotTransfer dependency below.
 )
 target_include_directories(
     concord_multiplayer_snapshot_transfer_smoke PRIVATE src
@@ -542,7 +536,7 @@ target_include_directories(
 
 add_executable(concord_multiplayer_compatibility_fingerprint_smoke
     tests/multiplayer/RuntimeMultiplayerCompatibilityFingerprintSmoke.cpp
-    src/network/maps/RuntimeMultiplayerCompatibilityFingerprint.cpp
+    # H074 explicit Contract Fingerprint dependency below.
 )
 target_include_directories(
     concord_multiplayer_compatibility_fingerprint_smoke PRIVATE src
@@ -889,8 +883,6 @@ target_sources(concord_path_request_queue_performance_smoke PRIVATE src/simulati
 
 # S23-01: explicit existing consumers share the independent production loader.
 foreach(s23_production_rules_owner IN ITEMS
-    concord_map_data_smoke
-    concord_game_world_deterministic_hash_smoke
     concord_path_request_queue_performance_smoke
     concord_rules_special_features_smoke
     concord_rules_poison_policy_smoke
@@ -976,3 +968,24 @@ target_include_directories(concord_match_replay_contract PRIVATE src)
 if(CONCORD_MSVC_FRONTEND)
     concord_target_compile_options(concord_match_replay_contract PRIVATE /utf-8 /W4 /WX /permissive-)
 endif()
+
+include(cmake/WindowLifecycleContracts.cmake)
+
+include("${CMAKE_CURRENT_LIST_DIR}/SkirmishControllerContracts.cmake")
+
+include("${CMAKE_CURRENT_LIST_DIR}/WestwoodFontContracts.cmake")
+
+include("${CMAKE_CURRENT_LIST_DIR}/MenuImageContracts.cmake")
+
+include("${CMAKE_CURRENT_LIST_DIR}/ColorValueContracts.cmake")
+
+include("${CMAKE_CURRENT_LIST_DIR}/SkirmishBitmapTextContracts.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/MenuPixelSurfaceContracts.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/SkirmishBackBufferWin32Contracts.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/SkirmishMusicContracts.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/LanTransportProviders.cmake")
+
+include("${CMAKE_CURRENT_LIST_DIR}/SnapshotSessionContracts.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/SnapshotTransferLibraries.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/CompatibilityFingerprintLibraries.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/ProductionCoreLibraries.cmake")

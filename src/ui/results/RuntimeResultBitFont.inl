@@ -1,37 +1,27 @@
 // The same installed Unicode bitmap font used by the retail menu. Draw runs
 // through GDI so scaled text and the UI compositor share one ordered surface.
 struct RuntimeResultBitFont {
-    static constexpr std::size_t mapOffset = 0x1c;
-    static constexpr std::size_t dataOffset = mapOffset + 65536U * 2U;
+
     std::vector<unsigned char> bytes;
     unsigned stride = 0, rows = 0, height = 0, count = 0, recordSize = 0;
 
-    unsigned read32(std::size_t at) const {
-        return bytes[at] | (unsigned(bytes[at + 1]) << 8)
-            | (unsigned(bytes[at + 2]) << 16) | (unsigned(bytes[at + 3]) << 24);
-    }
+
     bool load(const std::filesystem::path& path) {
         std::ifstream input(path, std::ios::binary);
         if (!input) return false;
         bytes.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
-        if (bytes.size() < dataOffset || std::string(bytes.begin(), bytes.begin() + 4) != "fonT") {
-            bytes.clear(); return false;
-        }
-        stride = read32(8); rows = read32(12); height = read32(16);
-        count = read32(20); recordSize = read32(24);
-        if (stride == 0 || stride > 16 || rows == 0 || rows > 64 || height < rows || height > 64
-            || recordSize != 1 + stride * rows || count == 0 || count > (bytes.size() - dataOffset) / recordSize) {
-            bytes.clear(); return false;
-        }
+        concord::assets::WestwoodFontMetrics metrics{stride, rows, height, count, recordSize};
+        const bool sane = concord::assets::decodeWestwoodFontHeader(bytes, metrics);
+        stride = metrics.stride; rows = metrics.bitmapRows; height = metrics.lineHeight;
+        count = metrics.glyphCount; recordSize = metrics.recordSize;
+        if (!sane) { bytes.clear(); return false; }
         return true;
     }
     const unsigned char* glyph(wchar_t character) const {
         if (bytes.empty()) return nullptr;
-        const auto at = mapOffset + static_cast<std::uint16_t>(character) * 2U;
-        const unsigned ref = bytes[at] | (unsigned(bytes[at + 1]) << 8);
-        if (ref == 0 || ref > count) return character == L'?' ? nullptr : glyph(L'?');
-        const auto* record = bytes.data() + dataOffset + (ref - 1) * recordSize;
-        return record[0] <= stride * 8 ? record : nullptr;
+        return concord::assets::westwoodFontGlyph(bytes,
+            {stride, rows, height, count, recordSize}, static_cast<std::uint16_t>(character),
+            concord::assets::WestwoodGlyphFallback::MissingReferenceOnly);
     }
     int measure(const std::wstring& text) const {
         int width = 0;

@@ -12,7 +12,7 @@ bool runRandomMapMenuSmoke(MenuState& state,const fs::path& output,std::string& 
         state.backDirty=true;
         if (!renderShellBackBuffer(state)) return false;
         const auto path=output.parent_path()/(output.stem().string()+suffix+".bmp");
-        return writeBgraBmp(path.string(),state.composePixels.data(),kBaseWidth,kBaseHeight,error);
+        return writeBgraBmp(path.string(),state.composeFrame.bytes().data(),kBaseWidth,kBaseHeight,error);
     };
     activateShellTarget(state,{HitKind::ChooseMap,-1},1);
     if (!capture("_entry") || !hasHitKind(state,HitKind::CreateRandomMap)) return fail("no original map-generator entrance");

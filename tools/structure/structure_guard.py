@@ -42,6 +42,12 @@ FRONTEND_FLAG = re.compile(r'(?<!\w)(/[A-Za-z][A-Za-z0-9:,+-]*|-W[\w=-]+|-f[\w=-
 VS_PATH = re.compile(r'(?i)[A-Z]:[\\/][^"\r\n]*(?:Visual[ /]Studio|Microsoft[ /]Visual[ /]Studio)[^"\r\n]*')
 FORBIDDEN_PREFIXES = ("src/runtime/host/", "src/ui/")
 DEFAULT_MODULES = {
+    "menu-image": ["src/assets/menu/MenuImage.h", "src/assets/menu/MenuImage.cpp"],
+    "menu-image-port": ["src/assets/menu/MenuImageResources.h"],
+    "Westwood-font": ["src/assets/text/WestwoodFontCodec.h",
+                      "src/assets/text/WestwoodFontCodec.cpp"],
+    "window-lifecycle": ["src/runtime/window/RuntimeWindowLifecycle.h",
+                         "src/runtime/window/RuntimeWindowLifecycle.cpp"],
     "CSF": ["src/assets/text/CsfCodec.h", "src/assets/text/CsfCodec.cpp"],
     "PAL": ["src/assets/codecs/PalDecoder.h", "src/assets/codecs/PalDecoder.cpp"],
     "SHP": ["src/assets/codecs/ShpCodec.h", "src/assets/codecs/ShpCodec.cpp"],

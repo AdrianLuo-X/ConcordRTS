@@ -339,7 +339,11 @@ bool testFrameCodecAndGoldenBytes() {
         encodeFrame(golden, goldenBytes),
         "golden sell frame encodes"
     );
-    const std::vector<std::uint8_t> expectedGolden{
+    // The original version-3 bytes stay exact as a rejected legacy fixture.
+    // Current version 20 is already fixed by GameplayCommandSmoke's independent
+    // golden/static_assert; production encoding is unchanged by this repair.
+    static_assert(runtimeMultiplayerGameplayCommandVersion == 20U);
+    const std::vector<std::uint8_t> legacyVersion3Golden{
         0x43U, 0x47U, 0x4cU, 0x46U,
         0x00U, 0x01U, 0x00U, 0x01U,
         0x00U, 0x00U, 0x00U, 0x0cU,
@@ -347,9 +351,21 @@ bool testFrameCodecAndGoldenBytes() {
         0x00U, 0x03U, 0x00U, 0x07U,
         0x00U, 0x00U, 0x00U, 0x2aU
     };
+    const std::vector<std::uint8_t> expectedVersion20Golden{
+        0x43U, 0x47U, 0x4cU, 0x46U,
+        0x00U, 0x01U, 0x00U, 0x01U,
+        0x00U, 0x00U, 0x00U, 0x0cU,
+        0x43U, 0x47U, 0x43U, 0x4dU,
+        0x00U, 0x14U, 0x00U, 0x07U,
+        0x00U, 0x00U, 0x00U, 0x2aU
+    };
     success &= expect(
-        goldenBytes == expectedGolden,
+        goldenBytes == expectedVersion20Golden,
         "frame and nested command lengths use the golden big-endian layout"
+    );
+    success &= decodeRejectedAtomically(
+        legacyVersion3Golden,
+        "legacy nested command version 3"
     );
 
     RuntimeMultiplayerGameplayFrame authored{{stop({9, 1, 9}), sell(5)}};

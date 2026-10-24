@@ -1,4 +1,5 @@
 #include "network/session/RuntimeMultiplayerLanSession.h"
+#include "network/snapshots/RuntimeMultiplayerSnapshotSession.h"
 #include "network/lobby/RuntimeRoomPassword.h"
 #include "network/lobby/RuntimeMultiplayerLobbyMapTransfer.h"
 
@@ -16,8 +17,6 @@
 #include <vector>
 
 namespace {
-
-constexpr std::uint64_t snapshotChunkRetransmitPollInterval = 32U;
 
 class RoomPasswordStringClearGuard {
 public:
@@ -76,18 +75,6 @@ std::string safeCommandValidationReason(std::string reason) {
 
 std::string safeSimulationReason(std::string reason) {
     if (reason.empty()) reason = "multiplayer simulation hook rejected state";
-    for (char& character : reason) {
-        const unsigned char byte = static_cast<unsigned char>(character);
-        if (byte < 0x20U || byte == 0x7fU) character = ' ';
-    }
-    if (reason.size() > runtimeMultiplayerMaximumJoinRejectionReasonBytes) {
-        reason.resize(runtimeMultiplayerMaximumJoinRejectionReasonBytes);
-    }
-    return reason;
-}
-
-std::string safeSnapshotReason(std::string reason) {
-    if (reason.empty()) reason = "multiplayer snapshot hook rejected state";
     for (char& character : reason) {
         const unsigned char byte = static_cast<unsigned char>(character);
         if (byte < 0x20U || byte == 0x7fU) character = ' ';
@@ -178,20 +165,6 @@ bool RuntimeMultiplayerLanSimulationHooks::complete() const {
         && static_cast<bool>(onAuthoritativeAdvance);
 }
 
-bool RuntimeMultiplayerLanSnapshotHooks::empty() const {
-    return !stageVerifiedBytes
-        && !commitStaged
-        && !postSessionCommit
-        && !discardStaged;
-}
-
-bool RuntimeMultiplayerLanSnapshotHooks::complete() const {
-    return static_cast<bool>(stageVerifiedBytes)
-        && static_cast<bool>(commitStaged)
-        && static_cast<bool>(postSessionCommit)
-        && static_cast<bool>(discardStaged);
-}
-
 struct RuntimeMultiplayerLanSession::Impl {
     struct HostPeer {
         std::string address;
@@ -279,62 +252,38 @@ struct RuntimeMultiplayerLanSession::Impl {
     bool hostPasswordProtected = false;
     bool joinPasswordProofRequired = false;
     bool clientCanonicalPacketDeferred = false;
-    bool snapshotTransferActive = false;
-    bool snapshotStaged = false;
-    RuntimeMultiplayerSaveLoadProposal snapshotProposal;
-    RuntimeMultiplayerSnapshotChunkAssembler snapshotAssembler;
-    bool haveCompletedSnapshotChunk = false;
-    RuntimeMultiplayerSnapshotChunk completedSnapshotChunk;
-    RuntimeMultiplayerSnapshotChunkAck completedSnapshotAck;
-    std::uint64_t stagedAuthoritativeStateHash = 0;
-    bool snapshotCommitCompleted = false;
-    std::uint64_t committedAuthoritativeStateHash = 0;
-    std::uint64_t snapshotSendPollCounter = 0;
+    RuntimeMultiplayerSnapshotSession snapshot{session, snapshotHooks, localPeerId, phase};
     bool reconnectRecoveryPending = false;
     std::uint64_t reconnectRecoveryProposalId = 0;
     std::chrono::steady_clock::time_point reconnectDeadline{};
     std::chrono::steady_clock::time_point nextReconnectAttempt{};
     std::uint32_t reconnectAttemptCount = 0;
 
+    struct SnapshotPort final : RuntimeMultiplayerSnapshotSessionPort {
+        Impl& owner;
+        explicit SnapshotPort(Impl& value) : owner(value) {}
+        bool sendToHost(const RuntimeMultiplayerMessage& m, std::string& e) override { return owner.sendToHost(m,e); }
+        bool sendPacketToHost(const RuntimeNetworkPacket& p, std::string& e) override { return owner.client.send(p,e); }
+        bool broadcastPacket(const RuntimeNetworkPacket& p, std::string& e) override { return owner.broadcastPacket(p,e); }
+        void protocolFailure(std::string e, std::vector<RuntimeMultiplayerLanEvent>& v) override { owner.clientProtocolFailure(std::move(e),v); }
+        void appendAppliedEvent(const RuntimeMultiplayerMessage& m, const RuntimeMultiplayerMessageApplyResult& a, std::vector<RuntimeMultiplayerLanEvent>& v) override { owner.appendAppliedEvent(m,a,v); }
+        void clearSnapshotTransfer(bool discard) noexcept override { owner.clearSnapshotTransfer(discard); }
+        void abortHost(RuntimeMultiplayerSessionAbortReason reason) override { (void)owner.hostAbort(owner.localPeerId,reason); }
+        RuntimeMultiplayerLanOperationResult applyHostMessage(RuntimeMultiplayerMessage m) override { return owner.applyHostMessage(std::move(m)); }
+    };
+
     const RuntimeMultiplayerSaveLoadHandshake* activeSaveLoad() const {
-        if (!snapshotTransferActive) return nullptr;
-        const auto& handshakes = session.saveLoadHandshakes();
-        const auto found = std::find_if(
-            handshakes.rbegin(),
-            handshakes.rend(),
-            [this](const RuntimeMultiplayerSaveLoadHandshake& handshake) {
-                return handshake.proposal.proposalId
-                        == snapshotProposal.proposalId
-                    && handshake.proposal.timelineEpoch
-                        == snapshotProposal.timelineEpoch;
-            }
-        );
-        return found == handshakes.rend() ? nullptr : &*found;
+        return snapshot.activeSaveLoad();
     }
 
     void clearSnapshotTransfer(bool discard) noexcept {
-        if (discard && snapshotStaged && snapshotHooks.discardStaged) {
-            try {
-                snapshotHooks.discardStaged(snapshotProposal.descriptor);
-            } catch (...) {
-                // Cleanup is best-effort during an already terminal path.
-            }
-        }
+        snapshot.discardStaged(discard);
         for (auto& entry : hostPeers) {
             entry.second.snapshotProducer.reset();
             entry.second.snapshotChunkSent = false;
             entry.second.snapshotChunkLastSentPoll = 0;
         }
-        snapshotAssembler.reset();
-        haveCompletedSnapshotChunk = false;
-        completedSnapshotChunk = RuntimeMultiplayerSnapshotChunk{};
-        completedSnapshotAck = RuntimeMultiplayerSnapshotChunkAck{};
-        snapshotTransferActive = false;
-        snapshotStaged = false;
-        snapshotProposal = RuntimeMultiplayerSaveLoadProposal{};
-        stagedAuthoritativeStateHash = 0;
-        snapshotCommitCompleted = false;
-        committedAuthoritativeStateHash = 0;
+        snapshot.resetState();
     }
 
     bool stageSnapshotBytes(
@@ -343,91 +292,18 @@ struct RuntimeMultiplayerLanSession::Impl {
         std::uint64_t& observedHash,
         std::string& errorMessage
     ) const {
-        if (!snapshotHooks.complete()) {
-            errorMessage = "complete snapshot hooks are required";
-            return false;
-        }
-        bool accepted = false;
-        try {
-            accepted = snapshotHooks.stageVerifiedBytes(
-                proposal.descriptor,
-                bytes,
-                observedHash,
-                errorMessage
-            );
-        } catch (...) {
-            errorMessage = "multiplayer snapshot stage hook failed";
-        }
-        if (!accepted) {
-            errorMessage = safeSnapshotReason(std::move(errorMessage));
-            return false;
-        }
-        if (observedHash
-            != proposal.descriptor.identity.authoritativeStateHash) {
-            errorMessage =
-                "staged snapshot authoritative hash does not match";
-            return false;
-        }
-        errorMessage.clear();
-        return true;
+        return snapshot.stageSnapshotBytes(proposal, bytes, observedHash, errorMessage);
     }
 
     bool commitSnapshot(
         std::uint64_t& observedHash,
         std::string& errorMessage
     ) const {
-        if (!snapshotTransferActive || !snapshotStaged
-            || !snapshotHooks.complete()) {
-            errorMessage = "no verified staged snapshot is available";
-            return false;
-        }
-        bool accepted = false;
-        try {
-            accepted = snapshotHooks.commitStaged(
-                snapshotProposal.descriptor,
-                observedHash,
-                errorMessage
-            );
-        } catch (...) {
-            errorMessage = "multiplayer snapshot commit hook failed";
-        }
-        if (!accepted) {
-            errorMessage = safeSnapshotReason(std::move(errorMessage));
-            return false;
-        }
-        if (observedHash
-            != snapshotProposal.descriptor.identity
-                .authoritativeStateHash) {
-            errorMessage =
-                "committed snapshot authoritative hash does not match";
-            return false;
-        }
-        errorMessage.clear();
-        return true;
+        return snapshot.commitSnapshot(observedHash, errorMessage);
     }
 
     bool postSnapshotSessionCommit(std::string& errorMessage) const {
-        if (snapshotProposal.kind != RuntimeMultiplayerSaveLoadKind::Load) {
-            errorMessage.clear();
-            return true;
-        }
-        bool accepted = false;
-        try {
-            accepted = snapshotHooks.postSessionCommit(
-                snapshotProposal.descriptor,
-                session,
-                errorMessage
-            );
-        } catch (...) {
-            errorMessage =
-                "multiplayer snapshot post-commit hook failed";
-        }
-        if (!accepted) {
-            errorMessage = safeSnapshotReason(std::move(errorMessage));
-            return false;
-        }
-        errorMessage.clear();
-        return true;
+        return snapshot.postSnapshotSessionCommit(errorMessage);
     }
 
     void clearPendingClientCanonicalPackets() {
@@ -759,7 +635,7 @@ struct RuntimeMultiplayerLanSession::Impl {
         hostPasswordProtected = false;
         joinPasswordProofRequired = false;
         clientCanonicalPacketDeferred = false;
-        snapshotSendPollCounter = 0;
+        snapshot.state().snapshotSendPollCounter = 0;
         reconnectRecoveryPending = false;
         reconnectRecoveryProposalId = 0;
         reconnectDeadline = {};
@@ -1910,10 +1786,10 @@ void RuntimeMultiplayerLanSession::Impl::handleHostPacket(
         HostPeer& peer = found->second;
         const RuntimeMultiplayerSnapshotChunkAck& ack =
             std::get<RuntimeMultiplayerSnapshotChunkAck>(decoded.body);
-        const bool bindingMatches = snapshotTransferActive
+        const bool bindingMatches = snapshot.state().snapshotTransferActive
             && peer.snapshotProducer.active()
-            && ack.proposalId == snapshotProposal.proposalId
-            && ack.sourceTimelineEpoch == snapshotProposal.timelineEpoch;
+            && ack.proposalId == snapshot.state().snapshotProposal.proposalId
+            && ack.sourceTimelineEpoch == snapshot.state().snapshotProposal.timelineEpoch;
         const RuntimeMultiplayerSnapshotTransferResult acknowledged =
             bindingMatches
                 ? peer.snapshotProducer.acknowledge(ack)
@@ -2488,8 +2364,8 @@ void RuntimeMultiplayerLanSession::Impl::handleClientPacket(
             );
             return;
         }
-        if (snapshotTransferActive) {
-            if (snapshotProposal != proposal || !applied.duplicate) {
+        if (snapshot.state().snapshotTransferActive) {
+            if (snapshot.state().snapshotProposal != proposal || !applied.duplicate) {
                 clientProtocolFailure(
                     "snapshot proposal conflicts with the active transfer",
                     events
@@ -2501,15 +2377,15 @@ void RuntimeMultiplayerLanSession::Impl::handleClientPacket(
             return;
         }
         const RuntimeMultiplayerSnapshotTransferResult begun =
-            snapshotAssembler.begin(proposal.descriptor);
+            snapshot.state().snapshotAssembler.begin(proposal.descriptor);
         if (!begun.accepted) {
             clientProtocolFailure(begun.reason, events);
             return;
         }
-        snapshotTransferActive = true;
-        snapshotStaged = false;
-        snapshotProposal = proposal;
-        stagedAuthoritativeStateHash = 0;
+        snapshot.state().snapshotTransferActive = true;
+        snapshot.state().snapshotStaged = false;
+        snapshot.state().snapshotProposal = proposal;
+        snapshot.state().stagedAuthoritativeStateHash = 0;
         session = std::move(candidate);
         appendAppliedEvent(decoded, applied, events);
         return;
@@ -2619,93 +2495,8 @@ void RuntimeMultiplayerLanSession::Impl::handleClientSnapshotChunk(
     const RuntimeMultiplayerSnapshotChunk& chunk,
     std::vector<RuntimeMultiplayerLanEvent>& events
 ) {
-    if (!snapshotTransferActive
-        || chunk.proposalId != snapshotProposal.proposalId
-        || chunk.sourceTimelineEpoch != snapshotProposal.timelineEpoch) {
-        clientProtocolFailure(
-            "snapshot chunk does not match the active proposal",
-            events
-        );
-        return;
-    }
-
-    if (haveCompletedSnapshotChunk) {
-        if (chunk != completedSnapshotChunk) {
-            clientProtocolFailure(
-                "completed snapshot chunk retry conflicts with verified data",
-                events
-            );
-            return;
-        }
-        RuntimeMultiplayerMessage ackMessage;
-        ackMessage.type = RuntimeMultiplayerMessageType::SnapshotChunkAck;
-        ackMessage.body = completedSnapshotAck;
-        std::string sendError;
-        if (!sendToHost(ackMessage, sendError)) {
-            clientProtocolFailure(std::move(sendError), events);
-        }
-        return;
-    }
-
-    const RuntimeMultiplayerSnapshotTransferResult accepted =
-        snapshotAssembler.acceptChunk(chunk);
-    if (!accepted.accepted) {
-        clientProtocolFailure(accepted.reason, events);
-        return;
-    }
-    RuntimeMultiplayerSnapshotChunkAck ack;
-    std::string errorMessage;
-    if (!snapshotAssembler.latestAcknowledgement(ack, errorMessage)) {
-        clientProtocolFailure(std::move(errorMessage), events);
-        return;
-    }
-    RuntimeMultiplayerMessage ackMessage;
-    ackMessage.type = RuntimeMultiplayerMessageType::SnapshotChunkAck;
-    ackMessage.body = ack;
-    if (!sendToHost(ackMessage, errorMessage)) {
-        clientProtocolFailure(std::move(errorMessage), events);
-        return;
-    }
-    if (!accepted.complete) return;
-
-    std::vector<std::uint8_t> verifiedBytes;
-    completedSnapshotChunk = chunk;
-    completedSnapshotAck = ack;
-    haveCompletedSnapshotChunk = true;
-    if (!snapshotAssembler.takeCompletedBytes(
-            verifiedBytes,
-            errorMessage
-        )) {
-        clientProtocolFailure(std::move(errorMessage), events);
-        return;
-    }
-    std::uint64_t observedHash = 0;
-    snapshotStaged = true;
-    if (!stageSnapshotBytes(
-            snapshotProposal,
-            verifiedBytes,
-            observedHash,
-            errorMessage
-        )) {
-        clientProtocolFailure(std::move(errorMessage), events);
-        return;
-    }
-    stagedAuthoritativeStateHash = observedHash;
-
-    RuntimeMultiplayerSaveLoadResponseMessage prepare;
-    prepare.timelineEpoch = session.timelineEpoch();
-    prepare.proposalId = snapshotProposal.proposalId;
-    prepare.peerId = localPeerId;
-    prepare.approved = true;
-    prepare.observedFingerprint =
-        snapshotProposal.descriptor.snapshotFingerprint;
-    prepare.observedAuthoritativeStateHash = observedHash;
-    RuntimeMultiplayerMessage prepareMessage;
-    prepareMessage.type = RuntimeMultiplayerMessageType::SaveLoadPrepare;
-    prepareMessage.body = std::move(prepare);
-    if (!sendToHost(prepareMessage, errorMessage)) {
-        clientProtocolFailure(std::move(errorMessage), events);
-    }
+    SnapshotPort port(*this);
+    snapshot.handleClientSnapshotChunk(chunk, port, events);
 }
 
 void RuntimeMultiplayerLanSession::Impl::handleClientSnapshotCommit(
@@ -2713,98 +2504,13 @@ void RuntimeMultiplayerLanSession::Impl::handleClientSnapshotCommit(
     const RuntimeMultiplayerMessage& decoded,
     std::vector<RuntimeMultiplayerLanEvent>& events
 ) {
-    const RuntimeMultiplayerSaveLoadCommitMessage& commit =
-        std::get<RuntimeMultiplayerSaveLoadCommitMessage>(decoded.body);
-    if (!snapshotTransferActive || !snapshotStaged
-        || commit.proposalId != snapshotProposal.proposalId
-        || commit.timelineEpoch != snapshotProposal.timelineEpoch
-        || commit.requestingPeerId != session.config().hostPeerId) {
-        clientProtocolFailure(
-            "snapshot commit does not match verified staged bytes",
-            events
-        );
-        return;
-    }
-
-    RuntimeMultiplayerSessionState candidate = session;
-    RuntimeMultiplayerMessageApplyResult applied =
-        applyTrustedCanonicalRuntimeMultiplayerMessage(packet, candidate);
-    if (!applied.accepted) {
-        clientProtocolFailure(applied.reason, events);
-        return;
-    }
-
-    std::string errorMessage;
-    bool committed = snapshotCommitCompleted;
-    std::uint64_t observedHash = committedAuthoritativeStateHash;
-    if (!committed) {
-        committed = commitSnapshot(observedHash, errorMessage);
-    }
-    session = std::move(candidate);
-    appendAppliedEvent(decoded, applied, events);
-    if (committed && !snapshotCommitCompleted) {
-        committed = postSnapshotSessionCommit(errorMessage);
-    }
-    if (committed) {
-        snapshotCommitCompleted = true;
-        committedAuthoritativeStateHash = observedHash;
-    }
-
-    RuntimeMultiplayerSaveLoadAppliedMessage ack;
-    ack.timelineEpoch = session.timelineEpoch();
-    ack.proposalId = snapshotProposal.proposalId;
-    ack.peerId = localPeerId;
-    ack.applied = committed;
-    ack.observedAuthoritativeStateHash = committed ? observedHash : 0U;
-    const std::string commitFailureReason = committed
-        ? std::string{}
-        : safeSnapshotReason(errorMessage);
-    RuntimeMultiplayerMessage ackMessage;
-    ackMessage.type = RuntimeMultiplayerMessageType::SaveLoadApplied;
-    ackMessage.body = ack;
-    RuntimeNetworkPacket ackPacket;
-    if (!encode(ackMessage, ackPacket, errorMessage)
-        || !client.send(ackPacket, errorMessage)) {
-        clientProtocolFailure(std::move(errorMessage), events);
-        return;
-    }
-    if (committed) return;
-
-    RuntimeMultiplayerMessageApplyResult failed =
-        applyTrustedCanonicalRuntimeMultiplayerMessage(ackPacket, session);
-    phase = RuntimeMultiplayerLanPhase::Aborted;
-    RuntimeMultiplayerLanEvent rejected = event(
-        RuntimeMultiplayerLanEventKind::ProtocolRejected,
-        RuntimeMultiplayerMessageType::SaveLoadCommit
-    );
-    rejected.peerId = session.config().hostPeerId;
-    rejected.reason = commitFailureReason;
-    events.push_back(std::move(rejected));
-    if (failed.accepted) appendAppliedEvent(ackMessage, failed, events);
-    clearSnapshotTransfer(true);
+    SnapshotPort port(*this);
+    snapshot.handleClientSnapshotCommit(packet, decoded, port, events);
 }
 
 void RuntimeMultiplayerLanSession::Impl::finishSnapshotTerminalState() {
-    if (!snapshotTransferActive) return;
-    if (session.status() == RuntimeMultiplayerRoomStatus::Aborted) {
-        clearSnapshotTransfer(true);
-        return;
-    }
-    const RuntimeMultiplayerSaveLoadHandshake* handshake = activeSaveLoad();
-    if (handshake == nullptr) return;
-    if (handshake->status == RuntimeMultiplayerSaveLoadStatus::Rejected
-        || handshake->status == RuntimeMultiplayerSaveLoadStatus::Aborted) {
-        clearSnapshotTransfer(true);
-    } else if (handshake->status
-        == RuntimeMultiplayerSaveLoadStatus::Committed) {
-        const bool completedReconnectRecovery = reconnectRecoveryPending
-            && reconnectRecoveryProposalId == handshake->proposal.proposalId;
-        clearSnapshotTransfer(false);
-        if (completedReconnectRecovery) {
-            reconnectRecoveryPending = false;
-            reconnectRecoveryProposalId = 0;
-        }
-    }
+    SnapshotPort port(*this);
+    snapshot.finishSnapshotTerminalState(port, reconnectRecoveryPending, reconnectRecoveryProposalId);
 }
 
 void RuntimeMultiplayerLanSession::Impl::
@@ -2829,27 +2535,19 @@ reconcileSnapshotAfterSpectatorDeparture() {
 void RuntimeMultiplayerLanSession::Impl::sendHostSnapshotChunks(
     std::vector<RuntimeMultiplayerLanEvent>& events
 ) {
-    if (!snapshotTransferActive
-        || phase != RuntimeMultiplayerLanPhase::Running) {
-        return;
-    }
-    ++snapshotSendPollCounter;
+    if (!snapshot.beginHostPoll()) return;
     std::vector<std::uint64_t> failedPeers;
     std::vector<std::string> failureReasons;
     for (auto& entry : hostPeers) {
         HostPeer& peer = entry.second;
-        if (!peer.admitted || !peer.snapshotProducer.active()
-            || peer.snapshotProducer.complete()) {
-            continue;
-        }
-        if (peer.snapshotChunkSent
-            && snapshotSendPollCounter - peer.snapshotChunkLastSentPoll
-                < snapshotChunkRetransmitPollInterval) {
-            continue;
-        }
         RuntimeMultiplayerSnapshotChunk chunk;
         std::string errorMessage;
-        if (!peer.snapshotProducer.currentChunk(chunk, errorMessage)) {
+        const auto decision = snapshot.nextHostChunk(
+            peer.admitted, peer.snapshotProducer, peer.snapshotChunkSent,
+            peer.snapshotChunkLastSentPoll, chunk, errorMessage
+        );
+        if (decision == RuntimeMultiplayerSnapshotSession::HostChunk::Skip) continue;
+        if (decision == RuntimeMultiplayerSnapshotSession::HostChunk::Error) {
             failedPeers.push_back(entry.first);
             failureReasons.push_back(std::move(errorMessage));
             continue;
@@ -2861,8 +2559,7 @@ void RuntimeMultiplayerLanSession::Impl::sendHostSnapshotChunks(
             failedPeers.push_back(entry.first);
             failureReasons.push_back(std::move(errorMessage));
         } else {
-            peer.snapshotChunkSent = true;
-            peer.snapshotChunkLastSentPoll = snapshotSendPollCounter;
+            snapshot.sentHostChunk(peer.snapshotChunkSent, peer.snapshotChunkLastSentPoll);
         }
     }
     for (std::size_t index = 0U; index < failedPeers.size(); ++index) {
@@ -2880,91 +2577,8 @@ void RuntimeMultiplayerLanSession::Impl::sendHostSnapshotChunks(
 
 RuntimeMultiplayerLanOperationResult
 RuntimeMultiplayerLanSession::Impl::issueHostSnapshotCommit() {
-    const RuntimeMultiplayerSaveLoadHandshake* handshake = activeSaveLoad();
-    if (handshake == nullptr
-        || handshake->status
-            != RuntimeMultiplayerSaveLoadStatus::Prepared) {
-        return failedOperation("snapshot handshake is not prepared");
-    }
-
-    RuntimeMultiplayerMessage commitMessage;
-    commitMessage.type = RuntimeMultiplayerMessageType::SaveLoadCommit;
-    commitMessage.body = RuntimeMultiplayerSaveLoadCommitMessage{
-        session.timelineEpoch(),
-        snapshotProposal.proposalId,
-        localPeerId
-    };
-    RuntimeNetworkPacket commitPacket;
-    std::string errorMessage;
-    if (!encode(commitMessage, commitPacket, errorMessage)) {
-        return failedOperation(std::move(errorMessage));
-    }
-
-    RuntimeMultiplayerSessionState candidate = session;
-    RuntimeMultiplayerMessageApplyResult commitApplied =
-        applyRuntimeMultiplayerMessage(
-            commitPacket,
-            localPeerId,
-            candidate
-        );
-    if (!commitApplied.accepted) {
-        return appliedOperation(commitApplied, false, {});
-    }
-
-    std::uint64_t observedHash = 0;
-    const bool committed = commitSnapshot(observedHash, errorMessage);
-    session = std::move(candidate);
-    if (!committed || !postSnapshotSessionCommit(errorMessage)) {
-        const std::string hookFailure = errorMessage;
-        std::string ignoredBroadcastError;
-        (void)broadcastPacket(commitPacket, ignoredBroadcastError);
-        appendAppliedEvent(commitMessage, commitApplied, pendingEvents);
-        RuntimeMultiplayerLanEvent rejected = event(
-            RuntimeMultiplayerLanEventKind::ProtocolRejected,
-            RuntimeMultiplayerMessageType::SaveLoadCommit
-        );
-        rejected.peerId = localPeerId;
-        rejected.tick = session.authoritativeTick();
-        rejected.reason = hookFailure;
-        pendingEvents.push_back(std::move(rejected));
-        (void)hostAbort(
-            localPeerId,
-            RuntimeMultiplayerSessionAbortReason::ProtocolViolation
-        );
-        RuntimeMultiplayerLanOperationResult result;
-        result.applied = true;
-        result.reason = hookFailure;
-        return result;
-    }
-    snapshotCommitCompleted = true;
-    committedAuthoritativeStateHash = observedHash;
-
-    const bool commitBroadcast = broadcastPacket(
-        commitPacket,
-        errorMessage
-    );
-    appendAppliedEvent(commitMessage, commitApplied, pendingEvents);
-    if (!commitBroadcast) {
-        (void)hostAbort(
-            localPeerId,
-            RuntimeMultiplayerSessionAbortReason::TransportFailure
-        );
-        RuntimeMultiplayerLanOperationResult result;
-        result.applied = true;
-        result.reason = std::move(errorMessage);
-        return result;
-    }
-
-    RuntimeMultiplayerMessage appliedMessage;
-    appliedMessage.type = RuntimeMultiplayerMessageType::SaveLoadApplied;
-    appliedMessage.body = RuntimeMultiplayerSaveLoadAppliedMessage{
-        session.timelineEpoch(),
-        snapshotProposal.proposalId,
-        localPeerId,
-        true,
-        observedHash
-    };
-    return applyHostMessage(std::move(appliedMessage));
+    SnapshotPort port(*this);
+    return snapshot.issueHostSnapshotCommit(port, pendingEvents);
 }
 
 RuntimeMultiplayerLanOperationResult
@@ -4296,7 +3910,7 @@ RuntimeMultiplayerLanSession::proposeSaveLoad(
             "complete snapshot hooks are required for save/load"
         );
     }
-    if (impl_->snapshotTransferActive) {
+    if (impl_->snapshot.state().snapshotTransferActive) {
         return failedOperation("another snapshot transfer is active");
     }
     proposal.proposerPeerId = impl_->localPeerId;
@@ -4372,9 +3986,9 @@ RuntimeMultiplayerLanSession::proposeSaveLoad(
         );
     }
 
-    impl_->snapshotTransferActive = true;
-    impl_->snapshotProposal = proposal;
-    impl_->snapshotStaged = true;
+    impl_->snapshot.state().snapshotTransferActive = true;
+    impl_->snapshot.state().snapshotProposal = proposal;
+    impl_->snapshot.state().snapshotStaged = true;
     std::uint64_t observedHash = 0;
     if (!impl_->stageSnapshotBytes(
             proposal,
@@ -4389,7 +4003,7 @@ RuntimeMultiplayerLanSession::proposeSaveLoad(
         );
         return failedOperation(std::move(errorMessage));
     }
-    impl_->stagedAuthoritativeStateHash = observedHash;
+    impl_->snapshot.state().stagedAuthoritativeStateHash = observedHash;
 
     for (const std::uint64_t transportPeerId : remotePeers) {
         RuntimeMultiplayerSnapshotTransferResult begun =
@@ -4471,14 +4085,14 @@ RuntimeMultiplayerLanSession::respondToSaveLoad(
     response.approved = approved;
     response.observedFingerprint = observedFingerprint;
     if (approved) {
-        if (!impl_->snapshotTransferActive || !impl_->snapshotStaged
-            || impl_->snapshotProposal.proposalId != proposalId) {
+        if (!impl_->snapshot.state().snapshotTransferActive || !impl_->snapshot.state().snapshotStaged
+            || impl_->snapshot.state().snapshotProposal.proposalId != proposalId) {
             return failedOperation(
                 "approved prepare requires verified staged snapshot bytes"
             );
         }
         response.observedAuthoritativeStateHash =
-            impl_->stagedAuthoritativeStateHash;
+            impl_->snapshot.state().stagedAuthoritativeStateHash;
     }
     RuntimeMultiplayerMessage message;
     message.type = RuntimeMultiplayerMessageType::SaveLoadResponse;

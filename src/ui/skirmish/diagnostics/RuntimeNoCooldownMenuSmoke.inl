@@ -51,7 +51,7 @@ bool runNoCooldownMenuSmoke(
         fs::path screenshot(lobbyPath);
         screenshot.replace_filename(screenshot.stem().string()
             + (enabled ? "_noCooldown_on.bmp" : "_noCooldown_off.bmp"));
-        if (!writeBgraBmp(pathString(screenshot), state.composePixels.data(),
+        if (!writeBgraBmp(pathString(screenshot), state.composeFrame.bytes().data(),
                 kBaseWidth, kBaseHeight, error)) return fail(error);
 
         // Use the real Start completion path, then reopen from disk with a

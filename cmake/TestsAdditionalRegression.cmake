@@ -1,3 +1,8 @@
+if(CONCORD_PORTABLE_CORE)
+    include("${CMAKE_CURRENT_LIST_DIR}/CoreTestSuite.cmake")
+    return()
+endif()
+
 add_test(NAME runtime_no_cooldown_test COMMAND concord_runtime --command-smoke-test
     --resource-root "${CMAKE_SOURCE_DIR}/RedAlert2" --local-data-root "${CMAKE_SOURCE_DIR}/local_data"
     --map "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/multimd/dryheat.map")
@@ -111,14 +116,15 @@ add_test(NAME cursor_controller_contract_test COMMAND concord_cursor_controller_
 set_tests_properties(cursor_controller_contract_test PROPERTIES
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 60 LABELS "no-assets;platform-input;cursor")
 if(WIN32)
-    add_test(NAME runtime_cursor_integration_smoke_test COMMAND concord_runtime --command-smoke-test
-        --config "${CMAKE_SOURCE_DIR}/tests/fixtures/cursor_runtime.ini"
-        --resource-root "${CMAKE_SOURCE_DIR}/RedAlert2" --local-data-root "${CMAKE_SOURCE_DIR}/local_data"
-        --map "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/multimd/dryheat.map")
+    add_test(NAME runtime_cursor_integration_smoke_test
+        COMMAND "${CMAKE_COMMAND}"
+            "-DGAME_EXECUTABLE=$<TARGET_FILE:concord_runtime>"
+            "-DFIXTURE=${CMAKE_SOURCE_DIR}/tests/fixtures/cursor_runtime.ini"
+            "-DSOURCE_ROOT=${CMAKE_SOURCE_DIR}"
+            "-DOUTPUT_PARENT=${CMAKE_BINARY_DIR}/cursor-runs"
+            -P "${CMAKE_SOURCE_DIR}/cmake/RunCursorNative.cmake")
     set_tests_properties(runtime_cursor_integration_smoke_test PROPERTIES
-        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" TIMEOUT 1800 RUN_SERIAL TRUE
-        ENVIRONMENT "CONCORD_COMMAND_SMOKE_CURSOR_ONLY=1;CONCORD_CURSOR_OUTPUT=${CMAKE_BINARY_DIR}/cursor_integration"
-        LABELS "assets;cursor;windows-reference")
+        TIMEOUT 1800 RUN_SERIAL TRUE LABELS "assets;cursor;windows-reference")
 endif()
 
 add_test(NAME input_cancellation_controller_contract_test COMMAND concord_input_cancellation_contract)
@@ -153,3 +159,70 @@ set_tests_properties(house_economy_context_contract_test PROPERTIES
 add_test(NAME runtime_lobby_map_transfer_contract_test COMMAND concord_lobby_map_transfer_contract)
 set_tests_properties(runtime_lobby_map_transfer_contract_test PROPERTIES
     TIMEOUT 60 LABELS "no-assets;lobby-map-state-machine")
+
+add_test(NAME window_lifecycle_contract_test COMMAND concord_window_lifecycle_contract)
+set_tests_properties(window_lifecycle_contract_test PROPERTIES TIMEOUT 60 LABELS "no-assets;window-lifecycle")
+if(WIN32)
+    add_test(NAME window_host_win32_contract_test COMMAND concord_window_host_win32_contract)
+    set_tests_properties(window_host_win32_contract_test PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE LABELS "no-assets;window-lifecycle;windows-reference")
+endif()
+
+add_test(NAME skirmish_setup_contract_test COMMAND concord_skirmish_setup_contract)
+set_tests_properties(skirmish_setup_contract_test PROPERTIES TIMEOUT 60 LABELS "no-assets;skirmish-controller")
+add_test(NAME window_parent_win32_contract_test COMMAND concord_window_parent_win32_contract)
+set_tests_properties(window_parent_win32_contract_test PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE LABELS "no-assets;window-parent;windows-reference")
+
+add_test(NAME skirmish_controller_contract_test COMMAND concord_skirmish_controller_contract)
+set_tests_properties(skirmish_controller_contract_test PROPERTIES TIMEOUT 60 LABELS "no-assets;skirmish-controller")
+
+if(WIN32 AND EXISTS "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/multimd/2peaks.map")
+    add_test(NAME runtime_skirmish_window_lifecycle_test COMMAND concord_runtime
+        --config "${CMAKE_BINARY_DIR}/w014-window-lifecycle-private.ini"
+        --skirmish-ui-smoke-test "${CMAKE_BINARY_DIR}/w014-window-lifecycle/menu.bmp"
+        --resource-root "${CMAKE_SOURCE_DIR}/RedAlert2"
+        --local-data-root "${CMAKE_SOURCE_DIR}/local_data"
+        --map "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/multimd/2peaks.map")
+    set_tests_properties(runtime_skirmish_window_lifecycle_test PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+        ENVIRONMENT "CONCORD_SKIRMISH_WINDOW_LIFECYCLE_ONLY=1"
+        LABELS "windows-reference;local-assets;skirmish-window")
+endif()
+
+add_test(NAME westwood_font_codec_contract_test COMMAND concord_westwood_font_contract)
+set_tests_properties(westwood_font_codec_contract_test PROPERTIES TIMEOUT 60 LABELS "no-assets;font-byte-codec")
+
+add_test(NAME menu_image_contract_test COMMAND concord_menu_image_contract)
+set_tests_properties(menu_image_contract_test PROPERTIES TIMEOUT 60 LABELS "menu-pixels;no-assets")
+
+add_test(NAME color_values_contract_test COMMAND concord_color_values_contract)
+add_test(NAME color_values_win32_contract_test COMMAND concord_color_values_win32_contract)
+set_tests_properties(color_values_contract_test color_values_win32_contract_test PROPERTIES TIMEOUT 60 LABELS "color-values")
+
+add_test(NAME skirmish_bitmap_text_contract_test COMMAND concord_skirmish_bitmap_text_contract)
+set_tests_properties(skirmish_bitmap_text_contract_test PROPERTIES TIMEOUT 120 LABELS "bitmap-text;no-assets")
+
+add_test(NAME menu_pixel_surface_contract_test COMMAND concord_menu_pixel_surface_contract)
+set_tests_properties(menu_pixel_surface_contract_test PROPERTIES TIMEOUT 60 LABELS "no-assets;menu-pixel-surface")
+
+if(TARGET concord_skirmish_back_buffer_win32_contract)
+    add_test(NAME skirmish_back_buffer_win32_contract_test COMMAND concord_skirmish_back_buffer_win32_contract)
+    set_tests_properties(skirmish_back_buffer_win32_contract_test PROPERTIES TIMEOUT 60 LABELS "no-assets;win32-buffer")
+endif()
+
+add_test(NAME skirmish_music_policy_contract_test COMMAND concord_skirmish_music_policy_contract)
+set_tests_properties(skirmish_music_policy_contract_test PROPERTIES TIMEOUT 60 LABELS "no-assets;music-policy")
+if(TARGET concord_skirmish_music_win32_contract)
+    add_test(NAME skirmish_music_win32_contract_test COMMAND concord_skirmish_music_win32_contract "${CMAKE_CURRENT_BINARY_DIR}/music-native-contract")
+    set_tests_properties(skirmish_music_win32_contract_test PROPERTIES TIMEOUT 90 LABELS "no-assets;win32-music")
+endif()
+
+if(TARGET concord_tcp_boundary_contract)
+    add_test(NAME tcp_native_boundary_contract_test COMMAND concord_tcp_boundary_contract)
+    set_tests_properties(tcp_native_boundary_contract_test PROPERTIES TIMEOUT 120 LABELS "no-assets;windows;tcp-boundary")
+endif()
+
+add_test(NAME snapshot_session_contract_test COMMAND concord_snapshot_session_contract)
+set_tests_properties(snapshot_session_contract_test PROPERTIES TIMEOUT 60 LABELS "no-assets;snapshot-session")
+
+add_test(NAME production_core_hash_smoke_test COMMAND concord_production_core_hash_smoke)
+set_tests_properties(production_core_hash_smoke_test PROPERTIES TIMEOUT 30 LABELS "no-assets;logic;production-core")

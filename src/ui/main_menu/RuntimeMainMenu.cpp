@@ -4,13 +4,14 @@
 
 #include "ui/main_menu/RuntimeMainMenu.h"
 #include "assets/text/CsfCodec.h"
+#include "assets/text/WestwoodFontCodec.h"
 
 #include "assets/audio/AudioSampleResolver.h"
 #include "assets/video/BinkVideoStream.h"
 #include "assets/video/BinkPlaybackService.h"
 #include "core/io/IniFile.h"
 #include "runtime/campaign/RuntimeCampaignMovieResolver.h"
-#include "render/core/RuntimeMapRenderer.h"
+#include "assets/menu/MenuImageResources.h"
 #include "ui/resources/RuntimeMenuResourceWatch.h"
 #include "network/lockstep/RuntimeMultiplayerRuntimeBridge.h"
 #include "ui/skirmish/RuntimeSkirmishMenu.h"
@@ -239,13 +240,7 @@ FontColorRamp westwoodFontColorRamp(const std::array<int, 3>& hsv) {
     };
 }
 
-std::uint32_t readLe32(const std::vector<unsigned char>& bytes, std::size_t at) {
-    if (at + 4 > bytes.size()) return 0;
-    return static_cast<std::uint32_t>(bytes[at])
-        | (static_cast<std::uint32_t>(bytes[at + 1]) << 8)
-        | (static_cast<std::uint32_t>(bytes[at + 2]) << 16)
-        | (static_cast<std::uint32_t>(bytes[at + 3]) << 24);
-}
+
 
 struct CsfCatalog {
     std::unordered_map<std::string, std::wstring> values;
@@ -274,9 +269,6 @@ struct CsfCatalog {
 };
 
 struct WestwoodBitFont {
-    static constexpr std::size_t kMapOffset = 0x1c;
-    static constexpr std::size_t kGlyphDataOffset =
-        kMapOffset + 65536U * sizeof(std::uint16_t);
 
     std::vector<unsigned char> bytes;
     std::uint32_t stride = 0;
@@ -294,27 +286,14 @@ struct WestwoodBitFont {
             (std::istreambuf_iterator<char>(input)),
             std::istreambuf_iterator<char>()
         );
-        if (bytes.size() < kGlyphDataOffset
-            || bytes[0] != 'f' || bytes[1] != 'o'
-            || bytes[2] != 'n' || bytes[3] != 'T') {
-            *this = {};
-            return false;
-        }
-        stride = readLe32(bytes, 8);
-        bitmapRows = readLe32(bytes, 12);
-        lineHeight = readLe32(bytes, 16);
-        glyphCount = readLe32(bytes, 20);
-        recordSize = readLe32(bytes, 24);
-        const bool sane = stride > 0 && stride <= 16
-            && bitmapRows > 0 && bitmapRows <= 64
-            && lineHeight >= bitmapRows && lineHeight <= 64
-            && glyphCount > 0
-            && recordSize == 1U + stride * bitmapRows
-            && glyphCount <= (bytes.size() - kGlyphDataOffset) / recordSize;
-        if (!sane) {
-            *this = {};
-            return false;
-        }
+        concord::assets::WestwoodFontMetrics metrics;
+        const bool sane = concord::assets::decodeWestwoodFontHeader(bytes, metrics);
+        if (!sane) { *this = {}; return false; }
+        stride = metrics.stride;
+        bitmapRows = metrics.bitmapRows;
+        lineHeight = metrics.lineHeight;
+        glyphCount = metrics.glyphCount;
+        recordSize = metrics.recordSize;
         source = path.string();
         return true;
     }
@@ -325,25 +304,9 @@ struct WestwoodBitFont {
 
     const unsigned char* glyph(wchar_t character) const {
         if (!valid()) return nullptr;
-        std::uint32_t codePoint = static_cast<std::uint16_t>(character);
-        const auto mappedGlyph = [this](std::uint32_t code) -> const unsigned char* {
-            if (code > 0xffffU) return nullptr;
-            const std::size_t mapAt = kMapOffset + code * 2U;
-            const std::uint16_t reference =
-                static_cast<std::uint16_t>(bytes[mapAt])
-                | (static_cast<std::uint16_t>(bytes[mapAt + 1]) << 8);
-            if (reference == 0) return nullptr;
-            const std::uint32_t index = static_cast<std::uint32_t>(reference - 1U);
-            if (index >= glyphCount) return nullptr;
-            const unsigned char* record =
-                bytes.data() + kGlyphDataOffset + index * recordSize;
-            return record[0] <= stride * 8U ? record : nullptr;
-        };
-        const unsigned char* record = mappedGlyph(codePoint);
-        if (record == nullptr && codePoint != static_cast<std::uint32_t>(L'?')) {
-            record = mappedGlyph(static_cast<std::uint32_t>(L'?'));
-        }
-        return record;
+        return concord::assets::westwoodFontGlyph(bytes,
+            {stride, bitmapRows, lineHeight, glyphCount, recordSize}, static_cast<std::uint16_t>(character),
+            concord::assets::WestwoodGlyphFallback::AnyUnavailableRecord);
     }
 
     int measure(const std::wstring& text) const {
@@ -455,92 +418,7 @@ struct WestwoodBitFont {
     }
 };
 
-struct AssetImage {
-    int width = 0;
-    int height = 0;
-    std::vector<unsigned char> bgra;
-    std::string source;
-
-    bool valid() const {
-        return width > 0 && height > 0
-            && bgra.size() == static_cast<std::size_t>(width * height * 4);
-    }
-};
-
-bool makeAssetImage(
-    const RuntimeShpFrameImage& frame,
-    const std::vector<RuntimePaletteColor>& palette,
-    const std::string& source,
-    bool transparentZero,
-    AssetImage& output
-) {
-    output = {};
-    if (palette.size() < 256 || frame.width <= 0 || frame.height <= 0
-        || frame.pixels.size() < static_cast<std::size_t>(frame.width * frame.height)) {
-        return false;
-    }
-    output.width = std::max(frame.globalWidth, frame.offsetX + frame.width);
-    output.height = std::max(frame.globalHeight, frame.offsetY + frame.height);
-    if (output.width <= 0 || output.height <= 0) return false;
-    output.bgra.assign(static_cast<std::size_t>(output.width * output.height * 4), 0);
-    for (int y = 0; y < frame.height; ++y) {
-        for (int x = 0; x < frame.width; ++x) {
-            const std::size_t sourceAt = static_cast<std::size_t>(y * frame.width + x);
-            const unsigned char index = frame.pixels[sourceAt];
-            const int dx = frame.offsetX + x;
-            const int dy = frame.offsetY + y;
-            if (dx < 0 || dy < 0 || dx >= output.width || dy >= output.height) continue;
-            const std::size_t destAt = static_cast<std::size_t>(dy * output.width + dx) * 4;
-            const RuntimePaletteColor color = palette[index];
-            output.bgra[destAt] = color.b;
-            output.bgra[destAt + 1] = color.g;
-            output.bgra[destAt + 2] = color.r;
-            output.bgra[destAt + 3] = transparentZero && index == 0 ? 0 : 255;
-        }
-    }
-    output.source = source;
-    return true;
-}
-
-bool loadResourceFrame(
-    const RuntimeMapRenderContext& context,
-    RuntimeMapRenderCache& cache,
-    const std::string& id,
-    int frameIndex,
-    const std::vector<RuntimePaletteColor>& palette,
-    bool transparentZero,
-    AssetImage& output,
-    std::string& error
-) {
-    RuntimeShpFrameImage frame;
-    std::string resolved;
-    std::string source;
-    if (!loadRuntimeAuxiliaryShpFrameImage(
-            context, cache, id, frameIndex, frame, resolved, source, error, false)) {
-        return false;
-    }
-    if (!makeAssetImage(frame, palette, source, transparentZero, output)) {
-        error = "invalid decoded SHP frame: " + id;
-        return false;
-    }
-    return true;
-}
-
-bool loadLooseFrame(
-    const fs::path& shp,
-    const fs::path& pal,
-    bool transparentZero,
-    AssetImage& output
-) {
-    RuntimeShpFrameImage frame;
-    std::vector<RuntimePaletteColor> palette;
-    std::string error;
-    if (!decodeRuntimeShpFrameFile(shp.string(), 0, frame, error)
-        || !loadRuntimePaletteFile(pal.string(), palette, error)) {
-        return false;
-    }
-    return makeAssetImage(frame, palette, shp.string(), transparentZero, output);
-}
+using AssetImage = concord::assets::MenuImage;
 
 bool loadBmp(const fs::path& path, AssetImage& output) {
     output = {};
@@ -835,10 +713,8 @@ struct MenuState {
     bool closing = false;
     HWND window = nullptr;
     fs::path exportRoot;
-    RuntimeMapRenderContext ra2Context;
-    RuntimeMapRenderContext allContext;
-    RuntimeMapRenderCache ra2Cache;
-    RuntimeMapRenderCache allCache;
+    concord::assets::MenuImageResources ra2Resources;
+    concord::assets::MenuImageResources allResources;
     CsfCatalog csf;
     WestwoodBitFont gameFont;
     std::unordered_map<std::string, std::vector<RuntimePaletteColor>> palettes;
@@ -1136,15 +1012,10 @@ bool loadPalette(
     std::vector<RuntimePaletteColor> palette;
     std::string source;
     std::string error;
-    RuntimeMapRenderContext& context = useAllContext ? state.allContext : state.ra2Context;
-    RuntimeMapRenderCache& cache = useAllContext ? state.allCache : state.ra2Cache;
-    bool loaded = loadRuntimePaletteResource(
-        context, cache, id, palette, source, error
-    );
+    auto& paletteResources = useAllContext ? state.allResources : state.ra2Resources;
+    bool loaded = paletteResources.loadPalette(id, palette, source, error);
     if (!loaded && !useAllContext) {
-        loaded = loadRuntimePaletteResource(
-            state.allContext, state.allCache, id, palette, source, error
-        );
+        loaded = state.allResources.loadPalette(id, palette, source, error);
     }
     if (!loaded || palette.size() < 256) {
         std::cerr << "Main menu palette load failed: " << id << ": " << error << "\n";
@@ -1167,13 +1038,12 @@ bool loadFrames(
     output.clear();
     const auto palette = state.palettes.find(paletteId);
     if (palette == state.palettes.end()) return false;
-    RuntimeMapRenderContext& context = useAllContext ? state.allContext : state.ra2Context;
-    RuntimeMapRenderCache& cache = useAllContext ? state.allCache : state.ra2Cache;
+    auto& frameResources = useAllContext ? state.allResources : state.ra2Resources;
     for (int frame = 0; frame < maximumFrames; ++frame) {
         AssetImage image;
         std::string error;
-        if (!loadResourceFrame(
-                context, cache, id, frame, palette->second,
+        if (!frameResources.loadFrame(
+                id, frame, palette->second,
                 transparentZero, image, error)) {
             if (frame == 0) {
                 std::cerr << "Main menu SHP load failed: " << id << ": " << error << "\n";
@@ -1339,12 +1209,14 @@ bool initializeMenu(MenuState& state, const RuntimeConfig& config, bool smoke) {
     state.smoke = smoke;
     state.exportRoot = fs::path(config.localDataRootPath) / "resources" / "mix_exports";
     const fs::path ra2Root = state.exportRoot / "ra2";
-    state.ra2Context.assetRootPath = ra2Root.string();
-    state.ra2Context.structureRootPath = ra2Root.string();
-    state.ra2Context.tileRootPath = ra2Root.string();
-    state.allContext.assetRootPath = state.exportRoot.string();
-    state.allContext.structureRootPath = state.exportRoot.string();
-    state.allContext.tileRootPath = state.exportRoot.string();
+    concord::assets::MapPreviewResourceContext ra2Roots;
+    ra2Roots.assetRootPath = ra2Root.string();
+    ra2Roots.tileRootPath = ra2Root.string();
+    state.ra2Resources.configureRoots(std::move(ra2Roots));
+    concord::assets::MapPreviewResourceContext allRoots;
+    allRoots.assetRootPath = state.exportRoot.string();
+    allRoots.tileRootPath = state.exportRoot.string();
+    state.allResources.configureRoots(std::move(allRoots));
 
     const fs::path csfPath = firstExisting({
         fs::path(config.resourceRootPath) / "GameMD" / "ra2md.csf",
@@ -1409,9 +1281,9 @@ bool initializeMenu(MenuState& state, const RuntimeConfig& config, bool smoke) {
     loadOne(state, "mouse.shp", "mousepal.pal", true, state.mouse);
 
     loadBmp(state.exportRoot / "langmd" / "ra2ts_l_frame.bmp", state.videoFrame);
-    loadLooseFrame(
-        state.exportRoot / "langmd" / "glslmd.shp",
-        state.exportRoot / "langmd" / "glsmd.pal",
+    concord::assets::loadMenuLooseFrame(
+        (state.exportRoot / "langmd" / "glslmd.shp").string(),
+        (state.exportRoot / "langmd" / "glsmd.pal").string(),
         false,
         state.staticFallback
     );

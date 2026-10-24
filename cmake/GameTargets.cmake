@@ -1,3 +1,7 @@
+if(CONCORD_PORTABLE_CORE)
+    return()
+endif()
+
 set(
     CONCORD_RUNTIME_ANIM_PALETTE
     "${CMAKE_SOURCE_DIR}/resources/palettes/anim.pal"
@@ -47,6 +51,7 @@ add_executable(concord_rules_dump
 )
 
 add_executable(concord_runtime
+    # W027 pure production sources are explicit profile libraries below.
     src/assets/codecs/PalDecoder.cpp
     src/runtime/host/RuntimeMain.cpp
     src/data/campaign/CampaignDatabase.cpp
@@ -54,15 +59,11 @@ add_executable(concord_runtime
     src/data/campaign/CampaignProgress.cpp
     src/data/campaign/CooperativeScenarioDatabase.cpp
     src/network/cooperative/RuntimeCooperativeSessionSystem.cpp
-    src/network/session/RuntimeMultiplayerSessionSystem.cpp
-    src/network/session/RuntimeLanTransport.cpp
+    # Native LAN provider is owned by LanTransportProviders.cmake.
     src/network/protocol/RuntimeMultiplayerProtocol.cpp
-    src/network/lockstep/RuntimeMultiplayerGameplayCommand.cpp
-    src/network/lockstep/RuntimeMultiplayerLockstep.cpp
     src/network/session/RuntimeMultiplayerLanSession.cpp
-    src/network/protocol/RuntimeMultiplayerMatchSetup.cpp
-    src/network/snapshots/RuntimeMultiplayerSnapshotTransfer.cpp
-    src/network/maps/RuntimeMultiplayerCompatibilityFingerprint.cpp
+    # H073 selected SnapshotTransfer is an explicit production library.
+    # H074 selected Fingerprint is an explicit production library.
     src/network/protocol/RuntimeMultiplayerLaunchConfig.cpp
     src/network/lobby/RuntimeMultiplayerLobbyModel.cpp
     src/network/lobby/RuntimeMultiplayerLobbyFlow.cpp
@@ -115,7 +116,6 @@ add_executable(concord_runtime
     src/assets/audio/AudioDecoder.cpp
     src/assets/audio/AudioSampleResolver.cpp
     src/assets/inspection/GameResourceMount.cpp
-    src/world/model/GameWorld.cpp
     src/render/core/RuntimeMapRenderer.cpp
     src/assets/codecs/RuntimeTmpCodec.cpp
     src/assets/terrain/RuntimeTerrainTmpQuery.cpp
@@ -143,12 +143,9 @@ add_executable(concord_runtime
     src/simulation/buildings/RuntimeInfantryServiceSystem.cpp
     src/simulation/superweapons/SuperWeaponSystem.cpp src/simulation/superweapons/RuntimeChronosphereRelocation.cpp
     src/simulation/vision/RuntimeVision.cpp
-    src/data/maps/MapDatabase.cpp
     src/assets/archive/MixArchive.cpp
     src/simulation/navigation/pathfinding/PathRequestQueue.cpp
-    src/data/rules/RulesDatabase.cpp
     src/data/rules/TechTreeAnalyzer.cpp
-    src/data/art/TheaterDatabase.cpp
     src/assets/archive/WestwoodCrypto.cpp
 )
 
@@ -202,7 +199,6 @@ target_sources(concord_rules_dump PRIVATE src/simulation/navigation/pathfinding/
 # S23-01: explicit existing consumers share the independent production loader.
 foreach(s23_production_rules_owner IN ITEMS
     concord_rules_dump
-    concord_runtime
 )
     target_sources(${s23_production_rules_owner} PRIVATE src/data/rules/ProductionRulesLoader.cpp)
 endforeach()

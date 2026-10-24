@@ -10,9 +10,21 @@ ConcordRTS 是使用 C++20 开发的 RTS 引擎工程，面向《命令与征服
 
 源码包含遭遇战、AI、战役、局域网与互联网联机、观战、存档与联机恢复，以及规则分析、地图解析、资源读取和导出工具。
 
+另提供独立核心构建，支持在不创建窗口、图形、音频和视频后端的情况下构建所选实际生产模块。已验证的核心环境为 Windows Clang；文件和 LAN 仍保留私有操作系统适配，不表示整个游戏已完成跨平台运行。
+
 项目仍在持续开发，不保证原版所有细节、全部战役或任意第三方 MOD 均已完整兼容。
 
 ## 更新记录
+
+### 2026-10-24
+
+- 提取游戏窗口生命周期与遭遇战菜单控制器，通过类型化服务连接原窗口、输入和配置，保留同步重入、关闭清理与选择提交顺序。
+- 整理菜单图像资源、Westwood 位图字体解码与文字绘制，复用既有资源搜索和缓存，明确像素、颜色、字形及借用数据的接口。
+- 分离菜单 CPU 像素缓冲与 Windows GDI 后台缓冲，保留原混合、缩放、刷新和呈现路径，补充创建失败、释放重试与资源所有权检查。
+- 分离菜单音乐策略与 Windows 播放设备，保留轮询、循环重播和失败重开行为；不支持的设备明确返回失败。
+- 将所选 TCP 消费者接入私有传输库，并提取联机快照会话的暂存、校验与提交状态，保留原协议和传输行为。
+- 增加 `CONCORD_PORTABLE_CORE` 独立构建入口，复用实际世界、规则、联机和文件实现。Windows Clang 的 Release、Debug 核心配置各完成 10 项测试，未跳过；核心构建不创建游戏窗口或图形、音频、视频后端。
+- 扩充窗口、图像、字体、像素表面、音乐、TCP 和快照的合同测试，保持运行时与普通测试各自的编译及 CRT 约定，并更新精确结构基线。
 
 ### 2026-10-23
 
@@ -84,7 +96,8 @@ ConcordRTS/
 │   ├── data/                       规则、美术、地图与战役数据库
 │   │   └── rules/                  规则数据库、生产规则类型与解析
 │   ├── assets/                     游戏资源格式读取、检查与导出
-│   │   ├── text/                   共享 CSF 文字解码
+│   │   ├── text/                   共享 CSF 文字与 Westwood 字体解码
+│   │   ├── menu/                   菜单图像值、调色板与资源接口
 │   │   ├── codecs/                 共享 PAL、SHP、TMP 类型与解码
 │   │   ├── terrain/                TMP 资源定位、缓存与元数据查询
 │   │   ├── preview/                地图预览、资源会话与缓存
@@ -102,19 +115,29 @@ ConcordRTS/
 │   │   └── superweapons/           特殊武器与传送位置提交
 │   ├── runtime/                    运行时配置与游戏宿主
 │   │   ├── config/                 配置类型、解析与命令行覆盖
-│   │   ├── contracts/              窄范围回放事件类型
+│   │   ├── contracts/              回放事件与菜单选择数据
+│   │   ├── window/                 窗口标识、生命周期与私有原生适配
+│   │   ├── menu/                   遭遇战菜单控制器与同步服务
 │   │   ├── persistence/            保存、加载与恢复一致性诊断
 │   │   ├── replay/                 回放封包与宿主恢复内核
 │   │   └── host/                   启动检查、游戏窗口与战局宿主
 │   ├── render/                     地图、单位、效果与软件绘制
-│   │   └── core/                   地图绘图与短期地形帧输入
+│   │   ├── core/                   地图绘图与短期地形帧输入
+│   │   └── resources/              菜单资源接口的既有缓存实现
 │   ├── ui/                         菜单、输入、HUD 与偏好保存
 │   │   ├── input/                  输入值、键鼠、聊天与交互控制器
 │   │   ├── time/                   UI 毫秒时钟与原计时策略
+│   │   ├── values/                 与设备无关的 UI 颜色值
+│   │   ├── surface/                CPU 像素缓冲与绘图操作
+│   │   ├── text/                   遭遇战位图文字测量与绘制
+│   │   ├── audio/                  菜单音乐启停与重播策略
+│   │   ├── skirmish/               遭遇战菜单接入与私有 GDI 缓冲
 │   │   └── sidebar/                侧栏分页与滚轮控制
 │   ├── audio/                      音频播放、空间音效与世界音频
+│   │   └── menu/                   菜单音乐设备与私有 Windows 实现
 │   ├── network/                    联机协议、同步、会话与互联网服务
-│   │   └── lobby/                  大厅状态与地图传输
+│   │   ├── lobby/                  大厅状态与地图传输
+│   │   └── snapshots/              快照传输、暂存与会话提交
 │   └── analysis/                   规则分析、命令行工具与报告
 │       ├── reports/                能力报告与证据来源说明
 │       └── sandbox/                离线模拟与回放分析
@@ -122,7 +145,7 @@ ConcordRTS/
 │   ├── fixtures/                   自编规则、地图、回放与文本预期夹具
 │   │   └── offline_report_evidence/  离线报告的合成事件与规则
 │   ├── assets/                     资源解码与视频服务合同测试
-│   ├── infrastructure/             配置、文件、输入、时钟与地形资源合同
+│   ├── infrastructure/             配置、文件、输入、窗口与菜单合同
 │   ├── gameplay/                   战斗、生产、单位行为与机制检查
 │   ├── multiplayer/                局域网、同步、快照与恢复检查
 │   ├── internet/                   互联网服务、TLS 与匹配检查
@@ -149,6 +172,9 @@ ConcordRTS/
 │   ├── mod-extensions/             MOD 扩展示例
 │   └── screen-shake/               屏幕震动示例
 ├── cmake/                          游戏、工具、平台与测试构建配置
+│   ├── CoreTargets.cmake           独立核心的实际目标与生产库
+│   ├── CoreTestSuite.cmake         核心测试集合与串行检查入口
+│   ├── ProfiledLeaf.cmake          按消费者编译约定建立静态库
 │   └── toolchains/                 Windows clang-cl 工具链配置
 ├── CMakeLists.txt                  构建入口，按序包含 cmake 配置
 ├── README.md                       工程、目录、构建与资源说明
@@ -221,6 +247,30 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-Game.ps1
 `-ValidateOnly` 只检查已有配置，不配置、构建或部署；`-StageOnly` 会构建并准备隔离产物，完成校验后不部署到 `bin/`。构建记录、阶段产物和程序均留在本机，不属于源码发布内容。
 
 `bin/` 内的运行库来自选定的 Microsoft CRT 分发源。视频桥接源码不包含 `Binkw32.dll` 或影片数据；播放视频时由使用者自行提供本地游戏所需文件。
+
+### 独立核心构建
+
+`CONCORD_PORTABLE_CORE=ON` 只创建所选生产模块及对应测试，复用完整产品使用的源码和静态库；不生成 `concord_runtime`、视频助手或菜单设备目标。配置入口使用 `-PortableCore`。核心与完整产品、Release 与 Debug 必须分别使用独立构建目录，脚本会拒绝混用缓存。
+
+准备好“第一次构建”示例中的工具路径变量后，从仓库根目录执行：
+
+```powershell
+$coreBuild = 'build/clang-cl-x64-core-release'
+& $winPs -NoProfile -ExecutionPolicy Bypass -File .\tools\toolchain\Configure-WindowsClang.ps1 `
+  -PortableCore -Architecture x64 -Configuration Release -BuildDirectory $coreBuild `
+  -CMakeExecutable $cmakeExe -NinjaExecutable $ninjaExe `
+  -LLVMRoot $llvmRoot -MSVCRoot $msvcRoot `
+  -WindowsSDKRoot $sdkRoot -WindowsSDKVersion $sdkVersion `
+  -MSVCCompatibilityVersion $compatVersion
+if ($LASTEXITCODE -ne 0) { throw '核心配置失败，请检查错误信息。' }
+
+& $cmakeExe --build $coreBuild --target concord_core_check --parallel 1
+if ($LASTEXITCODE -ne 0) { throw '核心构建或测试失败，请检查错误信息。' }
+```
+
+Debug 使用 `-Configuration Debug` 和另一个目录，例如 `build/clang-cl-x64-core-debug`。`concord_core_check` 会构建所需目标并串行执行 10 项测试；缺失测试、禁用测试和跳过条件不被接受。目标与测试集合见 [CoreTargets.cmake](cmake/CoreTargets.cmake)、[CoreTestSuite.cmake](cmake/CoreTestSuite.cmake)。
+
+当前核心覆盖世界确定性哈希、地图、游戏命令、比赛设置、快照传输、兼容指纹、锁步、原子文件和 LAN 传输，其中新增世界哈希入口链接实际运行时编译约定的世界库。Windows 核心默认只链接 Kernel32，LAN 夹具另私有链接 Winsock；原子文件和 LAN 实现仍有私有系统分支。这一构建不依赖官方游戏素材，其通过结果只覆盖列出的核心范围。
 
 ### 显式 MSVC 参考构建
 
@@ -300,6 +350,8 @@ pwsh -NoProfile -File .\tools\testing\Run-LocalTests.ps1 -Compiler Clang -BuildD
 
 视频服务、回放封包与恢复一致性检查分别以 `bink_playback_service_contract_test`、`match_replay_envelope_contract_test` 和 `runtime_recovery_consistency_contract_test` 注册在 [TestsUnitAndNetwork.cmake](cmake/TestsUnitAndNetwork.cmake)，LAN 地图传输检查 `runtime_lobby_map_transfer_contract_test` 注册在 [TestsAdditionalRegression.cmake](cmake/TestsAdditionalRegression.cmake)。它们仍独立于固定的 12＋4 集合。视频服务的无素材合同只验证服务边界和缺失输入处理，不能代替实际影片播放验收。
 
+窗口生命周期、菜单控制器、颜色值、图像、字体、CPU 像素表面、音乐策略及其 Windows 适配，以及 TCP 边界和快照会话，均有单独的合同目标与测试注册。相关入口见 [TestsAdditionalRegression.cmake](cmake/TestsAdditionalRegression.cmake) 和各模块的 `*Contracts.cmake`；这些检查没有自动并入固定的 12＋4 集合。独立核心的 10 项测试通过 `concord_core_check` 执行，使用上文单独的核心构建目录。
+
 [离线报告检查脚本](tools/testing/Test-OfflineReportEvidence.ps1) 使用 [自编规则与事件](tests/fixtures/offline_report_evidence)，核对报告来源、空输入、部分输入、完整字段与错误处理；生成的报告不等同于真实游戏行为通过。
 
 结构检查入口见 [Run-StructureChecks.ps1](tools/testing/Run-StructureChecks.ps1)。它需要本工程已校验的 Clang/Ninja Release 构建目录、PowerShell 7，以及 Python 3.10 或更新版本的绝对路径。先按自己的安装位置修改示例解释器路径：
@@ -310,7 +362,7 @@ pwsh -NoProfile -File .\tools\testing\Run-LocalTests.ps1 -Compiler Clang -BuildD
 
 `-StructureOnly` 单独执行结构检查，不追加执行 12＋4 测试集合。入口校验缓存、刷新 CMake 元数据、冻结目标清单并运行合成夹具，然后检查依赖与精确例外；它不会构建游戏目标。结果默认写入已忽略的 `build/local-tests/structure-*/`，其中可能包含本机路径和环境信息，应留在本机。
 
-[结构基线](tools/structure/structure-baseline.json) 保留 4,180 条逐项审核的历史例外。新增违规、出现次数增加或已经消失而尚未收紧的例外都会导致失败；工具不会自动扩大豁免范围。它提供所选构建配置的静态结构证据，不表示完整游戏、其他平台或性能已经验收。
+[结构基线](tools/structure/structure-baseline.json) 保留 4,311 条逐项审核的历史例外。新增违规、出现次数增加或已经消失而尚未收紧的例外都会导致失败；工具不会自动扩大豁免范围。它提供所选构建配置的静态结构证据，不表示完整游戏、其他平台或性能已经验收。
 
 已记录的验证覆盖所选标准合同、Windows 适配、资源查询、命令桥接及经济保存恢复对照。旧回归中已知的月球剧场深度、部分交互和几何绘制，以及 Yuri 采矿收入、完整 AI 经济、部分编队紧凑度与矿石动画检查失败仍保留；完整物理输入、IME、双端运行游戏、其他窗口后端与平台及性能不据此视为通过。
 

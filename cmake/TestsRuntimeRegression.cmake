@@ -1,3 +1,8 @@
+if(CONCORD_PORTABLE_CORE)
+    enable_testing()
+    return()
+endif()
+
 enable_testing()
 add_test(NAME runtime_aircraft_flight_codec_smoke_test COMMAND concord_aircraft_flight_codec_smoke)
 add_test(NAME runtime_subcell_requested_index_smoke_test COMMAND concord_subcell_requested_index_smoke)

@@ -1,9 +1,19 @@
+#include "runtime/window/win32/RuntimeWindowParentWin32.h"
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
 
 #include "ui/skirmish/RuntimeSkirmishMenu.h"
+#include "runtime/menu/RuntimeSkirmishController.h"
+#include "runtime/host/RuntimeUiClockWin32.h"
+#include "ui/audio/RuntimeSkirmishMusicPolicy.h"
+#include "audio/menu/win32/RuntimeSkirmishMusicWin32.h"
 #include "assets/text/CsfCodec.h"
+#include "assets/text/WestwoodFontCodec.h"
+#include "ui/values/RuntimeColorValues.h"
+#include "ui/text/RuntimeSkirmishBitmapText.h"
+#include "ui/surface/RuntimeMenuPixelSurface.h"
+#include "ui/skirmish/win32/RuntimeSkirmishBackBufferWin32.h"
 #include "ui/input/RuntimeObserver.h"
 #include "data/maps/RuntimeRandomMap.h"
 
@@ -13,7 +23,8 @@
 #include "data/maps/MapDatabase.h"
 #include "data/maps/RuntimeMapPackage.h"
 #include "ui/main_menu/RuntimeMainMenu.h"
-#include "render/core/RuntimeMapRenderer.h"
+#include "assets/menu/MenuImageResources.h"
+#include "assets/archive/MixArchive.h"
 #include "ui/resources/RuntimeMenuResourceWatch.h"
 #include "audio/events/RuntimeMenuSoundPool.h"
 #include "runtime/performance/RuntimePerfTrace.h"
@@ -49,23 +60,24 @@
 namespace {
 
 namespace fs = std::filesystem;
+using namespace concord::skirmish;
 
-constexpr int kBaseWidth = 800;
-constexpr int kBaseHeight = 600;
+
+
 constexpr int kShellLeftWidth = 632;
 constexpr int kShellStatusTop = 568;
 constexpr int kShellSideLeft = 632;
 constexpr int kShellTopHeight = 199;
 constexpr int kShellSlotHeight = 42;
-constexpr int kShellSlotCount = 8;
-constexpr int kShellAnimationFrames = 6;
-constexpr std::uint64_t kShellAnimationFrameMs = 42;
+
+
+
 constexpr int kShellBottomTop = 535;
 constexpr int kShellButtonLeft = 653;
 constexpr int kShellButtonTop = 207;
 constexpr int kShellBottomButtonTop = 543;
-constexpr int kPlayerSlots = 8;
-constexpr int kVisibleMapRows = 9;
+
+
 constexpr COLORREF kGold = RGB(238, 198, 80);
 constexpr COLORREF kPaleGold = RGB(255, 232, 145);
 constexpr COLORREF kText = RGB(218, 218, 199);
@@ -75,30 +87,11 @@ constexpr COLORREF kPanelInner = RGB(18, 25, 22);
 constexpr COLORREF kPanelEdgeLight = RGB(128, 120, 87);
 constexpr COLORREF kPanelEdgeDark = RGB(2, 4, 4);
 
-std::string trimAscii(const std::string& text) {
-    const std::size_t first = text.find_first_not_of(" \t\r\n");
-    if (first == std::string::npos) {
-        return "";
-    }
-    const std::size_t last = text.find_last_not_of(" \t\r\n");
-    return text.substr(first, last - first + 1);
-}
 
-std::string lowerAscii(std::string text) {
-    std::transform(
-        text.begin(),
-        text.end(),
-        text.begin(),
-        [](unsigned char value) {
-            return static_cast<char>(std::tolower(value));
-        }
-    );
-    return text;
-}
 
-bool equalsAsciiNoCase(const std::string& left, const std::string& right) {
-    return lowerAscii(left) == lowerAscii(right);
-}
+
+
+
 
 std::vector<std::string> splitCsv(const std::string& value) {
     std::vector<std::string> result;
@@ -179,9 +172,7 @@ std::wstring utf8ToWide(const std::string& text) {
     return wide;
 }
 
-std::string pathString(const fs::path& path) {
-    return path.string();
-}
+
 
 bool regularFile(const fs::path& path) {
     std::error_code error;
@@ -221,15 +212,7 @@ std::string iniValueNoCase(
     return fallback;
 }
 
-std::uint32_t readLe32(const std::vector<unsigned char>& bytes, std::size_t at) {
-    if (at + 4 > bytes.size()) {
-        return 0;
-    }
-    return static_cast<std::uint32_t>(bytes[at])
-        | (static_cast<std::uint32_t>(bytes[at + 1]) << 8)
-        | (static_cast<std::uint32_t>(bytes[at + 2]) << 16)
-        | (static_cast<std::uint32_t>(bytes[at + 3]) << 24);
-}
+
 
 struct CsfCatalog {
     std::unordered_map<std::string, std::wstring> values;
@@ -272,10 +255,9 @@ struct CsfCatalog {
     }
 };
 
+#include "ui/skirmish/diagnostics/RuntimeSkirmishBitmapTextTrace.inl"
+
 struct WestwoodBitFont {
-    static constexpr std::size_t kMapOffset = 0x1c;
-    static constexpr std::size_t kGlyphDataOffset =
-        kMapOffset + 65536U * sizeof(std::uint16_t);
 
     std::vector<unsigned char> bytes;
     std::uint32_t stride = 0;
@@ -292,25 +274,15 @@ struct WestwoodBitFont {
             (std::istreambuf_iterator<char>(input)),
             std::istreambuf_iterator<char>()
         );
-        if (bytes.size() < kGlyphDataOffset
-            || bytes[0] != 'f' || bytes[1] != 'o'
-            || bytes[2] != 'n' || bytes[3] != 'T') {
-            *this = {};
-            return false;
-        }
-        stride = readLe32(bytes, 8);
-        bitmapRows = readLe32(bytes, 12);
-        lineHeight = readLe32(bytes, 16);
-        glyphCount = readLe32(bytes, 20);
-        recordSize = readLe32(bytes, 24);
-        const bool sane = stride > 0 && stride <= 16
-            && bitmapRows > 0 && bitmapRows <= 64
-            && lineHeight >= bitmapRows && lineHeight <= 64
-            && glyphCount > 0
-            && recordSize == 1U + stride * bitmapRows
-            && glyphCount <= (bytes.size() - kGlyphDataOffset) / recordSize;
-        if (!sane) *this = {};
-        return sane;
+        concord::assets::WestwoodFontMetrics metrics;
+        const bool sane = concord::assets::decodeWestwoodFontHeader(bytes, metrics);
+        if (!sane) { *this = {}; return false; }
+        stride = metrics.stride;
+        bitmapRows = metrics.bitmapRows;
+        lineHeight = metrics.lineHeight;
+        glyphCount = metrics.glyphCount;
+        recordSize = metrics.recordSize;
+        return true;
     }
 
     bool valid() const {
@@ -319,78 +291,28 @@ struct WestwoodBitFont {
 
     const unsigned char* glyph(wchar_t character) const {
         if (!valid()) return nullptr;
-        const std::uint32_t code = static_cast<std::uint16_t>(character);
-        const std::size_t mapAt = kMapOffset + code * 2U;
-        const std::uint16_t reference =
-            static_cast<std::uint16_t>(bytes[mapAt])
-            | (static_cast<std::uint16_t>(bytes[mapAt + 1]) << 8);
-        if (reference == 0) return character == L'?' ? nullptr : glyph(L'?');
-        const std::uint32_t index = static_cast<std::uint32_t>(reference - 1U);
-        if (index >= glyphCount) return character == L'?' ? nullptr : glyph(L'?');
-        const unsigned char* record =
-            bytes.data() + kGlyphDataOffset + index * recordSize;
-        return record[0] <= stride * 8U ? record : nullptr;
+        return concord::assets::westwoodFontGlyph(bytes,
+            {stride, bitmapRows, lineHeight, glyphCount, recordSize}, static_cast<std::uint16_t>(character),
+            concord::assets::WestwoodGlyphFallback::MissingReferenceOnly);
     }
 
+    concord::ui::SkirmishBitmapFontView view() const {
+        return {bytes, {stride, bitmapRows, lineHeight, glyphCount, recordSize}};
+    }
     int measure(const std::wstring& text) const {
-        int width = 0;
-        for (wchar_t character : text) {
-            const unsigned char* record = glyph(character);
-            width += record != nullptr ? record[0] + 1 : 5;
-        }
-        return text.empty() ? 0 : std::max(0, width - 1);
+        return concord::ui::measureSkirmishBitmapText(view(), std::wstring_view(text));
     }
-
-    void draw(
-        unsigned char* pixels,
-        const std::wstring& text,
-        const RECT& rect,
-        bool centered,
-        bool verticallyCentered,
-        COLORREF color
-    ) const {
+    void draw(unsigned char* pixels, const std::wstring& text, const RECT& rect,
+        bool centered, bool verticallyCentered, COLORREF color,
+        std::vector<SkirmishBitmapTextTraceCall>* trace = nullptr) const {
+        if (trace != nullptr) trace->push_back({text, {rect.left, rect.top, rect.right, rect.bottom},
+            centered, verticallyCentered, static_cast<std::uint32_t>(color)});
         if (!valid() || pixels == nullptr || text.empty()) return;
-        const int startX = centered
-            ? rect.left + std::max(0L, rect.right - rect.left - measure(text)) / 2
-            : rect.left;
-        const int startY = verticallyCentered
-            ? rect.top + std::max(0L, rect.bottom - rect.top
-                - static_cast<LONG>(lineHeight)) / 2
-            : rect.top;
-        const auto drawPass = [&](int offsetX, int offsetY, COLORREF passColor) {
-            int cursorX = startX;
-            for (wchar_t character : text) {
-                const unsigned char* record = glyph(character);
-                if (record == nullptr) {
-                    cursorX += 5;
-                    continue;
-                }
-                const int glyphWidth = record[0];
-                for (std::uint32_t y = 0; y < bitmapRows; ++y) {
-                    const unsigned char* row = record + 1U + y * stride;
-                    for (int x = 0; x < glyphWidth; ++x) {
-                        if ((row[x >> 3] & (0x80U >> (x & 7))) == 0) continue;
-                        const int px = cursorX + x + offsetX;
-                        const int py = startY + static_cast<int>(y) + offsetY;
-                        if (px < rect.left || px >= rect.right
-                            || py < rect.top || py >= rect.bottom
-                            || px < 0 || py < 0 || px >= kBaseWidth || py >= kBaseHeight) {
-                            continue;
-                        }
-                        const std::size_t at = static_cast<std::size_t>(
-                            (py * kBaseWidth + px) * 4
-                        );
-                        pixels[at] = GetBValue(passColor);
-                        pixels[at + 1] = GetGValue(passColor);
-                        pixels[at + 2] = GetRValue(passColor);
-                        pixels[at + 3] = 255;
-                    }
-                }
-                cursorX += glyphWidth + 1;
-            }
-        };
-        drawPass(1, 1, RGB(20, 12, 0));
-        drawPass(0, 0, color);
+        concord::ui::drawSkirmishBitmapText(view(),
+            std::span<unsigned char>(pixels, static_cast<std::size_t>(kBaseWidth * kBaseHeight * 4)),
+            kBaseWidth, kBaseHeight, std::wstring_view(text),
+            {rect.left, rect.top, rect.right, rect.bottom}, centered, verticallyCentered,
+            RuntimeRgbColorValue::fromPackedRgb(static_cast<std::uint32_t>(color)));
     }
 };
 
@@ -402,51 +324,13 @@ struct MapPacketEntry {
     std::vector<std::string> filters;
 };
 
-struct MapInfo {
-    fs::path path;
-    std::string id;
-    std::wstring displayName;
-    std::string theater;
-    std::string size;
-    int minPlayers = 2;
-    int maxPlayers = 8;
-    int previewWidth = 0;
-    int previewHeight = 0;
-    int headerX = 0;
-    int headerY = 0;
-    int headerWidth = 0;
-    int headerHeight = 0;
-    std::vector<POINT> startPoints;
-    std::vector<std::string> filters;
-    bool metadataLoaded = false;
-    bool previewAttempted = false;
-    MapPreviewImage preview;
-    std::string previewError;
-};
 
-struct ModeInfo {
-    int id = 0;
-    std::string key;
-    std::string filter = "standard";
-    bool randomMapsAllowed = false;
-    std::string rulesOverride;
-    std::wstring displayName;
-};
 
-bool isUnavailableCooperativeMode(const ModeInfo& mode) {
-    return equalsAsciiNoCase(mode.key, "Cooperative")
-        || equalsAsciiNoCase(mode.filter, "cooperative")
-        || equalsAsciiNoCase(
-            fs::path(mode.rulesOverride).filename().string(),
-            "MPCoopMD.ini"
-        );
-}
 
-struct CountryInfo {
-    std::string id;
-    std::wstring displayName;
-    std::string flagName;
-};
+
+
+
+
 
 std::string flagNameForCountry(const std::string& id) {
     const std::string lower = lowerAscii(id);
@@ -569,9 +453,11 @@ bool readMapMetadata(const fs::path& path, MapInfo& map) {
     map.displayName = utf8ToWide(basicName.empty() ? map.id : basicName);
     for (int i = 0; i < map.maxPlayers && i < kPlayerSlots; ++i) {
         if (headerPoints[static_cast<std::size_t>(i)]) {
-            map.startPoints.push_back(*headerPoints[static_cast<std::size_t>(i)]);
+            const auto point = *headerPoints[static_cast<std::size_t>(i)];
+            map.startPoints.push_back({point.x, point.y});
         } else if (waypointPoints[static_cast<std::size_t>(i)]) {
-            map.startPoints.push_back(*waypointPoints[static_cast<std::size_t>(i)]);
+            const auto point = *waypointPoints[static_cast<std::size_t>(i)];
+            map.startPoints.push_back({point.x, point.y});
         }
     }
     if (map.filters.empty()) {
@@ -764,114 +650,18 @@ std::vector<CountryInfo> loadCountries(
     return countries;
 }
 
-struct AssetImage {
-    int width = 0;
-    int height = 0;
-    std::vector<unsigned char> bgra;
-    std::string source;
-
-    bool valid() const {
-        return width > 0 && height > 0
-            && bgra.size() == static_cast<std::size_t>(width * height * 4);
-    }
-};
-
-bool loadShpImage(
-    const fs::path& shpPath,
-    const fs::path& palettePath,
-    int frameIndex,
-    AssetImage& output,
-    bool transparentZero = false
-) {
-    output = AssetImage{};
-    if (shpPath.empty() || palettePath.empty()) {
-        return false;
-    }
-    RuntimeShpFrameImage frame;
-    std::string error;
-    if (!decodeRuntimeShpFrameFile(pathString(shpPath), frameIndex, frame, error)) {
-        return false;
-    }
-    std::vector<RuntimePaletteColor> palette;
-    if (!loadRuntimePaletteFile(pathString(palettePath), palette, error)
-        || palette.size() < 256) {
-        return false;
-    }
-    if (frame.width <= 0 || frame.height <= 0
-        || frame.pixels.size()
-            < static_cast<std::size_t>(frame.width * frame.height)) {
-        return false;
-    }
-    output.width = frame.width;
-    output.height = frame.height;
-    output.bgra.resize(static_cast<std::size_t>(frame.width * frame.height * 4));
-    for (std::size_t i = 0; i < frame.pixels.size(); ++i) {
-        const unsigned char index = frame.pixels[i];
-        const RuntimePaletteColor color = palette[index];
-        output.bgra[i * 4] = color.b;
-        output.bgra[i * 4 + 1] = color.g;
-        output.bgra[i * 4 + 2] = color.r;
-        output.bgra[i * 4 + 3] = transparentZero && index == 0 ? 0 : 255;
-    }
-    return true;
-}
-
-bool makeResourceAsset(
-    const RuntimeShpFrameImage& frame,
-    const std::vector<RuntimePaletteColor>& palette,
-    bool transparentZero,
-    AssetImage& output
-) {
-    output = {};
-    if (palette.size() < 256 || frame.width <= 0 || frame.height <= 0
-        || frame.pixels.size() < static_cast<std::size_t>(frame.width * frame.height)) {
-        return false;
-    }
-    output.width = std::max(frame.globalWidth, frame.offsetX + frame.width);
-    output.height = std::max(frame.globalHeight, frame.offsetY + frame.height);
-    if (output.width <= 0 || output.height <= 0) return false;
-    output.bgra.assign(static_cast<std::size_t>(output.width * output.height * 4), 0);
-    for (int y = 0; y < frame.height; ++y) {
-        for (int x = 0; x < frame.width; ++x) {
-            const unsigned char index = frame.pixels[static_cast<std::size_t>(
-                y * frame.width + x
-            )];
-            const int dx = frame.offsetX + x;
-            const int dy = frame.offsetY + y;
-            if (dx < 0 || dy < 0 || dx >= output.width || dy >= output.height) continue;
-            const RuntimePaletteColor color = palette[index];
-            const std::size_t at = static_cast<std::size_t>(
-                (dy * output.width + dx) * 4
-            );
-            output.bgra[at] = color.b;
-            output.bgra[at + 1] = color.g;
-            output.bgra[at + 2] = color.r;
-            output.bgra[at + 3] = transparentZero && index == 0 ? 0 : 255;
-        }
-    }
-    return true;
-}
+using AssetImage = concord::assets::MenuImage;
 
 bool loadResourceAsset(
-    const RuntimeMapRenderContext& context,
-    RuntimeMapRenderCache& cache,
+    concord::assets::MenuImageResources& resources,
     const std::string& id,
     int frameIndex,
     const std::vector<RuntimePaletteColor>& palette,
     bool transparentZero,
     AssetImage& output
 ) {
-    RuntimeShpFrameImage frame;
-    std::string resolved;
-    std::string source;
     std::string error;
-    if (!loadRuntimeAuxiliaryShpFrameImage(
-            context, cache, id, frameIndex, frame, resolved, source, error, false)
-        || !makeResourceAsset(frame, palette, transparentZero, output)) {
-        return false;
-    }
-    output.source = source;
-    return true;
+    return resources.loadFrame(id, frameIndex, palette, transparentZero, output, error);
 }
 
 bool decodePcxImage(
@@ -955,82 +745,29 @@ bool loadPcxImage(
     return decodePcxImage(bytes, output, transparentBackground);
 }
 
-enum class HitKind {
-    None,
-    Mode,
-    Map,
-    MapScrollUp,
-    MapScrollDown,
-    SlotEnabled,
-    SlotCountry,
-    DropdownOption,
-    SlotColor,
-    SlotStart,
-    SlotTeam,
-    SlotDifficulty,
-    CreditsMinus,
-    CreditsPlus,
-    UnitsMinus,
-    UnitsPlus,
-    SpeedMinus,
-    SpeedPlus,
-    CreditsSlider,
-    UnitsSlider,
-    SpeedSlider,
-    ToggleShortGame,
-    ToggleMcvRepacks,
-    ToggleCrates,
-    ToggleSuperweapons,
-    ToggleBuildOffAlly,
-    ToggleComputerAi,
-    ToggleNoCooldown,
-    ChooseMap,
-    CreateRandomMap, RandomOption, RandomGenerate, RandomSurprise, RandomUse, RandomSave,
-    RandomLoad, RandomPreview, RandomSaved, RandomSavedScroll, RandomLoadSelected, RandomDelete, RandomCancel,
-    UseMap,
-    CancelMap,
-    Start,
-    Back
-};
 
-enum class DropdownKind {
-    None,
-    Player,
-    Country,
-    Color,
-    Start,
-    Team
-};
 
-struct HitTarget {
-    HitKind kind = HitKind::None;
-    int index = -1;
 
-    bool operator==(const HitTarget& other) const {
-        return kind == other.kind && index == other.index;
-    }
-    bool operator!=(const HitTarget& other) const {
-        return !(*this == other);
-    }
-};
 
-struct HitRegion {
-    RECT rect{};
-    HitTarget target;
-};
+
+
+
 
 #include "audio/events/RuntimeMenuSoundMci.inl"
 
 struct MenuAudio {
+    explicit MenuAudio(const RuntimeUiClock& clock = runtimeWin32UiClock())
+        : musicDevice(concord::audio::createSkirmishMusicDeviceWin32(
+            +[](const fs::path& path) { return utf8ToWide(pathString(path)); })),
+          music(clock,regularFile) {}
     bool enabled = true;
     std::vector<std::string>* eventTrace = nullptr;
     fs::path assetRoot;
     fs::path cacheRoot;
     std::unordered_map<std::string, std::string> samples;
     std::unordered_map<std::string, std::optional<std::wstring>> wavePaths;
-    bool musicOpen = false;
-    fs::path musicPath;
-    ULONGLONG nextMusicProbe = 0;
+    std::unique_ptr<concord::audio::MenuMusicDevice> musicDevice;
+    concord::ui::SkirmishMusicPolicy music;
 
     void initialize(const fs::path& soundIniPath) {
         samples = {
@@ -1088,123 +825,60 @@ struct MenuAudio {
         }
     }
 
-    void startMusic(const fs::path& path) {
-        if (!enabled || path.empty() || !regularFile(path)) {
-            return;
-        }
-        if (musicOpen && musicPath == path) {
-            return;
-        }
-        if (musicOpen) {
-            stopMusic();
-        }
-        musicPath = path;
-        nextMusicProbe = GetTickCount64() + 1000ULL;
-        const std::wstring widePath = utf8ToWide(pathString(path));
-        const std::wstring openCommand = L"open \"" + widePath
-            + L"\" type waveaudio alias concord_skirmish_intro";
-        mciSendStringW(L"close concord_skirmish_intro", nullptr, 0, nullptr);
-        const MCIERROR openError =
-            mciSendStringW(openCommand.c_str(), nullptr, 0, nullptr);
-        // waveaudio does not implement the MCI string-command `repeat` flag;
-        // the window timer below performs the loop after playback stops.
-        const MCIERROR playError = openError == 0
-            ? mciSendStringW(
-                L"play concord_skirmish_intro from 0",
-                nullptr,
-                0,
-                nullptr
-            )
-            : openError;
-        if (openError == 0 && playError == 0) {
-            musicOpen = true;
-        } else {
-            mciSendStringW(L"close concord_skirmish_intro", nullptr, 0, nullptr);
-            musicOpen = false;
-        }
-    }
-
+    void startMusic(const fs::path& path) { music.start(path,enabled,*musicDevice); }
     void ensureMusicPlaying() {
-        if (enabled) runtimeMenuSoundPlayback().collect();
-        if (!enabled || musicPath.empty()) {
-            return;
-        }
-        const ULONGLONG now = GetTickCount64();
-        if (now < nextMusicProbe) {
-            return;
-        }
-        nextMusicProbe = now + 1000ULL;
-
-        if (!musicOpen) {
-            const fs::path requestedPath = musicPath;
-            startMusic(requestedPath);
-            return;
-        }
-
-        wchar_t status[32]{};
-        const MCIERROR statusError = mciSendStringW(
-            L"status concord_skirmish_intro mode",
-            status,
-            static_cast<UINT>(sizeof(status) / sizeof(status[0])),
-            nullptr
-        );
-        if (statusError == 0 && std::wstring(status) == L"playing") {
-            return;
-        }
-        const MCIERROR playError = mciSendStringW(
-            L"play concord_skirmish_intro from 0",
-            nullptr,
-            0,
-            nullptr
-        );
-        if (playError == 0) {
-            return;
-        }
-
-        const fs::path requestedPath = musicPath;
-        mciSendStringW(L"close concord_skirmish_intro", nullptr, 0, nullptr);
-        musicOpen = false;
-        startMusic(requestedPath);
+        if(enabled) runtimeMenuSoundPlayback().collect();
+        music.poll(enabled,*musicDevice);
     }
-
-    void stopMusic() {
-        mciSendStringW(L"stop concord_skirmish_intro", nullptr, 0, nullptr);
-        mciSendStringW(L"close concord_skirmish_intro", nullptr, 0, nullptr);
-        musicOpen = false;
-        musicPath.clear();
-        nextMusicProbe = 0;
-    }
+    void stopMusic() { music.stop(*musicDevice); }
 };
 
-enum class SkirmishPage {
-    Lobby,
-    MapSelection,
-    RandomMap,
-    RandomMapLoad,
-    RandomMapPreview
-};
+
 
 struct RandomMapJob {
     bool success = false;
     RuntimeRandomMapResult result;
     std::string error;
 };
-enum class ShellMenuPhase {
-    SlideIn,
-    Idle,
-    SlideOut
-};
 
 
-struct SkirmishSlotSetup {
-    std::vector<RuntimeSkirmishPlayerSlot> slots;
-    std::array<int, kPlayerSlots> starts{};
-};
 
-struct MenuState {
-    RuntimeConfig config;
+
+
+// Private diagnostics observes the existing disposal calls; ordinary owners leave this null.
+using concord::ui::win32::SkirmishGdiReleaseTrace;
+
+struct MenuState : RuntimeSkirmishServices, RuntimeSkirmishController {
+    MenuState() : RuntimeSkirmishController(static_cast<RuntimeSkirmishServices&>(*this)) {}
+    void requestRepaint() override;
+    void playSound(const std::string&, bool) override;
+    void stopMusic() override;
+    std::uint64_t nowMs() const override;
+    void destroyWindow() override;
+    void prewarmMainMenu() override;
+    bool saveCratePreference(const RuntimeConfig&, bool, std::string&) override;
+    bool saveNoCooldownPreference(const RuntimeConfig&, bool, std::string&) override;
+    bool ensurePreview(int) override;
+    void loadDefaults(const RuntimeConfig&, RuntimeSkirmishSelection&) override;
+    std::wstring text(const std::string&, const std::wstring&) const override;
+    std::wstring label(std::initializer_list<std::string>, const wchar_t*) const override;
+    std::wstring widenUtf8(const std::string&) const override;
+    std::string loadingBriefKey(const std::string&) const override;
+    std::string loadingScreenAsset(const std::string&) const override;
+    const CooperativeScenarioDefinition* cooperativeScenario(const std::string&) const override;
+    bool generatedMapFile(const std::string&) const override;
+    int sliderGripWidth() const override;
+    bool cursorAvailable() const override;
+    bool activateRandomTarget(HitTarget, int) override;
+    bool randomMapReady() const override;
+    void warnInvalidSelection() override;
+    void focus() override;
+    void capture() override;
+    void releaseCaptureIfOwned() override;
+
+
     std::unique_ptr<RuntimeMenuResourceWatch> resourceWatch;
-    RuntimeSkirmishSelection selection;
+
     RuntimeRandomMapOptions randomOptions;
     std::optional<RuntimeRandomMapResult> randomResult;
     std::future<RandomMapJob> pendingRandomMap;
@@ -1215,60 +889,55 @@ struct MenuState {
     int selectedSavedRandomMap = 0;
     int randomSavedScroll = 0;
     CsfCatalog csf;
-    std::vector<ModeInfo> modes;
-    std::vector<MapInfo> maps;
-    std::vector<int> filteredMaps;
-    std::vector<CountryInfo> countries;
+
+
+
+
     CooperativeScenarioDatabase cooperativeScenarios;
-    std::unordered_map<std::string, CooperativeScenarioMapValidation>
-        cooperativeValidationByMap;
-    bool cooperativeDataComplete = false;
-    std::vector<std::string> colorIds{
-        "Gold", "DarkRed", "DarkBlue", "DarkGreen",
-        "Orange", "DarkSky", "Purple", "Magenta"
-    };
-    std::vector<std::string> teams{"-", "1", "2", "3", "4"};
-    std::vector<std::string> difficulties{"Easy", "Medium", "Hard"};
-    std::array<int, kPlayerSlots> startingSpots{};
-    std::optional<SkirmishSlotSetup> beforeCooperative;
-    int selectedMode = 0;
-    int selectedMap = -1;
-    int mapScroll = 0;
-    std::vector<HitRegion> hits;
-    HitTarget hover;
-    HitTarget pressed;
-    bool mouseVisible = false;
-    POINT mousePoint{};
-    DropdownKind openDropdown = DropdownKind::None;
-    int openDropdownSlot = -1;
-    int dropdownHover = -1;
-    HitKind draggingSlider = HitKind::None;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     HWND hwnd = nullptr;
-    int viewLeft = 0;
-    int viewTop = 0;
-    int viewWidth = kBaseWidth;
-    int viewHeight = kBaseHeight;
-    std::wstring status;
-    bool smoke = false;
+
+
+
+
+
+
     bool initialized = false;
-    bool closing = false;
-    SkirmishPage page = SkirmishPage::Lobby;
-    ShellMenuPhase phase = ShellMenuPhase::Idle;
-    std::uint64_t phaseStarted = 0;
-    int phaseTick = 0;
-    int mapPageOriginalMode = 0;
-    int mapPageOriginalMap = -1;
-    std::vector<RuntimeSkirmishPlayerSlot> mapPageOriginalSlots;
-    std::array<int, kPlayerSlots> mapPageOriginalStarts{};
-    std::optional<SkirmishSlotSetup> mapPageOriginalBeforeCooperative;
+
+
+
+
+
+
+
+
+
+
     fs::path exportRoot;
     fs::path localUiRoot;
     fs::path palettePath;
     AssetImage background;
     AssetImage mouse;
     std::array<AssetImage, 3> buttons;
-    RuntimeMapRenderContext shellContext;
-    RuntimeMapRenderCache shellCache;
+    concord::assets::MenuImageResources shellResources;
     std::vector<RuntimePaletteColor> shellPalette;
     std::vector<RuntimePaletteColor> mainButtonPalette;
     std::vector<RuntimePaletteColor> slotPalette;
@@ -1294,13 +963,10 @@ struct MenuState {
     bool flagPcxArchiveAttempted = false;
     bool flagPcxArchiveLoaded = false;
     WestwoodBitFont gameFont;
-    HDC backDc = nullptr;
-    HBITMAP backBitmap = nullptr;
-    HGDIOBJ backOldBitmap = nullptr;
-    void* backBits = nullptr;
-    BITMAPINFO backInfo{};
-    std::vector<unsigned char> composePixels;
-    bool backDirty = true;
+    std::vector<SkirmishBitmapTextTraceCall>* bitmapTextTrace = nullptr;
+    concord::ui::win32::SkirmishBackBufferWin32 backBuffer;
+    concord::ui::MenuPixelBuffer composeFrame;
+
     std::unordered_map<std::string, AssetImage> flagImages;
     std::set<std::string> flagLoadAttempts;
     HFONT titleFont = nullptr;
@@ -1309,20 +975,12 @@ struct MenuState {
     HFONT smallFont = nullptr;
     MenuAudio audio;
 
-    ~MenuState() {
-        if (hwnd != nullptr && IsWindow(hwnd)) DestroyWindow(hwnd);
-        if (backDc != nullptr && backOldBitmap != nullptr
-            && backOldBitmap != HGDI_ERROR) {
-            SelectObject(backDc, backOldBitmap);
-        }
-        if (backBitmap != nullptr) DeleteObject(backBitmap);
-        if (backDc != nullptr) DeleteDC(backDc);
-        if (titleFont != nullptr) DeleteObject(titleFont);
-        if (captionFont != nullptr) DeleteObject(captionFont);
-        if (normalFont != nullptr) DeleteObject(normalFont);
-        if (smallFont != nullptr) DeleteObject(smallFont);
-    }
+    SkirmishGdiReleaseTrace* gdiReleaseTrace = nullptr;
+
+    ~MenuState() override;
 };
+
+#include "ui/skirmish/win32/RuntimeSkirmishGdiLifetimeWin32.inl"
 
 AssetImage* flagFor(MenuState& state, const std::string& countryId);
 
@@ -1417,64 +1075,7 @@ void loadSkirmishDefaults(
     if (config.multiplayerActive) selection.noCooldown = false;
 }
 
-void buildPlayerSlots(MenuState& state) {
-    state.selection.slots.clear();
-    if (!state.config.playerSlots.empty()) {
-        for (const RuntimeConfig::PlayerSlot& source : state.config.playerSlots) {
-            const std::size_t slotIndex = state.selection.slots.size();
-            RuntimeSkirmishPlayerSlot slot;
-            slot.enabled = source.enabled;
-            slot.human = source.human;
-            slot.name = source.name;
-            slot.country = source.country;
-            slot.color = source.color;
-            slot.team = source.team;
-            slot.difficulty = source.difficulty;
-            slot.startPosition = std::max(0, source.startPosition);
-            state.startingSpots[slotIndex] = slot.startPosition;
-            state.selection.slots.push_back(std::move(slot));
-            if (state.selection.slots.size() == kPlayerSlots) {
-                break;
-            }
-        }
-    }
-    while (state.selection.slots.size() < kPlayerSlots) {
-        const int index = static_cast<int>(state.selection.slots.size());
-        RuntimeSkirmishPlayerSlot slot;
-        slot.enabled = index <= 1;
-        slot.human = index == 0;
-        slot.name = index == 0 ? "Commander" : "Computer " + std::to_string(index);
-        slot.country = index == 0 ? state.selection.playerCountry : "Random";
-        slot.color = index == 0
-            ? state.selection.playerColor
-            : state.colorIds[static_cast<std::size_t>(index % state.colorIds.size())];
-        slot.team = "-";
-        slot.difficulty = "Medium";
-        state.selection.slots.push_back(std::move(slot));
-    }
-    RuntimeSkirmishPlayerSlot& human = state.selection.slots.front();
-    human.enabled = true;
-    human.human = true;
-    if (human.name.empty()) human.name = "Commander";
-    if (human.country.empty() || equalsAsciiNoCase(human.country, "Random")) {
-        human.country = state.selection.playerCountry;
-    }
-    if (human.color.empty() || equalsAsciiNoCase(human.color, "Random")) {
-        human.color = state.selection.playerColor;
-    }
-    for (std::size_t index = 0; index < state.selection.slots.size(); ++index) {
-        auto& slot = state.selection.slots[index];
-        if (!runtimeObserverCountry(slot.country)) continue;
-        if (!slot.human || state.config.multiplayerActive) {
-            slot.country = "Random";
-            continue;
-        }
-        slot.country = "Observer";
-        slot.team = "-";
-        slot.startPosition = 0;
-        state.startingSpots[index] = 0;
-    }
-}
+
 
 std::vector<MapInfo> scanMaps(
     const fs::path& directory,
@@ -1607,168 +1208,25 @@ void appendPackagedMaps(
     );
 }
 
-bool mapSupportsFilter(const MapInfo& map, const std::string& filter) {
-    for (const std::string& candidate : map.filters) {
-        if (equalsAsciiNoCase(candidate, filter)) {
-            return true;
-        }
-    }
-    return false;
-}
 
-bool allowsAllMapsFallback(const std::string& filter) {
-    return !equalsAsciiNoCase(filter, "cooperative");
-}
 
-bool modeIsCooperative(const MenuState& state) {
-    return state.selectedMode >= 0
-        && state.selectedMode < static_cast<int>(state.modes.size())
-        && isUnavailableCooperativeMode(
-            state.modes[static_cast<std::size_t>(state.selectedMode)]
-        );
-}
 
-const CooperativeScenarioDefinition* selectedCooperativeScenario(
-    const MenuState& state
-) {
-    if (!modeIsCooperative(state)
-        || state.selectedMap < 0
-        || state.selectedMap >= static_cast<int>(state.maps.size())) {
-        return nullptr;
-    }
-    const MapInfo& map = state.maps[static_cast<std::size_t>(state.selectedMap)];
-    const auto validation = state.cooperativeValidationByMap.find(
-        lowerAscii(map.id)
-    );
-    if (validation == state.cooperativeValidationByMap.end()
-        || !validation->second.valid) {
-        return nullptr;
-    }
-    return state.cooperativeScenarios.findByMapId(map.id);
-}
 
-bool cooperativeCountryAllowed(
-    const CooperativeScenarioDefinition& scenario,
-    int slotIndex,
-    const std::string& country
-) {
-    const std::vector<std::string>& allowed = slotIndex < 2
-        ? scenario.playerCountries
-        : scenario.enemyCountries;
-    return std::any_of(
-        allowed.begin(),
-        allowed.end(),
-        [&country](const std::string& candidate) {
-            return equalsAsciiNoCase(candidate, country);
-        }
-    );
-}
 
-std::string canonicalCooperativeCountry(
-    const CooperativeScenarioDefinition& scenario,
-    int slotIndex,
-    const std::string& requested
-) {
-    const std::vector<std::string>& allowed = slotIndex < 2
-        ? scenario.playerCountries
-        : scenario.enemyCountries;
-    const auto found = std::find_if(
-        allowed.begin(),
-        allowed.end(),
-        [&requested](const std::string& candidate) {
-            return equalsAsciiNoCase(candidate, requested);
-        }
-    );
-    return found == allowed.end()
-        ? (allowed.empty() ? std::string{} : allowed.front())
-        : *found;
-}
 
-void normalizeCooperativeSelection(MenuState& state) {
-    const CooperativeScenarioDefinition* scenario =
-        selectedCooperativeScenario(state);
-    if (scenario == nullptr || state.selection.slots.size() < 4U) {
-        return;
-    }
-    constexpr std::array<const char*, 4> teams{{"1", "1", "2", "2"}};
-    for (std::size_t index = 0; index < state.selection.slots.size(); ++index) {
-        RuntimeSkirmishPlayerSlot& slot = state.selection.slots[index];
-        if (index >= 4U) {
-            slot.enabled = false;
-            slot.human = false;
-            state.startingSpots[index] = 0;
-            continue;
-        }
-        slot.enabled = true;
-        slot.human = index == 0U;
-        if (slot.name.empty()) {
-            slot.name = index == 0U
-                ? "Commander"
-                : "Computer " + std::to_string(index);
-        }
-        slot.country = canonicalCooperativeCountry(
-            *scenario,
-            static_cast<int>(index),
-            slot.country
-        );
-        slot.team = teams[index];
-        slot.startPosition = static_cast<int>(index) + 1;
-        state.startingSpots[index] = static_cast<int>(index) + 1;
-    }
-}
 
-std::vector<int> cooperativeCountryOptionIndices(
-    const MenuState& state,
-    int slotIndex
-) {
-    std::vector<int> result;
-    const CooperativeScenarioDefinition* scenario =
-        selectedCooperativeScenario(state);
-    if (scenario == nullptr || slotIndex < 0 || slotIndex >= 4) {
-        return result;
-    }
-    const std::vector<std::string>& allowed = slotIndex < 2
-        ? scenario->playerCountries
-        : scenario->enemyCountries;
-    for (const std::string& country : allowed) {
-        for (std::size_t index = 0; index < state.countries.size(); ++index) {
-            if (equalsAsciiNoCase(state.countries[index].id, country)) {
-                result.push_back(static_cast<int>(index));
-                break;
-            }
-        }
-    }
-    return result;
-}
 
-std::vector<int> countryOptionIndices(const MenuState& state, int slotIndex) {
-    if (modeIsCooperative(state)) {
-        return cooperativeCountryOptionIndices(state, slotIndex);
-    }
-    std::vector<int> options;
-    const bool canObserve = !state.config.multiplayerActive && slotIndex >= 0
-        && slotIndex < static_cast<int>(state.selection.slots.size())
-        && state.selection.slots[static_cast<std::size_t>(slotIndex)].human;
-    for (std::size_t index = 0; index < state.countries.size(); ++index) {
-        if (!runtimeObserverCountry(state.countries[index].id) || canObserve) {
-            options.push_back(static_cast<int>(index));
-        }
-    }
-    return options;
-}
 
-int countryIndexForDropdownOption(
-    const MenuState& state,
-    int option
-) {
-    const std::vector<int> options = countryOptionIndices(
-        state,
-        state.openDropdownSlot
-    );
-    return option >= 0 && option < static_cast<int>(options.size())
-        ? options[static_cast<std::size_t>(option)]
-        : -1;
-}
+
+
+
+
+
+
+
+
+
+
 
 void prepareCooperativeData(MenuState& state) {
     state.cooperativeValidationByMap.clear();
@@ -1875,154 +1333,17 @@ void prepareCooperativeData(MenuState& state) {
     }
 }
 
-void rebuildFilteredMaps(MenuState& state, bool preserveSelection) {
-    const int previousMap = state.selectedMap;
-    state.filteredMaps.clear();
-    if (state.selectedMode < 0
-        || state.selectedMode >= static_cast<int>(state.modes.size())) {
-        state.selectedMode = 0;
-    }
-    const std::string filter = state.modes.empty()
-        ? "standard"
-        : state.modes[static_cast<std::size_t>(state.selectedMode)].filter;
-    const bool allowRandom = !state.modes.empty() && state.modes[state.selectedMode].randomMapsAllowed;
-    const auto allowed = [&](const MapInfo& map) {
-        RuntimeRandomMapOptions options;
-        return allowRandom || !runtimeRandomMapOptionsFromFileName(map.path.filename().string(), options);
-    };
-    for (std::size_t i = 0; i < state.maps.size(); ++i) {
-        if (allowed(state.maps[i]) && mapSupportsFilter(state.maps[i], filter)) {
-            state.filteredMaps.push_back(static_cast<int>(i));
-        }
-    }
-    // An unavailable cooperative selection must never degrade into an
-    // ordinary all-maps list: that makes authored missions start as a normal
-    // skirmish.  Other legacy filters retain their existing fallback.
-    if (state.filteredMaps.empty() && allowsAllMapsFallback(filter)) {
-        for (std::size_t i = 0; i < state.maps.size(); ++i) {
-            if (allowed(state.maps[i]) && !mapSupportsFilter(
-                    state.maps[i],
-                    "cooperative-invalid"
-                )) {
-                state.filteredMaps.push_back(static_cast<int>(i));
-            }
-        }
-    }
-    const bool retained = preserveSelection
-        && std::find(
-            state.filteredMaps.begin(),
-            state.filteredMaps.end(),
-            previousMap
-        ) != state.filteredMaps.end();
-    state.selectedMap = state.filteredMaps.empty()
-        ? -1
-        : (retained ? previousMap : state.filteredMaps.front());
-    state.mapScroll = 0;
-    if (state.selectedMap >= 0) {
-        const auto selected = std::find(
-            state.filteredMaps.begin(),
-            state.filteredMaps.end(),
-            state.selectedMap
-        );
-        if (selected != state.filteredMaps.end()) {
-            const int position = static_cast<int>(selected - state.filteredMaps.begin());
-            state.mapScroll = std::max(0, position - kVisibleMapRows / 2);
-        }
-    }
-    normalizeCooperativeSelection(state);
-}
 
-int selectedMapCombatantLimit(const MenuState& state) {
-    if (state.selectedMap < 0
-        || state.selectedMap >= static_cast<int>(state.maps.size())) {
-        return kPlayerSlots;
-    }
-    return std::clamp(
-        state.maps[static_cast<std::size_t>(state.selectedMap)].maxPlayers,
-        1,
-        kPlayerSlots
-    );
-}
 
-int selectedMapLimit(const MenuState& state) {
-    const int observers = !modeIsCooperative(state) && !state.config.multiplayerActive
-        ? static_cast<int>(std::count_if(state.selection.slots.begin(),
-            state.selection.slots.end(), [](const auto& slot) {
-                return runtimeObserverSlot(slot);
-            })) : 0;
-    return std::min(kPlayerSlots, selectedMapCombatantLimit(state) + observers);
-}
 
-void applyMapSlotLimit(MenuState& state) {
-    const int limit = selectedMapLimit(state);
-    for (int i = limit; i < static_cast<int>(state.selection.slots.size()); ++i) {
-        state.selection.slots[static_cast<std::size_t>(i)].enabled = false;
-    }
-    if (limit >= 2 && state.selection.slots.size() >= 2) {
-        const bool hasOpponent = std::any_of(
-            state.selection.slots.begin() + 1,
-            state.selection.slots.begin() + limit,
-            [](const RuntimeSkirmishPlayerSlot& slot) { return slot.enabled; }
-        );
-        if (!hasOpponent) {
-            state.selection.slots[1].enabled = true;
-        }
-    }
-    normalizeCooperativeSelection(state);
-}
 
-int findCountryIndex(const MenuState& state, const std::string& id);
 
-void syncSelection(MenuState& state) {
-    normalizeCooperativeSelection(state);
-    state.selection.mapStartingPointLimit = 0;
-    if (state.selectedMap >= 0
-        && state.selectedMap < static_cast<int>(state.maps.size())) {
-        state.selection.mapPath = pathString(
-            state.maps[static_cast<std::size_t>(state.selectedMap)].path
-        );
-        state.selection.mapStartingPointLimit =
-            state.maps[static_cast<std::size_t>(state.selectedMap)].maxPlayers;
-    }
-    if (state.selectedMode >= 0
-        && state.selectedMode < static_cast<int>(state.modes.size())) {
-        const ModeInfo& mode =
-            state.modes[static_cast<std::size_t>(state.selectedMode)];
-        state.selection.gameMode = mode.key;
-        state.selection.gameModeRulesOverride = mode.rulesOverride;
-    }
-    if (!state.selection.slots.empty()) {
-        state.selection.playerCountry = state.selection.slots.front().country;
-        state.selection.playerColor = state.selection.slots.front().color;
-        const int countryIndex = findCountryIndex(
-            state,
-            state.selection.playerCountry
-        );
-        state.selection.playerCountryDisplayName =
-            countryIndex >= 0
-                && countryIndex < static_cast<int>(state.countries.size())
-            ? state.countries[static_cast<std::size_t>(countryIndex)].displayName
-            : utf8ToWide(state.selection.playerCountry);
-        const std::string briefKey = runtimeLoadingBriefKeyForCountry(
-            state.selection.playerCountry
-        );
-        state.selection.playerCountryBrief = briefKey.empty()
-            ? std::wstring{}
-            : state.csf.get(briefKey, L"");
-        state.selection.loadingScreenAssetId =
-            runtimeLoadingScreenAssetForCountry(
-                state.selection.playerCountry
-            );
-    }
-    const std::size_t count = std::min(
-        state.selection.slots.size(),
-        state.startingSpots.size()
-    );
-    for (std::size_t slotIndex = 0; slotIndex < count; ++slotIndex) {
-        state.selection.slots[slotIndex].startPosition =
-            std::max(0, state.startingSpots[slotIndex]);
-    }
-}
+
+
+
+
+
+
 
 bool ensurePreview(MenuState& state, int mapIndex) {
     if (mapIndex < 0 || mapIndex >= static_cast<int>(state.maps.size())) {
@@ -2059,35 +1380,11 @@ bool ensurePreview(MenuState& state, int mapIndex) {
     return decodeMapPreviewImage(ini, map.preview, map.previewError);
 }
 
-int findCountryIndex(const MenuState& state, const std::string& id) {
-    for (std::size_t i = 0; i < state.countries.size(); ++i) {
-        if (equalsAsciiNoCase(state.countries[i].id, id)) {
-            return static_cast<int>(i);
-        }
-    }
-    return 0;
-}
 
-template <typename Container>
-int findStringIndex(const Container& values, const std::string& value) {
-    for (std::size_t i = 0; i < values.size(); ++i) {
-        if (equalsAsciiNoCase(values[i], value)) {
-            return static_cast<int>(i);
-        }
-    }
-    return 0;
-}
 
-template <typename Container>
-int wrappedIndex(const Container& values, int current, int direction) {
-    if (values.empty()) {
-        return -1;
-    }
-    const int size = static_cast<int>(values.size());
-    int next = (current + direction) % size;
-    if (next < 0) next += size;
-    return next;
-}
+
+
+
 
 void initializeFonts(MenuState& state) {
     state.titleFont = CreateFontW(
@@ -2114,69 +1411,7 @@ void initializeFonts(MenuState& state) {
 
 void resetMenuForEntry(MenuState& state, const RuntimeConfig& config) {
     RuntimePerfTraceScope trace("skirmish.reenter", 0);
-    state.config = config;
-    state.selection = {};
-    state.startingSpots.fill(0);
-    state.beforeCooperative.reset();
-    state.selectedMode = 0;
-    state.selectedMap = -1;
-    state.mapScroll = 0;
-    state.hits.clear();
-    state.hover = {};
-    state.pressed = {};
-    state.mouseVisible = false;
-    state.mousePoint = {};
-    state.openDropdown = DropdownKind::None;
-    state.openDropdownSlot = -1;
-    state.dropdownHover = -1;
-    state.draggingSlider = HitKind::None;
-    state.closing = false;
-    state.page = SkirmishPage::Lobby;
-    state.phase = ShellMenuPhase::Idle;
-    state.phaseStarted = 0;
-    state.phaseTick = 0;
-    state.mapPageOriginalMode = 0;
-    state.mapPageOriginalMap = -1;
-    state.mapPageOriginalSlots.clear();
-    state.mapPageOriginalStarts.fill(0);
-    state.mapPageOriginalBeforeCooperative.reset();
-    state.backDirty = true;
-    state.selection.gameMode = config.gameMode.empty() ? "Battle" : config.gameMode;
-    state.selection.gameModeRulesOverride = config.gameModeRulesOverride;
-    state.selection.playerCountry = config.playerCountry.empty()
-        ? "Americans" : config.playerCountry;
-    state.selection.playerColor = config.playerColor.empty()
-        ? "Gold" : config.playerColor;
-    loadSkirmishDefaults(config, state.selection);
-    buildPlayerSlots(state);
-
-    for (std::size_t i = 0; i < state.modes.size(); ++i) {
-        if (equalsAsciiNoCase(state.modes[i].key, state.selection.gameMode)) {
-            state.selectedMode = static_cast<int>(i);
-            break;
-        }
-    }
-    const std::string defaultFile = lowerAscii(
-        fs::path(config.defaultMapPath).filename().string()
-    );
-    for (std::size_t i = 0; i < state.maps.size(); ++i) {
-        if (lowerAscii(state.maps[i].path.filename().string()) == defaultFile
-            || lowerAscii(state.maps[i].id) == lowerAscii(fs::path(defaultFile).stem().string())) {
-            state.selectedMap = static_cast<int>(i);
-            break;
-        }
-    }
-    rebuildFilteredMaps(state, true);
-    if (state.selectedMap < 0 && !state.filteredMaps.empty()) {
-        state.selectedMap = state.filteredMaps.front();
-    }
-    applyMapSlotLimit(state);
-    normalizeCooperativeSelection(state);
-    syncSelection(state);
-    ensurePreview(state, state.selectedMap);
-    state.status = state.maps.empty()
-        ? L"No multiplayer maps were found."
-        : label(state, {"GUI:Ready", "TXT_READY"}, L"Ready");
+    resetControllerForEntry(state, config);
 }
 
 bool initializeState(MenuState& state, const RuntimeConfig& config, bool smoke) {
@@ -2269,58 +1504,59 @@ bool initializeState(MenuState& state, const RuntimeConfig& config, bool smoke) 
         state.exportRoot / "expandmd01" / "mpyscrn.pal",
         state.localUiRoot / "mpyscrn.pal"
     });
-    state.shellContext.assetRootPath = state.exportRoot.string();
-    state.shellContext.structureRootPath = state.exportRoot.string();
-    state.shellContext.tileRootPath = state.exportRoot.string();
+    concord::assets::MapPreviewResourceContext shellRoots;
+    shellRoots.assetRootPath = state.exportRoot.string();
+    shellRoots.tileRootPath = state.exportRoot.string();
+    state.shellResources.configureRoots(std::move(shellRoots));
     std::string paletteSource;
     std::string paletteError;
     const bool palettesLoaded =
-        loadRuntimePaletteResource(
-            state.shellContext, state.shellCache, "shell.pal",
+        state.shellResources.loadPalette(
+ "shell.pal",
             state.shellPalette, paletteSource, paletteError
         )
-        && loadRuntimePaletteResource(
-            state.shellContext, state.shellCache, "mainbttn.pal",
+        && state.shellResources.loadPalette(
+ "mainbttn.pal",
             state.mainButtonPalette, paletteSource, paletteError
         )
-        && loadRuntimePaletteResource(
-            state.shellContext, state.shellCache, "sdbtnanm.pal",
+        && state.shellResources.loadPalette(
+ "sdbtnanm.pal",
             state.slotPalette, paletteSource, paletteError
         );
     bool shellLoaded = palettesLoaded;
     std::vector<RuntimePaletteColor> mousePalette;
-    if (loadRuntimePaletteResource(
-            state.shellContext, state.shellCache, "mousepal.pal",
+    if (state.shellResources.loadPalette(
+ "mousepal.pal",
             mousePalette, paletteSource, paletteError)) {
         loadResourceAsset(
-            state.shellContext, state.shellCache, "mouse.shp", 0,
+            state.shellResources, "mouse.shp", 0,
             mousePalette, true, state.mouse
         );
     }
     shellLoaded = loadResourceAsset(
-        state.shellContext, state.shellCache, "mnscrnl.shp", 0,
+        state.shellResources, "mnscrnl.shp", 0,
         state.shellPalette, false, state.background
     ) && shellLoaded;
     shellLoaded = loadResourceAsset(
-        state.shellContext, state.shellCache, "lwscrnl.shp", 0,
+        state.shellResources, "lwscrnl.shp", 0,
         state.shellPalette, false, state.statusShell
     ) && shellLoaded;
     for (int frame = 0; frame < 2; ++frame) {
         shellLoaded = loadResourceAsset(
-            state.shellContext, state.shellCache, "sdtp.shp", frame,
+            state.shellResources, "sdtp.shp", frame,
             state.shellPalette, false,
             state.sideTopShell[static_cast<std::size_t>(frame)]
         ) && shellLoaded;
     }
     shellLoaded = loadResourceAsset(
-        state.shellContext, state.shellCache, "sdbtnbkgd.shp", 0,
+        state.shellResources, "sdbtnbkgd.shp", 0,
         state.shellPalette, false, state.slotBackgroundShell
     ) && shellLoaded;
     state.slotAnimationShell.clear();
     for (int frame = 0; frame < 17; ++frame) {
         AssetImage image;
         if (!loadResourceAsset(
-                state.shellContext, state.shellCache, "sdbtnanm.shp", frame,
+                state.shellResources, "sdbtnanm.shp", frame,
                 state.slotPalette, true, image)) {
             break;
         }
@@ -2328,16 +1564,16 @@ bool initializeState(MenuState& state, const RuntimeConfig& config, bool smoke) 
     }
     shellLoaded = state.slotAnimationShell.size() >= 17 && shellLoaded;
     shellLoaded = loadResourceAsset(
-        state.shellContext, state.shellCache, "sdbtm.shp", 0,
+        state.shellResources, "sdbtm.shp", 0,
         state.shellPalette, false, state.sideBottomShell
     ) && shellLoaded;
     shellLoaded = loadResourceAsset(
-        state.shellContext, state.shellCache, "sdmpbtn.shp", 0,
+        state.shellResources, "sdmpbtn.shp", 0,
         state.shellPalette, true, state.mpInfoShell
     ) && shellLoaded;
     for (int frame = 0; frame < 3; ++frame) {
         shellLoaded = loadResourceAsset(
-            state.shellContext, state.shellCache, "mnbttn.shp", frame,
+            state.shellResources, "mnbttn.shp", frame,
             state.mainButtonPalette, true,
             state.buttons[static_cast<std::size_t>(frame)]
         ) && shellLoaded;
@@ -2527,16 +1763,11 @@ void drawPanel(
 }
 
 void addHit(MenuState& state, const RECT& rect, HitKind kind, int index = -1) {
-    state.hits.push_back({rect, HitTarget{kind, index}});
+    state.hits.push_back({{rect.left, rect.top, rect.right, rect.bottom}, HitTarget{kind, index}});
 }
 
 const HitRegion* hitTest(const MenuState& state, POINT point) {
-    for (auto it = state.hits.rbegin(); it != state.hits.rend(); ++it) {
-        if (pointIn(it->rect, point)) {
-            return &*it;
-        }
-    }
-    return nullptr;
+    return concord::skirmish::hitTest(state, {point.x, point.y});
 }
 
 COLORREF colorForId(const std::string& id) {
@@ -2656,7 +1887,7 @@ AssetImage* flagFor(MenuState& state, const std::string& countryId) {
             state.palettePath
         });
     }
-    loadShpImage(shpPath, palette, 0, image, true);
+    concord::assets::loadMenuFrameLocalShp(shpPath, palette, 0, image, true);
     auto result = state.flagImages.emplace(key, std::move(image));
     return result.first->second.valid() ? &result.first->second : nullptr;
 }
@@ -2902,7 +2133,7 @@ void drawPreviewImage(MenuState& state, HDC dc, const RECT& rect, MapInfo& map) 
         double ny = 0.5 + std::sin(i * 6.283185307179586 / markerCount) * 0.34;
         if (i < static_cast<int>(map.startPoints.size())
             && map.headerWidth > 0 && map.headerHeight > 0) {
-            const POINT point = map.startPoints[static_cast<std::size_t>(i)];
+            const auto point = map.startPoints[static_cast<std::size_t>(i)];
             nx = static_cast<double>(point.x - map.headerX) / map.headerWidth;
             ny = static_cast<double>(point.y - map.headerY) / map.headerHeight;
             nx = std::clamp(nx, 0.04, 0.96);
@@ -3552,254 +2783,29 @@ void invalidate(MenuState& state) {
     }
 }
 
-void scrollMapList(MenuState& state, int amount, bool playSound) {
-    const int maxScroll = std::max(
-        0,
-        static_cast<int>(state.filteredMaps.size()) - kVisibleMapRows
-    );
-    const int oldScroll = state.mapScroll;
-    state.mapScroll = std::clamp(state.mapScroll + amount, 0, maxScroll);
-    if (state.mapScroll != oldScroll && playSound) {
-        state.audio.play(amount < 0 ? "MenuSlideIn" : "MenuSlideOut");
-    }
-    invalidate(state);
-}
 
-void selectFilteredMap(MenuState& state, int filteredIndex, bool playSound) {
-    if (filteredIndex < 0
-        || filteredIndex >= static_cast<int>(state.filteredMaps.size())) {
-        return;
-    }
-    const int mapIndex = state.filteredMaps[static_cast<std::size_t>(filteredIndex)];
-    if (state.selectedMap != mapIndex) {
-        state.selectedMap = mapIndex;
-        ensurePreview(state, state.selectedMap);
-        applyMapSlotLimit(state);
-        syncSelection(state);
-        if (playSound) state.audio.play("MenuTab", true);
-    }
-    if (filteredIndex < state.mapScroll) {
-        state.mapScroll = filteredIndex;
-    } else if (filteredIndex >= state.mapScroll + kVisibleMapRows) {
-        state.mapScroll = filteredIndex - kVisibleMapRows + 1;
-    }
-    state.status = label(state, {"GUI:Ready", "TXT_READY"}, L"Ready");
-    invalidate(state);
-}
 
-void finishMenuTransition(MenuState& state) {
-    if (state.closing) {
-        return;
-    }
-    state.closing = true;
-    state.audio.stopMusic();
-    if (state.hwnd != nullptr && IsWindow(state.hwnd)) {
-        DestroyWindow(state.hwnd);
-    }
-}
 
-bool updateMenuTransition(MenuState& state, std::uint64_t now) {
-    if (state.phase == ShellMenuPhase::Idle || state.closing) {
-        return false;
-    }
-    bool changed = false;
-    const std::uint64_t elapsed = now - state.phaseStarted;
-    const int nextTick = static_cast<int>(
-        elapsed / kShellAnimationFrameMs
-    );
-    if (nextTick != state.phaseTick) {
-        state.phaseTick = nextTick;
-        changed = true;
-    }
-    const std::uint64_t duration = static_cast<std::uint64_t>(
-        kShellSlotCount - 1 + kShellAnimationFrames
-    ) * kShellAnimationFrameMs;
-    if (elapsed < duration) {
-        return changed;
-    }
-    if (state.phase == ShellMenuPhase::SlideIn) {
-        state.phase = ShellMenuPhase::Idle;
-        state.phaseTick = 0;
-        return true;
-    }
-    finishMenuTransition(state);
-    return true;
-}
 
-void completeMenu(MenuState& state, bool accepted) {
-    if (state.closing
-        || state.phase == ShellMenuPhase::SlideOut) {
-        return;
-    }
-    syncSelection(state);
-    state.selection.accepted = accepted;
-    if (accepted) {
-        std::string saveError;
-        if (!saveRuntimeSkirmishCratePreference(
-                state.config, state.selection.crates, saveError)) {
-            // A preference write failure must not discard a valid match setup.
-            std::cerr << "Could not save skirmish crate preference: " << saveError << '\n';
-        }
-    }
-    if (accepted && !state.config.multiplayerActive) {
-        std::string saveError;
-        if (!saveRuntimeSkirmishNoCooldownPreference(
-                state.config, state.selection.noCooldown, saveError))
-            std::cerr << "Could not save skirmish no-cooldown preference: " << saveError << '\n';
-    }
-    if (!accepted && !state.smoke) {
-        prewarmRuntimeMainMenu(
-            state.config,
-            state.hwnd == nullptr
-                ? nullptr
-                : GetParent(state.hwnd)
-        );
-    }
-    state.phase = ShellMenuPhase::SlideOut;
-    state.phaseStarted = GetTickCount64();
-    state.phaseTick = 0;
-    state.hover = {};
-    state.pressed = {};
-    state.openDropdown = DropdownKind::None;
-    state.openDropdownSlot = -1;
-    state.dropdownHover = -1;
-    state.draggingSlider = HitKind::None;
-    state.audio.play("MenuSlideOut", true);
-    invalidate(state);
-}
+
+
+
+
+
 
 std::wstring teamDisplay(const MenuState& state, const std::string& team);
 
-DropdownKind dropdownKindForTarget(HitKind kind) {
-    switch (kind) {
-    case HitKind::SlotEnabled:
-    case HitKind::SlotDifficulty:
-        return DropdownKind::Player;
-    case HitKind::SlotCountry:
-        return DropdownKind::Country;
-    case HitKind::SlotColor:
-        return DropdownKind::Color;
-    case HitKind::SlotStart:
-        return DropdownKind::Start;
-    case HitKind::SlotTeam:
-        return DropdownKind::Team;
-    default:
-        return DropdownKind::None;
-    }
-}
 
-HitKind hitKindForDropdown(DropdownKind kind) {
-    switch (kind) {
-    case DropdownKind::Player: return HitKind::SlotEnabled;
-    case DropdownKind::Country: return HitKind::SlotCountry;
-    case DropdownKind::Color: return HitKind::SlotColor;
-    case DropdownKind::Start: return HitKind::SlotStart;
-    case DropdownKind::Team: return HitKind::SlotTeam;
-    default: return HitKind::None;
-    }
-}
 
-void closeDropdown(MenuState& state, bool playSound) {
-    if (state.openDropdown == DropdownKind::None) return;
-    state.openDropdown = DropdownKind::None;
-    state.openDropdownSlot = -1;
-    state.dropdownHover = -1;
-    if (playSound) state.audio.play("MenuACBClose", true);
-    invalidate(state);
-}
 
-bool dropdownCanOpen(
-    const MenuState& state,
-    DropdownKind kind,
-    int slotIndex
-) {
-    if (state.page != SkirmishPage::Lobby
-        || kind == DropdownKind::None
-        || slotIndex < 0
-        || slotIndex >= selectedMapLimit(state)
-        || slotIndex >= static_cast<int>(state.selection.slots.size())) {
-        return false;
-    }
-    const RuntimeSkirmishPlayerSlot& slot =
-        state.selection.slots[static_cast<std::size_t>(slotIndex)];
-    if (modeIsCooperative(state)
-        && (kind == DropdownKind::Player
-            || kind == DropdownKind::Start
-            || kind == DropdownKind::Team)) {
-        return false;
-    }
-    if (kind == DropdownKind::Player) {
-        return slotIndex > 0 && !slot.human && !state.difficulties.empty();
-    }
-    if (!slot.enabled) return false;
-    if (kind == DropdownKind::Country) return !state.countries.empty();
-    if (runtimeObserverSlot(slot)
-        && (kind == DropdownKind::Start || kind == DropdownKind::Team)) return false;
-    if (kind == DropdownKind::Color) return !state.colorIds.empty();
-    if (kind == DropdownKind::Team) return !state.teams.empty();
-    return kind == DropdownKind::Start;
-}
 
-int dropdownOptionCount(const MenuState& state, DropdownKind kind) {
-    switch (kind) {
-    case DropdownKind::Player:
-        return static_cast<int>(state.difficulties.size()) + 1;
-    case DropdownKind::Country:
-        return static_cast<int>(countryOptionIndices(
-            state, state.openDropdownSlot).size());
-    case DropdownKind::Color:
-        return static_cast<int>(state.colorIds.size());
-    case DropdownKind::Start:
-        return selectedMapCombatantLimit(state) + 1;
-    case DropdownKind::Team:
-        return static_cast<int>(state.teams.size());
-    default:
-        return 0;
-    }
-}
 
-int currentDropdownOption(const MenuState& state) {
-    if (!dropdownCanOpen(state, state.openDropdown, state.openDropdownSlot)) {
-        return 0;
-    }
-    const RuntimeSkirmishPlayerSlot& slot = state.selection.slots[
-        static_cast<std::size_t>(state.openDropdownSlot)
-    ];
-    switch (state.openDropdown) {
-    case DropdownKind::Player:
-        return slot.enabled
-            ? findStringIndex(state.difficulties, slot.difficulty) + 1
-            : 0;
-    case DropdownKind::Country:
-        {
-            const std::vector<int> options = countryOptionIndices(
-                state,
-                state.openDropdownSlot
-            );
-            const int globalIndex = findCountryIndex(state, slot.country);
-            const auto found = std::find(
-                options.begin(),
-                options.end(),
-                globalIndex
-            );
-            return found == options.end()
-                ? 0
-                : static_cast<int>(found - options.begin());
-        }
-    case DropdownKind::Color:
-        return findStringIndex(state.colorIds, slot.color);
-    case DropdownKind::Start:
-        return std::clamp(
-            state.startingSpots[static_cast<std::size_t>(state.openDropdownSlot)],
-            0,
-            selectedMapCombatantLimit(state)
-        );
-    case DropdownKind::Team:
-        return findStringIndex(state.teams, slot.team);
-    default:
-        return 0;
-    }
-}
+
+
+
+
+
+
 
 std::wstring dropdownOptionText(
     const MenuState& state,
@@ -3841,455 +2847,31 @@ std::wstring dropdownOptionText(
     }
 }
 
-void toggleDropdown(
-    MenuState& state,
-    DropdownKind kind,
-    int slotIndex
-) {
-    if (!dropdownCanOpen(state, kind, slotIndex)) {
-        closeDropdown(state, false);
-        return;
-    }
-    if (state.openDropdown == kind && state.openDropdownSlot == slotIndex) {
-        closeDropdown(state, true);
-        return;
-    }
-    state.openDropdown = kind;
-    state.openDropdownSlot = slotIndex;
-    state.dropdownHover = currentDropdownOption(state);
-    state.audio.play("MenuACBOpen", true);
-    invalidate(state);
-}
 
-void selectDropdownOption(MenuState& state, int option) {
-    const DropdownKind kind = state.openDropdown;
-    const int slotIndex = state.openDropdownSlot;
-    if (!dropdownCanOpen(state, kind, slotIndex)
-        || option < 0
-        || option >= dropdownOptionCount(state, kind)) {
-        closeDropdown(state, true);
-        return;
-    }
-    RuntimeSkirmishPlayerSlot& slot =
-        state.selection.slots[static_cast<std::size_t>(slotIndex)];
-    switch (kind) {
-    case DropdownKind::Player:
-        slot.enabled = option > 0;
-        if (slot.enabled) {
-            slot.difficulty = state.difficulties[
-                static_cast<std::size_t>(option - 1)
-            ];
-        }
-        break;
-    case DropdownKind::Country:
-        if (const int countryIndex = countryIndexForDropdownOption(
-                state,
-                option
-            ); countryIndex >= 0
-                && countryIndex < static_cast<int>(state.countries.size())) {
-            slot.country = state.countries[
-                static_cast<std::size_t>(countryIndex)
-            ].id;
-            if (runtimeObserverSlot(slot)) {
-                slot.team = "-";
-                slot.startPosition = 0;
-                state.startingSpots[static_cast<std::size_t>(slotIndex)] = 0;
-            }
-            applyMapSlotLimit(state);
-        }
-        break;
-    case DropdownKind::Color:
-        slot.color = state.colorIds[static_cast<std::size_t>(option)];
-        break;
-    case DropdownKind::Start:
-        state.startingSpots[static_cast<std::size_t>(slotIndex)] = option;
-        break;
-    case DropdownKind::Team:
-        slot.team = state.teams[static_cast<std::size_t>(option)];
-        break;
-    default:
-        break;
-    }
-    syncSelection(state);
-    closeDropdown(state, true);
-}
 
-bool dropdownContainsTarget(const MenuState& state, HitTarget target) {
-    return target.kind == HitKind::DropdownOption
-        || (dropdownKindForTarget(target.kind) == state.openDropdown
-            && target.index == state.openDropdownSlot);
-}
 
-void cycleString(
-    std::string& value,
-    const std::vector<std::string>& choices,
-    int direction
-) {
-    const int current = findStringIndex(choices, value);
-    const int next = wrappedIndex(choices, current, direction);
-    if (next >= 0) value = choices[static_cast<std::size_t>(next)];
-}
 
-void adjustCredits(RuntimeSkirmishSelection& selection, int direction) {
-    static const std::vector<int> values{
-        5000, 10000, 20000, 30000, 50000, 100000, 200000
-    };
-    auto found = std::lower_bound(values.begin(), values.end(), selection.startingCredits);
-    int index = found == values.end()
-        ? static_cast<int>(values.size()) - 1
-        : static_cast<int>(found - values.begin());
-    if (found != values.end() && *found == selection.startingCredits) {
-        index += direction;
-    } else if (direction < 0) {
-        --index;
-    }
-    index = std::clamp(index, 0, static_cast<int>(values.size()) - 1);
-    selection.startingCredits = values[static_cast<std::size_t>(index)];
-}
 
-const std::array<int, 7>& startingCreditValues() {
-    static const std::array<int, 7> values{{
-        5000, 10000, 20000, 30000, 50000, 100000, 200000
-    }};
-    return values;
-}
 
-bool isSliderTarget(HitKind kind) {
-    return kind == HitKind::SpeedSlider
-        || kind == HitKind::CreditsSlider
-        || kind == HitKind::UnitsSlider;
-}
 
-int sliderMaximum(HitKind kind) {
-    if (kind == HitKind::CreditsSlider) {
-        return static_cast<int>(startingCreditValues().size()) - 1;
-    }
-    if (kind == HitKind::UnitsSlider) return 10;
-    if (kind == HitKind::SpeedSlider) return 6;
-    return 0;
-}
 
-void setSliderFromBaseX(MenuState& state, HitKind kind, int baseX) {
-    if (!isSliderTarget(kind)) return;
-    constexpr int trackLeft = 373;
-    constexpr int trackWidth = 79;
-    const int gripWidth = state.trackGrip.valid() ? state.trackGrip.width : 12;
-    const int travel = std::max(1, trackWidth - gripWidth);
-    const int gripCenterOffset = std::max(0, gripWidth / 2);
-    const int positionPixels = std::clamp(
-        baseX - trackLeft - gripCenterOffset,
-        0,
-        travel
-    );
-    const int maximum = sliderMaximum(kind);
-    const int position = std::clamp(
-        (positionPixels * maximum + travel / 2) / travel,
-        0,
-        maximum
-    );
-    if (kind == HitKind::SpeedSlider) {
-        // Level 6 is fastest, so the right end of the slider is fastest.
-        state.selection.gameSpeed = position;
-    } else if (kind == HitKind::UnitsSlider) {
-        state.selection.unitCount = position;
-    } else {
-        state.selection.startingCredits =
-            startingCreditValues()[static_cast<std::size_t>(position)];
-    }
-    invalidate(state);
-}
 
-std::string skirmishLobbyAllianceTeam(const std::string& value) {
-    const std::string team = lowerAscii(trimAscii(value));
-    return team.empty() || team == "-" || team == "0"
-        || team == "none" || team == "no team" ? std::string{} : team;
-}
 
-bool canStart(const MenuState& state, std::wstring& reason) {
-    if (state.selectedMap < 0
-        || state.selectedMap >= static_cast<int>(state.maps.size())) {
-        reason = L"Select a map before starting.";
-        return false;
-    }
-    const MapInfo& map = state.maps[static_cast<std::size_t>(state.selectedMap)];
-    if (modeIsCooperative(state)) {
-        const CooperativeScenarioDefinition* scenario =
-            selectedCooperativeScenario(state);
-        if (!state.cooperativeDataComplete
-            || scenario == nullptr
-            || state.selection.slots.size() < 4U) {
-            reason = L"Cooperative mission data is unavailable or invalid.";
-            return false;
-        }
-        constexpr std::array<const char*, 4> expectedTeams{{
-            "1", "1", "2", "2"
-        }};
-        for (std::size_t index = 0; index < 4U; ++index) {
-            const RuntimeSkirmishPlayerSlot& slot =
-                state.selection.slots[index];
-            if (!slot.enabled
-                || slot.human != (index == 0U)
-                || slot.team != expectedTeams[index]
-                || state.startingSpots[index]
-                    != static_cast<int>(index) + 1
-                || !cooperativeCountryAllowed(
-                    *scenario,
-                    static_cast<int>(index),
-                    slot.country
-                )) {
-                reason = L"Cooperative A-D slot setup is invalid.";
-                return false;
-            }
-        }
-    }
-    int activePlayers = 0;
-    const int limit = selectedMapLimit(state);
-    for (int i = 0; i < limit; ++i) {
-        const auto& slot = state.selection.slots[static_cast<std::size_t>(i)];
-        if (slot.enabled && !runtimeObserverSlot(slot)) {
-            ++activePlayers;
-        }
-    }
-    if (activePlayers < map.minPlayers) {
-        reason = L"This map needs at least " + std::to_wstring(map.minPlayers)
-            + L" active players (observers do not count).";
-        return false;
-    }
-    const bool freeForAll = state.selectedMode >= 0
-        && state.selectedMode < static_cast<int>(state.modes.size())
-        && equalsAsciiNoCase(state.modes[state.selectedMode].key, "FreeForAll");
-    std::optional<std::string> firstTeam;
-    bool hasOpponent = false;
-    for (int i = 0; i < limit; ++i) {
-        const auto& slot = state.selection.slots[static_cast<std::size_t>(i)];
-        if (!slot.enabled || runtimeObserverSlot(slot)) continue;
-        const std::string team = skirmishLobbyAllianceTeam(slot.team);
-        if (firstTeam.has_value()) {
-            hasOpponent = hasOpponent || freeForAll || firstTeam->empty()
-                || team.empty() || *firstTeam != team;
-        } else {
-            firstTeam = team;
-        }
-    }
-    if (!hasOpponent) {
-        reason = L"至少需要一位敵對玩家。請選擇不同小隊，或將小隊設為「無」。";
-        return false;
-    }
-    if (state.selectedMode >= 0
-        && state.selectedMode < static_cast<int>(state.modes.size())
-        && equalsAsciiNoCase(
-            state.modes[static_cast<std::size_t>(state.selectedMode)].key,
-            "TeamGame"
-        )) {
-        std::set<std::string> teams;
-        for (int i = 0; i < limit; ++i) {
-            const RuntimeSkirmishPlayerSlot& slot =
-                state.selection.slots[static_cast<std::size_t>(i)];
-            if (!slot.enabled || runtimeObserverSlot(slot)) {
-                continue;
-            }
-            const std::string team = skirmishLobbyAllianceTeam(slot.team);
-            if (team.empty()) {
-                reason = L"Team Game requires a non-zero team for every player.";
-                return false;
-            }
-            teams.insert(team);
-        }
-        if (teams.size() < 2) {
-            reason = L"Team Game requires at least two opposing teams.";
-            return false;
-        }
-    }
-    return true;
-}
 
-void selectSkirmishMode(MenuState& state, int modeIndex) {
-    const bool wasCooperative = modeIsCooperative(state);
-    const bool becomesCooperative = isUnavailableCooperativeMode(state.modes[modeIndex]);
-    if (!wasCooperative && becomesCooperative) {
-        state.beforeCooperative = SkirmishSlotSetup{state.selection.slots, state.startingSpots};
-    } else if (wasCooperative && !becomesCooperative) {
-        if (state.beforeCooperative.has_value()) {
-            state.selection.slots = std::move(state.beforeCooperative->slots);
-            state.startingSpots = state.beforeCooperative->starts;
-            state.beforeCooperative.reset();
-        } else {
-            // A menu opened directly in Cooperative has no earlier ordinary
-            // setup. Do not carry the forced A/B alliance into its next match.
-            for (auto& slot : state.selection.slots) {
-                slot.team = "-";
-                slot.startPosition = 0;
-            }
-            state.startingSpots.fill(0);
-        }
-    }
-    state.selectedMode = modeIndex;
-}
 
-void activateTarget(MenuState& state, HitTarget target, int direction) {
-    if (target.kind == HitKind::None || state.closing) {
-        return;
-    }
-    const int mapLimit = selectedMapLimit(state);
-    switch (target.kind) {
-    case HitKind::Mode:
-        if (target.index >= 0
-            && target.index < static_cast<int>(state.modes.size())) {
-            selectSkirmishMode(state, target.index);
-            rebuildFilteredMaps(state, true);
-            applyMapSlotLimit(state);
-            syncSelection(state);
-            ensurePreview(state, state.selectedMap);
-            state.audio.play("MenuTab", true);
-        }
-        break;
-    case HitKind::Map:
-        selectFilteredMap(state, target.index, true);
-        return;
-    case HitKind::MapScrollUp:
-        scrollMapList(state, -1, true);
-        return;
-    case HitKind::MapScrollDown:
-        scrollMapList(state, 1, true);
-        return;
-    case HitKind::SlotEnabled:
-        if (!modeIsCooperative(state)
-            && target.index > 0 && target.index < mapLimit) {
-            RuntimeSkirmishPlayerSlot& slot =
-                state.selection.slots[static_cast<std::size_t>(target.index)];
-            int occupation = slot.enabled
-                ? findStringIndex(state.difficulties, slot.difficulty) + 1
-                : 0;
-            occupation = (occupation + (direction > 0 ? 1 : 3)) % 4;
-            slot.enabled = occupation != 0;
-            if (slot.enabled) {
-                slot.difficulty = state.difficulties[
-                    static_cast<std::size_t>(occupation - 1)
-                ];
-            }
-            state.audio.play("MenuClick", true);
-        }
-        break;
-    case HitKind::SlotCountry:
-        // The active shell handles countries as a real dropdown in
-        // activateShellTarget.  Never fall back to click-to-cycle behavior.
-        break;
-    case HitKind::SlotColor:
-        if (target.index >= 0 && target.index < mapLimit) {
-            RuntimeSkirmishPlayerSlot& slot =
-                state.selection.slots[static_cast<std::size_t>(target.index)];
-            if (slot.enabled) {
-                cycleString(slot.color, state.colorIds, direction);
-                state.audio.play(direction > 0 ? "MenuACBOpen" : "MenuACBClose", true);
-            }
-        }
-        break;
-    case HitKind::SlotStart:
-        if (!modeIsCooperative(state)
-            && target.index >= 0 && target.index < mapLimit) {
-            int& start = state.startingSpots[static_cast<std::size_t>(target.index)];
-            if (runtimeObserverSlot(state.selection.slots[static_cast<std::size_t>(target.index)])) break;
-            const int choices = selectedMapCombatantLimit(state) + 1;
-            start = (start + (direction > 0 ? 1 : choices - 1)) % choices;
-            state.audio.play("MenuACBOpen", true);
-        }
-        break;
-    case HitKind::SlotTeam:
-        if (!modeIsCooperative(state)
-            && target.index >= 0 && target.index < mapLimit) {
-            RuntimeSkirmishPlayerSlot& slot =
-                state.selection.slots[static_cast<std::size_t>(target.index)];
-            if (slot.enabled && !runtimeObserverSlot(slot)) {
-                cycleString(slot.team, state.teams, direction);
-                state.audio.play(direction > 0 ? "MenuACBOpen" : "MenuACBClose", true);
-            }
-        }
-        break;
-    case HitKind::SlotDifficulty:
-        if (target.index > 0 && target.index < mapLimit) {
-            RuntimeSkirmishPlayerSlot& slot =
-                state.selection.slots[static_cast<std::size_t>(target.index)];
-            if (slot.enabled) {
-                cycleString(slot.difficulty, state.difficulties, direction);
-                state.audio.play(direction > 0 ? "MenuACBOpen" : "MenuACBClose", true);
-            }
-        }
-        break;
-    case HitKind::CreditsMinus:
-        adjustCredits(state.selection, -1);
-        state.audio.play("MenuClick", true);
-        break;
-    case HitKind::CreditsPlus:
-        adjustCredits(state.selection, 1);
-        state.audio.play("MenuClick", true);
-        break;
-    case HitKind::UnitsMinus:
-        state.selection.unitCount = std::max(0, state.selection.unitCount - 1);
-        state.audio.play("MenuClick", true);
-        break;
-    case HitKind::UnitsPlus:
-        state.selection.unitCount = std::min(10, state.selection.unitCount + 1);
-        state.audio.play("MenuClick", true);
-        break;
-    case HitKind::SpeedMinus:
-        state.selection.gameSpeed = std::max(0, state.selection.gameSpeed - 1);
-        state.audio.play("MenuClick", true);
-        break;
-    case HitKind::SpeedPlus:
-        state.selection.gameSpeed = std::min(6, state.selection.gameSpeed + 1);
-        state.audio.play("MenuClick", true);
-        break;
-    case HitKind::ToggleShortGame:
-        state.selection.shortGame = !state.selection.shortGame;
-        state.audio.play("MenuClick", true);
-        break;
-    case HitKind::ToggleMcvRepacks:
-        state.selection.mcvRepacks = !state.selection.mcvRepacks;
-        state.audio.play("MenuClick", true);
-        break;
-    case HitKind::ToggleCrates:
-        state.selection.crates = !state.selection.crates;
-        state.audio.play("MenuClick", true);
-        break;
-    case HitKind::ToggleSuperweapons:
-        state.selection.superweapons = !state.selection.superweapons;
-        state.audio.play("MenuClick", true);
-        break;
-    case HitKind::ToggleBuildOffAlly:
-        state.selection.buildOffAlly = !state.selection.buildOffAlly;
-        state.audio.play("MenuClick", true);
-        break;
-    case HitKind::ToggleNoCooldown:
-        if (!state.config.multiplayerActive) {
-            state.selection.noCooldown = !state.selection.noCooldown;
-            state.audio.play("MenuClick", true);
-        }
-        break;
-    case HitKind::ToggleComputerAi:
-        state.selection.computerAiEnabled =
-            !state.selection.computerAiEnabled;
-        state.audio.play("MenuClick", true);
-        break;
-    case HitKind::Start: {
-        std::wstring reason;
-        if (canStart(state, reason)) {
-            completeMenu(state, true);
-            return;
-        }
-        state.status = std::move(reason);
-        state.audio.play("MenuClick", true);
-        MessageBeep(MB_ICONWARNING);
-        break;
-    }
-    case HitKind::Back:
-        completeMenu(state, false);
-        return;
-    default:
-        break;
-    }
-    syncSelection(state);
-    invalidate(state);
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 LRESULT CALLBACK skirmishWindowProc(
     HWND window,
@@ -4560,136 +3142,30 @@ bool hasHitKind(const MenuState& state, HitKind kind) {
     );
 }
 
-struct ShellCanvas {
-    unsigned char* pixels = nullptr;
-};
-
-void shellClear(ShellCanvas& canvas) {
-    std::uint32_t* pixels = reinterpret_cast<std::uint32_t*>(canvas.pixels);
-    std::fill(
-        pixels,
-        pixels + static_cast<std::size_t>(kBaseWidth * kBaseHeight),
-        0xff000000U
-    );
+using ShellCanvas = concord::ui::MenuPixelSurfaceView;
+RuntimeInputPixelRect pixelRect(const RECT& r) { return {r.left,r.top,r.right,r.bottom}; }
+RuntimeRgbColorValue pixelColor(std::uint32_t c) { return RuntimeRgbColorValue::fromPackedRgb(c); }
+void shellClear(ShellCanvas& canvas) { concord::ui::clearMenuPixels(canvas); }
+void shellFill(ShellCanvas& canvas,const RECT& r,COLORREF c) {
+    concord::ui::fillMenuPixels(canvas,pixelRect(r),pixelColor(c));
 }
-
-void shellFill(ShellCanvas& canvas, const RECT& rect, COLORREF color) {
-    const int left = std::clamp<int>(rect.left, 0, kBaseWidth);
-    const int right = std::clamp<int>(rect.right, 0, kBaseWidth);
-    const int top = std::clamp<int>(rect.top, 0, kBaseHeight);
-    const int bottom = std::clamp<int>(rect.bottom, 0, kBaseHeight);
-    for (int y = top; y < bottom; ++y) {
-        for (int x = left; x < right; ++x) {
-            const std::size_t at = static_cast<std::size_t>(
-                (y * kBaseWidth + x) * 4
-            );
-            canvas.pixels[at] = GetBValue(color);
-            canvas.pixels[at + 1] = GetGValue(color);
-            canvas.pixels[at + 2] = GetRValue(color);
-            canvas.pixels[at + 3] = 255;
-        }
-    }
+void shellDarken(ShellCanvas& canvas,const RECT& r,unsigned int opacity) {
+    concord::ui::darkenMenuPixels(canvas,pixelRect(r),opacity);
 }
-
-void shellDarken(ShellCanvas& canvas, const RECT& rect, unsigned int opacity) {
-    const int left = std::clamp<int>(rect.left, 0, kBaseWidth);
-    const int right = std::clamp<int>(rect.right, 0, kBaseWidth);
-    const int top = std::clamp<int>(rect.top, 0, kBaseHeight);
-    const int bottom = std::clamp<int>(rect.bottom, 0, kBaseHeight);
-    const unsigned int keep = 255U - std::min(255U, opacity);
-    for (int y = top; y < bottom; ++y) {
-        for (int x = left; x < right; ++x) {
-            const std::size_t at = static_cast<std::size_t>(
-                (y * kBaseWidth + x) * 4
-            );
-            for (int channel = 0; channel < 3; ++channel) {
-                canvas.pixels[at + static_cast<std::size_t>(channel)] =
-                    static_cast<unsigned char>(
-                        static_cast<unsigned int>(
-                            canvas.pixels[at + static_cast<std::size_t>(channel)]
-                        ) * keep / 255U
-                    );
-            }
-            canvas.pixels[at + 3] = 255;
-        }
-    }
+void shellFrame(ShellCanvas& canvas,const RECT& r,COLORREF c) {
+    concord::ui::frameMenuPixels(canvas,pixelRect(r),pixelColor(c));
 }
-
-void shellFrame(ShellCanvas& canvas, const RECT& rect, COLORREF color) {
-    shellFill(canvas, RECT{rect.left, rect.top, rect.right, rect.top + 1}, color);
-    shellFill(canvas, RECT{rect.left, rect.bottom - 1, rect.right, rect.bottom}, color);
-    shellFill(canvas, RECT{rect.left, rect.top, rect.left + 1, rect.bottom}, color);
-    shellFill(canvas, RECT{rect.right - 1, rect.top, rect.right, rect.bottom}, color);
+void shellBlit(ShellCanvas& canvas,const AssetImage& image,int left,int top,
+    int clipHeight=std::numeric_limits<int>::max()) {
+    if(!image.valid()) return;
+    concord::ui::blitMenuPixels(canvas,
+        {image.bgra,image.width,image.height,static_cast<std::size_t>(image.width)*4},left,top,clipHeight);
 }
-
-void shellBlit(
-    ShellCanvas& canvas,
-    const AssetImage& image,
-    int left,
-    int top,
-    int clipHeight = std::numeric_limits<int>::max()
-) {
-    if (!image.valid()) return;
-    const int rows = std::min(image.height, clipHeight);
-    for (int y = 0; y < rows; ++y) {
-        const int dy = top + y;
-        if (dy < 0 || dy >= kBaseHeight) continue;
-        for (int x = 0; x < image.width; ++x) {
-            const int dx = left + x;
-            if (dx < 0 || dx >= kBaseWidth) continue;
-            const std::size_t source = static_cast<std::size_t>(
-                (y * image.width + x) * 4
-            );
-            const unsigned char alpha = image.bgra[source + 3];
-            if (alpha == 0) continue;
-            const std::size_t dest = static_cast<std::size_t>(
-                (dy * kBaseWidth + dx) * 4
-            );
-            if (alpha == 255) {
-                std::copy_n(image.bgra.data() + source, 4, canvas.pixels + dest);
-                canvas.pixels[dest + 3] = 255;
-            } else {
-                for (int channel = 0; channel < 3; ++channel) {
-                    canvas.pixels[dest + channel] = static_cast<unsigned char>(
-                        (static_cast<unsigned int>(image.bgra[source + channel]) * alpha
-                            + static_cast<unsigned int>(canvas.pixels[dest + channel])
-                                * (255U - alpha)) / 255U
-                    );
-                }
-            }
-        }
-    }
-}
-
-void shellBlitScaled(
-    ShellCanvas& canvas,
-    const unsigned char* sourcePixels,
-    int sourceWidth,
-    int sourceHeight,
-    const RECT& destination
-) {
-    if (sourcePixels == nullptr || sourceWidth <= 0 || sourceHeight <= 0) return;
-    const int width = destination.right - destination.left;
-    const int height = destination.bottom - destination.top;
-    if (width <= 0 || height <= 0) return;
-    for (int y = 0; y < height; ++y) {
-        const int dy = destination.top + y;
-        if (dy < 0 || dy >= kBaseHeight) continue;
-        const int sy = std::clamp(y * sourceHeight / height, 0, sourceHeight - 1);
-        for (int x = 0; x < width; ++x) {
-            const int dx = destination.left + x;
-            if (dx < 0 || dx >= kBaseWidth) continue;
-            const int sx = std::clamp(x * sourceWidth / width, 0, sourceWidth - 1);
-            const std::size_t source = static_cast<std::size_t>(
-                (sy * sourceWidth + sx) * 4
-            );
-            const std::size_t dest = static_cast<std::size_t>(
-                (dy * kBaseWidth + dx) * 4
-            );
-            std::copy_n(sourcePixels + source, 4, canvas.pixels + dest);
-            canvas.pixels[dest + 3] = 255;
-        }
-    }
+void shellBlitScaled(ShellCanvas& canvas,const unsigned char* sourcePixels,int width,int height,const RECT& r) {
+    if(!sourcePixels||width<=0||height<=0) return;
+    concord::ui::scaleMenuPixels(canvas,
+        {{sourcePixels,static_cast<std::size_t>(width)*static_cast<std::size_t>(height)*4},
+            width,height,static_cast<std::size_t>(width)*4},pixelRect(r));
 }
 
 void shellText(
@@ -4700,7 +3176,7 @@ void shellText(
     bool centered = false,
     COLORREF color = RGB(255, 232, 0)
 ) {
-    state.gameFont.draw(canvas.pixels, text, rect, centered, true, color);
+    state.gameFont.draw(canvas.bytes.data(), text, rect, centered, true, color, state.bitmapTextTrace);
 }
 
 void shellSelectBox(
@@ -4834,7 +3310,7 @@ void drawShellMapPreview(
             ) * 0.34;
             if (i < static_cast<int>(map.startPoints.size())
                 && map.headerWidth > 0 && map.headerHeight > 0) {
-                const POINT point = map.startPoints[static_cast<std::size_t>(i)];
+                const auto point = map.startPoints[static_cast<std::size_t>(i)];
                 nx = std::clamp(
                     static_cast<double>(point.x - map.headerX) / map.headerWidth,
                     0.03,
@@ -5383,38 +3859,21 @@ void drawMapSelectionPage(MenuState& state, ShellCanvas& canvas) {
         label(state, {"GUI:Cancel"}, L"Cancel"), true);
 }
 
-bool ensureShellBackBuffer(MenuState& state, HDC reference) {
-    if (state.backDc != nullptr && state.backBitmap != nullptr
-        && state.backBits != nullptr
-        && state.composePixels.size()
-            == static_cast<std::size_t>(kBaseWidth * kBaseHeight * 4)) {
-        return true;
+bool ensureShellBackBuffer(MenuState& state,HDC reference) {
+    const auto frame=state.composeFrame.view();
+    if(state.backBuffer.ready() && frame.valid() && frame.width==kBaseWidth
+        && frame.height==kBaseHeight && frame.rowStride==static_cast<std::size_t>(kBaseWidth)*4) return true;
+    if(!state.backBuffer.ensure(reference,kBaseWidth,kBaseHeight)) return false;
+    if(!state.composeFrame.reset(kBaseWidth,kBaseHeight)) {
+        state.backBuffer.release(); return false;
     }
-    state.backInfo = {};
-    state.backInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    state.backInfo.bmiHeader.biWidth = kBaseWidth;
-    state.backInfo.bmiHeader.biHeight = -kBaseHeight;
-    state.backInfo.bmiHeader.biPlanes = 1;
-    state.backInfo.bmiHeader.biBitCount = 32;
-    state.backInfo.bmiHeader.biCompression = BI_RGB;
-    state.backDc = CreateCompatibleDC(reference);
-    if (state.backDc == nullptr) return false;
-    state.backBitmap = CreateDIBSection(
-        reference, &state.backInfo, DIB_RGB_COLORS, &state.backBits, nullptr, 0
-    );
-    if (state.backBitmap == nullptr) return false;
-    state.backOldBitmap = SelectObject(state.backDc, state.backBitmap);
-    if (state.backOldBitmap == nullptr || state.backOldBitmap == HGDI_ERROR) return false;
-    state.composePixels.assign(
-        static_cast<std::size_t>(kBaseWidth * kBaseHeight * 4), 0
-    );
-    state.backDirty = true;
-    return true;
+    state.backDirty=true;return true;
 }
 
-bool renderShellBackBuffer(MenuState& state) {
-    if (state.backDc == nullptr || state.composePixels.empty()) return false;
-    ShellCanvas canvas{state.composePixels.data()};
+bool composeShellPixels(MenuState& state,ShellCanvas canvas) {
+    // Actual layout/font needs this contiguous logical canvas; no native object.
+    if(!canvas.valid() || canvas.width!=kBaseWidth || canvas.height!=kBaseHeight
+        || canvas.rowStride!=static_cast<std::size_t>(kBaseWidth)*4) return false;
     state.hits.clear();
     drawShellChrome(state, canvas);
     if (state.page == SkirmishPage::Lobby) {
@@ -5435,31 +3894,16 @@ bool renderShellBackBuffer(MenuState& state) {
     if (state.mouseVisible) {
         shellBlit(canvas, state.mouse, state.mousePoint.x, state.mousePoint.y);
     }
-    if (state.backBits == nullptr) {
-        state.backDirty = true;
-        return false;
-    }
-    GdiFlush();
-    std::copy(
-        state.composePixels.begin(),
-        state.composePixels.end(),
-        static_cast<unsigned char*>(state.backBits)
-    );
-    state.backDirty = false;
     return true;
 }
 
-void computeShellViewport(MenuState& state, int width, int height) {
-    const double fit = std::min(
-        static_cast<double>(std::max(1, width)) / kBaseWidth,
-        static_cast<double>(std::max(1, height)) / kBaseHeight
-    );
-    const int integral = static_cast<int>(std::floor(fit));
-    const double scale = integral >= 1 ? static_cast<double>(integral) : fit;
-    state.viewWidth = std::max(1, static_cast<int>(std::lround(kBaseWidth * scale)));
-    state.viewHeight = std::max(1, static_cast<int>(std::lround(kBaseHeight * scale)));
-    state.viewLeft = (width - state.viewWidth) / 2;
-    state.viewTop = (height - state.viewHeight) / 2;
+bool renderShellBackBuffer(MenuState& state) {
+    if(!state.backBuffer.ready() || !composeShellPixels(state,state.composeFrame.view())) return false;
+    const auto& frame=state.composeFrame;
+    if(!state.backBuffer.upload(frame.view())) {
+        state.backDirty=true;return false;
+    }
+    state.backDirty=false;return true;
 }
 
 bool renderShellClient(MenuState& state, HDC target, int width, int height) {
@@ -5469,11 +3913,11 @@ bool renderShellClient(MenuState& state, HDC target, int width, int height) {
     BOOL copied;
     if (state.viewWidth == kBaseWidth && state.viewHeight == kBaseHeight) {
         copied = BitBlt(target, state.viewLeft, state.viewTop,
-            kBaseWidth, kBaseHeight, state.backDc, 0, 0, SRCCOPY);
+            kBaseWidth, kBaseHeight, state.backBuffer.dc(), 0, 0, SRCCOPY);
     } else {
         SetStretchBltMode(target, COLORONCOLOR);
         copied = StretchBlt(target, state.viewLeft, state.viewTop,
-            state.viewWidth, state.viewHeight, state.backDc, 0, 0,
+            state.viewWidth, state.viewHeight, state.backBuffer.dc(), 0, 0,
             kBaseWidth, kBaseHeight, SRCCOPY);
     }
     const HBRUSH black = static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
@@ -5490,26 +3934,12 @@ bool renderShellClient(MenuState& state, HDC target, int width, int height) {
 }
 
 POINT shellClientToBase(const MenuState& state, POINT point) {
-    if (point.x < state.viewLeft || point.y < state.viewTop
-        || point.x >= state.viewLeft + state.viewWidth
-        || point.y >= state.viewTop + state.viewHeight) {
-        return POINT{-1, -1};
-    }
-    return POINT{
-        (point.x - state.viewLeft) * kBaseWidth / std::max(1, state.viewWidth),
-        (point.y - state.viewTop) * kBaseHeight / std::max(1, state.viewHeight)
-    };
+    const auto value = concord::skirmish::shellClientToBase(state, {point.x, point.y});
+    return {value.x, value.y};
 }
 
-bool updateShellMouse(MenuState& state, POINT client) {
-    const POINT base = shellClientToBase(state, client);
-    const bool visible = state.mouse.valid() && base.x >= 0;
-    const bool changed = state.mouseVisible != visible
-        || (visible && (state.mousePoint.x != base.x || state.mousePoint.y != base.y));
-    state.mousePoint = base;
-    state.mouseVisible = visible;
-    if (changed) invalidate(state);
-    return changed;
+bool updateShellMouse(MenuState& state, POINT point) {
+    return concord::skirmish::updateShellMouse(state, {point.x, point.y});
 }
 
 void synchronizeShellMouse(MenuState& state, HWND window) {
@@ -5524,66 +3954,35 @@ void synchronizeShellMouse(MenuState& state, HWND window) {
     }
 }
 
-bool isShellNavigationButton(HitKind kind) {
-    return kind == HitKind::ChooseMap || kind == HitKind::UseMap
-        || kind == HitKind::CancelMap || kind == HitKind::Start || kind == HitKind::Back;
-}
 
-void activateShellTarget(MenuState& state, HitTarget target, int direction) {
-    if (state.closing || state.phase != ShellMenuPhase::Idle) {
-        return;
-    }
-    if (activateRandomMapTarget(state, target, direction)) return;
 
-    const DropdownKind targetDropdown = dropdownKindForTarget(target.kind);
-    if (targetDropdown != DropdownKind::None) {
-        toggleDropdown(state, targetDropdown, target.index);
-        return;
-    }
-    if (target.kind == HitKind::DropdownOption) {
-        selectDropdownOption(state, target.index);
-        return;
-    }
-    if (state.openDropdown != DropdownKind::None) {
-        closeDropdown(state, true);
-    }
-    if (target.kind == HitKind::ChooseMap) {
-        state.mapPageOriginalMode = state.selectedMode;
-        state.mapPageOriginalMap = state.selectedMap;
-        state.mapPageOriginalSlots = state.selection.slots;
-        state.mapPageOriginalStarts = state.startingSpots;
-        state.mapPageOriginalBeforeCooperative = state.beforeCooperative;
-        state.page = SkirmishPage::MapSelection;
-        state.status = label(state, {"GUI:ChooseMap"}, L"Choose a map");
-        state.audio.play("MenuSlideIn", true);
-        invalidate(state);
-        return;
-    }
-    if (target.kind == HitKind::UseMap) {
-        state.page = SkirmishPage::Lobby;
-        applyMapSlotLimit(state);
-        syncSelection(state);
-        state.status = label(state, {"GUI:Ready", "TXT_READY"}, L"Ready");
-        state.audio.play("MenuSlideOut", true);
-        invalidate(state);
-        return;
-    }
-    if (target.kind == HitKind::CancelMap) {
-        state.selectedMode = state.mapPageOriginalMode;
-        rebuildFilteredMaps(state, false);
-        state.selectedMap = state.mapPageOriginalMap;
-        state.selection.slots = state.mapPageOriginalSlots;
-        state.startingSpots = state.mapPageOriginalStarts;
-        state.beforeCooperative = state.mapPageOriginalBeforeCooperative;
-        syncSelection(state);
-        state.page = SkirmishPage::Lobby;
-        state.status = label(state, {"GUI:Ready", "TXT_READY"}, L"Ready");
-        state.audio.play("MenuSlideOut", true);
-        invalidate(state);
-        return;
-    }
-    activateTarget(state, target, direction);
-}
+
+
+void MenuState::requestRepaint() { invalidate(*this); }
+void MenuState::playSound(const std::string& event, bool beep) { audio.play(event, beep); }
+void MenuState::stopMusic() { audio.stopMusic(); }
+std::uint64_t MenuState::nowMs() const { return GetTickCount64(); }
+void MenuState::destroyWindow() { if(hwnd != nullptr && IsWindow(hwnd)) DestroyWindow(hwnd); }
+void MenuState::prewarmMainMenu() { prewarmRuntimeMainMenu(config, hwnd == nullptr ? nullptr : GetParent(hwnd)); }
+bool MenuState::saveCratePreference(const RuntimeConfig& c, bool value, std::string& error) { return saveRuntimeSkirmishCratePreference(c,value,error); }
+bool MenuState::saveNoCooldownPreference(const RuntimeConfig& c, bool value, std::string& error) { return saveRuntimeSkirmishNoCooldownPreference(c,value,error); }
+bool MenuState::ensurePreview(int index) { return ::ensurePreview(*this,index); }
+void MenuState::loadDefaults(const RuntimeConfig& c, RuntimeSkirmishSelection& value) { loadSkirmishDefaults(c,value); }
+std::wstring MenuState::text(const std::string& key, const std::wstring& fallback) const { return csf.get(key,fallback); }
+std::wstring MenuState::label(std::initializer_list<std::string> keys, const wchar_t* fallback) const { return csf.getAny(keys,fallback); }
+std::wstring MenuState::widenUtf8(const std::string& value) const { return utf8ToWide(value); }
+std::string MenuState::loadingBriefKey(const std::string& country) const { return runtimeLoadingBriefKeyForCountry(country); }
+std::string MenuState::loadingScreenAsset(const std::string& country) const { return runtimeLoadingScreenAssetForCountry(country); }
+const CooperativeScenarioDefinition* MenuState::cooperativeScenario(const std::string& id) const { return cooperativeScenarios.findByMapId(id); }
+bool MenuState::generatedMapFile(const std::string& file) const { RuntimeRandomMapOptions options; return runtimeRandomMapOptionsFromFileName(file,options); }
+int MenuState::sliderGripWidth() const { return trackGrip.valid() ? trackGrip.width : 12; }
+bool MenuState::cursorAvailable() const { return mouse.valid(); }
+bool MenuState::activateRandomTarget(HitTarget target, int direction) { return activateRandomMapTarget(*this,target,direction); }
+bool MenuState::randomMapReady() const { return randomResult.has_value() && !randomDirty; }
+void MenuState::warnInvalidSelection() { MessageBeep(MB_ICONWARNING); }
+void MenuState::focus() { SetFocus(hwnd); }
+void MenuState::capture() { SetCapture(hwnd); }
+void MenuState::releaseCaptureIfOwned() { if(GetCapture()==hwnd) ReleaseCapture(); }
 
 LRESULT CALLBACK shellSkirmishWindowProc(
     HWND window,
@@ -5653,194 +4052,49 @@ LRESULT CALLBACK shellSkirmishWindowProc(
     case WM_MOUSEMOVE: {
         TRACKMOUSEEVENT tracking{sizeof(TRACKMOUSEEVENT), TME_LEAVE, window, 0};
         TrackMouseEvent(&tracking);
-        const POINT client{
-            static_cast<short>(LOWORD(lParam)),
-            static_cast<short>(HIWORD(lParam))
-        };
-        updateShellMouse(*state, client);
-        const POINT base = shellClientToBase(*state, client);
-        if (isSliderTarget(state->draggingSlider)) {
-            setSliderFromBaseX(*state, state->draggingSlider, base.x);
-            return 0;
-        }
-        const HitRegion* hit = hitTest(*state, base);
-        const HitTarget next = hit == nullptr ? HitTarget{} : hit->target;
-        bool dropdownHoverChanged = false;
-        if (next.kind == HitKind::DropdownOption
-            && next.index != state->dropdownHover) {
-            state->dropdownHover = next.index;
-            dropdownHoverChanged = true;
-        }
-        if (next != state->hover || dropdownHoverChanged) {
-            state->hover = next;
-            invalidate(*state);
-        }
+        handleSkirmishMouseMove(*state, runtimeInputPixelPointFromPackedPosition(static_cast<std::uint32_t>(lParam)));
         return 0;
     }
     case WM_MOUSELEAVE:
-        updateShellMouse(*state, POINT{-1, -1});
-        if (state->hover.kind != HitKind::None) {
-            state->hover = {};
-            invalidate(*state);
-        }
+        handleSkirmishMouseLeave(*state);
         return 0;
     case WM_LBUTTONDOWN: {
-        SetFocus(window);
-        const POINT base = shellClientToBase(*state, POINT{
-            static_cast<short>(LOWORD(lParam)),
-            static_cast<short>(HIWORD(lParam))
-        });
-        const HitRegion* hit = hitTest(*state, base);
-        const HitTarget target = hit == nullptr ? HitTarget{} : hit->target;
-        if (state->openDropdown != DropdownKind::None
-            && !dropdownContainsTarget(*state, target)) {
-            closeDropdown(*state, true);
-        }
-        if (target.kind == HitKind::DropdownOption) {
-            state->dropdownHover = target.index;
-        }
-        if (isSliderTarget(target.kind)) {
-            state->draggingSlider = target.kind;
-            state->pressed = target;
-            SetCapture(window);
-            setSliderFromBaseX(*state, target.kind, base.x);
-            return 0;
-        }
-        state->pressed = target;
-        if (isShellNavigationButton(target.kind)) state->audio.play("MenuClick", true);
-        if (state->pressed.kind != HitKind::None) SetCapture(window);
-        invalidate(*state);
+        handleSkirmishLeftDown(*state, runtimeInputPixelPointFromPackedPosition(static_cast<std::uint32_t>(lParam)));
         return 0;
     }
     case WM_LBUTTONUP: {
-        const POINT base = shellClientToBase(*state, POINT{
-            static_cast<short>(LOWORD(lParam)),
-            static_cast<short>(HIWORD(lParam))
-        });
-        const HitRegion* hit = hitTest(*state, base);
-        const HitTarget released = hit == nullptr ? HitTarget{} : hit->target;
-        const HitTarget pressed = state->pressed;
-        if (isSliderTarget(state->draggingSlider)) {
-            setSliderFromBaseX(*state, state->draggingSlider, base.x);
-            state->draggingSlider = HitKind::None;
-            state->pressed = {};
-            if (GetCapture() == window) ReleaseCapture();
-            state->audio.play("MenuClick", true);
-            syncSelection(*state);
-            invalidate(*state);
-            return 0;
-        }
-        state->pressed = {};
-        if (GetCapture() == window) ReleaseCapture();
-        if (released == pressed && pressed.kind != HitKind::None) {
-            activateShellTarget(*state, pressed, 1);
-        } else invalidate(*state);
+        handleSkirmishLeftUp(*state, runtimeInputPixelPointFromPackedPosition(static_cast<std::uint32_t>(lParam)));
         return 0;
     }
     case WM_LBUTTONDBLCLK: {
-        if (state->page != SkirmishPage::MapSelection) return 0;
-        const POINT base = shellClientToBase(*state, POINT{
-            static_cast<short>(LOWORD(lParam)),
-            static_cast<short>(HIWORD(lParam))
-        });
-        const HitRegion* hit = hitTest(*state, base);
-        if (hit != nullptr && hit->target.kind == HitKind::Map) {
-            const HitTarget mapTarget = hit->target;
-            activateShellTarget(*state, mapTarget, 1);
-            activateShellTarget(*state, HitTarget{HitKind::UseMap, -1}, 1);
-        }
+        handleSkirmishDoubleClick(*state, runtimeInputPixelPointFromPackedPosition(static_cast<std::uint32_t>(lParam)));
         return 0;
     }
     case WM_RBUTTONUP: {
-        const POINT base = shellClientToBase(*state, POINT{
-            static_cast<short>(LOWORD(lParam)),
-            static_cast<short>(HIWORD(lParam))
-        });
-        const HitRegion* hit = hitTest(*state, base);
-        if (hit != nullptr) activateShellTarget(*state, hit->target, -1);
+        handleSkirmishRightUp(*state, runtimeInputPixelPointFromPackedPosition(static_cast<std::uint32_t>(lParam)));
         return 0;
     }
     case WM_CAPTURECHANGED:
-        state->draggingSlider = HitKind::None;
-        state->pressed = {};
-        invalidate(*state);
+        handleSkirmishCaptureLost(*state);
         return 0;
     case WM_MOUSEWHEEL:
-        if (state->page == SkirmishPage::MapSelection) {
-            const int notches = GET_WHEEL_DELTA_WPARAM(wParam) / WHEEL_DELTA;
-            scrollMapList(*state, -notches * 3, false);
-        }
+        handleSkirmishWheel(*state, GET_WHEEL_DELTA_WPARAM(wParam) / WHEEL_DELTA);
         return 0;
-    case WM_KEYDOWN:
-        if (state->openDropdown != DropdownKind::None) {
-            const int count = dropdownOptionCount(*state, state->openDropdown);
-            if (wParam == VK_ESCAPE) {
-                closeDropdown(*state, true);
-                return 0;
-            }
-            if (count > 0 && (wParam == VK_UP || wParam == VK_DOWN
-                || wParam == VK_HOME || wParam == VK_END)) {
-                int next = state->dropdownHover;
-                if (next < 0 || next >= count) {
-                    next = currentDropdownOption(*state);
-                }
-                if (wParam == VK_HOME) next = 0;
-                else if (wParam == VK_END) next = count - 1;
-                else next = (next + (wParam == VK_UP ? count - 1 : 1)) % count;
-                state->dropdownHover = next;
-                state->audio.play("MenuTab");
-                invalidate(*state);
-                return 0;
-            }
-            if (count > 0 && (wParam == VK_RETURN || wParam == VK_SPACE)) {
-                const int selected = std::clamp(
-                    state->dropdownHover,
-                    0,
-                    count - 1
-                );
-                activateShellTarget(
-                    *state,
-                    HitTarget{HitKind::DropdownOption, selected},
-                    1
-                );
-                return 0;
-            }
+    case WM_KEYDOWN: {
+        RuntimeSkirmishKey key = RuntimeSkirmishKey::Other;
+        switch(wParam) {
+        case VK_ESCAPE: key=RuntimeSkirmishKey::Escape; break;
+        case VK_RETURN: key=RuntimeSkirmishKey::Return; break;
+        case VK_SPACE: key=RuntimeSkirmishKey::Space; break;
+        case VK_UP: key=RuntimeSkirmishKey::Up; break;
+        case VK_DOWN: key=RuntimeSkirmishKey::Down; break;
+        case VK_HOME: key=RuntimeSkirmishKey::Home; break;
+        case VK_END: key=RuntimeSkirmishKey::End; break;
+        default: break;
         }
-        if (state->page == SkirmishPage::RandomMap || state->page == SkirmishPage::RandomMapLoad || state->page == SkirmishPage::RandomMapPreview) {
-            if (wParam == VK_ESCAPE) activateShellTarget(*state, {HitKind::RandomCancel, -1}, 1);
-            else if (wParam == VK_RETURN) activateShellTarget(*state,
-                {state->page == SkirmishPage::RandomMapLoad ? HitKind::RandomLoadSelected
-                    : state->randomResult && !state->randomDirty ? HitKind::RandomUse : HitKind::RandomGenerate, -1}, 1);
-            return 0;
-        }
-        if (wParam == VK_ESCAPE) {
-            state->audio.play("MenuClick", true);
-            activateShellTarget(*state,
-                HitTarget{state->page == SkirmishPage::Lobby
-                    ? HitKind::Back : HitKind::CancelMap, -1}, 1);
-            return 0;
-        }
-        if (wParam == VK_RETURN) {
-            state->audio.play("MenuClick", true);
-            activateShellTarget(*state,
-                HitTarget{state->page == SkirmishPage::Lobby
-                    ? HitKind::Start : HitKind::UseMap, -1}, 1);
-            return 0;
-        }
-        if (state->page == SkirmishPage::MapSelection
-            && (wParam == VK_UP || wParam == VK_DOWN)
-            && !state->filteredMaps.empty()) {
-            const auto current = std::find(
-                state->filteredMaps.begin(), state->filteredMaps.end(), state->selectedMap
-            );
-            int position = current == state->filteredMaps.end()
-                ? 0 : static_cast<int>(current - state->filteredMaps.begin());
-            position = std::clamp(position + (wParam == VK_UP ? -1 : 1),
-                0, static_cast<int>(state->filteredMaps.size()) - 1);
-            selectFilteredMap(*state, position, true);
-            return 0;
-        }
+        if (handleSkirmishKey(*state, key)) return 0;
         break;
+    }
     case WM_CLOSE:
         completeMenu(*state, false);
         return 0;
@@ -6171,9 +4425,11 @@ bool runtimeSkirmishMenuReady(const RuntimeConfig& config) {
 
 RuntimeSkirmishSelection runRuntimeSkirmishMenu(
     const RuntimeConfig& config,
-    void* hostWindow
+    RuntimeWindowId parent
 ) {
-    HWND requestedHost = static_cast<HWND>(hostWindow);
+    const auto resolvedParent = resolveRuntimeWindowParentWin32(parent);
+    if (!resolvedParent.supported) return {};
+    HWND requestedHost = resolvedParent.window;
     const bool startedWithHost = requestedHost != nullptr && IsWindow(requestedHost);
     if (!pendingMenuState.valid()
         && (prewarmedMenuState == nullptr || prewarmedMenuState->initialized)) {
@@ -6265,11 +4521,18 @@ RuntimeSkirmishSelection runRuntimeSkirmishMenu(
 #include "audio/world/diagnostics/RuntimeSkirmishAudioSmoke.inl"
 #include "simulation/scenarios/diagnostics/RuntimeSkirmishModeTransitionSmoke.inl"
 #include "ui/skirmish/diagnostics/RuntimeRandomMapMenuSmoke.inl"
+#include "ui/skirmish/diagnostics/RuntimeSkirmishWindowLifecycleSmoke.inl"
+#include "ui/skirmish/diagnostics/RuntimeSkirmishPixelSurfaceSmoke.inl"
+#include "audio/menu/diagnostics/RuntimeSkirmishMusicClockSmoke.inl"
 
 int runRuntimeSkirmishMenuSmokeTest(
     const RuntimeConfig& config,
     const std::string& bmpPath
 ) {
+    if (std::getenv("CONCORD_SKIRMISH_MUSIC_CLOCK_ONLY"))
+        return runSkirmishMusicClockSmoke(fs::path(bmpPath));
+    if (std::getenv("CONCORD_SKIRMISH_WINDOW_LIFECYCLE_ONLY"))
+        return runSkirmishWindowLifecycleSmoke(config, fs::path(bmpPath));
     if (std::getenv("CONCORD_SKIRMISH_OBSERVER_ONLY")) {
         MenuState state; std::string error;
         if (!initializeState(state, config, true)
@@ -6290,11 +4553,13 @@ int runRuntimeSkirmishMenuSmokeTest(
         std::cerr << "Skirmish shell smoke failed: preload/reentry contract.\n";
         return 1;
     }
+    std::vector<SkirmishBitmapTextTraceCall> bitmapTextTrace;
     MenuState state;
     if (!initializeState(state, config, true)) {
         std::cerr << "Skirmish shell smoke failed: maps or original shell assets are missing.\n";
         return 1;
     }
+    state.bitmapTextTrace = &bitmapTextTrace;
     std::string cursorError;
     if (!runRuntimeSkirmishCursorSmoke(state, config, fs::path(bmpPath), cursorError)) {
         std::cerr << "Skirmish shell smoke failed: " << cursorError << '\n';
@@ -6512,6 +4777,7 @@ int runRuntimeSkirmishMenuSmokeTest(
         std::cerr << "Skirmish shell smoke failed: original shell geometry mismatch.\n";
         return 1;
     }
+    if(!runMemoryOnlyShellFrameSmoke(config)) return 1;
     HDC screenDc = GetDC(nullptr);
     if (screenDc == nullptr || !ensureShellBackBuffer(state, screenDc)) {
         if (screenDc != nullptr) ReleaseDC(nullptr, screenDc);
@@ -6542,7 +4808,7 @@ int runRuntimeSkirmishMenuSmokeTest(
     state.page = SkirmishPage::Lobby;
     state.backDirty = true;
     const bool lobbyRendered = renderShellBackBuffer(state);
-    const std::vector<unsigned char> closedLobbyFrame = state.composePixels;
+    const std::vector<unsigned char> closedLobbyFrame = state.composeFrame.bytes();
     const auto countVisiblePixels = [](const std::vector<unsigned char>& pixels) {
         std::size_t visible = 0;
         for (std::size_t at = 0; at + 3 < pixels.size(); at += 4) {
@@ -6580,7 +4846,7 @@ int runRuntimeSkirmishMenuSmokeTest(
         lobbyHitData = lobbyHitData && hasHitKind(state, kind);
     }
     const bool lobbyWritten = writeBgraBmp(
-        lobbyPath, state.composePixels.data(), kBaseWidth, kBaseHeight, error
+        lobbyPath, state.composeFrame.bytes().data(), kBaseWidth, kBaseHeight, error
     );
 
     if (!runRuntimeSkirmishAudioSmoke(state, error)) {
@@ -6635,17 +4901,17 @@ int runRuntimeSkirmishMenuSmokeTest(
         && state.selection.slots.front().country == originalCountry;
     const bool dropdownWritten = writeBgraBmp(
         pathString(countryDropdownPath),
-        state.composePixels.data(),
+        state.composeFrame.bytes().data(),
         kBaseWidth,
         kBaseHeight,
         error
     );
     const std::size_t dropdownVisiblePixels = countVisiblePixels(
-        state.composePixels
+        state.composeFrame.bytes()
     );
     constexpr RECT countryDropdownLayer{266, 61, 386, 399};
     std::size_t dropdownOutsideDifferences = 0;
-    if (closedLobbyFrame.size() == state.composePixels.size()) {
+    if (closedLobbyFrame.size() == state.composeFrame.bytes().size()) {
         for (int y = 0; y < kBaseHeight; ++y) {
             for (int x = 0; x < kBaseWidth; ++x) {
                 if (pointIn(countryDropdownLayer, POINT{x, y})) continue;
@@ -6655,7 +4921,7 @@ int runRuntimeSkirmishMenuSmokeTest(
                 if (!std::equal(
                         closedLobbyFrame.begin() + at,
                         closedLobbyFrame.begin() + at + 4,
-                        state.composePixels.begin() + at)) {
+                        state.composeFrame.bytes().begin() + at)) {
                     ++dropdownOutsideDifferences;
                 }
             }
@@ -6853,17 +5119,15 @@ int runRuntimeSkirmishMenuSmokeTest(
         std::string aliasPaletteSource;
         std::string aliasError;
         AssetImage aliasImage;
-        const bool aliasAssetValid = loadRuntimePaletteResource(
-                state.shellContext,
-                state.shellCache,
+        const bool aliasAssetValid = state.shellResources.loadPalette(
+
                 alias.palette,
                 aliasPalette,
                 aliasPaletteSource,
                 aliasError
             )
             && loadResourceAsset(
-                state.shellContext,
-                state.shellCache,
+                state.shellResources,
                 alias.image,
                 0,
                 aliasPalette,
@@ -6886,9 +5150,8 @@ int runRuntimeSkirmishMenuSmokeTest(
     }
     std::vector<RuntimePaletteColor> loadingPalette;
     std::string loadingPaletteSource;
-    const bool loadingPaletteValid = loadRuntimePaletteResource(
-        state.shellContext,
-        state.shellCache,
+    const bool loadingPaletteValid = state.shellResources.loadPalette(
+
         runtimeLoadingPaletteAssetForCountry(state.selection.playerCountry),
         loadingPalette,
         loadingPaletteSource,
@@ -6897,8 +5160,7 @@ int runRuntimeSkirmishMenuSmokeTest(
     AssetImage loadingImage;
     const bool loadingImageValid = loadingPaletteValid
         && loadResourceAsset(
-            state.shellContext,
-            state.shellCache,
+            state.shellResources,
             state.selection.loadingScreenAssetId,
             0,
             loadingPalette,
@@ -6963,7 +5225,7 @@ int runRuntimeSkirmishMenuSmokeTest(
         mapHitData = mapHitData && hasHitKind(state, kind);
     }
     const bool mapWritten = writeBgraBmp(
-        pathString(mapPath), state.composePixels.data(),
+        pathString(mapPath), state.composeFrame.bytes().data(),
         kBaseWidth, kBaseHeight, error
     );
     ReleaseDC(nullptr, screenDc);
@@ -7003,6 +5265,12 @@ int runRuntimeSkirmishMenuSmokeTest(
         }
         std::cerr
                   << "\n";
+        return 1;
+    }
+    std::string bitmapTextTraceError;
+    if (!writeSkirmishBitmapTextTrace(fs::path(bmpPath).parent_path() / "bitmap-text.trace.bin",
+            state.gameFont.bytes, bitmapTextTrace, bitmapTextTraceError)) {
+        std::cerr << "Skirmish bitmap text evidence failed: " << bitmapTextTraceError << "\n";
         return 1;
     }
     std::cout << "Skirmish shell smoke: observer=select/starts/team/AI/network/coop noCooldown=click/label/accepted/save/reopen/network-off crates=click/label/accepted/save/reopen/on/off maps=" << state.maps.size()

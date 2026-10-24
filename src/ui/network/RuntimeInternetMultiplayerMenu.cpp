@@ -22,6 +22,7 @@
 
 #if defined(_WIN32)
 #define NOMINMAX
+#include "runtime/window/win32/RuntimeWindowParentWin32.h"
 #include <windows.h>
 #include <bcrypt.h>
 #pragma comment(lib, "bcrypt.lib")
@@ -3166,9 +3167,10 @@ bool selectHostSetup(
     auto hostConfig = state.baseConfig;
     hostConfig.multiplayerActive = true;
     hostConfig.noCooldown = false;
+    RuntimeWindowParentWin32 skirmishParent(state.hostWindow);
     RuntimeSkirmishSelection selection = runRuntimeSkirmishMenu(
         hostConfig,
-        state.hostWindow
+        skirmishParent.id()
     );
     if (state.window != nullptr && IsWindow(state.window)) {
         ShowWindow(state.window, SW_SHOW);

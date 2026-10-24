@@ -9,7 +9,8 @@ param(
     [ValidateSet('Release','Debug')][string]$Configuration='Release',
     [string]$BuildDirectory,
     [string]$MSVCCompatibilityVersion,
-    [switch]$HelperOnly
+    [switch]$HelperOnly,
+    [switch]$PortableCore
 )
 $ErrorActionPreference='Stop'
 $projectRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
@@ -17,6 +18,7 @@ if(!$BuildDirectory){
     $suffix=if($HelperOnly){'-helper'}else{''}
     $BuildDirectory='build/clang-cl-'+$Architecture+'-'+$Configuration.ToLowerInvariant()+$suffix
 }
+if($PortableCore -and $HelperOnly){throw 'PortableCore and HelperOnly are different capabilities'}
 if($HelperOnly -and $Architecture -ne 'x86'){throw 'HelperOnly requires Architecture x86'}
 if(![IO.Path]::IsPathRooted($BuildDirectory)){$BuildDirectory=Join-Path $projectRoot $BuildDirectory}
 $buildPath=[IO.Path]::GetFullPath($BuildDirectory)
@@ -35,6 +37,9 @@ foreach($file in @($CMakeExecutable,$NinjaExecutable,(Join-Path $LLVMRoot 'bin/c
 $cache=Join-Path $buildPath 'CMakeCache.txt'
 if(Test-Path -LiteralPath $cache){
     $text=Get-Content -LiteralPath $cache -Raw
+    $cacheIsCore=$text -match '(?m)^CONCORD_PORTABLE_CORE:BOOL=ON\s*$'
+    if($cacheIsCore -ne $PortableCore.IsPresent){throw 'Existing cache product/core profile differs; select a new directory'}
+
     if($text -notmatch '(?m)^CMAKE_GENERATOR:INTERNAL=Ninja\s*$' -or
        $text -notmatch '(?m)^CONCORD_CONFIGURED_TOOLCHAIN_IDENTITY:INTERNAL='){
         throw 'Existing cache is not an owned Clang/Ninja directory; select a new directory'
@@ -62,6 +67,8 @@ $arguments=@('-S',(ConvertTo-CMakeArgumentPath $source),'-B',(ConvertTo-CMakeArg
     ('-DCONCORD_CPU_ARCH='+$Architecture),('-DCONCORD_LLVM_ROOT='+ (ConvertTo-CMakeArgumentPath $LLVMRoot)),
     ('-DCONCORD_MSVC_ROOT='+ (ConvertTo-CMakeArgumentPath $MSVCRoot)),('-DCONCORD_WINDOWS_SDK_ROOT='+ (ConvertTo-CMakeArgumentPath $WindowsSDKRoot)),
     ('-DCONCORD_WINDOWS_SDK_VERSION='+$WindowsSDKVersion),('-DCONCORD_NINJA_EXECUTABLE='+ (ConvertTo-CMakeArgumentPath $NinjaExecutable)))
+$arguments+=('-DCONCORD_PORTABLE_CORE='+$(if($PortableCore){'ON'}else{'OFF'}))
+if($PortableCore){$arguments+='-DCMAKE_CXX_STANDARD_LIBRARIES=kernel32.lib'}
 if($MSVCCompatibilityVersion){$arguments+=('-DCONCORD_MSVC_COMPATIBILITY_VERSION='+$MSVCCompatibilityVersion)}
 Write-Output ('Executable: '+$CMakeExecutable)
 Write-Output 'Arguments (one per line):'

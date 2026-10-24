@@ -1,4 +1,7 @@
 #include "runtime/host/RuntimeShell.h"
+#include "runtime/window/RuntimeWindowLifecycle.h"
+#include "assets/text/WestwoodFontCodec.h"
+#include "runtime/window/win32/RuntimeWindowHostWin32.h"
 #include "runtime/replay/RuntimeMatchReplay.h"
 #include "render/core/RuntimeMapTerrainFrameRenderer.h"
 #include "runtime/host/RuntimeUiClockWin32.h"
@@ -150,6 +153,8 @@
 #include "simulation/vision/RuntimeVisionTerrainCoordinateLease.h"
 #include "simulation/vision/RuntimeVisionTerrainCoordinateBatch.h"
 #include "ui/skirmish/RuntimeSkirmishMenu.h"
+#include "ui/skirmish/RuntimeSkirmishSetup.h"
+#include "runtime/window/win32/RuntimeWindowParentWin32.h"
 #include "data/maps/RuntimeRandomMap.h"
 #include "assets/audio/AudioSampleResolver.h"
 #include "assets/audio/AudioDecoder.h"
@@ -116521,6 +116526,8 @@ private:
 #include "ui/input/RuntimeKeyboardIngressUi.inl"
 #include "ui/input/RuntimeInputCancellationUi.inl"
 
+#include "runtime/window/win32/RuntimeWindowLifecycleUi.inl"
+
 LRESULT CALLBACK runtimeWindowProc(
     HWND window,
     UINT message,
@@ -116678,34 +116685,21 @@ LRESULT CALLBACK runtimeWindowProc(
     case WM_SIZE:
         if ((message == WM_SHOWWINDOW && wParam == FALSE)
             || (message == WM_SIZE && wParam == SIZE_MINIMIZED)) {
-            if (auto* state = reinterpret_cast<RuntimeWindowState*>(
-                    GetWindowLongPtrW(window, GWLP_USERDATA))) {
-                state->fpsDisplayMeter.reset();
-            }
+            RuntimeWindowLifecycleUiPort port(campaignState, window);
+            handleRuntimeWindowLifecycle(message == WM_SHOWWINDOW
+                ? RuntimeWindowLifecycleEvent::Hidden : RuntimeWindowLifecycleEvent::Minimized,
+                campaignState != nullptr, port);
         }
         return DefWindowProcW(window, message, wParam, lParam);
     case WM_ERASEBKGND:
         return 1;
     case WM_CLOSE:
-        if (auto* state = reinterpret_cast<RuntimeWindowState*>(GetWindowLongPtrW(window, GWLP_USERDATA))) {
-            reportRuntimeRankedDeparture(*state);
-        }
-        DestroyWindow(window);
-        return 0;
     case WM_DESTROY:
     {
-        RuntimeWindowState* state = reinterpret_cast<RuntimeWindowState*>(
-            GetWindowLongPtrW(window, GWLP_USERDATA)
-        );
-        if (state != nullptr) {
-            stopRuntimeEvaPlayback(*state);
-            stopRuntimeMusic(*state);
-            releaseRuntimeBackBuffer(state->backBuffer);
-            releaseRuntimeBackBuffer(state->sidebarStaticBuffer);
-            releaseRuntimeBackBuffer(state->radarTerrainBuffer);
-            state->sidebarStaticKey.clear();
-        }
-        PostQuitMessage(0);
+        RuntimeWindowLifecycleUiPort port(campaignState, window);
+        handleRuntimeWindowLifecycle(message == WM_CLOSE
+            ? RuntimeWindowLifecycleEvent::Close : RuntimeWindowLifecycleEvent::Destroyed,
+            campaignState != nullptr, port);
         return 0;
     }
     case WM_PAINT:
@@ -176092,52 +176086,6 @@ int runRuntimeWindowSession(
                 );
         }
     }
-    const auto applySkirmishSelection = [&activeConfig](
-        const RuntimeSkirmishSelection& selection
-    ) {
-        activeConfig.skirmishLoadSavePath.clear();
-        activeConfig.campaignLoadSavePath.clear();
-        activeConfig.campaignSourceId.clear();
-        activeConfig.defaultMapPath = selection.mapPath;
-        activeConfig.mapStartingPointLimit = selection.mapStartingPointLimit;
-        activeConfig.gameMode = selection.gameMode;
-        activeConfig.gameModeRulesOverride = selection.gameModeRulesOverride;
-        activeConfig.playerCountry = selection.playerCountry;
-        activeConfig.playerColor = selection.playerColor;
-        activeConfig.loadingCountryDisplayName =
-            selection.playerCountryDisplayName;
-        activeConfig.loadingCountryBrief = selection.playerCountryBrief;
-        activeConfig.loadingScreenAssetId =
-            selection.loadingScreenAssetId;
-        activeConfig.startingCredits = selection.startingCredits;
-        activeConfig.startingUnits = selection.unitCount;
-        activeConfig.gameSpeed = std::clamp(selection.gameSpeed, 0, 6);
-        activeConfig.shortGame = selection.shortGame;
-        activeConfig.mcvRepacks = selection.mcvRepacks;
-        activeConfig.crates = selection.crates;
-        activeConfig.superweapons = selection.superweapons;
-        activeConfig.buildOffAlly = selection.buildOffAlly;
-        activeConfig.computerAiEnabled = selection.computerAiEnabled;
-        activeConfig.noCooldown = selection.noCooldown && !activeConfig.multiplayerActive;
-        activeConfig.playerSlots.clear();
-        activeConfig.playerSlots.reserve(selection.slots.size());
-        for (const RuntimeSkirmishPlayerSlot& slot : selection.slots) {
-            RuntimeConfig::PlayerSlot configured;
-            configured.enabled = slot.enabled;
-            configured.human = slot.human;
-            configured.name = slot.name;
-            configured.country = slot.country;
-            configured.color = slot.color;
-            configured.team = slot.team;
-            configured.difficulty = slot.difficulty;
-            configured.startPosition = std::max(0, slot.startPosition);
-            activeConfig.playerSlots.push_back(std::move(configured));
-        }
-
-        // Game speed controls only wall-clock pacing. The fixed simulation
-        // rate is match authority and must remain stable for save/replay
-        // clocks and authored millisecond-to-tick conversions.
-    };
     const auto applyCampaignSelection = [&activeConfig](
         const RuntimeCampaignSelection& selection
     ) {
@@ -176198,6 +176146,8 @@ int runRuntimeWindowSession(
                   << "titleStable=yes\n";
     }
 
+    RuntimeWindowParentWin32 skirmishParent(menuHost.window);
+
     RuntimeMainMenuStartPage nextMainMenuPage =
         RuntimeMainMenuStartPage::Home;
     while (activeConfig.showMainMenu) {
@@ -176234,7 +176184,7 @@ int runRuntimeWindowSession(
                 continue;
             }
             if (selection.loadedSkirmishSave) {
-                applySkirmishSelection(selection.skirmish);
+                applyRuntimeSkirmishSelection(activeConfig, selection.skirmish);
                 activeConfig.fixedTickHz = std::clamp(
                     selection.loadedSkirmishFixedTickHz,
                     1,
@@ -176302,7 +176252,7 @@ int runRuntimeWindowSession(
         }
 
         const RuntimeSkirmishSelection selection =
-            runRuntimeSkirmishMenu(activeConfig, menuHost.window);
+            runRuntimeSkirmishMenu(activeConfig, skirmishParent.id());
         if (!menuHost.valid()) {
             return 0;
         }
@@ -176312,18 +176262,18 @@ int runRuntimeWindowSession(
             nextMainMenuPage = RuntimeMainMenuStartPage::SinglePlayer;
             continue;
         }
-        applySkirmishSelection(selection);
+        applyRuntimeSkirmishSelection(activeConfig, selection);
         break;
     }
 
     if (!activeConfig.showMainMenu && activeConfig.showSkirmishMenu) {
         const RuntimeSkirmishSelection selection =
-            runRuntimeSkirmishMenu(activeConfig, menuHost.window);
+            runRuntimeSkirmishMenu(activeConfig, skirmishParent.id());
         if (!selection.accepted || !menuHost.valid()) {
             menuHost.close();
             return 0;
         }
-        applySkirmishSelection(selection);
+        applyRuntimeSkirmishSelection(activeConfig, selection);
     }
 
     if (activeConfig.multiplayerActive || toUpperAsciiLocal(trimAsciiLocal(activeConfig.gameMode)) == "CAMPAIGNMISSION")
@@ -176740,60 +176690,18 @@ int runRuntimeWindowSession(
 
     if(!liveBenchmark.enabled()) initializeRuntimeOfflineGameplayRouting(state);
 
-    HINSTANCE instance = GetModuleHandleW(nullptr);
-    const wchar_t* className = L"ConcordRTSRuntimeWindow";
-
-    WNDCLASSW windowClass{};
-    windowClass.lpfnWndProc = runtimeWindowProc;
-    windowClass.hInstance = instance;
-    windowClass.lpszClassName = className;
-    windowClass.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
-
-    if (RegisterClassW(&windowClass) == 0
-        && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
-        std::cerr << "Failed to register runtime window class.\n";
+    RuntimeWindowHostWin32 windowHost(runtimeWindowProc);
+    const auto created = windowHost.create(activeConfig.windowWidth, activeConfig.windowHeight);
+    if (created != RuntimeWindowCreateResult::Created) {
+        std::cerr << (created == RuntimeWindowCreateResult::RegistrationFailed
+            ? "Failed to register runtime window class.\n" : "Failed to create runtime window.\n");
         if (loading.window != nullptr && IsWindow(loading.window)) {
             DestroyWindow(loading.window);
         }
         return 1;
     }
-
-    RECT windowRect{
-        0,
-        0,
-        activeConfig.windowWidth,
-        activeConfig.windowHeight
-    };
-    AdjustWindowRect(&windowRect, WS_OVERLAPPEDWINDOW, FALSE);
-
-    HWND window = CreateWindowExW(
-        0,
-        className,
-        L"ConcordRTS",
-        WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT,
-        CW_USEDEFAULT,
-        windowRect.right - windowRect.left,
-        windowRect.bottom - windowRect.top,
-        nullptr,
-        nullptr,
-        instance,
-        nullptr
-    );
-
-    if (window == nullptr) {
-        std::cerr << "Failed to create runtime window.\n";
-        if (loading.window != nullptr && IsWindow(loading.window)) {
-            DestroyWindow(loading.window);
-        }
-        return 1;
-    }
-
-    SetWindowLongPtrW(
-        window,
-        GWLP_USERDATA,
-        reinterpret_cast<LONG_PTR>(&state)
-    );
+    HWND window = windowHost.window();
+    windowHost.attachSession(reinterpret_cast<LONG_PTR>(&state));
     std::cout << "Runtime loading complete: asset="
               << loading.imageId
               << " source=" << loading.imageSource
@@ -176936,7 +176844,6 @@ int runRuntimeWindowSession(
     // visual texture/palette switches used by drawing.
     waterWakeTickContext.useTileTextures = false;
 
-    MSG message{};
     bool running = true;
     bool multiplayerRuntimeFailed = false;
     std::string multiplayerRuntimeFailure;
@@ -176951,14 +176858,7 @@ int runRuntimeWindowSession(
         bool presentationClockDiscontinuity = false;
         clock::duration actualPaintService{};
         bool actualPaintCompleted = false;
-        while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
-            if (message.message == WM_QUIT) {
-                running = false;
-                break;
-            }
-            TranslateMessage(&message);
-            DispatchMessageW(&message);
-        }
+        running = windowHost.drainMessages();
         if (!running) {
             break;
         }

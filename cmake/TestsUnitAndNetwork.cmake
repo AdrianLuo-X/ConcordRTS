@@ -1,3 +1,8 @@
+if(CONCORD_PORTABLE_CORE)
+    include("${CMAKE_CURRENT_LIST_DIR}/CoreTests.cmake")
+    return()
+endif()
+
 add_test(
     NAME map_data_health_aircraft_smoke_test
     COMMAND concord_map_data_smoke

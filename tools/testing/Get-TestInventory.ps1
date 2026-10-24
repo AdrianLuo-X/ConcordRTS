@@ -324,6 +324,33 @@ foreach ($test in $ctestData.tests) {
             $targetEvidence = 'ctest-command-exact-file-api-artifact'
         }
     }
+    # W013: the reviewed native runners invoke one exact game artifact through
+    # CMake. Prove both the declared TARGET_FILE and the actual -D argument;
+    # an arbitrary wrapper or mismatched executable must still fail inventory.
+    $wrappedExecutableArtifact = $null
+    if ($null -eq $targetName -and $null -ne $registration -and $null -ne $command -and $command.Count -gt 3 -and
+        [IO.Path]::IsPathRooted($command[0]) -and
+        (Get-AbsolutePath $command[0] $buildRoot) -ieq (Get-AbsolutePath $cache.CMAKE_COMMAND $buildRoot)) {
+        $runnerPositions = @(for ($i=1; $i -lt $command.Count; $i++) { if ($command[$i] -ceq '-P') { $i } })
+        $knownNativeRunners = @((Join-Path $projectRoot 'cmake/RunCursorNative.cmake'),
+            (Join-Path $projectRoot 'cmake/RunInputCancellationNative.cmake'))
+        if ($runnerPositions.Count -eq 1 -and $runnerPositions[0] -eq ($command.Count - 2) -and
+            [IO.Path]::IsPathRooted($command[-1]) -and
+            (Get-AbsolutePath $command[-1] $buildRoot) -in $knownNativeRunners) {
+            $declaredGames = @($registration.commandTokens | Where-Object { $_ -cmatch '^-DGAME_EXECUTABLE=\$<TARGET_FILE:([^>]+)>$' })
+            $actualGames = @($command | Where-Object { $_ -cmatch '^-DGAME_EXECUTABLE=(.+)$' })
+            if ($declaredGames.Count -eq 1 -and $actualGames.Count -eq 1) {
+                $declaredTarget = [regex]::Match($declaredGames[0], '^\-DGAME_EXECUTABLE=\$<TARGET_FILE:([^>]+)>$').Groups[1].Value
+                $actualGame = $actualGames[0].Substring('-DGAME_EXECUTABLE='.Length)
+                if ($targets.ContainsKey($declaredTarget) -and $targets[$declaredTarget].type -ceq 'EXECUTABLE' -and
+                    [IO.Path]::IsPathRooted($actualGame)) {
+                    $targetName = $declaredTarget
+                    $wrappedExecutableArtifact = Get-AbsolutePath $actualGame $buildRoot
+                    $targetEvidence = 'reviewed-native-cmake-runner-and-exact-TARGET_FILE'
+                }
+            }
+        }
+    }
     if ($null -eq $targetName) { $unresolved.Add($test.name) }
     $properties = [ordered]@{}
     foreach ($property in $test.properties) { $properties[$property.name] = $property.value }
@@ -341,8 +368,9 @@ foreach ($test in $ctestData.tests) {
     $metadata = if ($null -ne $targetName) { $targets[$targetName] } else { $null }
     $commandArtifactMatches = $null
     if ($null -ne $command -and $command.Count -gt 0 -and $null -ne $metadata -and $null -ne $metadata.executableArtifact) {
-        $commandArtifactMatches = [IO.Path]::IsPathRooted($command[0]) -and
-            (Get-AbsolutePath $command[0] $buildRoot) -ieq (Get-AbsolutePath $metadata.executableArtifact $buildRoot)
+        $executedArtifact = if ($null -ne $wrappedExecutableArtifact) { $wrappedExecutableArtifact } else { $command[0] }
+        $commandArtifactMatches = [IO.Path]::IsPathRooted($executedArtifact) -and
+            (Get-AbsolutePath $executedArtifact $buildRoot) -ieq (Get-AbsolutePath $metadata.executableArtifact $buildRoot)
         if (-not $commandArtifactMatches) { $commandMismatches.Add($test.name) }
     }
     $artifactExists = $null
@@ -361,6 +389,7 @@ foreach ($test in $ctestData.tests) {
         targetMetadata = $metadata
         configuration = $Configuration
         command = $command
+        wrappedExecutableArtifact = $wrappedExecutableArtifact
         commandArtifactMatches = $commandArtifactMatches
         artifactExists = $artifactExists
         allArtifactsExist = $allArtifactsExist
