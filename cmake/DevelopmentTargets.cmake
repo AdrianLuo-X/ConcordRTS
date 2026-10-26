@@ -835,6 +835,14 @@ target_include_directories(concord_shp_codec_contract PRIVATE src)
 if(CONCORD_MSVC_FRONTEND)
     concord_target_compile_options(concord_shp_codec_contract PRIVATE /utf-8 /W4 /WX /permissive-)
 endif()
+add_executable(concord_auxiliary_animation_contract
+    tests/rendering/RuntimeAuxiliaryAnimationContract.cpp
+)
+target_include_directories(concord_auxiliary_animation_contract PRIVATE src)
+if(CONCORD_MSVC_FRONTEND)
+    concord_target_compile_options(concord_auxiliary_animation_contract PRIVATE /utf-8 /W4 /WX /permissive-)
+endif()
+
 include(cmake/SelectionKeyContracts.cmake)
 
 include(cmake/TeamKeyContracts.cmake)

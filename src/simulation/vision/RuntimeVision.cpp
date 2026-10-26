@@ -131,33 +131,22 @@ int RuntimeVisionSystem::sightForObject(
             }
         }
 
-        const std::vector<VeteranAbility>* activeAbilities = nullptr;
-        if (veterancy != nullptr && object.veterancy >= 2) {
-            activeAbilities = &veterancy->eliteAbilities;
-        } else if (veterancy != nullptr && object.veterancy >= 1) {
-            activeAbilities = &veterancy->veteranAbilities;
-        }
-        if (activeAbilities != nullptr
-            && std::find(
-                activeAbilities->begin(),
-                activeAbilities->end(),
-                VeteranAbility::Sight
-            ) != activeAbilities->end()) {
-            // EliteAbilities already includes the veteran set. Applying the
-            // global multiplier once matches Westwood/huangkaoya semantics;
-            // reaching elite does not square VeteranSight.
-            const int baseSight = sight > 0 ? sight : 5;
-            sight = static_cast<int>(
-                static_cast<double>(baseSight)
-                * rules->getVeterancyRules().veteranSight
-            );
-        }
     }
 
-    // A missing/modded Sight value must not turn a live object into a blind
-    // spot. Five cells matches the common Westwood baseline while preserving
-    // explicitly authored larger ranges.
-    return std::clamp(sight > 0 ? sight : 5, 1, 64);
+    // Resolve the rank to one capability set before evaluating the radius.
+    // Repeated entries and abilities from other ranks cannot add multipliers.
+    double radius = sight > 0 ? sight : 5;
+    if (veterancy != nullptr && object.veterancy > 0) {
+        const auto& abilities = object.veterancy >= 2
+            ? veterancy->eliteAbilities : veterancy->veteranAbilities;
+        const bool improvesSight = std::any_of(abilities.begin(), abilities.end(),
+            [](VeteranAbility ability) { return ability == VeteranAbility::Sight; });
+        if (improvesSight) radius *= rules->getVeterancyRules().veteranSight;
+    }
+    // Clamp before converting: very large mod values must not overflow int.
+    // Preserve the established five-cell fallback and truncation to whole cells.
+    if (!(radius >= 1.0)) return 5;
+    return radius >= 64.0 ? 64 : static_cast<int>(radius);
 }
 
 bool RuntimeVisionSystem::refreshTerrainLayout(const GameWorld& world) {
@@ -1016,7 +1005,58 @@ bool RuntimeVisionSystem::resetShroudArea(
 #include "simulation/vision/diagnostics/RuntimeVisionSourceMemoContract.inl"
 #include "simulation/vision/diagnostics/RuntimeVisionTerrainCoordinateContract.inl"
 
+bool runRuntimeVisionSightContractCheck(std::string& errorMessage) {
+    IniFile ini;
+    RulesDatabase rules;
+    if (!ini.loadFromString("[InfantryTypes]\n0=SIGHT_PROBE\n[SIGHT_PROBE]\nSight=3\nStrength=100\n")
+        || !rules.loadFromIni(ini)) {
+        errorMessage = "sight boundary fixture did not load";
+        return false;
+    }
+    auto& type = *const_cast<UnitType*>(rules.findUnitType("InfantryType", "SIGHT_PROBE"));
+    auto& modifiers = const_cast<VeterancyRules&>(rules.getVeterancyRules());
+    GameWorld world;
+    for (int x = 0; x <= 140; ++x) {
+        TerrainCell cell;
+        cell.x = x; cell.y = 1; cell.cellIndex512 = 512 + x;
+        world.accessTerrainCells().push_back(cell);
+    }
+    WorldObjectInstance source;
+    source.instanceId = 1; source.kind = WorldObjectKind::Infantry;
+    source.type = "SIGHT_PROBE"; source.owner = "Observer";
+    source.x = 70; source.y = 1; source.alive = true;
+    world.accessObjects().push_back(source);
+    const auto probe = [&](int rank, int base, std::initializer_list<VeteranAbility> veteran,
+        std::initializer_list<VeteranAbility> elite, double scale, int expected) {
+        world.accessObjects()[0].veterancy = rank;
+        type.sight = base;
+        type.veterancy.veteranAbilities.assign(veteran);
+        type.veterancy.eliteAbilities.assign(elite);
+        modifiers.veteranSight = scale;
+        RuntimeVisionSystem candidate;
+        candidate.update(world, &rules, {{"Observer", {}}}, 0);
+        return candidate.isCellVisibleTo("Observer", 70 + expected, 1)
+            && !candidate.isCellVisibleTo("Observer", 71 + expected, 1);
+    };
+    const auto sight = VeteranAbility::Sight;
+    if (!probe(0, 3, {sight}, {sight}, 2.0, 3)
+        || !probe(1, 3, {sight}, {}, 2.0, 6)
+        || !probe(2, 3, {sight}, {}, 2.0, 3)
+        || !probe(1, 3, {}, {sight}, 2.0, 3)
+        || !probe(2, 3, {}, {sight, sight}, 2.0, 6)
+        || !probe(3, 3, {sight}, {sight}, 2.0, 6)
+        || !probe(1, 0, {sight}, {}, 2.0, 10)
+        || !probe(1, 3, {sight}, {}, 1.5, 4)
+        || !probe(1, 100, {sight}, {}, 2.0, 64)
+        || !probe(1, 3, {sight}, {}, 1.0e300, 64)) {
+        errorMessage = "current-rank sight, single multiplier, fallback, rounding or cap failed";
+        return false;
+    }
+    return true;
+}
+
 bool runRuntimeVisionContractCheck(std::string& errorMessage) {
+    if (!runRuntimeVisionSightContractCheck(errorMessage)) return false;
     if (!RuntimeVisionTerrainCoordinateContractDetail::primitive(errorMessage)) return false;
     if (!runRuntimeVisionSourceMemoContractCheck(errorMessage)) return false;
     GameWorld world;

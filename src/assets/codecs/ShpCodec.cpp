@@ -2,103 +2,158 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <span>
 #include <utility>
 
 namespace {
 
-unsigned int read16(const std::vector<unsigned char>& bytes, std::size_t offset) {
+using Bytes = std::span<const unsigned char>;
+constexpr std::size_t fileHeaderSize = 8;
+constexpr std::size_t frameRecordSize = 24;
+
+// All callers supply a bounded header or row before reading its little-endian fields.
+unsigned int wordAt(Bytes bytes, std::size_t offset) {
     return static_cast<unsigned int>(bytes[offset])
         | (static_cast<unsigned int>(bytes[offset + 1]) << 8);
 }
 
-std::uint32_t read32(const std::vector<unsigned char>& bytes, std::size_t offset) {
-    return static_cast<std::uint32_t>(bytes[offset])
-        | (static_cast<std::uint32_t>(bytes[offset + 1]) << 8)
-        | (static_cast<std::uint32_t>(bytes[offset + 2]) << 16)
-        | (static_cast<std::uint32_t>(bytes[offset + 3]) << 24);
+int signedWordAt(Bytes bytes, std::size_t offset) {
+    const unsigned int bits = wordAt(bytes, offset);
+    return bits < 0x8000U ? static_cast<int>(bits) : static_cast<int>(bits) - 0x10000;
 }
 
-int dimension(unsigned int value, ShpDecodePolicy policy) {
-    if (policy == ShpDecodePolicy::Runtime && (value & 0x8000U) != 0) {
-        return static_cast<int>(value) - 0x10000;
+std::uint32_t dwordAt(Bytes bytes, std::size_t offset) {
+    return static_cast<std::uint32_t>(wordAt(bytes, offset))
+        | (static_cast<std::uint32_t>(wordAt(bytes, offset + 2)) << 16);
+}
+
+struct FrameRecord {
+    int x;
+    int y;
+    int width;
+    int height;
+    unsigned char compression;
+    unsigned char previewFormatHighByte;
+    std::uint32_t payload;
+};
+
+FrameRecord readFrameRecord(Bytes record) {
+    // x/y/w/h are signed 16-bit fields; the compression tag occupies one byte.
+    // Bytes 9..19 are not pixel data. Preview retains its old interpretation
+    // of byte 9 only in the compatibility projection below.
+    return {signedWordAt(record, 0), signedWordAt(record, 2),
+        signedWordAt(record, 4), signedWordAt(record, 6), record[8], record[9],
+        dwordAt(record, 20)};
+}
+
+int policyDimension(int signedValue, ShpDecodePolicy policy) {
+    return policy == ShpDecodePolicy::Preview && signedValue < 0
+        ? signedValue + 0x10000 : signedValue;
+}
+
+ShpIndexedFrame frameMetadata(Bytes file, Bytes record, ShpDecodePolicy policy) {
+    const auto header = readFrameRecord(record);
+    ShpIndexedFrame result;
+    result.globalWidth = policyDimension(signedWordAt(file, 2), policy);
+    result.globalHeight = policyDimension(signedWordAt(file, 4), policy);
+    result.offsetX = policyDimension(header.x, policy);
+    result.offsetY = policyDimension(header.y, policy);
+    result.width = policyDimension(header.width, policy);
+    result.height = policyDimension(header.height, policy);
+    result.format = static_cast<int>(header.compression);
+    if (policy == ShpDecodePolicy::Preview) {
+        result.format += static_cast<int>(header.previewFormatHighByte) * 256;
     }
-    return static_cast<int>(value);
+    result.dataOffset = header.payload;
+    return result;
 }
 
-bool decodeFormat3(
-    const std::vector<unsigned char>& bytes, std::size_t dataOffset,
-    int width, int height, std::vector<unsigned char>& pixels, std::string& error
-) {
-    pixels.assign(static_cast<std::size_t>(width) * static_cast<std::size_t>(height), 0);
-    std::size_t cursor = dataOffset;
-    for (int y = 0; y < height; ++y) {
-        if (cursor + 2 > bytes.size()) {
-            error = "SHP format 3 row table ended early.";
-            return false;
-        }
-        const std::size_t rowStart = cursor;
-        const std::size_t rowLength = read16(bytes, cursor);
-        if (rowLength < 2) {
-            error = "SHP format 3 row has an invalid length.";
-            return false;
-        }
-        const std::size_t rowEnd = rowStart + rowLength;
-        if (rowEnd > bytes.size()) {
-            error = "SHP format 3 row extends past the end of the file.";
-            return false;
-        }
-        cursor += 2;
-        int x = 0;
-        while (cursor < rowEnd) {
-            const unsigned char value = bytes[cursor++];
-            if (value == 0) {
-                if (cursor >= rowEnd) {
-                    error = "SHP format 3 transparent run is truncated.";
-                    return false;
-                }
-                x += bytes[cursor++];
-                continue;
+bool isRuntimePause(const ShpIndexedFrame& frame, ShpDecodePolicy policy) {
+    if (policy != ShpDecodePolicy::Runtime || frame.globalWidth <= 0 || frame.globalHeight <= 0
+        || frame.width != 0 || frame.height != 0 || frame.dataOffset != 0) {
+        return false;
+    }
+    switch (frame.format) {
+    case 0: case 1: case 3: case 4: return true;
+    default: return false;
+    }
+}
+
+struct RowDiagnostics {
+    const char* missingLength;
+    const char* invalidLength;
+    const char* missingPayload;
+};
+
+constexpr RowDiagnostics literalRowErrors{
+    "SHP format 2 row header is truncated",
+    "SHP format 2 row length is invalid",
+    "SHP format 2 row data is truncated"
+};
+constexpr RowDiagnostics transparentRowErrors{
+    "SHP format 3 row table ended early.",
+    "SHP format 3 row has an invalid length.",
+    "SHP format 3 row extends past the end of the file."
+};
+
+bool takeRow(Bytes& remaining, Bytes& row, const RowDiagnostics& diagnostics, std::string& error) {
+    if (remaining.size() < 2) {
+        error = diagnostics.missingLength;
+        return false;
+    }
+    // The stored row size includes this length word, including an empty row (2).
+    const std::size_t storedSize = wordAt(remaining, 0);
+    if (storedSize < 2) {
+        error = diagnostics.invalidLength;
+        return false;
+    }
+    if (storedSize > remaining.size()) {
+        error = diagnostics.missingPayload;
+        return false;
+    }
+    row = remaining.subspan(2, storedSize - 2);
+    remaining = remaining.subspan(storedSize);
+    return true;
+}
+
+bool expandTransparentRow(Bytes row, std::span<unsigned char> destination, std::string& error) {
+    std::size_t column = 0;
+    while (!row.empty()) {
+        const unsigned char token = row.front();
+        row = row.subspan(1);
+        if (token != 0) {
+            if (column < destination.size()) destination[column] = token;
+            ++column;
+        } else {
+            if (row.empty()) {
+                error = "SHP format 3 transparent run is truncated.";
+                return false;
             }
-            if (x >= 0 && x < width) {
-                pixels[static_cast<std::size_t>(y) * static_cast<std::size_t>(width)
-                    + static_cast<std::size_t>(x)] = value;
-            }
-            ++x;
+            column += row.front();
+            row = row.subspan(1);
         }
-        cursor = rowEnd;
     }
     return true;
 }
 
-bool decodeFormat2(
-    const std::vector<unsigned char>& bytes, std::size_t dataOffset,
-    int width, int height, std::vector<unsigned char>& pixels, std::string& error
-) {
-    pixels.assign(static_cast<std::size_t>(width) * static_cast<std::size_t>(height), 0);
-    std::size_t cursor = dataOffset;
-    for (int y = 0; y < height; ++y) {
-        if (cursor + 2 > bytes.size()) {
-            error = "SHP format 2 row header is truncated";
+bool decodeRows(Bytes payload, ShpIndexedFrame& frame, std::string& error) {
+    const std::size_t width = static_cast<std::size_t>(frame.width);
+    frame.pixels.assign(width * static_cast<std::size_t>(frame.height), 0);
+    const bool literals = frame.format == 2;
+    const auto& diagnostics = literals ? literalRowErrors : transparentRowErrors;
+    auto output = std::span<unsigned char>(frame.pixels);
+    for (int rowIndex = 0; rowIndex < frame.height; ++rowIndex) {
+        Bytes encoded;
+        if (!takeRow(payload, encoded, diagnostics, error)) return false;
+        const auto row = output.first(width);
+        output = output.subspan(width);
+        if (literals) {
+            // Short rows remain transparent; long rows are consumed in full and clipped.
+            const auto visible = encoded.first(std::min(encoded.size(), row.size()));
+            std::copy(visible.begin(), visible.end(), row.begin());
+        } else if (!expandTransparentRow(encoded, row, error)) {
             return false;
         }
-        const int rowLength = static_cast<int>(read16(bytes, cursor));
-        cursor += 2;
-        if (rowLength < 2) {
-            error = "SHP format 2 row length is invalid";
-            return false;
-        }
-        const int rowDataLength = rowLength - 2;
-        if (cursor + static_cast<std::size_t>(rowDataLength) > bytes.size()) {
-            error = "SHP format 2 row data is truncated";
-            return false;
-        }
-        const int copyLength = std::min(width, rowDataLength);
-        if (copyLength > 0) {
-            const std::size_t rowStart = static_cast<std::size_t>(y) * static_cast<std::size_t>(width);
-            std::copy_n(bytes.begin() + static_cast<std::ptrdiff_t>(cursor), copyLength,
-                pixels.begin() + static_cast<std::ptrdiff_t>(rowStart));
-        }
-        cursor += static_cast<std::size_t>(rowDataLength);
     }
     return true;
 }
@@ -113,13 +168,12 @@ bool decodeShpIndexedFrame(
     ShpIndexedFrame& frame,
     std::string& error
 ) {
-    constexpr std::size_t fileHeaderBytes = 8;
-    constexpr std::size_t frameHeaderBytes = 24;
-    if (bytes.size() < fileHeaderBytes + frameHeaderBytes) {
+    const Bytes file(bytes);
+    if (file.size() < fileHeaderSize + frameRecordSize) {
         error = "SHP file is too small for a frame table: " + source;
         return false;
     }
-    const unsigned int frameCount = read16(bytes, 6);
+    const unsigned int frameCount = wordAt(file, 6);
     if (frameCount == 0) {
         error = "SHP file has no frames: " + source;
         return false;
@@ -129,67 +183,64 @@ bool decodeShpIndexedFrame(
             + std::to_string(frameCount) + " frames): " + source;
         return false;
     }
-    const std::size_t frameOffset = fileHeaderBytes
-        + static_cast<std::size_t>(frameIndex) * frameHeaderBytes;
-    if (frameOffset + frameHeaderBytes > bytes.size()) {
+    // Validate only the selected record: callers historically tolerate missing
+    // unselected records and data offsets that point before the frame table.
+    const auto records = file.subspan(fileHeaderSize);
+    const std::size_t selected = static_cast<std::size_t>(frameIndex);
+    if (selected >= records.size() / frameRecordSize) {
         error = "SHP frame table is truncated: " + source;
         return false;
     }
-    ShpIndexedFrame decoded;
-    decoded.globalWidth = dimension(read16(bytes, 2), policy);
-    decoded.globalHeight = dimension(read16(bytes, 4), policy);
-    decoded.offsetX = dimension(read16(bytes, frameOffset), policy);
-    decoded.offsetY = dimension(read16(bytes, frameOffset + 2), policy);
-    decoded.width = dimension(read16(bytes, frameOffset + 4), policy);
-    decoded.height = dimension(read16(bytes, frameOffset + 6), policy);
+    auto decoded = frameMetadata(file, records.subspan(selected * frameRecordSize, frameRecordSize), policy);
     decoded.frameIndex = frameIndex;
-    decoded.format = static_cast<int>(policy == ShpDecodePolicy::Runtime
-        ? bytes[frameOffset + 8] : read16(bytes, frameOffset + 8));
-    decoded.dataOffset = read32(bytes, frameOffset + 20);
     decoded.sourcePath = source;
-    if (policy == ShpDecodePolicy::Runtime
-        && decoded.globalWidth > 0 && decoded.globalHeight > 0
-        && decoded.width == 0 && decoded.height == 0
-        && (decoded.format <= 1 || decoded.format == 3 || decoded.format == 4)
-        && decoded.dataOffset == 0) {
+    if (isRuntimePause(decoded, policy)) {
         decoded.offsetX = 0;
         decoded.offsetY = 0;
         decoded.authoredPause = true;
         frame = std::move(decoded);
         return true;
     }
-    const std::string frameDescription = policy == ShpDecodePolicy::Preview ? "first frame" : "frame";
-    if ((policy == ShpDecodePolicy::Runtime && (decoded.globalWidth <= 0 || decoded.globalHeight <= 0))
-        || decoded.width <= 0 || decoded.height <= 0 || decoded.width > 4096 || decoded.height > 4096) {
-        error = "SHP " + frameDescription + " dimensions are unsupported: " + source;
+
+    const std::string description = policy == ShpDecodePolicy::Preview ? "first frame" : "frame";
+    const bool invalidCanvas = policy == ShpDecodePolicy::Runtime
+        && (decoded.globalWidth <= 0 || decoded.globalHeight <= 0);
+    if (invalidCanvas || decoded.width <= 0 || decoded.height <= 0
+        || decoded.width > 4096 || decoded.height > 4096) {
+        error = "SHP " + description + " dimensions are unsupported: " + source;
         return false;
     }
-    const std::size_t dataOffset = decoded.dataOffset;
-    if (dataOffset >= bytes.size()) {
-        error = "SHP " + frameDescription + " data offset is outside the file: " + source;
+    if (decoded.dataOffset >= file.size()) {
+        error = "SHP " + description + " data offset is outside the file: " + source;
         return false;
     }
-    if (decoded.format <= 1) {
-        const std::size_t pixelCount = static_cast<std::size_t>(decoded.width)
+    const auto payload = file.subspan(decoded.dataOffset);
+    switch (decoded.format) {
+    case 0:
+    case 1: {
+        const std::size_t count = static_cast<std::size_t>(decoded.width)
             * static_cast<std::size_t>(decoded.height);
-        if (dataOffset + pixelCount > bytes.size()) {
-            error = "SHP raw " + frameDescription + " is shorter than expected: " + source;
+        if (count > payload.size()) {
+            error = "SHP raw " + description + " is shorter than expected: " + source;
             return false;
         }
-        decoded.pixels.assign(bytes.begin() + static_cast<std::ptrdiff_t>(dataOffset),
-            bytes.begin() + static_cast<std::ptrdiff_t>(dataOffset + pixelCount));
-    } else if (policy == ShpDecodePolicy::Runtime && decoded.format == 2) {
-        if (!decodeFormat2(bytes, dataOffset, decoded.width, decoded.height, decoded.pixels, error)) {
+        const auto image = payload.first(count);
+        decoded.pixels.assign(image.begin(), image.end());
+        break;
+    }
+    case 2:
+    case 3:
+        if (decoded.format == 2 && policy == ShpDecodePolicy::Preview) {
+            error = "Unsupported SHP " + description + " format 2: " + source;
+            return false;
+        }
+        if (!decodeRows(payload, decoded, error)) {
             error += " Path: " + source;
             return false;
         }
-    } else if (decoded.format == 3) {
-        if (!decodeFormat3(bytes, dataOffset, decoded.width, decoded.height, decoded.pixels, error)) {
-            error += " Path: " + source;
-            return false;
-        }
-    } else {
-        error = "Unsupported SHP " + frameDescription + " format "
+        break;
+    default:
+        error = "Unsupported SHP " + description + " format "
             + std::to_string(decoded.format) + ": " + source;
         return false;
     }

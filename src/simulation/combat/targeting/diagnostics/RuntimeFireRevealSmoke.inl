@@ -119,6 +119,64 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
             return fail("reveal did not expire to original shroud");
     }
     {
+        auto s=makeWorld();refresh(*s);
+        auto first=s->world.getObjects()[0];
+        auto second=first;second.instanceId=3;second.x=8;second.cell=runtimeCellKey(8,6);
+        auto target=s->world.getObjects()[1];target.owner=" BETA ";
+        const auto& weapon=*s->rules.findWeaponType("LOUD");
+        if(!s->vision.notifyWeaponFired(first,target,weapon,s->tick,30))
+            return fail("overlap first pulse");
+        s->tick=60;refresh(*s);
+        if(!s->vision.notifyWeaponFired(second,target,weapon,s->tick,30))
+            return fail("overlapping temporary sight suppressed a new pulse");
+        const auto twoPulses=s->vision.serializeFireReveals(s->tick);
+        if(twoPulses.rfind("1 2\n",0)!=0 || hidden(*s,"Beta",11,6)
+            || !hidden(*s,"Ally",8,6)) return fail("overlap pulse identity or target-only coverage");
+        if(!s->vision.notifyWeaponFired(second,target,weapon,s->tick,30)
+            || s->vision.serializeFireReveals(s->tick)!=twoPulses)
+            return fail("same-tick repeat changed pulse authority");
+        if(!s->vision.notifyWeaponFired(second,target,weapon,30,30)
+            || s->vision.serializeFireReveals(s->tick)!=twoPulses)
+            return fail("older repeat shortened the pulse");
+        s->tick=160;refresh(*s);
+        if(!hidden(*s,"Beta",3,6) || hidden(*s,"Beta",6,6)
+            || hidden(*s,"Beta",11,6) || s->vision.serializeFireReveals(s->tick).rfind("1 1\n",0)!=0)
+            return fail("overlapping pulse deadlines were not independent");
+        s->tick=209;refresh(*s);
+        if(hidden(*s,"Beta",11,6)) return fail("second overlap pulse ended early");
+        s->tick=210;refresh(*s);
+        if(!hidden(*s,"Beta",6,6) || !hidden(*s,"Beta",11,6))
+            return fail("second overlap pulse did not expire");
+
+        // Replacing the saved pulse set must invalidate the composed-view memo.
+        if(!s->vision.notifyWeaponFired(first,target,weapon,s->tick,30)
+            || !s->vision.restoreFireReveals("1 0\n",s->tick,30))
+            return fail("empty pulse replacement");
+        refresh(*s);
+        if(!hidden(*s,"Beta") || s->vision.serializeFireReveals(s->tick)!="1 0\n")
+            return fail("empty pulse restore left stale coverage");
+    }
+    {
+        auto s=makeWorld();refresh(*s);
+        auto source=s->world.getObjects()[0];source.x=0;source.y=0;source.cell=runtimeCellKey(0,0);
+        const auto target=s->world.getObjects()[1];
+        const auto& weapon=*s->rules.findWeaponType("LOUD");
+        if(!s->vision.notifyWeaponFired(source,target,weapon,s->tick,30)
+            || hidden(*s,"Beta",0,3) || hidden(*s,"Beta",3,0)
+            || !hidden(*s,"Beta",3,1)) return fail("map edge circle clipping");
+        source.hasRenderPosition=true;source.renderX=std::numeric_limits<double>::infinity();source.renderY=0;
+        const auto saved=s->vision.serializeFireReveals(s->tick);
+        if(s->vision.notifyWeaponFired(source,target,weapon,s->tick,30)
+            || s->vision.serializeFireReveals(s->tick)!=saved) return fail("invalid pose changed pulse authority");
+        s->tick=std::numeric_limits<int>::max()-1;
+        source.hasRenderPosition=false;
+        if(!s->vision.notifyWeaponFired(source,target,weapon,s->tick,30))
+            return fail("saturated pulse deadline creation");
+        s->tick=std::numeric_limits<int>::max();refresh(*s);
+        if(!hidden(*s,"Beta",0,0) || s->vision.notifyWeaponFired(source,target,weapon,s->tick,30))
+            return fail("saturated pulse deadline did not expire");
+    }
+    {
         auto s=makeWorld(); auto gap=s->world.getObjects()[0];
         gap.instanceId=3;gap.kind=WorldObjectKind::Structure;gap.type="GAP";gap.poweredOperational=true;
         s->world.accessObjects().push_back(gap);refresh(*s);

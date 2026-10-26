@@ -4020,9 +4020,6 @@ void appendSidebarDiagnostics(concord::assets::MapPreviewResourceSession& sessio
         "sidebar frame purpose facts: tabs=frame0 repair=frames0-1 sell=frames0-1 power=frames0-1 radar=frames0-32 pips=health/power candidate frames; "
         "queue/progress should use resolved cameo frame plus progress overlay; verbose SHP probe above carries first frame size/offset/global and source MIX entry."
     );
-    stats.warnings.push_back(
-        "sidebar reference check: read-only huangkaoya mix database enumerates sidec01/sidec02 sidebar entries including power/radar/repair/sell/tabs; Java reference reserves a power strip, but no layout constants are copied here."
-    );
 }
 
 std::vector<std::string> splitCommaList(const std::string& value) {

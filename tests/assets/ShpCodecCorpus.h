@@ -185,6 +185,20 @@ inline std::vector<Case> cases() {
     format2("format2-short-empty", {3, 0, 9, 2, 0}, {9, 0, 0, 0, 0, 0});
     format2("format2-long-row", {7, 0, 1, 2, 3, 4, 5, 6, 0, 6, 7, 8, 9}, {1, 2, 3, 6, 7, 8});
     format2("format2-extra-tail", {5, 0, 1, 2, 3, 5, 0, 4, 5, 6, 222}, {1, 2, 3, 4, 5, 6});
+    // Row lengths must retain their full 16-bit value, even when most bytes
+    // are clipped off the visible row; the following row must stay aligned.
+    for (const unsigned int length : {258U, 65535U}) {
+        Bytes payload(length, 77); put16(payload, 0, length);
+        payload.insert(payload.end(), {5, 0, 9, 8, 7});
+        format2("format2-wide-length-" + std::to_string(length), payload, {77, 77, 77, 9, 8, 7});
+    }
+    bytes = file({5, 0, 1, 2, 3, 5, 0, 4, 5, 6}, 0xff02U);
+    put16(bytes, 8, 32768); put16(bytes, 10, 32767);
+    runtime = rawExpected({1, 2, 3, 4, 5, 6}); runtime.format = 2;
+    runtime.offsetX = -32768; runtime.offsetY = 32767; runtime.sourcePath = "format2-signed-byte-tag";
+    result.push_back({"format2-signed-byte-tag", bytes, 0,
+        rejected("Unsupported SHP first frame format 65282: format2-signed-byte-tag"),
+        {true, runtime, "previous diagnostic"}});
     const auto bad2 = [&](const std::string& name, const Bytes& payload, const std::string& error) {
         failure(name, file(payload, 2), "Unsupported SHP first frame format 2: ", error + " Path: ");
     };
@@ -193,6 +207,7 @@ inline std::vector<Case> cases() {
     bad2("format2-one-length", {1, 0}, "SHP format 2 row length is invalid");
     bad2("format2-short-payload", {5, 0, 1, 2}, "SHP format 2 row data is truncated");
     bad2("format2-missing-second-row", {5, 0, 1, 2, 3}, "SHP format 2 row header is truncated");
+    bad2("format2-second-row-invalid", {5, 0, 1, 2, 3, 1, 0}, "SHP format 2 row length is invalid");
 
     const auto format3 = [&](const std::string& name, const Bytes& payload, const Bytes& pixels) {
         auto expected = rawExpected(pixels); expected.format = 3;
@@ -212,6 +227,7 @@ inline std::vector<Case> cases() {
     bad3("format3-short-payload", {5, 0, 1, 2}, "SHP format 3 row extends past the end of the file.");
     bad3("format3-truncated-run", {3, 0, 0}, "SHP format 3 transparent run is truncated.");
     bad3("format3-missing-second-row", {5, 0, 1, 2, 3}, "SHP format 3 row table ended early.");
+    bad3("format3-clipped-truncated-run", {7, 0, 1, 2, 3, 4, 0}, "SHP format 3 transparent run is truncated.");
 
     for (const std::size_t size : {std::size_t{0}, std::size_t{8}, std::size_t{31}}) {
         failure("short-file-" + std::to_string(size), Bytes(size, 0),
@@ -249,6 +265,8 @@ inline std::vector<Case> cases() {
     auto expected = rawExpected({4, 0, 6}); expected.height = 1; expected.frameIndex = 1;
     expected.offsetX = 2; expected.offsetY = 3; expected.dataOffset = 59;
     accepted("second-frame-selected", bytes, expected, expected, 1);
+    for (std::size_t reserved = 42; reserved < 52; ++reserved) bytes[reserved] = 255;
+    accepted("second-frame-reserved-bytes", bytes, expected, expected, 1);
     return result;
 }
 

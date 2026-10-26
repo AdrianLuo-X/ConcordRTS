@@ -1,33 +1,66 @@
-// Damage only records the reaction. Orders and paths are replaced here at a
-// safe simulation boundary, never while a projectile iterates its victims.
+// Damage records a pending reaction; order replacement remains at the
+// simulation boundary where advanceRuntimePanics consumes that reaction.
 bool runtimePanicEligible(const RuntimeWindowState& state, const WorldObjectInstance& object) {
+    if (!object.alive || object.health <= 0 || object.airborne) return false;
+    switch (object.kind) {
+    case WorldObjectKind::Infantry:
+    case WorldObjectKind::Unit:
+        break;
+    default:
+        return false;
+    }
+    if (runtimeObjectHasDeployedState(state, object)
+        || runtimeMissionIsDeploying(object) || runtimeMissionIsUndeploying(object)) return false;
     const auto* type = findRuntimeUnitType(state.rules, object);
-    return object.alive && object.health > 0 && !object.airborne
-        && (object.kind == WorldObjectKind::Infantry || object.kind == WorldObjectKind::Unit)
-        && type != nullptr && type->speed > 0 && !runtimeObjectHasDeployedState(state, object)
-        && !runtimeMissionIsDeploying(object) && !runtimeMissionIsUndeploying(object);
+    return type != nullptr && type->speed > 0;
 }
 
 bool beginRuntimePanic(RuntimeWindowState& state, WorldObjectInstance& object,
     bool permanent, int threatX = -1, int threatY = -1) {
     if (!runtimePanicEligible(state, object)) return false;
-    const auto* type = findRuntimeUnitType(state.rules, object);
-    if (!permanent && (!type->fraidycat || type->fearless
-        || runtimeVeterancyHasAbility(state, object, VeteranAbility::Fearless))) return false;
-    auto [it, inserted] = state.combatDetails.panics.try_emplace(object.instanceId);
-    auto& panic = it->second;
-    if (inserted) {
-        panic.owner = object.owner; panic.sourceType = object.type;
-        panic.nextChooseTick = state.tick;
+    if (!permanent) {
+        const auto& type = *findRuntimeUnitType(state.rules, object);
+        const bool ignoresDamageReaction = type.fearless
+            || runtimeVeterancyHasAbility(state, object, VeteranAbility::Fearless);
+        if (!type.fraidycat || ignoresDamageReaction) return false;
     }
-    panic.permanent = panic.permanent || permanent;
-    // Five simulation seconds is this runtime's finite damage reaction. A new
-    // hit refreshes it; it does not consume wall time while the game is paused.
-    panic.ticksRemaining = 5 * std::clamp(state.config.fixedTickHz, 1, 1000);
-    panic.lastTick = state.tick;
-    panic.threatX = threatX; panic.threatY = threatY;
-    object.prone = false; object.proneTicksRemaining = 0;
+
+    RuntimePanicState reaction;
+    const auto existing = state.combatDetails.panics.find(object.instanceId);
+    if (existing != state.combatDetails.panics.end()) {
+        reaction = existing->second;
+    } else {
+        reaction.owner = object.owner;
+        reaction.sourceType = object.type;
+        reaction.nextChooseTick = state.tick;
+    }
+    // Refresh the finite duration without downgrading a script's permanent
+    // reaction or resetting its pending-start flag and deterministic walk cursor.
+    reaction.permanent |= permanent;
+    reaction.ticksRemaining = 5 * std::clamp(state.config.fixedTickHz, 1, 1000);
+    reaction.lastTick = state.tick;
+    reaction.threatX = threatX;
+    reaction.threatY = threatY;
+    state.combatDetails.panics.insert_or_assign(object.instanceId, std::move(reaction));
+    object.prone = false;
+    object.proneTicksRemaining = 0;
     return true;
+}
+
+enum class RuntimePanicClockStep { Suspended, Active, Expired };
+
+RuntimePanicClockStep advanceRuntimePanicClock(
+    RuntimePanicState& panic, int tick, bool suspended
+) {
+    const auto elapsed = std::max<std::int64_t>(0,
+        static_cast<std::int64_t>(tick) - panic.lastTick);
+    panic.lastTick = tick;
+    if (suspended) return RuntimePanicClockStep::Suspended;
+    if (panic.permanent) return RuntimePanicClockStep::Active;
+    panic.ticksRemaining = static_cast<int>(std::max<std::int64_t>(0,
+        static_cast<std::int64_t>(panic.ticksRemaining) - elapsed));
+    return panic.ticksRemaining == 0
+        ? RuntimePanicClockStep::Expired : RuntimePanicClockStep::Active;
 }
 
 bool advanceRuntimePanics(RuntimeWindowState& state) {
@@ -46,19 +79,18 @@ bool advanceRuntimePanics(RuntimeWindowState& state) {
             changed = true;
             continue;
         }
-        const int elapsed = std::max(0, state.tick - panic.lastTick);
-        panic.lastTick = state.tick;
-        if (runtimeComputerAiPausedForOwner(state, object->owner)
+        const bool suspended = runtimeComputerAiPausedForOwner(state, object->owner)
             || !runtimeObjectHasOperationalPower(state, *object)
             || runtimeObjectDisabledByParasite(state, id)
             || (state.specialMechanismsInitialized
                 && (state.specialMechanisms.isTemporalFrozen(id)
-                    || state.specialMechanisms.isChronoMovementLocked(id, state.tick)))) {
+                    || state.specialMechanisms.isChronoMovementLocked(id, state.tick)));
+        const auto clockStep = advanceRuntimePanicClock(panic, state.tick, suspended);
+        if (clockStep == RuntimePanicClockStep::Suspended) {
             state.combatDetails.panics[id] = std::move(panic);
             continue;
         }
-        if (!panic.permanent) panic.ticksRemaining = std::max(0, panic.ticksRemaining - elapsed);
-        if (!panic.permanent && panic.ticksRemaining == 0) {
+        if (clockStep == RuntimePanicClockStep::Expired) {
             eraseRuntimeBehavior(state, id);
             object->mission = "Guard";
             changed = true;

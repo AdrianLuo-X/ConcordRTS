@@ -16766,9 +16766,12 @@ double runtimeMovementBaseIntervalTicks(
     const UnitType* unit = findRuntimeUnitType(state.rules, object);
     const int hz = std::clamp(state.config.fixedTickHz, 1, 1000);
     if (!unit || unit->speed <= 0) return 8.0 * hz / 30.0;
-    const double multiplier = runtimeVeterancyAbilityMultiplier(state, object, VeteranAbility::Faster)
-        * (object.kind == WorldObjectKind::Infantry && object.prone ? 0.5 : 1.0)
-        * (state.combatDetails.panics.contains(object.instanceId) ? 2.0 : 1.0);
+    // Reaction and posture form one locomotion factor; veterancy remains an
+    // independent factor so none of these states replaces another speed bonus.
+    double locomotionFactor = state.combatDetails.panics.contains(object.instanceId) ? 2.0 : 1.0;
+    if (object.kind == WorldObjectKind::Infantry && object.prone) locomotionFactor /= 2.0;
+    const double multiplier = locomotionFactor
+        * runtimeVeterancyAbilityMultiplier(state, object, VeteranAbility::Faster);
     if (object.airborne && runtimeUnitUsesJumpjetMovement(*unit)) {
         const double authoredSpeed = std::max(0.01, unit->jumpjetSpeed);
         return 256.0 * hz / (runtimeRuleFramesPerSecond * std::max(0.01, authoredSpeed * multiplier));

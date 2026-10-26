@@ -16,6 +16,14 @@ ConcordRTS 是使用 C++20 开发的 RTS 引擎工程，面向《命令与征服
 
 ## 更新记录
 
+### 2026-10-27
+
+- 根据本项目的功能需求，重新实现 SHP 图像解码、辅助动画帧选择、恐慌反应、开火临时视野与等级视野倍率相关逻辑，保留既有玩法、规则参数和消费者接口。
+- 将 SHP 帧记录、行数据范围与像素展开分开处理，保留预览和运行时的兼容策略；辅助动画集中处理帧范围、往返循环、播放节奏与整数边界。
+- 整理恐慌状态的刷新、暂停和到期处理，以及开火视野的重叠、续期和保存恢复；等级视野按当前等级的能力集合应用一次倍率。
+- 补充自编测试输入和边界检查，覆盖长行与截断数据、动画循环与极端整数、恐慌恢复、视野重叠及非法输入。新增辅助动画合同已接入 CMake/CTest。
+- 清理相关历史外部引用、注释和诊断表述，更新接口与测试说明。
+
 ### 2026-10-26
 
 - 补充生产循环的 CPU 模拟、绘制、GDI 提交和加载阶段计时，保存有界原始样本与分位数，增加独立的设备能力诊断和重复采样工具。
@@ -134,6 +142,7 @@ ConcordRTS/
 │   │   └── host/                   启动检查、游戏窗口与战局宿主
 │   ├── render/                     地图、单位、效果与软件绘制
 │   │   ├── core/                   地图绘图与短期地形帧输入
+│   │   ├── buildings/              建筑绘制与辅助动画帧选择
 │   │   ├── voxel/                  体素绘制、巨炮光栅任务与预热生命周期
 │   │   └── resources/              菜单资源接口的既有缓存实现
 │   ├── ui/                         菜单、输入、HUD 与偏好保存
@@ -343,7 +352,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-Game.ps1 -
 
 局域网和互联网相关实现包含在源码中。互联网联机需要自行部署、配置本项目的服务端、证书和客户端凭据；它不代表兼容或接入原版 Westwood Online 服务。公开配置示例中的域名和凭据均为占位符。
 
-示例 MOD 需要本机已有规则和素材。支持范围以源码实现为准，不保证任意 Ares、Phobos 或其他 MOD 可直接运行。
+示例 MOD 需要本机已有规则和素材。支持范围以源码实现为准，不保证任意第三方 MOD 可直接运行。
 
 ## 测试与开发
 
@@ -368,6 +377,8 @@ pwsh -NoProfile -File .\tools\testing\Run-LocalTests.ps1 -Compiler Clang -BuildD
 视频服务、回放封包与恢复一致性检查分别以 `bink_playback_service_contract_test`、`match_replay_envelope_contract_test` 和 `runtime_recovery_consistency_contract_test` 注册在 [TestsUnitAndNetwork.cmake](cmake/TestsUnitAndNetwork.cmake)，LAN 地图传输检查 `runtime_lobby_map_transfer_contract_test` 注册在 [TestsAdditionalRegression.cmake](cmake/TestsAdditionalRegression.cmake)。它们仍独立于固定的 12＋4 集合。视频服务的无素材合同只验证服务边界和缺失输入处理，不能代替实际影片播放验收。
 
 窗口生命周期、菜单控制器、颜色值、图像、字体、CPU 像素表面、音乐策略及其 Windows 适配，以及 TCP 边界和快照会话，均有单独的合同目标与测试注册。相关入口见 [TestsAdditionalRegression.cmake](cmake/TestsAdditionalRegression.cmake) 和各模块的 `*Contracts.cmake`；这些检查没有自动并入固定的 12＋4 集合。独立核心的 10 项测试通过 `concord_core_check` 执行，使用上文单独的核心构建目录。
+
+辅助动画的 [自编合同测试](tests/rendering/RuntimeAuxiliaryAnimationContract.cpp) 以目标 `concord_auxiliary_animation_contract` 构建，并注册为 `runtime_auxiliary_animation_contract`，不需要官方素材。它检查帧范围、往返循环、速率、缺省输入及整数边界；SHP 边界输入继续由 `shp_codec_contract_test` 使用 [ShpCodecCorpus.h](tests/assets/ShpCodecCorpus.h) 检查。这些测试未加入固定的 12＋4 集合。
 
 有界执行器和巨炮光栅内核分别注册 `bounded_task_executor_contract_test`、`grand_cannon_raster_contract_test`，均使用自编输入，不需要官方素材。在已配置的完整产品构建目录中，可单独构建并运行：
 

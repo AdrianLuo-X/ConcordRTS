@@ -20,6 +20,8 @@
 | CSF 文字 | 字节解析与显式回车投影 | [CsfCodec.h](src/assets/text/CsfCodec.h) |
 | PAL 调色板 | 原始通道解析与颜色映射策略 | [PalDecoder.h](src/assets/codecs/PalDecoder.h) |
 | SHP 图像 | 索引像素帧与两种兼容策略 | [ShpCodec.h](src/assets/codecs/ShpCodec.h) |
+| 辅助动画 | 帧范围、往返循环与规则时间换算 | [RuntimeAuxiliaryAnimation.h](src/render/buildings/RuntimeAuxiliaryAnimation.h) |
+| 视野与开火揭示 | 观察者视野、短期揭示与保存恢复 | [RuntimeVision.h](src/simulation/vision/RuntimeVision.h) |
 | TMP 地形资源 | 瓦片解码、资源定位与缓存 | [RuntimeTmpCodec.h](src/assets/codecs/RuntimeTmpCodec.h)、[RuntimeTerrainTmpQuery.h](src/assets/terrain/RuntimeTerrainTmpQuery.h) |
 | 导航地形查询 | 通行类型、坡面与桥面判断 | [RuntimeNavigationTerrainQuery.h](src/simulation/navigation/terrain/RuntimeNavigationTerrainQuery.h) |
 | 输入值与控制器 | 像素值、键盘准入及键鼠交互 | [RuntimeInputPixelValues.h](src/ui/input/RuntimeInputPixelValues.h)、[RuntimeKeyboardIngressController.h](src/ui/input/RuntimeKeyboardIngressController.h) |
@@ -583,6 +585,10 @@ bool decodeShpIndexedFrame(
 
 `ShpIndexedFrame` 返回尺寸、偏移、格式元数据和索引像素，不包含调色板颜色。`Preview` 与 `Runtime` 保留原消费者在字段符号、格式接受范围和空帧上的差异，调用方须按用途选择。失败保留原 `frame`，成功保留调用方已有的 `error`；资源路径选择、帧回退、阴影处理与显示缓存留在原消费者。
 
+实现先读取指定的帧记录，再通过有界字节视图解码像素。`Runtime` 使用有符号 16 位尺寸与偏移，以及单字节压缩标记；`Preview` 保留无符号字段投影和额外格式字节的既有处理。两者均支持原始像素与格式 3 透明游程；格式 2 逐行像素仅由 `Runtime` 接受。
+
+行长度保留完整的 16 位值，包含长度字段本身。短行补透明像素，长行完整消费后裁剪到可见宽度；格式 3 在可见宽度之外仍检查游程是否截断。运行时的合法空白停顿帧通过 `authoredPause` 标记，不能当成缺失资源。相关自编边界输入见 [ShpCodecCorpus.h](tests/assets/ShpCodecCorpus.h)。
+
 ### TMP 瓦片
 
 [RuntimeTmpTypes.h](src/assets/codecs/RuntimeTmpTypes.h) 声明 `RuntimeTmpTileFile`、`RuntimeTmpSubTileImage` 与颜色数据；[RuntimeTmpCodec.h](src/assets/codecs/RuntimeTmpCodec.h) 提供：
@@ -637,6 +643,40 @@ PathGoalFallbackCandidates generatePathGoalFallbackCandidates(
 `PathGoalCandidateInput` 包含起终点、移动方式、目标槽位数、地图查询标志及借用的候选 span。输入由原队列提交入口先做规范化、去重和数量限制；`PathGoalTerrainView` 同步读取原地形与占用快照，索引顺序须保留原始顺序。`PathBlockedGoalView` 提供阻挡连通块的边界与格子集合。
 
 返回值拥有候选向量，不保存输入、view 或 span。普通结果同时报告是否使用地图接近点及是否需要环形回退；回退结果附带距离查询和连通块检查计数。候选顺序与截断仍遵循原规则，邻近目标总数上限 16，环形回退上限 32。生成函数不执行 A* 搜索、更新队列或缓存、轮转槽位，也不消耗搜索预算；这些职责继续由 `PathRequestQueue` 持有。
+
+## 辅助动画帧选择
+
+[RuntimeAuxiliaryAnimation.h](src/render/buildings/RuntimeAuxiliaryAnimation.h) 提供无需资源读取或窗口状态的帧索引计算：
+
+```cpp
+int runtimeAuxiliaryAnimationFrame(
+    const ArtType* art, int frameCount, bool mainFramesOnlyFallback,
+    int animationTick, int fixedTickHz);
+```
+
+`art` 为同步借用的可空指针，函数不修改美术配置。帧数小于等于 1 时返回 0；其余输入返回有效帧索引。起点优先使用 `LoopStart`，其次是 `Start`；`LoopEnd` 为排他的结束索引，`End` 则按既有约定表示相对于 `Start`（缺省时相对于已解析起点）的帧数。未指定终点时，`mainFramesOnlyFallback` 仅在总帧数为偶数时取前半段。
+
+`PingPong` 的返回段不重复两个端点，播放速率通过 [RuntimeRuleTime.h](src/runtime/timing/RuntimeRuleTime.h) 换算为模拟 tick。零或负动画 tick 保留既有的首次推进行为；范围加法和往返周期使用较宽整数中间值。渲染器通过这一接口选择辅助动画帧。输入与预期序列见 [辅助动画合同](tests/rendering/RuntimeAuxiliaryAnimationContract.cpp)。
+
+## 视野与战斗反应
+
+[RuntimeVisionSystem](src/simulation/vision/RuntimeVision.h) 管理观察者视野，开火揭示接口为：
+
+```cpp
+bool notifyWeaponFired(const WorldObjectInstance& attacker,
+    const WorldObjectInstance& target, const WeaponType& weapon,
+    int tick, int fixedTickHz);
+std::string serializeFireReveals(int tick) const;
+bool restoreFireReveals(const std::string& text, int tick, int fixedTickHz);
+```
+
+调用前需已建立观察者与地图视野。符合 `RevealOnFire` 条件的开火，在受击方视野中临时显示射击位置周围半径 3 格的圆形区域，持续 5 个模拟秒；不会写入永久探索记录，也不提供隐形探测。相同观察者、相同中心的记录只延长期限，不因较早的重复通知缩短；不同中心各自到期。非法坐标、无效对象、未启用 `RevealOnFire` 等情况返回 `false`。返回 `true` 表示通知符合登记条件；同一 tick 的重复通知也可能返回成功，不保证像素或期限发生变化。具体实现见 [RuntimeFireReveal.inl](src/simulation/combat/targeting/RuntimeFireReveal.inl)。
+
+恢复先校验整个文本，再替换揭示集合；失败保留原集合。成功后使视野缓存失效，下一次完整 `update()` 清除被替换记录留下的旧覆盖。等级视野只读取当前等级对应的能力集合，`Sight` 倍率应用一次；重复能力不会叠乘，结果保留缺省、整数截断及半径上限策略。
+
+恐慌逻辑仍是宿主内部接口，见 [RuntimePanic.inl](src/simulation/combat/damage/RuntimePanic.inl)：`beginRuntimePanic()` 记录或刷新反应，`advanceRuntimePanics()` 在模拟边界处理计时和命令，`finishRuntimePanicMovementLeg()` 处理移动段结束。它们同步访问宿主状态，不是独立线程安全服务。临时反应保留 5 个模拟秒时长，永久反应不会被普通伤害降级；暂停条件、确定性移动游标、姿态和等级速度倍率沿用现有规则。
+
+对应运行时检查位于 [开火揭示诊断](src/simulation/combat/targeting/diagnostics/RuntimeFireRevealSmoke.inl)、[恐慌诊断](src/simulation/combat/damage/diagnostics/RuntimePanicSmoke.inl) 和 [视野合同实现](src/simulation/vision/RuntimeVision.cpp)。
 
 ## 地图与地形绘制帧
 

@@ -29,6 +29,7 @@
 #include "render/visibility/RuntimeShroudSparseBlur.h"
 #include "render/shadows/RuntimeShadowDibHalf.h"
 #include "render/buildings/RuntimeBuildingDepthEmptyScene.h"
+#include "render/buildings/RuntimeAuxiliaryAnimation.h"
 #include "render/shadows/RuntimeWaterWakeHistoryMaintenance.h"
 #include "render/core/RuntimeRendererEnvironment.h"
 #include "render/units/RuntimeInfantryDeathAnimation.h"
@@ -2670,63 +2671,14 @@ int selectRuntimeInfantryIdleFrame(
     return idleFrame >= 0 && idleFrame < frameCount ? idleFrame : -1;
 }
 
-int animationFrameStep(
-    const RuntimeMapRenderContext& context,
-    const ArtType* artType
-) {
-    return std::max(
-        1,
-        context.animationTick / runtimeAnimationFrameDelayTicks(artType, context.fixedTickHz)
-    );
-}
-
 int selectRuntimeAuxiliaryAnimationFrame(
     const RuntimeMapRenderContext& context,
     const ArtType* artType,
     int frameCount,
     bool mainFramesOnlyFallback
 ) {
-    if (frameCount <= 1) {
-        return 0;
-    }
-
-    int start = 0;
-    if (artType != nullptr) {
-        if (artType->hasAnimationLoopStart) {
-            start = artType->animationLoopStart;
-        } else if (artType->hasAnimationStart) {
-            start = artType->animationStart;
-        }
-    }
-    start = std::clamp(start, 0, std::max(0, frameCount - 1));
-
-    int endExclusive = mainFramesOnlyFallback
-        ? runtimeVisibleMainFrameCount(frameCount, true)
-        : frameCount;
-    if (artType != nullptr && artType->hasAnimationLoopEnd) {
-        endExclusive = artType->animationLoopEnd;
-        if (endExclusive <= start) {
-            endExclusive = start + 1;
-        }
-    } else if (artType != nullptr && artType->hasAnimationEnd) {
-        const int base =
-            artType->hasAnimationStart ? artType->animationStart : start;
-        endExclusive = base + std::max(1, artType->animationEnd);
-    }
-    endExclusive = std::clamp(endExclusive, start + 1, frameCount);
-
-    const int span = std::max(1, endExclusive - start);
-    const int step = animationFrameStep(context, artType);
-    if (artType != nullptr && artType->pingPong && span > 1) {
-        const int cycle = (span * 2) - 2;
-        int position = step % cycle;
-        if (position >= span) {
-            position = cycle - position;
-        }
-        return start + position;
-    }
-
-    return start + (step % span);
+    return runtimeAuxiliaryAnimationFrame(artType, frameCount, mainFramesOnlyFallback,
+        context.animationTick, context.fixedTickHz);
 }
 
 struct RuntimeObjectSequenceFrameResult {

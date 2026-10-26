@@ -3741,11 +3741,6 @@ void appendUiCoverageFields(CapabilityReportState& state) {
         "uiPlacementPreviewFacts",
         "place.shp frames 0/1 crop y=30..58 to 60x29 green/red diamond in Java reference; MapFacts footprint iso diamonds are authoritative for legality and hit-test"
     );
-    addField(
-        state.report,
-        "uiSidebarReferenceCheck",
-        "read-only refs agree sidec01/sidec02 containers carry sidebar frames; Java layout facts are reported for Renderer reference only; no runtime layout constants copied"
-    );
 
     state.report.warnings.push_back(
         "[capability-summary] uiCoverage sidebar="

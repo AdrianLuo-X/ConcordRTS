@@ -753,6 +753,9 @@ endforeach()
 
 add_test(NAME shp_codec_contract_test COMMAND concord_shp_codec_contract)
 set_tests_properties(shp_codec_contract_test PROPERTIES TIMEOUT 30 LABELS "no-assets;shp-codec-contract")
+add_test(NAME runtime_auxiliary_animation_contract COMMAND concord_auxiliary_animation_contract)
+set_tests_properties(runtime_auxiliary_animation_contract PROPERTIES
+    TIMEOUT 30 LABELS "no-assets;auxiliary-animation")
 add_test(NAME ui_clock_contract_test COMMAND concord_ui_clock_contract)
 set_tests_properties(ui_clock_contract_test PROPERTIES
     TIMEOUT 30 LABELS "no-assets;ui-clock;platform-time")
