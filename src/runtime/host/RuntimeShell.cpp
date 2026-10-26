@@ -71,6 +71,7 @@
 #include "simulation/buildings/RuntimeGrindingSystem.h"
 #include "ui/main_menu/RuntimeMainMenu.h"
 #include "render/core/RuntimeMapRenderer.h"
+#include "render/voxel/RuntimeGrandCannonPrewarm.h"
 #include "render/buildings/RuntimeBuildingDepthEmptyScene.h"
 #include "../../../tests/rendering/RuntimeBuildingDepthOracle.h"
 #include "render/core/RuntimeRendererEnvironment.h"
@@ -3263,20 +3264,6 @@ struct RuntimeSidebarPowerDisplay {
 constexpr int runtimeGrandCannonFacingCount = 32;
 constexpr int runtimeGrandCannonMaxPrewarmWorkers = 4;
 
-struct RuntimeGrandCannonPrewarmJob {
-    int workerCount = 0;
-    std::array<RuntimeMapRenderCache, runtimeGrandCannonMaxPrewarmWorkers>
-        caches;
-    std::array<std::uint32_t, runtimeGrandCannonMaxPrewarmWorkers>
-        readyMasks{};
-    std::array<int, runtimeGrandCannonMaxPrewarmWorkers> readySprites{};
-    std::array<std::string, runtimeGrandCannonMaxPrewarmWorkers> errors;
-    std::atomic<std::uint32_t> completedWorkerMask{0};
-    std::uint32_t mergedWorkerMask = 0;
-    // Keep workers last so their stop-and-join destructors run before caches.
-    std::vector<std::jthread> workers;
-};
-
 struct RuntimeTerrainObjectInitialState {
     int health = 1;
     bool alive = true;
@@ -3580,6 +3567,7 @@ struct RuntimeWindowState {
     bool visionEnabled = false;
     bool cloakStateInitialized = false;
     std::unordered_map<int, int> cloakObservedHealthByObject;
+    std::uint64_t grandCannonPrewarmGeneration = 0;
     std::unique_ptr<RuntimeGrandCannonPrewarmJob> grandCannonPrewarmJob;
     RuntimeMapRenderStats renderStats;
     int lastSelectedCargoPipObjects = 0;
@@ -10420,34 +10408,6 @@ void applyRuntimeInitialObjectVeterancy(
     applyRuntimeProducedObjectVeterancy(state, object);
 }
 
-void mergeRuntimeVoxelPrewarmCache(
-    RuntimeMapRenderCache& target,
-    RuntimeMapRenderCache& source
-) {
-    for (auto& [key, entry] : source.voxelObjectsByType) {
-        target.voxelObjectsByType.try_emplace(key, std::move(entry));
-    }
-    for (auto& [lookup, key] : source.stableVoxelCacheKeyByLookup) {
-        target.stableVoxelCacheKeyByLookup.try_emplace(
-            lookup,
-            std::move(key)
-        );
-    }
-    for (auto& [lookup, image] :
-            source.structureTurretBarrelImageByKey) {
-        target.structureTurretBarrelImageByKey.try_emplace(
-            lookup,
-            std::move(image)
-        );
-    }
-    for (auto& [key, scale] : source.voxelFixedScaleByKey) {
-        target.voxelFixedScaleByKey.try_emplace(
-            key,
-            std::move(scale)
-        );
-    }
-}
-
 int runtimeGrandCannonReadyFacingCount(
     const RuntimeMapRenderCache& cache
 ) {
@@ -10463,36 +10423,8 @@ int runtimeGrandCannonReadyFacingCount(
 
 void mergeRuntimeGrandCannonPrewarm(RuntimeWindowState& state) {
     RuntimePerfTraceScope trace("mergeRuntimeGrandCannonPrewarm", state.tick);
-    RuntimeGrandCannonPrewarmJob* job =
-        state.grandCannonPrewarmJob.get();
-    if (job == nullptr) {
-        return;
-    }
-    const std::uint32_t completedWorkers =
-        job->completedWorkerMask.load(std::memory_order_acquire);
-    for (int worker = 0; worker < job->workerCount; ++worker) {
-        const std::uint32_t workerBit = std::uint32_t{1} << worker;
-        if ((completedWorkers & workerBit) == 0U
-            || (job->mergedWorkerMask & workerBit) != 0U) {
-            continue;
-        }
-        mergeRuntimeVoxelPrewarmCache(
-            state.renderCache,
-            job->caches[worker]
-        );
-        state.renderCache.grandCannonVoxelReadyMask |=
-            job->readyMasks[worker];
-        job->mergedWorkerMask |= workerBit;
-    }
-    const std::uint32_t expectedWorkerMask =
-        job->workerCount >= 32
-            ? 0xffffffffU
-            : ((std::uint32_t{1} << job->workerCount) - 1U);
-    if ((job->mergedWorkerMask & expectedWorkerMask)
-            == expectedWorkerMask) {
-        state.renderCache.grandCannonVoxelPrewarmActive =
-            state.renderCache.grandCannonVoxelReadyMask != 0xffffffffU;
-    }
+    if (state.grandCannonPrewarmJob)
+        state.grandCannonPrewarmJob->merge(state.renderCache, state.grandCannonPrewarmGeneration);
 }
 
 bool startRuntimeGrandCannonPrewarm(
@@ -10539,85 +10471,34 @@ bool startRuntimeGrandCannonPrewarm(
         std::uint32_t{1} << defaultFacingBucket;
     state.renderCache.grandCannonVoxelPrewarmActive = true;
 
-    auto job = std::make_unique<RuntimeGrandCannonPrewarmJob>();
-    job->workerCount = std::clamp(
-        requestedWorkerCount,
-        1,
-        runtimeGrandCannonMaxPrewarmWorkers
-    );
-    std::array<int, runtimeGrandCannonFacingCount - 1> bucketOrder{};
-    std::array<bool, runtimeGrandCannonFacingCount> added{};
-    added[defaultFacingBucket] = true;
-    int orderCount = 0;
-    for (int distance = 1;
-            orderCount < static_cast<int>(bucketOrder.size());
-            ++distance) {
-        const std::array<int, 2> candidates{{
-            (defaultFacingBucket + distance) % runtimeGrandCannonFacingCount,
-            (defaultFacingBucket - distance
-                + runtimeGrandCannonFacingCount)
-                % runtimeGrandCannonFacingCount
-        }};
-        for (int candidate : candidates) {
-            if (!added[candidate]) {
-                added[candidate] = true;
-                bucketOrder[static_cast<std::size_t>(orderCount++)] =
-                    candidate;
-            }
+    if (const char* setting = std::getenv("CONCORD_GRAND_CANNON_PREWARM_WORKERS")) {
+        const std::string value(setting);
+        if (value == "auto") requestedWorkerCount = -1;
+        else if (value == "0" || value == "1" || value == "2" || value == "4")
+            requestedWorkerCount = value[0] - '0';
+        else {
+            errorMessage = "Grand Cannon workers must be 0, 1, 2, 4 or auto";
+            return false;
         }
     }
-
-    RuntimeGrandCannonPrewarmJob* jobPointer = job.get();
-    job->workers.reserve(job->workerCount);
-    for (int worker = 0; worker < job->workerCount; ++worker) {
-        job->workers.emplace_back(
-            [jobPointer, context, bucketOrder, worker](
-                std::stop_token stopToken
-            ) mutable {
-                SetThreadPriority(
-                    GetCurrentThread(),
-                    THREAD_PRIORITY_BELOW_NORMAL
-                );
-                std::uint32_t readyMask = 0;
-                int readySprites = 0;
-                std::string firstError;
-                for (int index = worker;
-                        index < static_cast<int>(bucketOrder.size());
-                        index += jobPointer->workerCount) {
-                    if (stopToken.stop_requested()) {
-                        break;
-                    }
-                    const int bucket =
-                        bucketOrder[static_cast<std::size_t>(index)];
-                    int warmedSprites = 0;
-                    std::string facingError;
-                    if (prewarmRuntimeStructureTurretVoxelFacingForRender(
-                            "GTGCAN",
-                            bucket,
-                            context,
-                            jobPointer->caches[worker],
-                            warmedSprites,
-                            facingError
-                        )
-                        && warmedSprites == 2) {
-                        readyMask |= std::uint32_t{1} << bucket;
-                        readySprites += warmedSprites;
-                    } else if (firstError.empty()) {
-                        firstError = std::move(facingError);
-                    }
-                }
-                jobPointer->readyMasks[worker] = readyMask;
-                jobPointer->readySprites[worker] = readySprites;
-                jobPointer->errors[worker] = std::move(firstError);
-                jobPointer->completedWorkerMask.fetch_or(
-                    std::uint32_t{1} << worker,
-                    std::memory_order_release
-                );
-            }
-        );
+    try {
+        if (state.grandCannonPrewarmGeneration == std::numeric_limits<std::uint64_t>::max())
+            throw std::runtime_error("Grand Cannon generation exhausted");
+        auto job = std::make_unique<RuntimeGrandCannonPrewarmJob>(
+            requestedWorkerCount, ++state.grandCannonPrewarmGeneration);
+        if (!job->prepare(context, state.renderCache, errorMessage)) {
+            std::cerr << "Grand Cannon bounded prewarm fallback: " << errorMessage << "\n";
+            // Keep the already-verified default facing when resource admission
+            // or startup fails. No partially prepared cache becomes visible.
+            return true;
+        }
+        state.grandCannonPrewarmJob = std::move(job);
+        return true;
+    } catch (const std::exception& error) {
+        errorMessage = error.what();
+        std::cerr << "Grand Cannon bounded prewarm startup fallback: " << errorMessage << "\n";
+        return true;
     }
-    state.grandCannonPrewarmJob = std::move(job);
-    return true;
 }
 
 const UnitType* findRuntimeUnitTypeById(
@@ -116937,6 +116818,8 @@ LRESULT CALLBACK runtimeWindowProc(
             }
         }
 
+        const auto baselineSubmissionStart = state != nullptr && state->liveBenchmark != nullptr
+            ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
         bool submissionSucceeded = false;
         if (backBufferReady) {
             submissionSucceeded = BitBlt(
@@ -116956,6 +116839,10 @@ LRESULT CALLBACK runtimeWindowProc(
             submissionSucceeded = GdiFlush() != FALSE;
         }
 
+        const double baselineSubmissionCpuMs = state != nullptr && state->liveBenchmark != nullptr
+            ? std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - baselineSubmissionStart).count() : 0.0;
+        bool baselineVisibleSubmission = false;
         if (state != nullptr) {
             const bool visible = IsWindowVisible(window) != FALSE;
             const bool minimized = IsIconic(window) != FALSE;
@@ -116966,6 +116853,8 @@ LRESULT CALLBACK runtimeWindowProc(
             const bool hasPaintArea = !IsRectEmpty(&paint.rcPaint)
                 && clipKind != ERROR && clipKind != NULLREGION
                 && !IsRectEmpty(&paintClip);
+            baselineVisibleSubmission = visible && !minimized && hasClientArea
+                && hasPaintArea && submissionSucceeded;
             if (!state->world.getSummary().loaded || !visible || minimized
                 || !hasClientArea) {
                 state->fpsDisplayMeter.reset();
@@ -117014,7 +116903,8 @@ LRESULT CALLBACK runtimeWindowProc(
                 state->tick, state->perf.lastPaintMs,
                 reuseCachedFrame ? 0.0 : state->perf.lastMapDrawMs,
                 reuseCachedFrame ? 0.0 : state->renderStats.visionMs,
-                !reuseCachedFrame, state->renderStats.visibleWorldObjects
+                !reuseCachedFrame, state->renderStats.visibleWorldObjects,
+                baselineSubmissionCpuMs, baselineVisibleSubmission
             );
             if (!reuseCachedFrame && state->perf.lastPaintMs >= 50.0) {
                 std::cout << "Live slow frame: tick=" << state->tick
@@ -175035,7 +174925,7 @@ bool prewarmRuntimeFirstFrameResources(
         loading.prewarmStructureTurretBackgroundStarted = true;
     }
 
-    if (loading.prewarmStructureTurretExpected) {
+    if (loading.prewarmStructureTurretExpected && state.grandCannonPrewarmJob) {
         RuntimeGrandCannonPrewarmJob* job =
             state.grandCannonPrewarmJob.get();
         if (job == nullptr) {
@@ -175043,32 +174933,16 @@ bool prewarmRuntimeFirstFrameResources(
                 "Grand Cannon background prewarm job was not registered";
             return false;
         }
-        const std::uint32_t expectedWorkerMask =
-            (std::uint32_t{1} << job->workerCount) - 1U;
         if (exhaustiveLoadingSmoke) {
-            int lastReportedFacingCount = -1;
-            while ((job->completedWorkerMask.load(
-                        std::memory_order_acquire
-                    ) & expectedWorkerMask) != expectedWorkerMask) {
-                mergeRuntimeGrandCannonPrewarm(state);
-                const int completedFacings =
-                    runtimeGrandCannonReadyFacingCount(state.renderCache);
-                if (completedFacings != lastReportedFacingCount) {
-                    loading.stage =
-                        L"Verifying Grand Cannon background cache "
-                        + std::to_wstring(completedFacings)
-                        + L"/"
-                        + std::to_wstring(runtimeGrandCannonFacingCount);
-                    pumpRuntimeLoadingWindow(loading);
-                    lastReportedFacingCount = completedFacings;
-                }
-                Sleep(10);
-            }
-            for (std::jthread& worker : job->workers) {
-                if (worker.joinable()) {
-                    worker.join();
-                }
-            }
+            job->finish(state.renderCache, state.grandCannonPrewarmGeneration);
+            const auto measured = job->metrics();
+            std::clog << "Grand Cannon bounded prewarm: workers=" << measured.workers
+                << " submitted=" << measured.submitted << " installed=" << measured.installed
+                << " fallback=" << measured.synchronousFallbacks << " peakJobs=" << measured.peakJobs
+                << " peakRunning=" << measured.peakRunning << " peakBytes=" << measured.peakExecutorBytes
+                << " largestJobBytes=" << measured.largestJobBytes << " cacheBytes=" << measured.cacheBytes
+                << " sourceBytes=" << measured.sourceBytes << " prepareMs=" << measured.prepareMs
+                << " ownerWaitMs=" << measured.ownerWaitMs << " elapsedMs=" << measured.elapsedMs << "\n";
         }
         mergeRuntimeGrandCannonPrewarm(state);
         loading.prewarmStructureTurretFacings =
@@ -175079,12 +174953,7 @@ bool prewarmRuntimeFirstFrameResources(
         if (exhaustiveLoadingSmoke
             && loading.prewarmStructureTurretFacings
                 != runtimeGrandCannonFacingCount) {
-            for (const std::string& workerError : job->errors) {
-                if (!workerError.empty()) {
-                    errorMessage = workerError;
-                    break;
-                }
-            }
+            errorMessage = job->error();
             if (errorMessage.empty()) {
                 errorMessage =
                     "Grand Cannon direction prewarm was incomplete";
@@ -176749,7 +176618,8 @@ int runRuntimeWindowSession(
             state.economy.skirmishStartCell
         );
     }
-    finishRuntimeLoadingWindow(loading, window, !liveBenchmark.enabled());
+    finishRuntimeLoadingWindow(loading, window,
+        !liveBenchmark.enabled() || RuntimeLiveFrameBenchmark::visibleRequested());
     startRuntimeMusic(state);
     RuntimeProcessPerformanceScope processPerformanceScope;
     const bool highResolutionTimerActive =
@@ -176799,15 +176669,23 @@ int runRuntimeWindowSession(
             std::cout << "Live benchmark interaction: hover=yes\n";
         }
     }
-    if (liveMovement.enabled()) {
-        RECT movementClient{};
-        GetClientRect(window, &movementClient);
-        centerRuntimeCameraOnCell(state, movementClient, liveMovement.benchmarkCameraCell());
-    }
-    liveBenchmark.begin(state.tick, runtimeSimulationPacingTickRate(state.config));
     if (liveBenchmark.enabled()) {
+        RECT benchmarkActualClient{};
+        GetClientRect(window, &benchmarkActualClient);
+        if (liveMovement.enabled()) {
+            centerRuntimeCameraOnCell(state, benchmarkActualClient, liveMovement.benchmarkCameraCell());
+        }
+        liveBenchmark.begin(state.tick, runtimeSimulationPacingTickRate(state.config));
         std::cout << "Live benchmark context: native=" << activeConfig.windowWidth
                   << 'x' << activeConfig.windowHeight
+                  << " client=" << benchmarkActualClient.right - benchmarkActualClient.left
+                  << 'x' << benchmarkActualClient.bottom - benchmarkActualClient.top
+                  << " cameraOffsetX=" << state.camera.worldOffsetX
+                  << " cameraOffsetY=" << state.camera.worldOffsetY
+                  << " seed=" << state.config.simulationRandomSeed
+                  << " initialWorldHash=" << state.world.deterministicSimulationStateHash()
+                  << " targetFps=" << activeConfig.targetFps
+                  << " audio=benchmark-muted"
                   << " fixedTickHz=" << activeConfig.fixedTickHz
                   << " gameSpeed=" << activeConfig.gameSpeed
                   << " pacingHz=" << runtimeSimulationPacingTickRate(activeConfig)

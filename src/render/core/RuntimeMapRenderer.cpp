@@ -36,6 +36,11 @@
 #include "runtime/performance/RuntimePerfTrace.h"
 #include "render/voxel/RuntimeVoxelCornerProjectionMemo.h"
 #include "render/voxel/RuntimeVoxelLoadingPrewarm.h"
+#include "render/voxel/RuntimeGrandCannonPrewarm.h"
+#include "render/voxel/RuntimeGrandCannonPreparedFacing.h"
+#include "render/voxel/RuntimeGrandCannonPrewarmTestHooks.h"
+#include <thread>
+#include "render/voxel/GrandCannonRasterTask.h"
 #include "render/voxel/RuntimeFutureVoxelBootstrap.h"
 #include "ui/selection/diagnostics/RuntimePaintProjectionSignatureContractOracle.h"
 #include "render/shadows/RuntimeGroundShadowEligibility.h"
@@ -52,6 +57,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <stdexcept>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -6198,6 +6204,20 @@ unsigned char shadeVxlPaletteIndexWithLookup(
 #include "render/voxel/RuntimeVoxelFacePreparation.inl"
 #include "render/voxel/RuntimeVoxelCornerProjection.inl"
 
+// This bridge is scoped to synchronous owner-side preparation. These pointers
+// never enter a Task or a worker. At most the turret and barrel are captured.
+struct RuntimeGrandCannonRasterCapture {
+    struct Part {
+        concord::tasks::Task task;
+        RuntimeShpFrameImage* image = nullptr;
+        std::vector<unsigned char>* shadow = nullptr;
+    };
+    std::array<Part, 2> parts;
+    std::size_t count = 0;
+    std::uint64_t generation = 1;
+};
+thread_local RuntimeGrandCannonRasterCapture* runtimeGrandCannonCapture = nullptr;
+
 bool decodeRuntimeVxlSpriteFromBytes(
     const std::vector<unsigned char>& bytes,
     const std::vector<RuntimeHvaTransform>& transforms,
@@ -6322,9 +6342,9 @@ bool decodeRuntimeVxlSpriteFromBytes(
         runtimeVxlFaithfulLightingSettings();
 
     std::vector<RuntimeRasterFace> projectedFaces;
-    projectedFaces.reserve(std::min<std::size_t>(bytes.size() / 4, 32000));
+    projectedFaces.reserve(runtimeGrandCannonCapture ? concord::grand_cannon::MaxFaces : std::min<std::size_t>(bytes.size() / 4, 32000));
     std::vector<RuntimeRasterVoxel> projectedVoxels;
-    projectedVoxels.reserve(std::min<std::size_t>(bytes.size() / 2, 48000));
+    projectedVoxels.reserve(runtimeGrandCannonCapture ? concord::grand_cannon::MaxVoxels : std::min<std::size_t>(bytes.size() / 2, 48000));
     std::vector<std::array<double, 5>> projectedAnchors;
     double sceneDepthMinimumY = std::numeric_limits<double>::infinity();
     double sceneDepthMaximumY = -std::numeric_limits<double>::infinity();
@@ -6641,7 +6661,7 @@ bool decodeRuntimeVxlSpriteFromBytes(
         std::optional<RuntimePerfTraceScope> sourceColumnsTrace(
             std::in_place, "vxl.decodeSourceColumns", -1);
         std::vector<RuntimeDecodedVoxel> decodedVoxels;
-        decodedVoxels.reserve(std::min<std::size_t>(baseSize * 2U, 16000U));
+        decodedVoxels.reserve(runtimeGrandCannonCapture ? concord::grand_cannon::MaxVoxels : std::min<std::size_t>(baseSize * 2U, 16000U));
         std::size_t occupancySize = 0;
         if (!checkedMul(
                 static_cast<std::size_t>(sizeX),
@@ -6656,6 +6676,8 @@ bool decodeRuntimeVxlSpriteFromBytes(
             errorMessage = "VXL occupancy grid overflowed: " + sourceName;
             return false;
         }
+        if (runtimeGrandCannonCapture && occupancySize > 1024U * 1024U)
+            throw std::length_error("Grand Cannon owner occupancy exceeded 1M cells");
         std::vector<unsigned char> occupiedVoxels(occupancySize, 0);
         const auto voxelIndex = [sizeX, sizeY](int vx, int vy, int vz) -> std::size_t {
             return (static_cast<std::size_t>(vz)
@@ -6745,6 +6767,8 @@ bool decodeRuntimeVxlSpriteFromBytes(
                         if (color == 0) {
                             ++zeroColorVoxelCount;
                         }
+                        if (runtimeGrandCannonCapture && decodedVoxels.size() >= concord::grand_cannon::MaxVoxels)
+                            throw std::length_error("Grand Cannon owner preparation exceeded its sample bound");
                         decodedVoxels.push_back({x, y, z, color, normal});
                         occupiedVoxels[voxelIndex(x, y, z)] = 1;
                     }
@@ -7156,6 +7180,8 @@ bool decodeRuntimeVxlSpriteFromBytes(
                     voxel.normal,
                     voxel.color
                 );
+                if (runtimeGrandCannonCapture && projectedFaces.size() >= concord::grand_cannon::MaxFaces)
+                    throw std::length_error("Grand Cannon owner preparation exceeded its sample bound");
                 projectedFaces.push_back(face);
             };
         const auto addProjectedVoxel =
@@ -7300,6 +7326,8 @@ bool decodeRuntimeVxlSpriteFromBytes(
                     voxel.normal,
                     voxel.color
                 );
+                if (runtimeGrandCannonCapture && projectedVoxels.size() >= concord::grand_cannon::MaxVoxels)
+                    throw std::length_error("Grand Cannon owner preparation exceeded its sample bound");
                 projectedVoxels.push_back(rasterVoxel);
             };
 
@@ -7616,6 +7644,113 @@ bool decodeRuntimeVxlSpriteFromBytes(
         }
     );
 
+    // Capture at the original sorted-face/raster boundary. Other renderer
+    // profiles still use the original synchronous decoder on the owner.
+    if (runtimeGrandCannonCapture != nullptr && simpleProfile && !forceFaceDebug && !forcePointDebug) {
+        RuntimeVxlReferenceRaster selected = westwoodProfile
+            ? RuntimeVxlReferenceRaster::Point : runtimeVxlReferenceRaster();
+        if ((renderProfile == RuntimeVxlRenderProfile::FixedScale && selected == RuntimeVxlReferenceRaster::Coverage)
+            || (selected == RuntimeVxlReferenceRaster::Point && !sizing.pointRaster))
+            selected = RuntimeVxlReferenceRaster::Cuboid;
+        if (selected == RuntimeVxlReferenceRaster::Cuboid) {
+            using namespace concord::grand_cannon;
+            static_assert(static_cast<int>(RuntimeVxlSurfaceClass::Top) == 1);
+            static_assert(static_cast<int>(RuntimeVxlSurfaceClass::Side) == 2);
+            static_assert(static_cast<int>(RuntimeVxlSurfaceClass::Under) == 3);
+            static_assert(static_cast<int>(RuntimeVxlSurfaceClass::LowerDark) == 4);
+            auto& capture = *runtimeGrandCannonCapture;
+            if (capture.count == capture.parts.size() || drawFaces.size() > MaxFaces || drawVoxels.size() > MaxVoxels) {
+                errorMessage = "Grand Cannon prepared input exceeds its admission limit";
+                return false;
+            }
+            auto& part = capture.parts[capture.count++];
+            Input header{width, height, padding, shadowSectionIndex,
+                static_cast<std::uint32_t>(drawFaces.size()), static_cast<std::uint32_t>(drawVoxels.size()),
+                runtimeVxlReferenceDepthEpsilon(), runtimeVxlReferenceFaceBias(), minDepth, maxDepth};
+            part.task.generation = capture.generation;
+            part.task.input = concord::tasks::OwnedBytes(sizeof(Input) + drawFaces.size() * sizeof(Face) + drawVoxels.size() * sizeof(Shadow));
+            auto destination = part.task.input.bytes().data();
+            std::memcpy(destination, &header, sizeof(header));
+            destination += sizeof(header);
+            for (const auto& original : drawFaces) {
+                Face face{};
+                face.x = original.preciseX; face.y = original.preciseY; face.depth = original.cornerDepth;
+                face.normalBrightness = original.normalBrightness; face.material = original.material;
+                face.color = original.color; face.normal = original.normalIndex;
+                face.vpl = original.vplSection; face.ownerRemap = original.ownerRemap ? 1 : 0;
+                std::memcpy(destination, &face, sizeof(face)); destination += sizeof(face);
+            }
+            for (const auto& original : drawVoxels) {
+                Shadow shadow{};
+                shadow.x = original.shadowX; shadow.y = original.shadowY;
+                shadow.section = original.sectionIndex; shadow.color = original.color;
+                std::memcpy(destination, &shadow, sizeof(shadow)); destination += sizeof(shadow);
+            }
+            const auto pixelsCount = static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
+            part.task.outputBytes = outputBytes(pixelsCount);
+            part.task.scratchBytes = pixelsCount * sizeof(double);
+            part.task.kernel = raster;
+            part.image = &image;
+            part.shadow = &shadowPixels;
+            double anchorX = (minX + maxX) * 0.5;
+            double anchorY = maxY;
+            if (sizing.modelOriginPivot) {
+                anchorX = 0.0;
+                anchorY = 0.0;
+            } else if (!projectedAnchors.empty()) {
+                anchorX = 0.0;
+                anchorY = 0.0;
+                for (const std::array<double, 5>& anchor : projectedAnchors) {
+                    anchorX += anchor[0];
+                    anchorY += anchor[1];
+                }
+                anchorX /= static_cast<double>(projectedAnchors.size());
+                anchorY /= static_cast<double>(projectedAnchors.size());
+            }
+            const int anchorPixelX =
+                padding
+                + static_cast<int>(std::llround((anchorX - minX) * fitScale));
+            const int anchorPixelY =
+                padding
+                + static_cast<int>(std::llround((anchorY - minY) * fitScale));
+            image.offsetX = (width / 2) - std::clamp(anchorPixelX, 0, width - 1);
+            image.offsetY = height - std::clamp(anchorPixelY, 0, height - 1);
+            image.globalWidth = width;
+            image.globalHeight = height;
+            image.width = width;
+            image.height = height;
+            if (std::isfinite(sceneDepthMinimumY) && std::isfinite(sceneDepthMaximumY)) {
+                const int sceneHeight = static_cast<int>((sceneDepthMaximumY - sceneDepthMinimumY) * fitScale) + 8;
+                const int sceneCenter = static_cast<int>(((sceneDepthMinimumY + sceneDepthMaximumY) * 0.5 - anchorY) * fitScale);
+                image.sceneDepthBoundsValid = true;
+                image.sceneDepthBoundsTop = std::clamp(anchorPixelY, 0, height - 1) + sceneCenter - sceneHeight / 2;
+                image.sceneDepthBoundsBottom = image.sceneDepthBoundsTop + sceneHeight;
+            }
+            image.paletteRemapStart = paletteRemapStart;
+            image.paletteRemapEnd = paletteRemapEnd;
+            image.paletteRemapRangeFromHeader = paletteRemapRangeFromHeader;
+            image.fallbackOwnerRemapCount = fallbackOwnerRemapCount;
+            image.zeroColorVoxelCount = zeroColorVoxelCount;
+            image.rasterPathStats = {};
+            image.rasterFunctionActuallyCalled = "cuboid";
+            image.vxlAlreadyVplResolved = useVoxelPaletteLookupForSprite;
+            image.lightLevelsApplied =
+                !simpleProfile && !useVoxelPaletteLookupForSprite;
+            image.remapLightApplied =
+                !simpleProfile && !useVoxelPaletteLookupForSprite;
+            image.opaqueBoundsWidth = 0;
+            image.opaqueBoundsHeight = 0;
+            image.topFacePixelCount = 0;
+            image.sideFacePixelCount = 0;
+            image.lowerFacePixelCount = 0;
+            image.pointSampleCount = static_cast<int>(drawVoxels.size());
+            image.faceSampleCount = static_cast<int>(drawFaces.size());
+            image.exposedFaceCount = static_cast<int>(drawFaces.size());
+            image.sourcePath = sourceName;
+            return true;
+        }
+    }
+    
     std::vector<unsigned char> pixels(
         static_cast<std::size_t>(width) * static_cast<std::size_t>(height),
         0
@@ -43547,3 +43682,183 @@ bool runRuntimePlayerCheerSequenceCheck(std::string& error) {
 #include "render/geometry/diagnostics/RuntimePaintProjectionSignatureContractOracle.inl"
 #include "render/shadows/diagnostics/RuntimeVehicleGroundShadowIssue22Smoke.inl"
 #include "render/units/diagnostics/RuntimeHoverTransportIssue24Smoke.inl"
+
+namespace {
+std::size_t grandCannonCacheCharge(const RuntimeShpFrameImage& image) {
+    // Charge the installed lifetime, including future lazy render caches.
+    // The pinned Microsoft vector grows by at most 1.5x; allow 2x capacity.
+    // Palette changes replace two 256-entry tables, never append variants.
+    const auto pixels = static_cast<std::size_t>(image.width) * static_cast<std::size_t>(image.height);
+    constexpr std::size_t metadata = 65536;
+    constexpr std::size_t colors = 2U * 256U * sizeof(std::uint32_t);
+    constexpr std::size_t shadows = 4U * RuntimeShadowOpaqueSpanCache::MaximumSpans * sizeof(RuntimeShadowOpaqueSpan);
+    return pixels * (13U + 2U * sizeof(RuntimeSpriteHitSpan)) + metadata + colors + shadows;
+}
+std::string grandCannonSourceKey(const std::string& image, const RuntimeMapRenderContext& context) {
+    return normalizedLowerPath(context.assetRootPath) + "|vxl=" + toLowerAscii(fileNameForVxlImageId(image))
+        + "|hva=" + toLowerAscii(fileNameForHvaImageId(image));
+}
+void grandCannonCheckSource(const RuntimeVoxelSourceCacheEntry& source) {
+    // Owner preparation has its own bound, including grid/face staging. It is
+    // never included in a worker payload or multiplied by the worker count.
+    const auto& bytes = source.vxlBytes;
+    if (!source.loaded || bytes.size() < 802 || bytes.size() > 2U * 1024U * 1024U
+        || source.hvaBytes.size() > 65536 || source.firstFrameTransforms.size() > 8
+        || !source.transformsByFrame.empty())
+        throw std::length_error("Grand Cannon source exceeds the bounded prewarm profile");
+    const auto sections = readUInt32(bytes, 20);
+    const auto footer = 802ULL + static_cast<std::uint64_t>(sections) * 28U + readUInt32(bytes, 28);
+    if (sections == 0 || sections > 8 || footer + sections * 92ULL > bytes.size())
+        throw std::length_error("Grand Cannon source sections exceed the bounded prewarm profile");
+    std::size_t cells = 0;
+    for (std::size_t i = 0; i < sections; ++i) {
+        const auto at = static_cast<std::size_t>(footer) + i * 92U;
+        cells += static_cast<std::size_t>(bytes[at + 88]) * bytes[at + 89] * bytes[at + 90];
+    }
+    if (cells > 1024U * 1024U) throw std::length_error("Grand Cannon source grid exceeds 1M cells");
+}
+}
+
+struct RuntimeGrandCannonPreparedFacing::Impl {
+    std::unique_ptr<RuntimeMapRenderCache> cache;
+    RuntimeGrandCannonRasterCapture capture;
+    std::size_t charge = 0;
+    int bucket = 0;
+};
+RuntimeGrandCannonPreparedFacing::RuntimeGrandCannonPreparedFacing() : impl_(std::make_unique<Impl>()) {}
+RuntimeGrandCannonPreparedFacing::~RuntimeGrandCannonPreparedFacing() = default;
+RuntimeGrandCannonPreparedFacing::SourceInfo RuntimeGrandCannonPreparedFacing::inspect(
+    const RuntimeMapRenderContext& context, const RuntimeMapRenderCache& source) {
+    SourceInfo info;
+    const auto* building = context.rules ? context.rules->findBuildingType("GTGCAN") : nullptr;
+    if (!building) throw std::runtime_error("Grand Cannon preparation has no rules");
+    const std::string barrelKey = context.assetRootPath + "|structure=gtgcan|turret=" + toLowerAscii(building->turretAnim);
+    const auto barrel = source.structureTurretBarrelImageByKey.find(barrelKey);
+    if (barrel == source.structureTurretBarrelImageByKey.end() || barrel->second.empty())
+        throw std::runtime_error("Grand Cannon default facing did not resolve its barrel");
+    const std::array<std::string, 2> sourceKeys{
+        grandCannonSourceKey(building->turretAnim, context), grandCannonSourceKey(barrel->second, context)};
+    if (context.assetRootPath.size() > 1024 || barrelKey.size() > 2048
+        || source.voxelPaletteLookupSourcePath.size() > 2048
+        || source.voxelPalette.size() > 256 || source.voxelPaletteLookup.size() > 65536)
+        throw std::length_error("Grand Cannon source metadata exceeds its bound");
+    for (const auto& key : sourceKeys) {
+        const auto found = source.voxelSourcesByImage.find(key);
+        if (found == source.voxelSourcesByImage.end()) throw std::runtime_error("Grand Cannon source was not loaded by fallback");
+        grandCannonCheckSource(found->second);
+        info.sourceBytes += found->second.vxlBytes.size() + found->second.hvaBytes.size();
+    }
+    for (const auto& [key, entry] : source.voxelObjectsByType) {
+        (void)key;
+        if (entry.facingBucket == 30 && (toLowerAscii(entry.metadata.imageId) == toLowerAscii(building->turretAnim)
+    || toLowerAscii(entry.metadata.imageId) == toLowerAscii(barrel->second))) {
+    info.fallbackCharge += grandCannonCacheCharge(entry.image);
+        }
+    }
+    if (info.fallbackCharge > RuntimeGrandCannonPrewarmJob::CacheBytes) throw std::length_error("Grand Cannon fallback cache exceeds its budget");
+
+    return info;
+}
+void RuntimeGrandCannonPreparedFacing::prepare(const RuntimeMapRenderContext& context,
+    const RuntimeMapRenderCache& source, int bucket, std::uint64_t generation) {
+    impl_->bucket = bucket;
+    const auto* building = context.rules->findBuildingType("GTGCAN");
+    const std::string barrelKey = context.assetRootPath + "|structure=gtgcan|turret=" + toLowerAscii(building->turretAnim);
+    const auto barrel = source.structureTurretBarrelImageByKey.find(barrelKey);
+    const std::array<std::string, 2> sourceKeys{grandCannonSourceKey(building->turretAnim, context), grandCannonSourceKey(barrel->second, context)};
+    impl_->cache = std::make_unique<RuntimeMapRenderCache>();
+    auto& cache = *impl_->cache;
+    // Exactly the two already-selected sources and VPL; no live
+    // cache, rules/art/theater reference survives this call.
+    for (const auto& key : sourceKeys) cache.voxelSourcesByImage.emplace(key, source.voxelSourcesByImage.at(key));
+    cache.structureTurretBarrelImageByKey.emplace(barrelKey, barrel->second);
+    cache.voxelPaletteLookupLoadAttempted = true;
+    cache.voxelPaletteLookupLoaded = source.voxelPaletteLookupLoaded;
+    cache.voxelPaletteFirstRemap = source.voxelPaletteFirstRemap;
+    cache.voxelPaletteLastRemap = source.voxelPaletteLastRemap;
+    cache.voxelPaletteSectionCount = source.voxelPaletteSectionCount;
+    cache.voxelPaletteNeutralSection = source.voxelPaletteNeutralSection;
+    cache.voxelPalette = source.voxelPalette;
+    cache.voxelPaletteLookup = source.voxelPaletteLookup;
+    cache.voxelPaletteLookupSourcePath = source.voxelPaletteLookupSourcePath;
+    impl_->capture.generation = generation;
+    {
+        struct CaptureScope {
+            RuntimeGrandCannonRasterCapture* previous;
+            explicit CaptureScope(RuntimeGrandCannonRasterCapture* value)
+                : previous(runtimeGrandCannonCapture) { runtimeGrandCannonCapture = value; }
+            ~CaptureScope() { runtimeGrandCannonCapture = previous; }
+        } scope(&impl_->capture);
+        int sprites = 0;
+        std::string error;
+        if (!prewarmRuntimeStructureTurretVoxelFacingForRender("GTGCAN", bucket, context, cache, sprites, error) || sprites != 2)
+            throw std::runtime_error(error);
+    }
+    if (cache.voxelObjectsByType.size() != 2 || cache.stableVoxelCacheKeyByLookup.size() > 2)
+        throw std::length_error("Grand Cannon private cache exceeded two part entries");
+    for (const auto& [key, entry] : cache.voxelObjectsByType) {
+        if (key.size() > 8192 || entry.image.sourcePath.size() > 2048)
+            throw std::length_error("Grand Cannon cache metadata exceeded its bound");
+        const auto bytes = grandCannonCacheCharge(entry.image);
+        if (bytes > RuntimeGrandCannonPrewarmJob::CacheBytes - impl_->charge)
+            throw std::length_error("Grand Cannon atlas exceeded 128 MiB");
+        impl_->charge += bytes;
+    }
+    // Source copies and VPL are preparation-only and are freed now.
+    cache.voxelSourcesByImage.clear();
+    std::vector<RuntimePaletteColor>{}.swap(cache.voxelPalette);
+    std::vector<unsigned char>{}.swap(cache.voxelPaletteLookup);
+
+}
+std::size_t RuntimeGrandCannonPreparedFacing::count() const noexcept { return impl_->capture.count; }
+std::size_t RuntimeGrandCannonPreparedFacing::cacheCharge() const noexcept { return impl_->charge; }
+concord::tasks::Task& RuntimeGrandCannonPreparedFacing::task(std::size_t index) { return impl_->capture.parts.at(index).task; }
+void RuntimeGrandCannonPreparedFacing::accept(std::size_t index, std::span<const std::byte> output) {
+    using namespace concord::grand_cannon;
+    auto& part = impl_->capture.parts.at(index);
+    auto& image = *part.image;
+    const auto count = static_cast<std::size_t>(image.width) * static_cast<std::size_t>(image.height);
+    if (output.size() != outputBytes(count)) {
+        throw std::runtime_error("Grand Cannon raster returned an invalid output size");
+    }
+    // One claimed result <= 1.83 MiB remains alive during this bounded copy.
+    // Destination storage was charged to the separate atlas budget BEFORE
+    // submission, not to the executor's already-released reservation.
+    const auto* data = output.data();
+    Output result{};
+    std::memcpy(&result, data, sizeof(result));
+    data += sizeof(result);
+    image.pixelMaterials.resize(count);
+    std::memcpy(image.pixelMaterials.data(), data, count * sizeof(std::uint32_t));
+    data += count * sizeof(std::uint32_t);
+    std::array<std::vector<unsigned char>*, PlaneCount> planes{
+        &image.pixels, &image.rawColorIndices, &image.ownerRemapMask, &image.lightLevels,
+        &image.normalIndices, &image.normalBrightnessLevels, &image.vplSections,
+        &image.depthLevels, part.shadow};
+    for (auto* plane : planes) {
+        const auto* begin = reinterpret_cast<const unsigned char*>(data);
+        plane->assign(begin, begin + count);
+        data += count;
+    }
+    image.rasterPathStats.cuboidFacesRasterized = result.cuboidFaces;
+    image.rasterPathStats.triangleFacesRasterized = result.triangles;
+    image.opaqueBoundsWidth = result.opaqueWidth;
+    image.opaqueBoundsHeight = result.opaqueHeight;
+    image.topFacePixelCount = result.topPixels;
+    image.sideFacePixelCount = result.sidePixels;
+    image.lowerFacePixelCount = result.lowerPixels;
+
+}
+void RuntimeGrandCannonPreparedFacing::install(RuntimeMapRenderCache& target) {
+    auto& cache = *impl_->cache;
+    target.voxelObjectsByType.reserve(target.voxelObjectsByType.size() + cache.voxelObjectsByType.size());
+    target.stableVoxelCacheKeyByLookup.reserve(target.stableVoxelCacheKeyByLookup.size() + cache.stableVoxelCacheKeyByLookup.size());
+    target.voxelObjectsByType.merge(cache.voxelObjectsByType);
+    target.stableVoxelCacheKeyByLookup.merge(cache.stableVoxelCacheKeyByLookup);
+    target.grandCannonVoxelReadyMask |= std::uint32_t{1} << impl_->bucket;
+
+    target.grandCannonVoxelPrewarmActive = target.grandCannonVoxelReadyMask != 0xffffffffU;
+    impl_->cache.reset();
+}
+
+#include "render/voxel/diagnostics/RuntimeGrandCannonPrewarmContract.inl"

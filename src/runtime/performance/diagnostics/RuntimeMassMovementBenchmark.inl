@@ -212,6 +212,16 @@ bool prepareRuntimeMassMovementWorld(RuntimeWindowState& state, int unitCount,
     text << "[IsoMapPack5]\n";
     for (std::size_t at = 0; at < packed.size(); at += 70)
         text << at / 70 + 1 << '=' << packed.substr(at, 70) << '\n';
+    // S33 records the exact deterministic fixture, once per opted-in run.
+    // This is before warmup and never affects commands or measured ticks.
+    if (const char* outputPath = std::getenv("CONCORD_LIVE_BENCHMARK_GENERATED_MAP")) {
+        if (std::filesystem::exists(outputPath)) return fail("generated map output already exists");
+        std::ofstream output(outputPath, std::ios::binary);
+        output << text.str();
+        output.close();
+        if (!output) return fail("could not record generated benchmark map");
+        std::cout << "Live generated map: path=" << outputPath << '\n';
+    }
     IniFile ini;
     MapDatabase map;
     GameWorld world;

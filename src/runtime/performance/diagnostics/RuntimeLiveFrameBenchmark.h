@@ -14,6 +14,9 @@
 // how many simulation ticks should run, except for the benchmark's timeout.
 class RuntimeLiveFrameBenchmark {
 public:
+    RuntimeLiveFrameBenchmark() {
+        if (enabled_) sessionBeganAt_ = Clock::now();
+    }
     static constexpr std::size_t SessionTimeSamples = 4096;
     static constexpr std::size_t SegmentTimeSamples = 512;
     static bool requested() {
@@ -25,6 +28,10 @@ public:
     }
 
     bool enabled() const { return enabled_; }
+    static bool visibleRequested() {
+        const char* flag = std::getenv("CONCORD_LIVE_BENCHMARK_VISIBLE");
+        return flag != nullptr && std::strcmp(flag, "1") == 0;
+    }
 
     void begin(int initialTick, int pacingHz = 30) {
         if (!enabled_) return;
@@ -72,6 +79,12 @@ public:
         frameGapTimes_.reserve(SessionTimeSamples);
         simulationTimes_.clear();
         simulationTimes_.reserve(SessionTimeSamples);
+        submissionTimes_.clear(); submissionTimes_.reserve(SessionTimeSamples);
+        cpuPreparationTimes_.clear(); cpuPreparationTimes_.reserve(SessionTimeSamples);
+        visibleGapTimes_.clear(); visibleGapTimes_.reserve(SessionTimeSamples);
+        visibleSubmissions_ = rejectedVisibleSubmissions_ = 0;
+        submissionTotalMs_ = 0.0;
+        haveVisibleSubmission_ = false;
         gap50Count_ = gap100Count_ = 0;
         frameGapMaxMs_ = 0.0;
         frameGapTotalMs_ = 0.0;
@@ -79,6 +92,7 @@ public:
         sequentialTicks_ = true;
         begun_ = true;
         beganAt_ = Clock::now();
+        sessionToReadyMs_ = seconds(beganAt_ - sessionBeganAt_) * 1000.0;
     }
 
     bool shouldAdvance(int currentTick) const {
@@ -113,7 +127,8 @@ public:
     }
 
     void recordPaint(int currentTick, double paintMs, double mapMs,
-                     double fogMs, bool rendered, int visibleObjects = 0) {
+                     double fogMs, bool rendered, int visibleObjects = 0,
+                     double submissionCpuMs = 0.0, bool visibleSubmission = false) {
         if (!enabled_ || !sampling_ || stopped_
             || currentTick <= warmupEndTick_ || currentTick > targetTick_) return;
         ++paints_;
@@ -137,6 +152,21 @@ public:
         appendTimeSample(segmentPaintSamples_, paintMs, segment.paints, SegmentTimeSamples);
         appendTimeSample(segmentGapSamples_, gapMs, segment.paints, SegmentTimeSamples);
         appendTimeSample(paintTimes_, paintMs, paints_, SessionTimeSamples);
+        appendTimeSample(submissionTimes_, submissionCpuMs, paints_, SessionTimeSamples);
+        appendTimeSample(cpuPreparationTimes_, std::max(0.0, paintMs - submissionCpuMs),
+            paints_, SessionTimeSamples);
+        submissionTotalMs_ += submissionCpuMs;
+        if (visibleSubmission) {
+            ++visibleSubmissions_;
+            if (haveVisibleSubmission_) {
+                appendTimeSample(visibleGapTimes_, seconds(paintedAt - lastVisibleAt_) * 1000.0,
+                    visibleSubmissions_ - 1, SessionTimeSamples);
+            }
+            haveVisibleSubmission_ = true;
+            lastVisibleAt_ = paintedAt;
+        } else if (visibleRequested()) {
+            ++rejectedVisibleSubmissions_;
+        }
         paintTotalMs_ += paintMs;
         paintMaxMs_ = std::max(paintMaxMs_, paintMs);
         if (rendered) {
@@ -240,11 +270,16 @@ public:
         const auto paintQuantiles = summarizeTimeSamples(paintTimes_);
         const auto gapQuantiles = summarizeTimeSamples(frameGapTimes_);
         const auto simulationQuantiles = summarizeTimeSamples(simulationTimes_);
+        const auto submissionQuantiles = summarizeTimeSamples(submissionTimes_);
+        const auto preparationQuantiles = summarizeTimeSamples(cpuPreparationTimes_);
+        const auto visibleGapQuantiles = summarizeTimeSamples(visibleGapTimes_);
         const auto flags = std::cout.flags();
         const auto precision = std::cout.precision();
         std::cout << std::fixed << std::setprecision(3)
             << "Live frame benchmark: passed=" << (succeeded() ? "yes" : "no")
             << " displayFpsMeasured=no pacingHz=" << pacingHz
+            << " visibleRequested=" << (visibleRequested() ? "yes" : "no")
+            << " sessionToReadyMs=" << sessionToReadyMs_
             << " initialTick=" << initialTick_ << " warmupEndTick=" << warmupEndTick_
             << " targetTick=" << targetTick_ << " finalTick=" << currentTick
             << " requestedTicks=" << measurementTicks_ << " measuredTicks=" << simulations_
@@ -259,6 +294,7 @@ public:
             << " paintMedianMs=" << paintQuantiles.median << " paintP95Ms=" << paintQuantiles.p95
             << " paintP99Ms=" << paintQuantiles.p99 << " paintMaxMs=" << paintMaxMs_
             << " frameGapMeanMs=" << (paints_ ? frameGapTotalMs_ / paints_ : 0.0)
+            << " frameGapMedianMs=" << gapQuantiles.median
             << " frameGapP95Ms=" << gapQuantiles.p95 << " frameGapP99Ms=" << gapQuantiles.p99
             << " frameGapMaxMs=" << frameGapMaxMs_
             << " gapsOver50Ms=" << gap50Count_ << " gapsOver100Ms=" << gap100Count_
@@ -275,11 +311,38 @@ public:
             << " fogMeanMs=" << (renders_ ? fogTotalMs_ / renders_ : 0.0)
             << " simTotalMs=" << simulationTotalMs_
             << " simMeanMs=" << (simulations_ ? simulationTotalMs_ / simulations_ : 0.0)
+            << " simMedianMs=" << simulationQuantiles.median
             << " simP95Ms=" << simulationQuantiles.p95 << " simP99Ms=" << simulationQuantiles.p99
             << " simMaxMs=" << simulationMaxMs_ << " wakeTotalMs=" << wakeTotalMs_
             << " maxSimTicksBetweenPaints=" << maxSimulationBatchCount_
             << " maxSimMsBetweenPaints=" << maxSimulationBatchMs_
             << " worldHash=" << worldHash << '\n';
+        std::cout << "Live presentation baseline: backend=software-gdi gpuGameTime=not-applicable"
+            << " gpuUploadBytes=not-applicable dxgiPresent=not-applicable displayFpsMeasured=no"
+            << " submissionApi=BitBlt-or-GdiFlush submissionMeasures=cpu-call-only"
+            << " submissionMeanMs=" << (paints_ ? submissionTotalMs_ / paints_ : 0.0)
+            << " submissionMedianMs=" << submissionQuantiles.median
+            << " submissionP95Ms=" << submissionQuantiles.p95
+            << " submissionP99Ms=" << submissionQuantiles.p99
+            << " cpuPreparationMedianMs=" << preparationQuantiles.median
+            << " cpuPreparationP95Ms=" << preparationQuantiles.p95
+            << " cpuPreparationP99Ms=" << preparationQuantiles.p99
+            << " visibleSubmissions=" << visibleSubmissions_
+            << " rejectedVisibleSubmissions=" << rejectedVisibleSubmissions_
+            << " visibleGapSamples=" << visibleGapTimes_.size()
+            << " visibleSubmissionGapMedianMs=" << visibleGapQuantiles.median
+            << " visibleSubmissionGapP95Ms=" << visibleGapQuantiles.p95
+            << " visibleSubmissionGapP99Ms=" << visibleGapQuantiles.p99
+            << " cadenceBoundary=visible-nonminimized-client-GDI-completion-not-scanout\n";
+        if (const char* raw = std::getenv("CONCORD_LIVE_BENCHMARK_RAW_SAMPLES");
+                raw != nullptr && std::strcmp(raw, "1") == 0) {
+            printSamples("simulationMs", simulationTimes_);
+            printSamples("paintMs", paintTimes_);
+            printSamples("frameGapMs", frameGapTimes_);
+            printSamples("submissionCpuMs", submissionTimes_);
+            printSamples("cpuPreparationMs", cpuPreparationTimes_);
+            printSamples("visibleSubmissionGapMs", visibleGapTimes_);
+        }
         for (std::size_t index = 0; index < segments_.size(); ++index) {
             auto segment = segments_[index];
             if (segment.simulations == 0) continue;
@@ -335,6 +398,14 @@ public:
 
 private:
     using Clock = std::chrono::steady_clock;
+    static void printSamples(const char* metric, const std::vector<double>& samples) {
+        std::cout << "Live baseline samples: metric=" << metric << " values=";
+        for (std::size_t index = 0; index < samples.size(); ++index) {
+            if (index) std::cout << ',';
+            std::cout << samples[index];
+        }
+        std::cout << '\n';
+    }
     struct TimeQuantiles { double median = 0.0, p95 = 0.0, p99 = 0.0; };
     static TimeQuantiles summarizeTimeSamples(const std::vector<double>& values) {
         if (values.empty()) return {};
@@ -423,5 +494,10 @@ private:
     double frameGapTotalMs_ = 0.0, frameGapMaxMs_ = 0.0;
     std::uint64_t gap50Count_ = 0, gap100Count_ = 0;
     std::vector<double> paintTimes_, frameGapTimes_, simulationTimes_;
+    std::vector<double> submissionTimes_, cpuPreparationTimes_, visibleGapTimes_;
+    int visibleSubmissions_ = 0, rejectedVisibleSubmissions_ = 0;
+    double submissionTotalMs_ = 0.0, sessionToReadyMs_ = 0.0;
+    bool haveVisibleSubmission_ = false;
+    Clock::time_point sessionBeganAt_{}, lastVisibleAt_{};
     Clock::time_point beganAt_{}, sampleBeganAt_{}, endedAt_{}, lastPaintedAt_{}, lastSegmentActivityAt_{};
 };

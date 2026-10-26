@@ -33,7 +33,7 @@ class GuardFixtures(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(value, encoding="utf-8")
 
-    def scan(self):
+    def scan(self, modules=None):
         refs = []
         for name, target in self.targets.items():
             self.put("build/reply/" + name + ".json", json.dumps(dict(name=name, **target)))
@@ -42,7 +42,20 @@ class GuardFixtures(unittest.TestCase):
             dict(name="Release", targets=refs)])))
         return guard.scan(self.root, self.root / "build", self.inventory,
                           self.root / "build/trace.jsonl",
-                          {"pure": ["src/core/Pure.h", "src/core/Pure.cpp"]})
+                          modules or {"pure": ["src/core/Pure.h", "src/core/Pure.cpp"]})
+
+    def test_task_executor_rejects_application_dependency(self):
+        self.put("src/world/model/GameWorld.h", "struct World {};\n")
+        self.put("src/core/tasks/BoundedTaskExecutor.h", '#include "world/model/GameWorld.h"\n')
+        report = self.scan({"bounded-tasks": ["src/core/tasks/BoundedTaskExecutor.h"]})
+        self.assertTrue(any(f["rule"] == "task-executor-dependency" and len(f["witness"]) == 2
+                            for f in report["findings"]))
+
+    def test_task_executor_rejects_forward_declared_live_state(self):
+        self.put("src/core/tasks/BoundedTaskExecutor.h",
+                 "struct WorldObjectInstance; struct X { WorldObjectInstance* live; };\n")
+        report = self.scan({"bounded-tasks": ["src/core/tasks/BoundedTaskExecutor.h"]})
+        self.assertIn("task-executor-live-state", {f["rule"] for f in report["findings"]})
 
     def rules(self):
         return {f["rule"] for f in self.scan()["findings"]}

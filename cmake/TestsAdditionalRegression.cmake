@@ -226,3 +226,25 @@ set_tests_properties(snapshot_session_contract_test PROPERTIES TIMEOUT 60 LABELS
 
 add_test(NAME production_core_hash_smoke_test COMMAND concord_production_core_hash_smoke)
 set_tests_properties(production_core_hash_smoke_test PROPERTIES TIMEOUT 30 LABELS "no-assets;logic;production-core")
+
+# S34: root testing is enabled after DevelopmentTargets creates the new scope.
+if(TARGET concord_bounded_task_executor_contract)
+    add_test(NAME bounded_task_executor_contract_test COMMAND concord_bounded_task_executor_contract)
+    set_tests_properties(bounded_task_executor_contract_test PROPERTIES
+        TIMEOUT 90 RUN_SERIAL TRUE LABELS "no-assets;bounded-tasks;logic")
+endif()
+
+if(TARGET concord_grand_cannon_raster_contract)
+    add_test(NAME grand_cannon_raster_contract_test COMMAND concord_grand_cannon_raster_contract)
+    set_tests_properties(grand_cannon_raster_contract_test PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE LABELS "no-assets;bounded-tasks;render")
+endif()
+if(WIN32 AND TARGET concord_runtime AND EXISTS "${CMAKE_SOURCE_DIR}/RedAlert2")
+    add_test(NAME runtime_grand_cannon_prewarm_contract_test
+        COMMAND concord_runtime --loading-smoke-test --skip-skirmish-menu
+            --resource-root "${CMAKE_SOURCE_DIR}/RedAlert2"
+            --local-data-root "${CMAKE_SOURCE_DIR}/local_data"
+            --map "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/multimd/2peaks.map")
+    set_tests_properties(runtime_grand_cannon_prewarm_contract_test PROPERTIES
+        ENVIRONMENT "CONCORD_GRAND_CANNON_PREWARM_VERIFY=1" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        TIMEOUT 600 RUN_SERIAL TRUE LABELS "assets;bounded-tasks;render")
+endif()

@@ -1,0 +1,7 @@
+include_guard(GLOBAL)
+add_subdirectory(tests/render/grand_cannon_raster)
+target_link_libraries(concord_runtime PRIVATE concord_grand_cannon_raster)
+
+concord_add_profiled_leaf(concord_grand_cannon_prewarm "${CMAKE_SOURCE_DIR}/src/render/voxel/RuntimeGrandCannonPrewarm.cpp" concord_runtime Runtime)
+target_link_libraries(concord_grand_cannon_prewarm PRIVATE concord_grand_cannon_raster concord_bounded_task_executor)
+target_link_libraries(concord_runtime PRIVATE concord_grand_cannon_prewarm)

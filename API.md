@@ -44,6 +44,9 @@
 | CPU 菜单绘图 | 像素缓冲、颜色值与位图文字 | [RuntimeMenuPixelSurface.h](src/ui/surface/RuntimeMenuPixelSurface.h)、[RuntimeSkirmishBitmapText.h](src/ui/text/RuntimeSkirmishBitmapText.h) |
 | 菜单音乐 | UI 计时策略与设备能力接口 | [RuntimeSkirmishMusicPolicy.h](src/ui/audio/RuntimeSkirmishMusicPolicy.h)、[RuntimeMenuMusicDevice.h](src/audio/menu/RuntimeMenuMusicDevice.h) |
 | 联机快照会话 | 传输、暂存、校验及提交动作 | [RuntimeMultiplayerSnapshotSession.h](src/network/snapshots/RuntimeMultiplayerSnapshotSession.h) |
+| 有界任务执行器 | 独占字节输入、队列预算、代际与单次领取 | [BoundedTaskExecutor.h](src/core/tasks/BoundedTaskExecutor.h) |
+| 巨炮预热 | 私有光栅任务、所有者准备与结果安装 | [GrandCannonRasterTask.h](src/render/voxel/GrandCannonRasterTask.h)、[RuntimeGrandCannonPrewarm.h](src/render/voxel/RuntimeGrandCannonPrewarm.h) |
+| 性能计时 | 生产循环的 CPU 阶段与有界样本 | [RuntimeLiveFrameBenchmark.h](src/runtime/performance/diagnostics/RuntimeLiveFrameBenchmark.h) |
 | 运行时配置 | 配置类型、加载与偏好保存 | [RuntimeConfig.h](src/runtime/config/RuntimeConfig.h) |
 | 运行时入口 | 启动检查与游戏窗口 | [RuntimeShell.h](src/runtime/host/RuntimeShell.h) |
 | 互联网服务               | 服务配置、证书、连接和轮询    | [RuntimeInternetServiceHost.h](src/network/internet/RuntimeInternetServiceHost.h)、[RuntimeInternetServiceHostConfig.h](src/network/internet/RuntimeInternetServiceHostConfig.h) |
@@ -712,6 +715,55 @@ void writeReplaySandboxReportJson(
 
 JSON 中 `productionRuntimeValidation` 为 `not-run`，`productionRuntimeValidated` 与 `producerVerified` 为 false，`producerUtc` 为 null。输入具备完整字段也不代表真实游戏已运行、录像来源已核实或生产行为验收通过。输入路径会进入报告，生成报告应保存在本机。
 
+## 有界任务执行器
+
+[BoundedTaskExecutor.h](src/core/tasks/BoundedTaskExecutor.h) 位于 `concord::tasks`，只依赖标准库。`OwnedBytes` 是精确长度、仅可移动的独占存储；`Task` 携带输入、输出和临时工作区字节数、非零 generation 及无捕获 `JobKernel` 函数指针。
+
+内核签名为 `std::size_t (*)(const JobContext&)`，返回实际输出长度。`JobContext` 提供只读输入、私有输出与 scratch span、任务键及 `stopRequested()`。这些借用只在本次内核调用期间有效；内核必须遵守不外部分配、不访问外部可写状态、不等待同池任务的约定。接口不接收 live World、共享缓存或可捕获的上下文，但它不是对任意内核的操作系统内存隔离。
+
+| 操作 | 约定 |
+| --- | --- |
+| `submit(Task&)` | 接纳时才移动输入并预留 input、output、scratch 的全部预算；拒绝保留调用方输入。`workers=0` 在提交线程内执行完才返回。 |
+| `tryTake(JobKey)`、`waitTake(JobKey)` | 返回 `Taken`、`NotReady`、`UnknownJob`、`StaleGeneration` 或 `WouldDeadlock`。原任务键只能成功领取一次，成功输出转为调用方所有。 |
+| `cancel(JobKey)` | 合作取消排队、运行或已完成但未领取的任务；不强行终止没有返回的内核。 |
+| `advanceGeneration()` | 只接受严格递增的非零代号；旧代结果失效，运行中的存储保留到内核实际返回。 |
+| `requestStop()`、`stopAndJoin()` | 停止接纳并取消未领取结果；join 完成后才能释放运行存储。自身内核调用 `stopAndJoin()` 返回 false，不阻塞或 detach。 |
+| `stats()` | 查询工作数、队列、在途与峰值、预留字节和固定元数据大小。 |
+
+默认配置为 0 个 worker、队列 16、在途 20、payload 16 MiB。硬上限分别为 32 个 worker、4,096 个队列或任务槽和 1 GiB payload；队列不能超过在途上限。已完成但未领取的结果仍占预算。调用方未提交的输入、已领取结果、线程栈、CRT 和分配器支撑开销不计入 payload，不能把它当作整个进程的内存上限。
+
+异常及非法输出长度转换为有界 `Failed` 结果，不发布部分输出或保留 `exception_ptr`。同池内核递归提交返回 `Reentrant`，等待返回 `WouldDeadlock`；所有者必须保证执行器比内核和外部调用线程长寿，内核销毁自己的执行器属于违反所有权约定。
+
+## 巨炮光栅任务与预热所有权
+
+[GrandCannonRasterTask.h](src/render/voxel/GrandCannonRasterTask.h) 的 `concord::grand_cannon::raster(const tasks::JobContext&)` 处理巨炮炮塔已经排序、投影的面数据，生成材质、像素、阴影、深度等平面。`Input`、`Face`、`Shadow` 是内部数值输入；`Output` 后接材质平面及声明顺序中的九个字节平面。该布局用于同一实现的内部任务交换，不是存档或网络协议。
+
+资源选择、VXL/HVA 解码、投影和炮管 point 算法仍在渲染所有者执行。[RuntimeGrandCannonPreparedFacing](src/render/voxel/RuntimeGrandCannonPreparedFacing.h) 在所有者线程准备私有数据、交出 `Task`，并在核对结果后接收和安装；资源、规则、美术、剧场与共享缓存指针不进入任务内核。
+
+[RuntimeGrandCannonPrewarmJob](src/render/voxel/RuntimeGrandCannonPrewarm.h) 管理一次预热的完整生命周期：
+
+- `prepare(context, cache, error)` 在创建任务的所有者上准备和提交；输入借用仅在同步准备时有效。
+- `merge(cache, generation)` 领取已完成结果，`finish(cache, generation)` 等待并完成收集；所有者、代号、状态和输出长度都需匹配。
+- `stop()` 取消并回收工作，`done()`、`error()`、`metrics()` 提供状态及本次预热统计；销毁前执行停止和 join。
+
+`done()` 在已停止时也返回 true，不能单凭该值判断所有朝向已安装；应结合错误信息和安装计数核对结果。
+
+默认朝向先同步完成；其余朝向的炮塔光栅使用有界任务，两个部件都可用时才发布对应 ready bit。错误所有者、过期或重复结果不会安装，准备、启动或工作失败时保留已经验证的默认朝向；穷尽诊断仍要求完整输出，不能以回退替代成功。
+
+执行器使用最多 4 个 worker、队列 4、在途 4、64 MiB 输入/输出/scratch 预算；准备输入另有 128 MiB 上限，图集及其缓存另预留 128 MiB。安装后缓存和工作区分别计费，线程支撑开销不算作任务 payload。
+
+环境变量 `CONCORD_GRAND_CANNON_PREWARM_WORKERS` 接受 `0|1|2|4|auto`；非法值会报错。`workerBudget(requested, hardwareThreads)` 用于本消费者的预算，负数请求自动预算，预留两个逻辑处理器后夹到 1–4，未知数量取 1。普通运行默认仍为 1，穷尽预热诊断默认仍为 4；`0` 是实际同步参考模式。该选项不是全局模拟工作数，分析 CLI 的 `--workers` 也不用于控制它。
+
+## CPU 性能采样与隔离设备诊断
+
+[RuntimeLiveFrameBenchmark.h](src/runtime/performance/diagnostics/RuntimeLiveFrameBenchmark.h) 提供生产循环中的可选测量，不用墙钟时间决定模拟 tick 数量。`CONCORD_LIVE_BENCHMARK=1` 开启测量，`CONCORD_LIVE_BENCHMARK_VISIBLE=1` 请求可见运行，`CONCORD_LIVE_BENCHMARK_RAW_SAMPLES=1` 追加有界原始样本。`CONCORD_LIVE_BENCHMARK_TICKS` 默认 600，合法数值限制在 60–216,000；测量之前保留原 60 tick 暖场。
+
+计时分别记录模拟、CPU paint、GDI CPU 提交、提交间隔和会话进入到 ready。整段时间样本最多 4,096 个、分段最多 512 个，分位数与样本是否截断必须一起理解。CPU 提交或窗口观察结果不等同于屏幕扫描输出帧率，也不等同于游戏 GPU 时间。
+
+[性能工具](tools/benchmarks) 中新增的 ES 模块脚本使用 Node.js 内置模块记录输入身份、分轮采样并从原始流复算分位数；基线和诊断脚本按公开默认 Release 构建目录校验部署来源，输出必须使用新的工程内目录。工具的实际资源输入仍需自行准备，建议输出统一放在 `build/`。
+
+[设备探针](tools/diagnostics) 独立编译，检查 CPU/图形设备、纹理格式、上传读回与 timestamp 能力；其 D3D11、DXGI、DWM 依赖不进入游戏产品。环境采集、进程路径及原始输出只供本机分析，不随源码包发布。这里的独立设备能力不代表游戏已经启用 GPU 绘制。
+
 ## 模块库与独立合同
 
 [LeafModuleLibraries.cmake](cmake/LeafModuleLibraries.cmake) 为 CSF 与 INI 两份实现建立五个单源 `STATIC` 变体：
@@ -739,6 +791,8 @@ JSON 中 `productionRuntimeValidation` 为 `not-run`，`productionRuntimeValidat
 定时炸弹、寻路候选、生产规则和地形帧的新增独立与对照测试源码见 [README 的测试说明](README.md#测试与开发)。这六份测试目前未注册为工程的 CMake/CTest 目标；开发时使用的私人验证脚本、旧版对照副本和执行记录不随源码发布。
 
 视频服务、LAN 地图传输、回放封包与恢复一致性分别注册为 `bink_playback_service_contract_test`、`runtime_lobby_map_transfer_contract_test`、`match_replay_envelope_contract_test`、`runtime_recovery_consistency_contract_test`。前者在不支持的平台使用跳过返回码；跳过不能计作通过。这些检查未并入固定的 12＋4 测试集合。
+
+[TaskExecutorContracts.cmake](cmake/TaskExecutorContracts.cmake) 与 [GrandCannonPrewarmContracts.cmake](cmake/GrandCannonPrewarmContracts.cmake) 接入执行器、光栅与预热生产库，保留原根目录 include 顺序。新执行器和光栅合同在独立子目录作用域中使用相同生产源码；完整产品继承对应 Runtime 编译约定。`bounded_task_executor_contract_test` 和 `grand_cannon_raster_contract_test` 不需要游戏素材，`runtime_grand_cannon_prewarm_contract_test` 使用本机素材进行集成核对，注册条件及运行方法见 [README](README.md#测试与开发)。
 
 [结构检查入口](tools/testing/Run-StructureChecks.ps1) 接收已有 Release 构建目录和明确的 Python 路径；[检查器](tools/structure/structure_guard.py)、[精确例外基线](tools/structure/structure-baseline.json) 与 [合成夹具](tools/structure/test_structure_guard.py) 共同检查依赖、平台类型、目标归属和测试注册。接口与运行条件见 [README](README.md#测试与开发)，无需复制私人开发记录。
 

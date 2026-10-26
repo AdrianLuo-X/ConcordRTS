@@ -16,6 +16,15 @@ ConcordRTS 是使用 C++20 开发的 RTS 引擎工程，面向《命令与征服
 
 ## 更新记录
 
+### 2026-10-26
+
+- 补充生产循环的 CPU 模拟、绘制、GDI 提交和加载阶段计时，保存有界原始样本与分位数，增加独立的设备能力诊断和重复采样工具。
+- 新增标准库实现的有界任务执行器，支持同步参考模式、受限队列和字节预算、代际失效、合作取消、单次结果领取，以及停止和线程回收。
+- 将巨炮炮塔的投影面光栅化接入首个实际并行预热任务。资源选择、解码、投影、炮管处理和结果安装继续由原所有者负责，工作线程只读取独占输入并写入私有输出。
+- 增加 `0 / 1 / 2 / 4 / auto` 预热工作数选择，保留普通运行默认值。队列、执行器工作区、准备输入和安装后缓存分别设限，失败时保留已验证的默认朝向。
+- 完成所选并行模式的像素、阴影、材质和缓存结果对照，核对真实加载、完整画面及原模拟顺序和世界哈希；补充取消、过期结果、错误所有者、异常及会话替换检查。
+- 保留执行器与光栅内核的独立合同工程和素材集成测试，扩充结构保护。独立设备探针不代表游戏已采用 GPU 绘制，局部并行验证也不代表整个模拟已经并行化。
+
 ### 2026-10-24
 
 - 提取游戏窗口生命周期与遭遇战菜单控制器，通过类型化服务连接原窗口、输入和配置，保留同步重入、关闭清理与选择提交顺序。
@@ -92,6 +101,7 @@ ConcordRTS/
 │   ├── core/                       基础工具与不依赖界面的数据逻辑
 │   │   ├── io/                     INI 与文件读写
 │   │   ├── players/                纯席位角色判断
+│   │   ├── tasks/                  有界任务执行器、输入与结果所有权
 │   │   └── results/                比赛计分、保存与哈希
 │   ├── data/                       规则、美术、地图与战役数据库
 │   │   └── rules/                  规则数据库、生产规则类型与解析
@@ -120,9 +130,11 @@ ConcordRTS/
 │   │   ├── menu/                   遭遇战菜单控制器与同步服务
 │   │   ├── persistence/            保存、加载与恢复一致性诊断
 │   │   ├── replay/                 回放封包与宿主恢复内核
+│   │   ├── performance/            生产循环性能计时与诊断
 │   │   └── host/                   启动检查、游戏窗口与战局宿主
 │   ├── render/                     地图、单位、效果与软件绘制
 │   │   ├── core/                   地图绘图与短期地形帧输入
+│   │   ├── voxel/                  体素绘制、巨炮光栅任务与预热生命周期
 │   │   └── resources/              菜单资源接口的既有缓存实现
 │   ├── ui/                         菜单、输入、HUD 与偏好保存
 │   │   ├── input/                  输入值、键鼠、聊天与交互控制器
@@ -146,9 +158,11 @@ ConcordRTS/
 │   │   └── offline_report_evidence/  离线报告的合成事件与规则
 │   ├── assets/                     资源解码与视频服务合同测试
 │   ├── infrastructure/             配置、文件、输入、窗口与菜单合同
+│   │   └── task_executor/          有界任务执行器独立合同工程
 │   ├── gameplay/                   战斗、生产、单位行为与机制检查
 │   ├── multiplayer/                局域网、同步、快照与恢复检查
 │   ├── internet/                   互联网服务、TLS 与匹配检查
+│   ├── render/                     巨炮光栅内核独立合同工程
 │   ├── rendering/                  绘制、深度、光照与表现检查
 │   ├── pathfinding/                寻路与请求队列检查
 │   ├── rules/                      规则解析与生产规则检查
@@ -165,13 +179,16 @@ ConcordRTS/
 │   │   └── Configure-WindowsClang.ps1  显式工具链配置
 │   ├── assets/                     资源调试与模型调整工具
 │   ├── maps/                       自编地图生成工具
-│   ├── benchmarks/                 移动与规模性能检查工具
+│   ├── benchmarks/                 移动、规模与重复性能采样工具
+│   ├── diagnostics/                独立设备能力与计时诊断
 │   ├── playability/                可玩性检查与结果比较工具
 │   └── legacy/                     历史源码集成与迁移工具
 ├── samples/                        精简规则、地图与网络配置示例
 │   ├── mod-extensions/             MOD 扩展示例
 │   └── screen-shake/               屏幕震动示例
 ├── cmake/                          游戏、工具、平台与测试构建配置
+│   ├── TaskExecutorContracts.cmake  执行器生产库与合同工程接入
+│   ├── GrandCannonPrewarmContracts.cmake  巨炮光栅与预热库接入
 │   ├── CoreTargets.cmake           独立核心的实际目标与生产库
 │   ├── CoreTestSuite.cmake         核心测试集合与串行检查入口
 │   ├── ProfiledLeaf.cmake          按消费者编译约定建立静态库
@@ -352,6 +369,20 @@ pwsh -NoProfile -File .\tools\testing\Run-LocalTests.ps1 -Compiler Clang -BuildD
 
 窗口生命周期、菜单控制器、颜色值、图像、字体、CPU 像素表面、音乐策略及其 Windows 适配，以及 TCP 边界和快照会话，均有单独的合同目标与测试注册。相关入口见 [TestsAdditionalRegression.cmake](cmake/TestsAdditionalRegression.cmake) 和各模块的 `*Contracts.cmake`；这些检查没有自动并入固定的 12＋4 集合。独立核心的 10 项测试通过 `concord_core_check` 执行，使用上文单独的核心构建目录。
 
+有界执行器和巨炮光栅内核分别注册 `bounded_task_executor_contract_test`、`grand_cannon_raster_contract_test`，均使用自编输入，不需要官方素材。在已配置的完整产品构建目录中，可单独构建并运行：
+
+```powershell
+$gameBuild = 'build/clang-cl-x64-release'
+& $cmakeExe --build $gameBuild --target concord_bounded_task_executor_contract concord_grand_cannon_raster_contract --parallel 1
+if ($LASTEXITCODE -ne 0) { throw '合同目标构建失败。' }
+& "$toolRoot/CMake/bin/ctest.exe" --test-dir $gameBuild --no-tests=error --output-on-failure -j 1 -R '^(bounded_task_executor_contract_test|grand_cannon_raster_contract_test)$'
+if ($LASTEXITCODE -ne 0) { throw '合同检查失败。' }
+```
+
+两份 [执行器合同工程](tests/infrastructure/task_executor/CMakeLists.txt) 和 [光栅合同工程](tests/render/grand_cannon_raster/CMakeLists.txt) 也支持作为独立 CMake 源工程，直接编译相同生产实现。它们不属于上文独立核心的固定 10 项集合，也未并入 12＋4 本地测试集合。
+
+素材合同 `runtime_grand_cannon_prewarm_contract_test` 只在 Windows 且工程中存在 `RedAlert2/` 时注册，还需要本机规则、资源及配置指定的地图。它比较原预热结果与多种工作数的完整输出；无素材的纯内核合同不能替代这项检查。
+
 [离线报告检查脚本](tools/testing/Test-OfflineReportEvidence.ps1) 使用 [自编规则与事件](tests/fixtures/offline_report_evidence)，核对报告来源、空输入、部分输入、完整字段与错误处理；生成的报告不等同于真实游戏行为通过。
 
 结构检查入口见 [Run-StructureChecks.ps1](tools/testing/Run-StructureChecks.ps1)。它需要本工程已校验的 Clang/Ninja Release 构建目录、PowerShell 7，以及 Python 3.10 或更新版本的绝对路径。先按自己的安装位置修改示例解释器路径：
@@ -362,13 +393,23 @@ pwsh -NoProfile -File .\tools\testing\Run-LocalTests.ps1 -Compiler Clang -BuildD
 
 `-StructureOnly` 单独执行结构检查，不追加执行 12＋4 测试集合。入口校验缓存、刷新 CMake 元数据、冻结目标清单并运行合成夹具，然后检查依赖与精确例外；它不会构建游戏目标。结果默认写入已忽略的 `build/local-tests/structure-*/`，其中可能包含本机路径和环境信息，应留在本机。
 
-[结构基线](tools/structure/structure-baseline.json) 保留 4,311 条逐项审核的历史例外。新增违规、出现次数增加或已经消失而尚未收紧的例外都会导致失败；工具不会自动扩大豁免范围。它提供所选构建配置的静态结构证据，不表示完整游戏、其他平台或性能已经验收。
+[结构基线](tools/structure/structure-baseline.json) 保留 4,335 条逐项审核的历史例外。新增违规、出现次数增加或已经消失而尚未收紧的例外都会导致失败；工具不会自动扩大豁免范围。它提供所选构建配置的静态结构证据，不表示完整游戏、其他平台或性能已经验收。
 
 已记录的验证覆盖所选标准合同、Windows 适配、资源查询、命令桥接及经济保存恢复对照。旧回归中已知的月球剧场深度、部分交互和几何绘制，以及 Yuri 采矿收入、完整 AI 经济、部分编队紧凑度与矿石动画检查失败仍保留；完整物理输入、IME、双端运行游戏、其他窗口后端与平台及性能不据此视为通过。
 
 CMake 保留专项测试目标。部分测试只使用自编夹具，部分需要本地原游戏数据；资源相关测试与调试工具需要按自己的环境配置路径。不能将无素材环境下的编译成功视为全部游戏功能或全部测试通过。
 
 普通构建只编译游戏核心与视频助手，避免一次构建全部历史测试目标。`samples/` 内的演示准备脚本与部分开发工具需要先具备相应本地数据；Python 工具的解释器和依赖应自行准备。
+
+### 并行预热与性能工具
+
+巨炮预热的专用环境变量为 `CONCORD_GRAND_CANNON_PREWARM_WORKERS`，可取 `0`、`1`、`2`、`4` 或 `auto`。`0` 在提交线程同步执行；`auto` 根据逻辑处理器数量预留两个后限制在 1–4，未知数量按 1 处理，不设置系统亲和性。普通游戏默认仍为 1，穷尽预热诊断默认仍为 4。此选项只影响这一预热消费者；分析工具的 `--workers` 含义保持原样。
+
+[性能工具目录](tools/benchmarks) 保留重复运行、输入身份记录和原始日志汇总脚本；新增的 `.mjs` 脚本需要支持 ES 模块的 Node.js，仅使用内置模块。基线和设备诊断入口使用公开版默认 `build/clang-cl-x64-release/`，核对 Release 程序及本机部署来源，并要求新的工程内输出目录。基线运行还需要自行准备游戏数据和所选地图。
+
+[设备诊断目录](tools/diagnostics) 是独立 Windows Clang 项目，检测设备、纹理、读回和计时能力，设备库不链接进游戏或独立核心。CPU 提交间隔、独立 GPU 探针和实际显示帧率是不同指标；当前工具没有测量游戏 GPU 帧时间或屏幕扫描输出帧率，所选阶段计时也不构成全游戏加速结论。
+
+运行时产生的环境信息、绝对路径、日志和输入哈希属于本机记录，请将输出放在 `build/` 下并保留在本地。源码包不附带这些记录，也不附带依赖私人文档的验收和交接脚本。
 
 ## 上传 GitHub
 

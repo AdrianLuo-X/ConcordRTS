@@ -2,7 +2,7 @@ param(
     [string]$Executable = '',
     [string]$Config = '',
     [string]$Label = 'movement',
-    [ValidateSet(128, 256)][int]$Units = 128,
+    [ValidateSet(48, 128, 256)][int]$Units = 128,
     [ValidateSet('open', 'retarget', 'choke', 'combat', 'battle')][string]$Scenario = 'open',
     [ValidateSet('Live', 'Simulation')][string]$Mode = 'Live',
     [ValidateRange(60, 3600)][int]$Ticks = 600,
@@ -14,7 +14,11 @@ param(
     [switch]$RenderDetail,
     [ValidateRange(0, 1000)][double]$TraceMinMs = 5,
     [string]$GoldenIn = '',
-    [string]$GoldenOut = ''
+    [string]$GoldenOut = '',
+    [string]$OutputDirectory = '',
+    [switch]$Visible,
+    [switch]$RawSamples,
+    [switch]$SaveGeneratedMap
 )
 $ErrorActionPreference = 'Stop'
 # Mixed formations need time to approach and sustain fire. Explicit shorter
@@ -28,14 +32,18 @@ $Executable = (Resolve-Path -LiteralPath $Executable).Path
 if ($Label -notmatch '^[A-Za-z0-9_-]+$') { throw 'Label must contain only letters, digits, underscores and hyphens.' }
 if ($Mode -eq 'Live' -and $Scenario -eq 'retarget') { throw 'Live open/choke runs already change orders at ticks 301 and 541.' }
 if ($Mode -eq 'Live' -and ($GoldenIn -or $GoldenOut)) { throw 'GoldenIn and GoldenOut require Simulation mode.' }
-$outputRoot = Join-Path $projectRoot 'build/movement'
+if ($Mode -eq 'Simulation' -and ($Units -eq 48 -or $Visible)) { throw '48-unit and visible samples require Live mode.' }
+$outputRoot = if ($OutputDirectory) { [IO.Path]::GetFullPath($OutputDirectory) } else { Join-Path $projectRoot 'build/movement' }
+if ($OutputDirectory -and (!$outputRoot.StartsWith($projectRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) -or (Test-Path -LiteralPath $outputRoot))) {
+    throw 'Explicit OutputDirectory must be a new project-local directory.'
+}
 [void](New-Item -ItemType Directory -Path $outputRoot -Force)
 $start = [Diagnostics.ProcessStartInfo]::new()
 $start.FileName = $Executable
 $start.WorkingDirectory = $projectRoot
 $start.UseShellExecute = $false
 $start.CreateNoWindow = $true
-$start.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
+$start.WindowStyle = if ($Visible) { [Diagnostics.ProcessWindowStyle]::Normal } else { [Diagnostics.ProcessWindowStyle]::Hidden }
 $start.RedirectStandardOutput = $true
 $start.RedirectStandardError = $true
 $start.Environment.Clear()
@@ -46,6 +54,9 @@ foreach ($entry in [Environment]::GetEnvironmentVariables().GetEnumerator()) {
     }
 }
 $start.Environment['CONCORD_RENDER_DETAIL_STATS'] = if ($RenderDetail) { '1' } else { '0' }
+if ($Visible) { $start.Environment['CONCORD_LIVE_BENCHMARK_VISIBLE'] = '1' }
+if ($RawSamples) { $start.Environment['CONCORD_LIVE_BENCHMARK_RAW_SAMPLES'] = '1' }
+if ($SaveGeneratedMap) { $start.Environment['CONCORD_LIVE_BENCHMARK_GENERATED_MAP'] = Join-Path $outputRoot 'generated.map' }
 if ($Reference) { $start.Environment['CONCORD_MOVEMENT_REFERENCE'] = '1' }
 if ($FrameReference) { $start.Environment['CONCORD_FRAME_SCALING_REFERENCE'] = '1' }
 if ($Trace -or $AggregateTrace) {
@@ -84,10 +95,14 @@ $stdout = $process.StandardOutput.ReadToEndAsync()
 $stderr = $process.StandardError.ReadToEndAsync()
 $completed = $process.WaitForExit([Math]::Max(300000, $Ticks * 300))
 if (!$completed) { $process.Kill(); $process.WaitForExit() }
-$log = $stdout.GetAwaiter().GetResult() + $stderr.GetAwaiter().GetResult()
+$stdoutText = $stdout.GetAwaiter().GetResult()
+$stderrText = $stderr.GetAwaiter().GetResult()
+$log = $stdoutText + $stderrText
 $stem = "$Label-$Mode-$Scenario-$Units"
 $logPath = Join-Path $outputRoot "$stem.log"
 [IO.File]::WriteAllText($logPath, $log)
+[IO.File]::WriteAllText((Join-Path $outputRoot "$stem.stdout.log"), $stdoutText)
+[IO.File]::WriteAllText((Join-Path $outputRoot "$stem.stderr.log"), $stderrText)
 [ordered]@{
     executable = $Executable
     config = $Config
@@ -97,9 +112,14 @@ $logPath = Join-Path $outputRoot "$stem.log"
     trace = ($Trace.IsPresent -or $AggregateTrace.IsPresent); aggregateTrace = $AggregateTrace.IsPresent
     renderDetail = $RenderDetail.IsPresent
     exitCode = $process.ExitCode; completed = $completed
+    processId = $process.Id
     processWallSeconds = $processTimer.Elapsed.TotalSeconds
     processCpuSeconds = $process.TotalProcessorTime.TotalSeconds
     displayFpsMeasured = $false
+    visibleRequested = $Visible.IsPresent
+    rawSamples = $RawSamples.IsPresent
+    arguments = @($start.ArgumentList)
+    environmentOverrides = @($start.Environment.GetEnumerator() | Where-Object Key -Like 'CONCORD_*' | ForEach-Object { @{ name = $_.Key; value = $_.Value } })
 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $outputRoot "$stem.json")
 $log -split '\r?\n' | Where-Object { $_ -match '^(Live (movement|benchmark context|frame|battle)|Mass (movement|battle))' }
 if (!$completed -or $process.ExitCode -ne 0) { throw "Movement benchmark failed; see $logPath" }

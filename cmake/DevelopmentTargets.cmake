@@ -989,3 +989,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/SnapshotSessionContracts.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/SnapshotTransferLibraries.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CompatibilityFingerprintLibraries.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/ProductionCoreLibraries.cmake")
+
+include("${CMAKE_CURRENT_LIST_DIR}/TaskExecutorContracts.cmake")
+
+include("${CMAKE_CURRENT_LIST_DIR}/GrandCannonPrewarmContracts.cmake")

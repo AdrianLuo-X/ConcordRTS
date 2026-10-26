@@ -2,6 +2,10 @@
   "schema": "ConcordStructureBaseline/v1",
   "scope": "Current ConcordRTS engine; exact entries only.",
   "protectedModules": {
+    "bounded-tasks": [
+      "src/core/tasks/BoundedTaskExecutor.h",
+      "src/core/tasks/BoundedTaskExecutor.cpp"
+    ],
     "CSF": [
       "src/assets/text/CsfCodec.h",
       "src/assets/text/CsfCodec.cpp"
@@ -47183,6 +47187,270 @@
       "reason": "W027-01 full-product-config Runtime-profile world fixture only: Windows-local unused default system link. Same actual Runtime world/Ini archive and current20 pure PE have no device import; source and library dependency closure contain no native code. This is not independent core profile acceptance.",
       "owner_step": "P10/W027-01",
       "follow_up": "W027-02 must configure clean portable-core capability with window/device default LINK fragments removed. P10 stage exit not activated by W027-01 alone."
+    },
+    {
+      "rule": "platform-header",
+      "path": "tools/diagnostics/s33/Capabilities.cpp",
+      "detail": "d3d11.h",
+      "maxOccurrences": 1,
+      "reason": "S33 isolated Windows-only capability/visibility diagnostic; private native implementation, no production/core include or link edge.",
+      "owner_step": "S33",
+      "follow_up": "Retain tools/diagnostics/s33 isolation; S39/S42 must own any later production D3D provider separately.",
+      "status": "accepted-private-diagnostic",
+      "evidence": "S33 baseline-20261026-r1: capabilities-r1 and isolated CMake target; exact reviewed native facts."
+    },
+    {
+      "rule": "platform-header",
+      "path": "tools/diagnostics/s33/Capabilities.cpp",
+      "detail": "dxgi1_4.h",
+      "maxOccurrences": 1,
+      "reason": "S33 isolated Windows-only capability/visibility diagnostic; private native implementation, no production/core include or link edge.",
+      "owner_step": "S33",
+      "follow_up": "Retain tools/diagnostics/s33 isolation; S39/S42 must own any later production D3D provider separately.",
+      "status": "accepted-private-diagnostic",
+      "evidence": "S33 baseline-20261026-r1: capabilities-r1 and isolated CMake target; exact reviewed native facts."
+    },
+    {
+      "rule": "platform-header",
+      "path": "tools/diagnostics/s33/Capabilities.cpp",
+      "detail": "intrin.h",
+      "maxOccurrences": 1,
+      "reason": "S33 isolated Windows-only capability/visibility diagnostic; private native implementation, no production/core include or link edge.",
+      "owner_step": "S33",
+      "follow_up": "Retain tools/diagnostics/s33 isolation; S39/S42 must own any later production D3D provider separately.",
+      "status": "accepted-private-diagnostic",
+      "evidence": "S33 baseline-20261026-r1: capabilities-r1 and isolated CMake target; exact reviewed native facts."
+    },
+    {
+      "rule": "platform-header",
+      "path": "tools/diagnostics/s33/Capabilities.cpp",
+      "detail": "psapi.h",
+      "maxOccurrences": 1,
+      "reason": "S33 isolated Windows-only capability/visibility diagnostic; private native implementation, no production/core include or link edge.",
+      "owner_step": "S33",
+      "follow_up": "Retain tools/diagnostics/s33 isolation; S39/S42 must own any later production D3D provider separately.",
+      "status": "accepted-private-diagnostic",
+      "evidence": "S33 baseline-20261026-r1: capabilities-r1 and isolated CMake target; exact reviewed native facts."
+    },
+    {
+      "rule": "platform-header",
+      "path": "tools/diagnostics/s33/Capabilities.cpp",
+      "detail": "windows.h",
+      "maxOccurrences": 1,
+      "reason": "S33 isolated Windows-only capability/visibility diagnostic; private native implementation, no production/core include or link edge.",
+      "owner_step": "S33",
+      "follow_up": "Retain tools/diagnostics/s33 isolation; S39/S42 must own any later production D3D provider separately.",
+      "status": "accepted-private-diagnostic",
+      "evidence": "S33 baseline-20261026-r1: capabilities-r1 and isolated CMake target; exact reviewed native facts."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s33/Capabilities.cpp",
+      "detail": "DWORD",
+      "maxOccurrences": 9,
+      "reason": "S33 isolated Windows-only capability/visibility diagnostic; private native implementation, no production/core include or link edge.",
+      "owner_step": "S33",
+      "follow_up": "Retain tools/diagnostics/s33 isolation; S39/S42 must own any later production D3D provider separately.",
+      "status": "accepted-private-diagnostic",
+      "evidence": "S33 baseline-20261026-r1: capabilities-r1 and isolated CMake target; exact reviewed native facts."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s33/Capabilities.cpp",
+      "detail": "HANDLE",
+      "maxOccurrences": 1,
+      "reason": "S33 isolated Windows-only capability/visibility diagnostic; private native implementation, no production/core include or link edge.",
+      "owner_step": "S33",
+      "follow_up": "Retain tools/diagnostics/s33 isolation; S39/S42 must own any later production D3D provider separately.",
+      "status": "accepted-private-diagnostic",
+      "evidence": "S33 baseline-20261026-r1: capabilities-r1 and isolated CMake target; exact reviewed native facts."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s33/Capabilities.cpp",
+      "detail": "HRESULT",
+      "maxOccurrences": 23,
+      "reason": "S33 isolated Windows-only capability/visibility diagnostic; private native implementation, no production/core include or link edge.",
+      "owner_step": "S33",
+      "follow_up": "Retain tools/diagnostics/s33 isolation; S39/S42 must own any later production D3D provider separately.",
+      "status": "accepted-private-diagnostic",
+      "evidence": "S33 baseline-20261026-r1: capabilities-r1 and isolated CMake target; exact reviewed native facts."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s33/Capabilities.cpp",
+      "detail": "HWND",
+      "maxOccurrences": 3,
+      "reason": "S33 isolated Windows-only capability/visibility diagnostic; private native implementation, no production/core include or link edge.",
+      "owner_step": "S33",
+      "follow_up": "Retain tools/diagnostics/s33 isolation; S39/S42 must own any later production D3D provider separately.",
+      "status": "accepted-private-diagnostic",
+      "evidence": "S33 baseline-20261026-r1: capabilities-r1 and isolated CMake target; exact reviewed native facts."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s33/Capabilities.cpp",
+      "detail": "ID3D11Device",
+      "maxOccurrences": 3,
+      "reason": "S33 isolated Windows-only capability/visibility diagnostic; private native implementation, no production/core include or link edge.",
+      "owner_step": "S33",
+      "follow_up": "Retain tools/diagnostics/s33 isolation; S39/S42 must own any later production D3D provider separately.",
+      "status": "accepted-private-diagnostic",
+      "evidence": "S33 baseline-20261026-r1: capabilities-r1 and isolated CMake target; exact reviewed native facts."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s33/Capabilities.cpp",
+      "detail": "ID3D11DeviceContext",
+      "maxOccurrences": 2,
+      "reason": "S33 isolated Windows-only capability/visibility diagnostic; private native implementation, no production/core include or link edge.",
+      "owner_step": "S33",
+      "follow_up": "Retain tools/diagnostics/s33 isolation; S39/S42 must own any later production D3D provider separately.",
+      "status": "accepted-private-diagnostic",
+      "evidence": "S33 baseline-20261026-r1: capabilities-r1 and isolated CMake target; exact reviewed native facts."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s33/Capabilities.cpp",
+      "detail": "ID3D11Query",
+      "maxOccurrences": 1,
+      "reason": "S33 isolated Windows-only capability/visibility diagnostic; private native implementation, no production/core include or link edge.",
+      "owner_step": "S33",
+      "follow_up": "Retain tools/diagnostics/s33 isolation; S39/S42 must own any later production D3D provider separately.",
+      "status": "accepted-private-diagnostic",
+      "evidence": "S33 baseline-20261026-r1: capabilities-r1 and isolated CMake target; exact reviewed native facts."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s33/Capabilities.cpp",
+      "detail": "ID3D11RenderTargetView",
+      "maxOccurrences": 2,
+      "reason": "S33 isolated Windows-only capability/visibility diagnostic; private native implementation, no production/core include or link edge.",
+      "owner_step": "S33",
+      "follow_up": "Retain tools/diagnostics/s33 isolation; S39/S42 must own any later production D3D provider separately.",
+      "status": "accepted-private-diagnostic",
+      "evidence": "S33 baseline-20261026-r1: capabilities-r1 and isolated CMake target; exact reviewed native facts."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s33/Capabilities.cpp",
+      "detail": "ID3D11ShaderResourceView",
+      "maxOccurrences": 1,
+      "reason": "S33 isolated Windows-only capability/visibility diagnostic; private native implementation, no production/core include or link edge.",
+      "owner_step": "S33",
+      "follow_up": "Retain tools/diagnostics/s33 isolation; S39/S42 must own any later production D3D provider separately.",
+      "status": "accepted-private-diagnostic",
+      "evidence": "S33 baseline-20261026-r1: capabilities-r1 and isolated CMake target; exact reviewed native facts."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s33/Capabilities.cpp",
+      "detail": "ID3D11Texture2D",
+      "maxOccurrences": 3,
+      "reason": "S33 isolated Windows-only capability/visibility diagnostic; private native implementation, no production/core include or link edge.",
+      "owner_step": "S33",
+      "follow_up": "Retain tools/diagnostics/s33 isolation; S39/S42 must own any later production D3D provider separately.",
+      "status": "accepted-private-diagnostic",
+      "evidence": "S33 baseline-20261026-r1: capabilities-r1 and isolated CMake target; exact reviewed native facts."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s33/Capabilities.cpp",
+      "detail": "IDXGIAdapter",
+      "maxOccurrences": 1,
+      "reason": "S33 isolated Windows-only capability/visibility diagnostic; private native implementation, no production/core include or link edge.",
+      "owner_step": "S33",
+      "follow_up": "Retain tools/diagnostics/s33 isolation; S39/S42 must own any later production D3D provider separately.",
+      "status": "accepted-private-diagnostic",
+      "evidence": "S33 baseline-20261026-r1: capabilities-r1 and isolated CMake target; exact reviewed native facts."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s33/Capabilities.cpp",
+      "detail": "IDXGIAdapter1",
+      "maxOccurrences": 3,
+      "reason": "S33 isolated Windows-only capability/visibility diagnostic; private native implementation, no production/core include or link edge.",
+      "owner_step": "S33",
+      "follow_up": "Retain tools/diagnostics/s33 isolation; S39/S42 must own any later production D3D provider separately.",
+      "status": "accepted-private-diagnostic",
+      "evidence": "S33 baseline-20261026-r1: capabilities-r1 and isolated CMake target; exact reviewed native facts."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s33/Capabilities.cpp",
+      "detail": "IDXGIAdapter3",
+      "maxOccurrences": 1,
+      "reason": "S33 isolated Windows-only capability/visibility diagnostic; private native implementation, no production/core include or link edge.",
+      "owner_step": "S33",
+      "follow_up": "Retain tools/diagnostics/s33 isolation; S39/S42 must own any later production D3D provider separately.",
+      "status": "accepted-private-diagnostic",
+      "evidence": "S33 baseline-20261026-r1: capabilities-r1 and isolated CMake target; exact reviewed native facts."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s33/Capabilities.cpp",
+      "detail": "IDXGIDevice",
+      "maxOccurrences": 2,
+      "reason": "S33 isolated Windows-only capability/visibility diagnostic; private native implementation, no production/core include or link edge.",
+      "owner_step": "S33",
+      "follow_up": "Retain tools/diagnostics/s33 isolation; S39/S42 must own any later production D3D provider separately.",
+      "status": "accepted-private-diagnostic",
+      "evidence": "S33 baseline-20261026-r1: capabilities-r1 and isolated CMake target; exact reviewed native facts."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s33/Capabilities.cpp",
+      "detail": "IDXGIFactory1",
+      "maxOccurrences": 1,
+      "reason": "S33 isolated Windows-only capability/visibility diagnostic; private native implementation, no production/core include or link edge.",
+      "owner_step": "S33",
+      "follow_up": "Retain tools/diagnostics/s33 isolation; S39/S42 must own any later production D3D provider separately.",
+      "status": "accepted-private-diagnostic",
+      "evidence": "S33 baseline-20261026-r1: capabilities-r1 and isolated CMake target; exact reviewed native facts."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s33/Capabilities.cpp",
+      "detail": "LARGE_INTEGER",
+      "maxOccurrences": 2,
+      "reason": "S33 isolated Windows-only capability/visibility diagnostic; private native implementation, no production/core include or link edge.",
+      "owner_step": "S33",
+      "follow_up": "Retain tools/diagnostics/s33 isolation; S39/S42 must own any later production D3D provider separately.",
+      "status": "accepted-private-diagnostic",
+      "evidence": "S33 baseline-20261026-r1: capabilities-r1 and isolated CMake target; exact reviewed native facts."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s33/Capabilities.cpp",
+      "detail": "LPARAM",
+      "maxOccurrences": 2,
+      "reason": "S33 isolated Windows-only capability/visibility diagnostic; private native implementation, no production/core include or link edge.",
+      "owner_step": "S33",
+      "follow_up": "Retain tools/diagnostics/s33 isolation; S39/S42 must own any later production D3D provider separately.",
+      "status": "accepted-private-diagnostic",
+      "evidence": "S33 baseline-20261026-r1: capabilities-r1 and isolated CMake target; exact reviewed native facts."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s33/Capabilities.cpp",
+      "detail": "POINT",
+      "maxOccurrences": 1,
+      "reason": "S33 isolated Windows-only capability/visibility diagnostic; private native implementation, no production/core include or link edge.",
+      "owner_step": "S33",
+      "follow_up": "Retain tools/diagnostics/s33 isolation; S39/S42 must own any later production D3D provider separately.",
+      "status": "accepted-private-diagnostic",
+      "evidence": "S33 baseline-20261026-r1: capabilities-r1 and isolated CMake target; exact reviewed native facts."
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s33/Capabilities.cpp",
+      "detail": "RECT",
+      "maxOccurrences": 1,
+      "reason": "S33 isolated Windows-only capability/visibility diagnostic; private native implementation, no production/core include or link edge.",
+      "owner_step": "S33",
+      "follow_up": "Retain tools/diagnostics/s33 isolation; S39/S42 must own any later production D3D provider separately.",
+      "status": "accepted-private-diagnostic",
+      "evidence": "S33 baseline-20261026-r1: capabilities-r1 and isolated CMake target; exact reviewed native facts."
     }
   ],
   "reviewedUpdates": [
@@ -47340,6 +47608,12 @@
     {
       "batch": "P10/W027-01",
       "newExactLocalTestDefaultFacts": 4,
+      "newPureNativeFacts": 0,
+      "oldBudgetIncreases": 0
+    },
+    {
+      "batch": "S33 first baseline",
+      "newExactPrivateDiagnosticFacts": 24,
       "newPureNativeFacts": 0,
       "oldBudgetIncreases": 0
     }

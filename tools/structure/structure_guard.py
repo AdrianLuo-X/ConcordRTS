@@ -42,6 +42,8 @@ FRONTEND_FLAG = re.compile(r'(?<!\w)(/[A-Za-z][A-Za-z0-9:,+-]*|-W[\w=-]+|-f[\w=-
 VS_PATH = re.compile(r'(?i)[A-Z]:[\\/][^"\r\n]*(?:Visual[ /]Studio|Microsoft[ /]Visual[ /]Studio)[^"\r\n]*')
 FORBIDDEN_PREFIXES = ("src/runtime/host/", "src/ui/")
 DEFAULT_MODULES = {
+    "bounded-tasks": ["src/core/tasks/BoundedTaskExecutor.h",
+                      "src/core/tasks/BoundedTaskExecutor.cpp"],
     "menu-image": ["src/assets/menu/MenuImage.h", "src/assets/menu/MenuImage.cpp"],
     "menu-image-port": ["src/assets/menu/MenuImageResources.h"],
     "Westwood-font": ["src/assets/text/WestwoodFontCodec.h",
@@ -232,6 +234,12 @@ def scan(root, build, inventory, trace, modules=None):
                 add("protected-module-missing", start, module)
                 continue
             for target, witness in closure(graph, start).items():
+                if module == "bounded-tasks":
+                    if target not in roots:
+                        add("task-executor-dependency", start, target, witness=witness)
+                    if re.search(r'\b(?:GameWorld|WorldObjectInstance|RuntimeMapRenderCache|renderCache)\b',
+                                 code_views.get(target, "")):
+                        add("task-executor-live-state", start, target, witness=witness)
                 if target.startswith(FORBIDDEN_PREFIXES):
                     add("protected-dependency", start, module + ":" + target, witness=witness)
                 for detail in platform.get(target, ()):
