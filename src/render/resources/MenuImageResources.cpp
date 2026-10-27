@@ -89,6 +89,13 @@ bool loadMenuFrameLocalShp(
     }
     output.width = frame.width;
     output.height = frame.height;
+    output.indices=frame.pixels;output.indexWidth=frame.width;output.indexHeight=frame.height;
+    output.transparentZero=transparentZero;
+    for(std::size_t i=0;i<256;++i) {
+        const auto c=palette[i];
+        output.paletteBgra[i]=static_cast<std::uint32_t>(c.b)|(static_cast<std::uint32_t>(c.g)<<8)
+            |(static_cast<std::uint32_t>(c.r)<<16)|0xff000000U;
+    }
     output.bgra.resize(static_cast<std::size_t>(frame.width * frame.height * 4));
     for (std::size_t i = 0; i < frame.pixels.size(); ++i) {
         const unsigned char index = frame.pixels[i];

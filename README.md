@@ -8,7 +8,7 @@ ConcordRTS 是使用 C++20 开发的 RTS 引擎工程，面向《命令与征服
 
 ## 功能与开发状态
 
-源码包含遭遇战、AI、战役、局域网与互联网联机、观战、存档与联机恢复，以及规则分析、地图解析、资源读取和导出工具。遭遇战菜单可选择 Win32 或可选的 SDL3 软件窗口，开始战局后使用 Win32 游戏窗口。主战局可选择默认的软件呈现、硬件 D3D11 或显式 WARP，完整画面仍由 CPU 绘制。
+源码包含遭遇战、AI、战役、局域网与互联网联机、观战、存档与联机恢复，以及规则分析、地图解析、资源读取和导出工具。遭遇战菜单可选择 Win32 或可选的 SDL3 软件窗口；Win32 大厅和选图页另可显式启用 GPU 绘制，开始战局后使用 Win32 游戏窗口。主战局可选择默认的软件呈现、硬件 D3D11 或显式 WARP，完整画面仍由 CPU 绘制。
 
 另提供独立核心构建，支持在不创建窗口、图形、音频和视频后端的情况下构建所选实际生产模块。已验证的核心环境为 Windows Clang；文件和 LAN 仍保留私有操作系统适配，不表示整个游戏已完成跨平台运行。
 
@@ -17,6 +17,12 @@ ConcordRTS 是使用 C++20 开发的 RTS 引擎工程，面向《命令与征服
 ## 更新记录
 
 ### 2026-10-27
+
+- 将 Win32 遭遇战大厅和选图页接入实际 GPU 绘制，覆盖转场、按钮、下拉选项、地图预览、位图文字和软件鼠标；复用原资源解码、控制器及输入逻辑。
+- 增加有序菜单绘制命令、资源代际和同步借用接口，GPU 直接处理索引图片、调色板、字形与客户区映射；正常路径不生成 CPU 完整菜单画面，也不做逐帧 GPU 读回。
+- 提供独立的菜单绘制选择和离线着色器构建；保留软件默认、显式硬件与 WARP，以及失败或进入未支持菜单页时的软件回退。战局画面仍由 CPU 绘制。
+- 修复下拉菜单关闭后、下一次重绘前仍可能命中旧弹出选项的问题，补充对应控制器回归断言。
+- 完成所选完整菜单的像素、输入、资源寿命和软件回退对照，补充原生光栅合同与结构检查。所选菜单的 CPU 准备耗时有所降低，当前测量不构成全引擎提速或实际屏幕帧率结论。
 
 - 接入 Windows D3D11 完整帧呈现：地图、界面、FPS 和软件鼠标仍由 CPU 组成，再按客户区尺寸上传并显示；保留软件呈现默认值，以及显式硬件和 WARP 选择。
 - 完成窗口缩放、最小化恢复、焦点切换与关闭处理；设备创建、资源或呈现失败时释放 GPU 资源，并在当前窗口会话中转回原 GDI 路径。
@@ -158,7 +164,8 @@ ConcordRTS/
 │   │   ├── replay/                 回放封包与宿主恢复内核
 │   │   ├── performance/            生产循环性能计时与诊断
 │   │   ├── presentation/           完整帧、后端选项与私有呈现适配
-│   │   │   └── win32/              GDI 与 D3D11 完整帧呈现
+│   │   │   └── win32/              GDI、D3D11 完整帧与菜单 GPU 绘制
+│   │   │       └── MenuRaster.hlsl  自编菜单顶点／像素着色器源码
 │   │   └── host/                   启动检查、游戏窗口与战局宿主
 │   ├── render/                     地图、单位、效果与软件绘制
 │   │   ├── core/                   地图绘图与短期地形帧输入
@@ -169,6 +176,7 @@ ConcordRTS/
 │   │   ├── input/                  输入值、键鼠、聊天与交互控制器
 │   │   ├── time/                   UI 毫秒时钟与原计时策略
 │   │   ├── values/                 与设备无关的 UI 颜色值
+│   │   ├── drawing/                有序菜单命令、资源字节与代际
 │   │   ├── surface/                CPU 像素缓冲与绘图操作
 │   │   │   └── win32/              主窗口后台缓冲与像素借用
 │   │   ├── text/                   遭遇战位图文字测量与绘制
@@ -191,7 +199,7 @@ ConcordRTS/
 │   │   ├── task_executor/          有界任务执行器独立合同工程
 │   │   ├── main_back_buffer/       主窗口后台缓冲合同目标
 │   │   ├── frame_presenter/        Windows 软件帧提交合同目标
-│   │   └── d3d11_frame_presenter/  D3D11 原生呈现与软件回退合同目标
+│   │   └── d3d11_frame_presenter/  完整帧、菜单光栅与软件回退合同目标
 │   ├── gameplay/                   战斗、生产、单位行为与机制检查
 │   ├── multiplayer/                局域网、同步、快照与恢复检查
 │   ├── internet/                   互联网服务、TLS 与匹配检查
@@ -228,7 +236,7 @@ ConcordRTS/
 │   ├── GrandCannonPrewarmContracts.cmake  巨炮光栅与预热库接入
 │   ├── PathGoalCandidateTaskContracts.cmake  候选任务库与测试接入
 │   ├── SoftwareFrameContracts.cmake  完整软件帧与呈现适配接入
-│   ├── D3D11FramePresenter.cmake   私有 D3D11 后端与原生合同接入
+│   ├── D3D11FramePresenter.cmake   私有 D3D11、离线着色器与原生合同
 │   ├── Sdl3Window.cmake             可选 SDL3 软件窗口接入，默认关闭
 │   ├── RunSecondWindowNative.cmake  真实菜单窗口合同执行入口
 │   ├── dependencies/               第三方依赖的工具链配置
@@ -261,7 +269,7 @@ ConcordRTS/
 - Windows x64，Windows PowerShell 5.1；本地测试入口另需 PowerShell 7。
 - LLVM，包含 `clang-cl.exe`、`lld-link.exe`、`llvm-lib.exe` 和 `llvm-readobj.exe`。
 - CMake 3.20 或更新版本、Ninja；测试使用同套 CMake 中的 CTest。
-- Microsoft C++ 的 x64/x86 头文件与库、x64 CRT 分发文件，以及 Windows SDK 的头文件、库和 RC/MT 工具。
+- Microsoft C++ 的 x64/x86 头文件与库、x64 CRT 分发文件，以及 Windows SDK 的头文件、库和 RC/MT 工具；完整 Windows 产品构建还需要该 SDK 的 x64 `fxc.exe`，用于离线编译菜单着色器。
 
 已验收的组合为 LLVM 22.1.3、CMake 4.3.1、Ninja 1.13.2、Microsoft 头库/CRT 14.51.36231、ABI 兼容版本 19.51.36257、Windows SDK 10.0.26100.0；测试使用 PowerShell 7.6.5。这些工具和运行库不包含在源码包中。
 
@@ -291,6 +299,8 @@ if ($LASTEXITCODE -ne 0) { throw '构建失败，请检查本次错误信息。'
 ```
 
 CMake、Ninja、LLVM 可通过完整路径指定，或由脚本从普通终端发现。脚本不自动安装工具，不修改持久 PATH，缺失或冲突时不会回退到 MSVC。已有缓存固定源码目录、组件、架构与配置；请勿复制他机缓存，也不要在原目录中切换工具链。
+
+完整 Windows 产品构建通过 [D3D11FramePresenter.cmake](cmake/D3D11FramePresenter.cmake) 从选定 SDK 查找 `fxc.exe`，将 [MenuRaster.hlsl](src/runtime/presentation/win32/MenuRaster.hlsl) 离线编译为 Shader Model 5 顶点／像素字节码，并在构建目录生成头文件。脚本不会安装工具；找不到时会明确报错，可在 CMake 配置中用 `CONCORD_FXC_EXECUTABLE` 指定已有编译器的完整路径。生成头文件、字节码和编译器不包含在源码包中，运行时无需部署着色器编译器 DLL；独立核心构建不包含此菜单后端。
 
 ### 日常构建与部署
 
@@ -419,7 +429,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-Game.ps1 -
 
 ### 主战局呈现后端
 
-完整 Windows 产品构建包含私有 D3D11 呈现器，使用已选 Windows SDK 的 D3D11、DXGI 和 DWM 接口；独立核心构建不包含此后端，无需增加 SDL3 或着色器编译步骤。准备本地游戏资源后，在仓库根目录显式选择：
+完整 Windows 产品构建包含私有 D3D11 呈现器，使用已选 Windows SDK 的 D3D11、DXGI 和 DWM 接口，构建时一并离线编译菜单着色器。主战局完整 CPU 帧的上传路径仍不使用着色器，独立核心构建不包含此后端，也无需 SDL3。准备本地游戏资源后，在仓库根目录显式选择：
 
 ```powershell
 .\bin\concord_runtime.exe --frame-backend software
@@ -438,6 +448,22 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-Game.ps1 -
 设备或呈现失败时会记录原因，释放 GPU 资源并转回原 GDI；同一窗口会话中不反复尝试切回 D3D11，也不会自动改用 WARP。`--skirmish-window sdl3` 只能与 `software` 组合，选择 D3D11 或 WARP 时明确拒绝。
 
 性能记录分别反映 CPU、GPU 上传及提交等待，不能据此声称整体加速或屏幕实际输出帧率。主战局字体组成仍有 Windows 私有实现，当前选项不表示整个游戏已跨平台。
+
+### 遭遇战菜单 GPU 绘制
+
+`--skirmish-drawing` 独立控制 Win32 遭遇战大厅和选图页的绘制方式，默认 `software`。完成构建并准备本地资源后，可显式选择：
+
+```powershell
+.\bin\concord_runtime.exe --skirmish-drawing d3d11
+.\bin\concord_runtime.exe --skirmish-drawing d3d11-warp
+.\bin\concord_runtime.exe --skirmish-drawing software
+```
+
+该路径让 GPU 直接执行有序绘制命令，包括索引图像、调色板、裁剪、整数混色、位图字形和最终客户区映射；复用现有 SHP／PAL 解码、菜单控制器及输入处理。正常呈现不先合成完整 CPU 菜单画面，也不读回 GPU 结果再合成。
+
+硬件与 WARP 请求分开，WARP 仍是软件设备。切入随机地图编辑等未支持页面或发生后端故障时，释放 GPU 资源并在当前窗口会话中回到软件路径。SDL3 窗口仅支持软件菜单，与 GPU 菜单选项组合时明确拒绝。
+
+`--frame-backend` 继续单独控制战局完整 CPU 帧如何显示，两组选项互不代替；启用菜单 GPU 绘制不改变世界模拟、资源优先级或战局绘图。所选菜单保留原像素与输入行为，测量结果只覆盖该菜单场景。
 
 ## 联机与 MOD
 
@@ -507,7 +533,7 @@ pwsh -NoProfile -File .\tools\testing\Run-LocalTests.ps1 -Compiler Clang -BuildD
 
 `-StructureOnly` 单独执行结构检查，不追加执行 12＋4 测试集合。入口校验缓存、刷新 CMake 元数据、冻结目标清单并运行合成夹具，然后检查依赖与精确例外；它不会构建游戏目标。结果默认写入已忽略的 `build/local-tests/structure-*/`，其中可能包含本机路径和环境信息，应留在本机。
 
-[结构基线](tools/structure/structure-baseline.json) 保留 4,435 条逐项审核的精确例外。新增违规、出现次数增加或已经消失而尚未收紧的例外都会导致失败；工具不会自动扩大豁免范围。它提供所选构建配置的静态结构证据，不表示完整游戏、其他平台或性能已经验收。
+[结构基线](tools/structure/structure-baseline.json) 保留 4,473 条逐项审核的精确例外。新增违规、出现次数增加或已经消失而尚未收紧的例外都会导致失败；工具不会自动扩大豁免范围。它提供所选构建配置的静态结构证据，不表示完整游戏、其他平台或性能已经验收。
 
 已记录的验证覆盖所选标准合同、Windows 适配、资源查询、命令桥接及经济保存恢复对照。旧回归中已知的月球剧场深度、部分交互和几何绘制，以及 Yuri 采矿收入、完整 AI 经济、部分编队紧凑度与矿石动画检查失败仍保留；完整物理输入、IME、双端运行游戏，以及未覆盖的窗口、平台和性能场景不据此视为通过。
 
@@ -537,6 +563,23 @@ if ($LASTEXITCODE -ne 0) { throw 'D3D11 合同检查失败。' }
 ```
 
 已完成的开发验证还包括主窗口软件、硬件和 WARP 的所选完整帧对照。设备移除场景使用明确故障注入，未据此声称真实驱动重置、设备热拔出、跨显示器 DPI／HDR 或长期设备恢复均已验证。既有游戏表现问题仍按原记录保留。
+
+### GPU 菜单光栅合同
+
+[MenuRasterD3D11Contract.cpp](tests/infrastructure/MenuRasterD3D11Contract.cpp) 使用自编像素、索引和字形输入，覆盖裁剪、命令顺序、透明索引、remap、混色、缩放、资源代际、错线程与重复提交，以及正常路径没有诊断读回。它不需要官方素材，但需要可创建真实窗口的 Windows 图形环境，并分别检查硬件和 WARP。
+
+沿用完整产品构建的工具路径变量：
+
+```powershell
+$gameBuild = 'build/clang-cl-x64-release'
+$ctestExe = Join-Path (Split-Path -Parent $cmakeExe) 'ctest.exe'
+& $cmakeExe --build $gameBuild --target concord_menu_raster_d3d11_contract --parallel 1
+if ($LASTEXITCODE -ne 0) { throw '菜单光栅合同构建失败。' }
+& $ctestExe --test-dir $gameBuild --no-tests=error --output-on-failure -j 1 -R '^menu_raster_d3d11_contract_test$'
+if ($LASTEXITCODE -ne 0) { throw '菜单光栅合同检查失败。' }
+```
+
+正式菜单的 [完整画面对照](src/ui/skirmish/diagnostics/RuntimeGpuMenuContract.inl) 与 [计时入口](src/ui/skirmish/diagnostics/RuntimeGpuMenuTiming.inl) 也保留源码；它们需要自行准备的游戏资源和交互桌面。开发验证覆盖了完整菜单、所选真实输入及预热后的重复资源创建与关闭，不将此结果扩大到全部游戏测试、长期设备恢复或其他平台。
 
 ### 并行预热与性能工具
 

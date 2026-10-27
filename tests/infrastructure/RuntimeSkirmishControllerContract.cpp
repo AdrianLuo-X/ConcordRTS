@@ -143,5 +143,20 @@ int main() {
     f.reset();s.phase=ShellMenuPhase::SlideIn;s.phaseStarted=h.now;s.smoke=false;const int prewarms=h.prewarms;
     completeMenu(s,false);check(!s.selection.accepted&&s.phase==ShellMenuPhase::SlideOut&&h.prewarms==prewarms+1,"close while slide-in cancels and prewarms");
     check(!handleSkirmishKey(s,RuntimeSkirmishKey::Other),"unknown lobby key remains unhandled");
+    // S40: input can arrive after dropdown close and before the next paint.
+    // Keep the old draw-time hits deliberately; UI state must govern validity.
+    f.reset();computeShellViewport(s,800,600);
+    s.hits={{{10,10,40,40},{HitKind::ToggleSuperweapons,-1}},
+        {{10,10,40,40},{HitKind::DropdownOption,1}}};
+    s.openDropdown=DropdownKind::Country;s.openDropdownSlot=0;
+    check(hitTest(s,{20,20})->target.kind==HitKind::DropdownOption,"open dropdown retains reverse top hit");
+    closeDropdown(s,false);
+    check(hitTest(s,{20,20})->target.kind==HitKind::ToggleSuperweapons,"closed dropdown old hits reveal underlying control before repaint");
+    handleSkirmishMouseMove(s,{20,20});
+    check(s.dropdownHover==-1&&s.hover.kind==HitKind::ToggleSuperweapons,"post-close movement cannot resurrect dropdown hover");
+    s.hits={{{10,10,40,40},{HitKind::DropdownOption,1}}};
+    check(hitTest(s,{20,20})==nullptr,"isolated closed popup hit is inactive before repaint");
+    handleSkirmishLeftDown(s,{20,20});handleSkirmishLeftUp(s,{20,20});
+    check(s.dropdownHover==-1&&s.openDropdown==DropdownKind::None&&s.pressed.kind==HitKind::None,"post-close click cannot reactivate stale popup");
     std::cout<<"Skirmish controller: checks="<<checks<<" failures="<<failures<<" pureHost=yes synchronousCapture=yes\n";return failures?1:0;
 }

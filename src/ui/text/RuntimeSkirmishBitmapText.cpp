@@ -1,4 +1,5 @@
 #include "ui/text/RuntimeSkirmishBitmapText.h"
+#include "ui/drawing/MenuDrawCommands.h"
 #include <algorithm>
 #include <cstddef>
 #include <limits>
@@ -23,12 +24,12 @@ template<class Character>
 void paint(const SkirmishBitmapFontView& font, std::span<unsigned char> pixels,
     std::int32_t width, std::int32_t height, std::basic_string_view<Character> text,
     const RuntimeInputPixelRect& rect, bool centered, bool verticallyCentered,
-    RuntimeRgbColorValue color) {
+    RuntimeRgbColorValue color,MenuDrawList* commands=nullptr) {
     if (!font.valid() || text.empty() || width <= 0 || height <= 0) return;
     const auto w = static_cast<std::size_t>(width), h = static_cast<std::size_t>(height);
     if (w > std::numeric_limits<std::size_t>::max() / 4) return;
     const auto stride = w * 4;
-    if (h > std::numeric_limits<std::size_t>::max() / stride || pixels.size() < h * stride) return;
+    if (h > std::numeric_limits<std::size_t>::max() / stride || (!commands&&pixels.size() < h * stride)) return;
     const std::int32_t startX = centered
         ? rect.left + std::max<std::int32_t>(0, rect.right - rect.left - measure(font, text)) / 2
         : rect.left;
@@ -42,6 +43,17 @@ void paint(const SkirmishBitmapFontView& font, std::span<unsigned char> pixels,
             const auto* record = glyph(font, static_cast<std::uint16_t>(character));
             if (record == nullptr) { cursorX += 5; continue; }
             const std::int32_t glyphWidth = record[0];
+            if(commands) {
+                MenuDrawCommand c;c.kind=MenuDrawKind::Glyph;
+                c.originX=cursorX+offsetX;c.originY=startY+offsetY;
+                c.left=std::max({c.originX,rect.left,0});c.top=std::max({c.originY,rect.top,0});
+                c.right=std::min({c.originX+glyphWidth,rect.right,width});
+                c.bottom=std::min({c.originY+static_cast<std::int32_t>(font.metrics.bitmapRows),rect.bottom,height});
+                c.offset=commands->intern({record+1,font.metrics.recordSize-1});c.stride=font.metrics.stride;
+                c.color=passColor.blue()|(static_cast<std::uint32_t>(passColor.green())<<8)
+                    |(static_cast<std::uint32_t>(passColor.red())<<16)|0xff000000U;
+                commands->push(c);cursorX+=glyphWidth+1;continue;
+            }
             for (std::uint32_t y = 0; y < font.metrics.bitmapRows; ++y) {
                 const auto* row = record + 1U + y * font.metrics.stride;
                 for (std::int32_t x = 0; x < glyphWidth; ++x) {
@@ -64,6 +76,11 @@ void paint(const SkirmishBitmapFontView& font, std::span<unsigned char> pixels,
 }
 std::int32_t measureSkirmishBitmapText(const SkirmishBitmapFontView& font, std::wstring_view text) { return measure(font, text); }
 std::int32_t measureSkirmishBitmapText(const SkirmishBitmapFontView& font, std::u16string_view text) { return measure(font, text); }
+void recordSkirmishBitmapText(const SkirmishBitmapFontView& font,MenuDrawList& list,
+    std::int32_t width,std::int32_t height,std::wstring_view text,const RuntimeInputPixelRect& rect,
+    bool center,bool vertical,RuntimeRgbColorValue color) {
+    paint(font,{},width,height,text,rect,center,vertical,color,&list);
+}
 void drawSkirmishBitmapText(const SkirmishBitmapFontView& font, std::span<unsigned char> pixels,
     std::int32_t width, std::int32_t height, std::wstring_view text,
     const RuntimeInputPixelRect& rect, bool center, bool vertical, RuntimeRgbColorValue color) {

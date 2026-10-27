@@ -18,6 +18,7 @@ double elapsed(Clock::time_point start) noexcept {
 }
 const char* backendName(FrameBackend b) noexcept {return b==FrameBackend::D3D11?"d3d11":"software";}
 }
+#include "runtime/presentation/win32/MenuRasterD3D11.inl"
 struct D3D11FramePresenterWin32::Impl {
     HWND window=nullptr,fontWindow=nullptr;
     DWORD thread=GetCurrentThreadId();
@@ -27,6 +28,8 @@ struct D3D11FramePresenterWin32::Impl {
     ComPtr<ID3D11DeviceContext> context;
     ComPtr<IDXGISwapChain> chain;
     ComPtr<ID3D11Texture2D> back;
+    std::unique_ptr<MenuRasterD3D11> menu;
+    std::uint64_t menuSequence=0;
     int width=0,height=0,fontWidth=0,fontHeight=0;
     struct Query {
         ComPtr<ID3D11Query> disjoint,start,end;
@@ -56,7 +59,7 @@ struct D3D11FramePresenterWin32::Impl {
         collect();
         for(auto& q:queries){if(q.pending){++report.gpuPending;q.pending=false;}q.disjoint.Reset();q.start.Reset();q.end.Reset();}
         // One-way transition: release ALL GPU references before any GDI fallback.
-        back.Reset();
+        menu.reset();back.Reset();
         if(context){context->ClearState();context->Flush();}
         chain.Reset();context.Reset();device.Reset();width=height=0;
         if(fontWindow&&IsWindow(fontWindow))DestroyWindow(fontWindow);
@@ -184,6 +187,7 @@ void D3D11FramePresenterWin32::enableTimingOutput() noexcept{if(onOwningThread()
 void D3D11FramePresenterWin32::recordCpuWork(double drawMs,double compositionMs) noexcept {
     if(onOwningThread()&&impl_->sampleCount){auto& s=impl_->samples[impl_->sampleCount-1];s.cpuDrawMs=drawMs;s.compositionMs=compositionMs;}
 }
+#include "runtime/presentation/win32/D3D11MenuPresentWin32.inl"
 bool D3D11FramePresenterWin32::submitCompleteFrame(const SoftwareFrameView& f) noexcept {
     auto& p=*impl_;
     if(!active())return false;
@@ -261,14 +265,16 @@ void D3D11FramePresenterWin32::printReport() noexcept {
         const auto& r=p.report;
         std::cout<<"D3D11 presentation summary requested="<<backendName(r.requested.backend)<<" selected="<<backendName(r.selected)
             <<" hardware="<<(r.featureLevel>=0xB000&&!r.softwareDevice)<<" featureLevel="<<r.featureLevel<<" driverVersion="<<r.driverVersion
-            <<" frames="<<r.presented<<" uploadBytes="<<r.uploadedBytes<<" gpuValid="<<r.gpuValid<<" gpuInvalid="<<r.gpuInvalid
+            <<" frames="<<r.presented<<" menuDraws="<<r.menuDraws<<" uploadBytes="<<r.uploadedBytes<<" gpuValid="<<r.gpuValid<<" gpuInvalid="<<r.gpuInvalid
             <<" gpuPending="<<r.gpuPending<<" gpuDropped="<<r.gpuDropped<<" timingDropped="<<r.timingDropped
             <<" failureCode="<<r.failureCode<<" removedReason="<<r.removedReason<<" fallback=\""<<r.fallbackReason.data()
-            <<"\" worldDrawing=CPU shaderCompiler=none sampling=exact-client-copy color=BGRA8-UNORM-no-conversion vsync=1 displayFpsMeasured=false\n";
+            <<"\" worldDrawing=CPU shaderCompiler="<<(r.menuDraws?"offline-fxc-sm5":"none")
+            <<" sampling="<<(r.menuDraws?"integer-Load-menu-raster":"exact-client-copy")
+            <<" color=BGRA8-UNORM-no-conversion vsync=1 displayFpsMeasured=false\n";
         for(std::size_t i=0;p.printTimings&&i<p.sampleCount;++i){const auto& s=p.samples[i];
             std::cout<<"D3D11 timing sequence="<<s.sequence<<" tick="<<s.tick<<" cpuDrawMs="<<s.cpuDrawMs<<" compositionMs="<<s.compositionMs
                 <<" uploadBytes="<<s.uploadBytes<<" uploadCpuMs="<<s.uploadCpuMs<<" presentCpuMs="<<s.presentCpuMs
-                <<" gpuValid="<<s.gpuValid<<" gpuUploadMs="<<s.gpuUploadMs<<" gpuFrequency="<<s.gpuFrequency<<" gpuStart="<<s.gpuStart<<" gpuEnd="<<s.gpuEnd<<'\n';}
+                <<" menuRaster="<<s.menuRaster<<" gpuValid="<<s.gpuValid<<" gpuUploadMs="<<s.gpuUploadMs<<" gpuFrequency="<<s.gpuFrequency<<" gpuStart="<<s.gpuStart<<" gpuEnd="<<s.gpuEnd<<'\n';}
     }catch(...){}
 }
 } // namespace concord::presentation::win32

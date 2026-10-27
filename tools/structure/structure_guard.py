@@ -46,7 +46,13 @@ SOFTWARE_FRAME_VALUES = {
     "src/ui/input/RuntimeInputPixelValues.h",
     "src/ui/values/RuntimeColorValues.h",
 }
+MENU_DRAW_VALUES = SOFTWARE_FRAME_VALUES | {
+    "src/ui/drawing/MenuDrawCommands.h",
+    "src/assets/menu/MenuImage.h",
+    "src/assets/codecs/RuntimeTmpTypes.h",
+}
 DEFAULT_MODULES = {
+    "menu-draw": ["src/ui/drawing/MenuDrawCommands.h"],
     "software-window": ["src/runtime/window/RuntimeSoftwareWindow.h"],
     "software-frame": ["src/runtime/presentation/SoftwareFrame.h", "src/runtime/presentation/FrameBackendOptions.h"],
     "path-candidate-task": ["src/simulation/navigation/pathfinding/PathGoalCandidateTask.h","src/simulation/navigation/pathfinding/PathGoalCandidateTask.cpp","src/simulation/navigation/pathfinding/PathGoalCandidates.h","src/simulation/navigation/pathfinding/PathGoalCandidates.cpp"],
@@ -242,6 +248,11 @@ def scan(root, build, inventory, trace, modules=None):
                 add("protected-module-missing", start, module)
                 continue
             for target, witness in closure(graph, start).items():
+                if module == "menu-draw":
+                    if target not in MENU_DRAW_VALUES:
+                        add("menu-draw-dependency", start, target, witness=witness)
+                    if re.search(r'\b(?:GameWorld|WorldObjectInstance|RuntimeMapRenderCache|renderCache|SDL_Window|SDL_Event|SDL_Surface)\b',code_views.get(target,"")):
+                        add("menu-draw-live-or-device", start, target, witness=witness)
                 if module == "software-window":
                     allowed = set(roots) | SOFTWARE_FRAME_VALUES | {"src/runtime/presentation/SoftwareFrame.h"}
                     if target not in allowed:
@@ -270,7 +281,8 @@ def scan(root, build, inventory, trace, modules=None):
                                  code_views.get(target, "")):
                         add("task-executor-live-state", start, target, witness=witness)
                 if target.startswith(FORBIDDEN_PREFIXES) and not (
-                        module in ("software-frame", "software-window") and target in SOFTWARE_FRAME_VALUES):
+                        (module in ("software-frame", "software-window") and target in SOFTWARE_FRAME_VALUES)
+                        or (module == "menu-draw" and target in MENU_DRAW_VALUES)):
                     add("protected-dependency", start, module + ":" + target, witness=witness)
                 for detail in platform.get(target, ()):
                     add("protected-platform", start, module + ":" + target + ":" + detail, witness=witness)

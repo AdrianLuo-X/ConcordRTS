@@ -15,6 +15,8 @@
 #include "ui/values/RuntimeColorValues.h"
 #include "ui/text/RuntimeSkirmishBitmapText.h"
 #include "ui/surface/RuntimeMenuPixelSurface.h"
+#include "ui/drawing/MenuDrawCommands.h"
+#include "runtime/presentation/win32/D3D11FramePresenterWin32.h"
 #include "ui/skirmish/win32/RuntimeSkirmishBackBufferWin32.h"
 #include "ui/input/RuntimeObserver.h"
 #include "data/maps/RuntimeRandomMap.h"
@@ -970,6 +972,15 @@ struct MenuState : RuntimeSkirmishServices, RuntimeSkirmishController {
     std::vector<SkirmishBitmapTextTraceCall>* bitmapTextTrace = nullptr;
     concord::ui::win32::SkirmishBackBufferWin32 backBuffer;
     concord::ui::MenuPixelBuffer composeFrame;
+    concord::presentation::FrameBackendOptions menuRequest;
+    concord::presentation::FramePresentStatistics menuStatistics;
+    concord::ui::MenuDrawList menuCommands;
+    std::unique_ptr<concord::presentation::win32::D3D11FramePresenterWin32> menuGpu;
+    concord::presentation::win32::D3D11FrameProbeWin32* menuProbe=nullptr;
+    bool menuGpuAttempted=false;
+    std::uint64_t menuSequence=0,softwareCompositions=0;
+    double lastMenuPrepareMs=0,lastMenuSubmitMs=0,lastMenuPresentMs=0;
+    std::vector<std::string>* menuInputTrace=nullptr;
 
     std::unordered_map<std::string, AssetImage> flagImages;
     std::set<std::string> flagLoadAttempts;
@@ -985,6 +996,7 @@ struct MenuState : RuntimeSkirmishServices, RuntimeSkirmishController {
 };
 
 #include "ui/skirmish/win32/RuntimeSkirmishGdiLifetimeWin32.inl"
+#include "ui/skirmish/win32/RuntimeGpuMenuInputTraceWin32.inl"
 
 AssetImage* flagFor(MenuState& state, const std::string& countryId);
 
@@ -3146,27 +3158,42 @@ bool hasHitKind(const MenuState& state, HitKind kind) {
     );
 }
 
-using ShellCanvas = concord::ui::MenuPixelSurfaceView;
+struct ShellCanvas : concord::ui::MenuPixelSurfaceView {
+    ShellCanvas(concord::ui::MenuPixelSurfaceView pixels,concord::ui::MenuDrawList* list=nullptr)
+        :concord::ui::MenuPixelSurfaceView(pixels),commands(list){}
+    concord::ui::MenuDrawList* commands;
+};
 RuntimeInputPixelRect pixelRect(const RECT& r) { return {r.left,r.top,r.right,r.bottom}; }
 RuntimeRgbColorValue pixelColor(std::uint32_t c) { return RuntimeRgbColorValue::fromPackedRgb(c); }
-void shellClear(ShellCanvas& canvas) { concord::ui::clearMenuPixels(canvas); }
+void shellClear(ShellCanvas& canvas) {
+    if(canvas.commands){canvas.commands->fill({0,0,canvas.width,canvas.height},pixelColor(0));return;}
+    concord::ui::clearMenuPixels(canvas);
+}
 void shellFill(ShellCanvas& canvas,const RECT& r,COLORREF c) {
+    if(canvas.commands){canvas.commands->fill(pixelRect(r),pixelColor(c));return;}
     concord::ui::fillMenuPixels(canvas,pixelRect(r),pixelColor(c));
 }
 void shellDarken(ShellCanvas& canvas,const RECT& r,unsigned int opacity) {
+    if(canvas.commands){canvas.commands->darken(pixelRect(r),opacity);return;}
     concord::ui::darkenMenuPixels(canvas,pixelRect(r),opacity);
 }
 void shellFrame(ShellCanvas& canvas,const RECT& r,COLORREF c) {
+    if(canvas.commands){
+        shellFill(canvas,{r.left,r.top,r.right,r.top+1},c);shellFill(canvas,{r.left,r.bottom-1,r.right,r.bottom},c);
+        shellFill(canvas,{r.left,r.top,r.left+1,r.bottom},c);shellFill(canvas,{r.right-1,r.top,r.right,r.bottom},c);return;
+    }
     concord::ui::frameMenuPixels(canvas,pixelRect(r),pixelColor(c));
 }
 void shellBlit(ShellCanvas& canvas,const AssetImage& image,int left,int top,
     int clipHeight=std::numeric_limits<int>::max()) {
     if(!image.valid()) return;
+    if(canvas.commands){canvas.commands->image(image,left,top,clipHeight);return;}
     concord::ui::blitMenuPixels(canvas,
         {image.bgra,image.width,image.height,static_cast<std::size_t>(image.width)*4},left,top,clipHeight);
 }
 void shellBlitScaled(ShellCanvas& canvas,const unsigned char* sourcePixels,int width,int height,const RECT& r) {
     if(!sourcePixels||width<=0||height<=0) return;
+    if(canvas.commands){canvas.commands->bgra({{sourcePixels,static_cast<std::size_t>(width)*height*4},width,height,static_cast<std::size_t>(width)*4},pixelRect(r),true);return;}
     concord::ui::scaleMenuPixels(canvas,
         {{sourcePixels,static_cast<std::size_t>(width)*static_cast<std::size_t>(height)*4},
             width,height,static_cast<std::size_t>(width)*4},pixelRect(r));
@@ -3180,6 +3207,10 @@ void shellText(
     bool centered = false,
     COLORREF color = RGB(255, 232, 0)
 ) {
+    if(canvas.commands){
+        concord::ui::recordSkirmishBitmapText(state.gameFont.view(),*canvas.commands,canvas.width,canvas.height,
+            std::wstring_view(text),pixelRect(rect),centered,true,pixelColor(color));return;
+    }
     state.gameFont.draw(canvas.bytes.data(), text, rect, centered, true, color, state.bitmapTextTrace);
 }
 
@@ -3876,9 +3907,10 @@ bool ensureShellBackBuffer(MenuState& state,HDC reference) {
 
 bool composeShellPixels(MenuState& state,ShellCanvas canvas) {
     // Actual layout/font needs this contiguous logical canvas; no native object.
-    if(!canvas.valid() || canvas.width!=kBaseWidth || canvas.height!=kBaseHeight
+    if((!canvas.commands&&!canvas.valid()) || canvas.width!=kBaseWidth || canvas.height!=kBaseHeight
         || canvas.rowStride!=static_cast<std::size_t>(kBaseWidth)*4) return false;
     state.hits.clear();
+    if(!canvas.commands)++state.softwareCompositions;
     drawShellChrome(state, canvas);
     if (state.page == SkirmishPage::Lobby) {
         drawLobbyPage(state, canvas);
@@ -3912,8 +3944,37 @@ bool renderShellBackBuffer(MenuState& state) {
 
 bool renderShellClient(MenuState& state, HDC target, int width, int height) {
     computeShellViewport(state, width, height);
+    if(width<=0||height<=0||IsIconic(state.hwnd))return false;
+    if(state.menuRequest.menuBackend==concord::presentation::FrameBackend::D3D11&&!state.menuGpuAttempted) {
+        state.menuGpuAttempted=true;
+        auto request=state.menuRequest;request.backend=request.menuBackend;request.device=request.menuDevice;
+        state.menuGpu=concord::presentation::win32::D3D11FramePresenterWin32::create(state.hwnd,request,state.menuStatistics,state.menuProbe);
+    }
+    if(state.menuGpu&&state.menuGpu->active()) {
+        const auto start=std::chrono::steady_clock::now();
+        if(state.page!=SkirmishPage::Lobby&&state.page!=SkirmishPage::MapSelection)
+            state.menuGpu->fallbackToSoftware("menu-page-outside-S40");
+        else try {
+            state.menuCommands.begin();
+            ShellCanvas commands({{},kBaseWidth,kBaseHeight,static_cast<std::size_t>(kBaseWidth)*4},&state.menuCommands);
+            if(!composeShellPixels(state,commands))throw std::runtime_error("menu command preparation");
+            const double prepare=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();
+            if(state.menuGpu->presentMenu({state.menuCommands,++state.menuSequence,width,height,
+                {state.viewLeft,state.viewTop,state.viewLeft+state.viewWidth,state.viewTop+state.viewHeight}})) {
+                state.menuGpu->recordCpuWork(prepare,0);state.lastMenuPrepareMs=prepare;
+                const auto count=state.menuGpu->timingCount();
+                if(count){const auto& s=state.menuGpu->timings()[count-1];state.lastMenuSubmitMs=s.uploadCpuMs;state.lastMenuPresentMs=s.presentCpuMs;}
+                return true;
+            }
+            if(state.menuGpu->active())return false;
+        }catch(...){state.menuGpu->fallbackToSoftware("menu-prepare-allocation");}
+        state.backDirty=true;
+    }
+    const auto softwareStart=std::chrono::steady_clock::now();
     if (!ensureShellBackBuffer(state, target)) return false;
     if (state.backDirty && !renderShellBackBuffer(state)) return false;
+    state.lastMenuPrepareMs=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-softwareStart).count();
+    const auto nativeSubmit=std::chrono::steady_clock::now();
     BOOL copied;
     if (state.viewWidth == kBaseWidth && state.viewHeight == kBaseHeight) {
         copied = BitBlt(target, state.viewLeft, state.viewTop,
@@ -3934,6 +3995,7 @@ bool renderShellClient(MenuState& state, HDC target, int width, int height) {
     bar = RECT{state.viewLeft + state.viewWidth, state.viewTop,
         width, state.viewTop + state.viewHeight};
     if (bar.right > bar.left) FillRect(target, &bar, black);
+    state.lastMenuSubmitMs=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-nativeSubmit).count();state.lastMenuPresentMs=0;
     return copied != FALSE;
 }
 
@@ -4011,6 +4073,7 @@ LRESULT CALLBACK shellSkirmishWindowProc(
         state->hwnd = window;
     }
     if (state == nullptr) return DefWindowProcW(window, message, wParam, lParam);
+    traceGpuMenuInputWin32(state,window,message,wParam,lParam);
     switch (message) {
     case WM_CREATE:
         SetTimer(window, 2, 16, nullptr);
@@ -4119,6 +4182,7 @@ LRESULT CALLBACK shellSkirmishWindowProc(
         break;
     case WM_NCDESTROY:
         KillTimer(window, 2);
+        state->menuGpu.reset();state->menuGpuAttempted=false;state->menuSequence=0;state->menuCommands.reset();
         state->audio.stopMusic();
         state->hwnd = nullptr;
         state->randomNameWindow = nullptr;
@@ -4443,6 +4507,10 @@ RuntimeSkirmishSelection runRuntimeSkirmishMenu(
     const RuntimeConfig& config,
     RuntimeWindowId parent
 ) {
+    return runRuntimeSkirmishMenu(config,parent,{});
+}
+RuntimeSkirmishSelection runRuntimeSkirmishMenu(const RuntimeConfig& config,RuntimeWindowId parent,
+    concord::presentation::FrameBackendOptions drawing) {
     const auto resolvedParent = resolveRuntimeWindowParentWin32(parent);
     if (!resolvedParent.supported) return {};
     HWND requestedHost = resolvedParent.window;
@@ -4474,6 +4542,7 @@ RuntimeSkirmishSelection runRuntimeSkirmishMenu(
         return state.selection;
     }
     resetMenuForEntry(state, config);
+    state.menuRequest=drawing;
 
     if (requestedHost != nullptr && !IsWindow(requestedHost)) {
         requestedHost = nullptr;
@@ -4541,11 +4610,15 @@ RuntimeSkirmishSelection runRuntimeSkirmishMenu(
 #include "ui/skirmish/diagnostics/RuntimeSkirmishPixelSurfaceSmoke.inl"
 #include "audio/menu/diagnostics/RuntimeSkirmishMusicClockSmoke.inl"
 #include "ui/skirmish/diagnostics/RuntimeSecondWindowContract.inl"
+#include "ui/skirmish/diagnostics/RuntimeGpuMenuContract.inl"
+#include "ui/skirmish/diagnostics/RuntimeGpuMenuTiming.inl"
 
 int runRuntimeSkirmishMenuSmokeTest(
     const RuntimeConfig& config,
     const std::string& bmpPath
 ) {
+    if(const char* output=std::getenv("CONCORD_GPU_MENU_CONTRACT_OUTPUT"))return runGpuMenuContract(config,fs::path(output));
+    if(const char* output=std::getenv("CONCORD_GPU_MENU_TIMING_OUTPUT"))return runGpuMenuTiming(config,fs::path(output));
     if (const char* output = std::getenv("CONCORD_SECOND_WINDOW_CONTRACT_OUTPUT"))
         return runSecondWindowContract(config, fs::path(output));
     if (std::getenv("CONCORD_SKIRMISH_MUSIC_CLOCK_ONLY"))

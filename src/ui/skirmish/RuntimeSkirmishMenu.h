@@ -2,6 +2,7 @@
 
 #include "runtime/config/RuntimeConfig.h"
 #include "runtime/window/RuntimeWindowId.h"
+#include "runtime/presentation/FrameBackendOptions.h"
 #include "ui/skirmish/RuntimeSkirmishSelection.h"
 
 #include <string>
@@ -23,6 +24,8 @@ RuntimeSkirmishSelection runRuntimeSkirmishMenu(
     const RuntimeConfig& config,
     RuntimeWindowId parent = {}
 );
+RuntimeSkirmishSelection runRuntimeSkirmishMenu(const RuntimeConfig&,RuntimeWindowId,
+    concord::presentation::FrameBackendOptions);
 
 // Optional standalone bitmap scene. Failure is explicit and never substitutes
 // another window. The existing Win32 entry and parent-window contract remain.

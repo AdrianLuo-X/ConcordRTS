@@ -3,6 +3,7 @@
 // adapter into SoftwareFrame, controllers, simulation, or portable-core.
 #include "runtime/presentation/FrameBackendOptions.h"
 #include "runtime/presentation/win32/FramePresenterWin32.h"
+#include "ui/drawing/MenuDrawCommands.h"
 #include <array>
 #include <memory>
 #include <vector>
@@ -12,6 +13,7 @@ struct D3D11FrameTiming {
     std::uint64_t gpuFrequency=0,gpuStart=0,gpuEnd=0;
     double cpuDrawMs=0,compositionMs=0,uploadCpuMs=0,presentCpuMs=0,gpuUploadMs=0;
     bool gpuValid=false;
+    bool menuRaster=false;
 };
 struct D3D11FrameReport {
     FrameBackendOptions requested{};
@@ -22,12 +24,14 @@ struct D3D11FrameReport {
     std::uint64_t gpuValid=0,gpuInvalid=0,gpuPending=0,gpuDropped=0,timingDropped=0;
     long failureCode=0,removedReason=0;
     bool softwareDevice=false;
+    std::uint64_t menuDraws=0,menuRejected=0;
 };
 // Injection is only reachable from a native fixture, never from CLI/config.
 // Readback is an explicit diagnostic phase and never used by normal presents.
 struct D3D11FrameProbeWin32 {
     bool failDevice=false,failSwapChain=false,failResize=false,failResource=false;
     bool failUpload=false,failPresent=false,deviceRemoved=false,captureUpload=false;
+    bool failShader=false;
     std::vector<unsigned char> uploadedPixels;
     std::uint64_t readbacks=0;
 };
@@ -37,6 +41,7 @@ public:
         FrameBackendOptions,FramePresentStatistics&,D3D11FrameProbeWin32* = nullptr) noexcept;
     ~D3D11FramePresenterWin32() override;
     bool active() const noexcept;
+    bool presentMenu(const concord::ui::MenuDrawFrame&) noexcept;
     void fallbackToSoftware(const char* reason,long code=0) noexcept;
     bool composeDeviceOverlay(const concord::ui::win32::MainBackBufferWin32& clean,
         concord::ui::win32::MainBackBufferWin32& completed,RuntimeInputPixelRect,

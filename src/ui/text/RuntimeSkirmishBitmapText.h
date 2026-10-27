@@ -7,6 +7,7 @@
 #include <string_view>
 
 namespace concord::ui {
+class MenuDrawList;
 // Borrowed only for a measure/paint call, invalidated by the byte owner's reload.
 // Metrics come from the unique R002 byte codec. No file/resource/device owner.
 struct SkirmishBitmapFontView {
@@ -21,6 +22,10 @@ struct SkirmishBitmapFontView {
 // Skirmish intentionally treats each surrogate code unit separately.
 std::int32_t measureSkirmishBitmapText(const SkirmishBitmapFontView&, std::wstring_view);
 std::int32_t measureSkirmishBitmapText(const SkirmishBitmapFontView&, std::u16string_view);
+// Same layout, fallback, clipping and shadow order; GPU consumes original bits.
+void recordSkirmishBitmapText(const SkirmishBitmapFontView&,MenuDrawList&,
+    std::int32_t width,std::int32_t height,std::wstring_view,const RuntimeInputPixelRect&,
+    bool centered,bool verticallyCentered,RuntimeRgbColorValue);
 // Contiguous top-down BGRA borrow for this call. Actual menu passes800x600.
 // Invalid/short surface or invalid font is a no-op. Existing rectangular
 // arithmetic domain (representable signed32 sums/differences/advance) is retained.

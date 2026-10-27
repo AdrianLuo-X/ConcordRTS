@@ -6,5 +6,7 @@ enum class FrameDevice { Hardware, Warp };
 struct FrameBackendOptions {
     FrameBackend backend=FrameBackend::Software;
     FrameDevice device=FrameDevice::Hardware;
+    FrameBackend menuBackend=FrameBackend::Software;
+    FrameDevice menuDevice=FrameDevice::Hardware;
 };
 } // namespace concord::presentation

@@ -2,6 +2,7 @@
 
 #include "assets/codecs/RuntimeTmpTypes.h"
 #include <span>
+#include <array>
 #include <string>
 #include <vector>
 
@@ -12,6 +13,12 @@ struct MenuImage {
     int height = 0;
     std::vector<unsigned char> bgra;
     std::string source;
+    // Owned decoder output for direct indexed drawing. BGRA remains the
+    // existing software reference; no second SHP/PAL parser or device object.
+    std::vector<unsigned char> indices;
+    std::array<std::uint32_t,256> paletteBgra{};
+    int indexWidth=0,indexHeight=0,indexLeft=0,indexTop=0;
+    bool transparentZero=false;
 
     bool valid() const {
         return width > 0 && height > 0

@@ -52,6 +52,9 @@
     "terrain-frame": [
       "src/render/core/RuntimeMapTerrainFrame.h",
       "src/render/core/RuntimeMapTerrainFrame.cpp"
+    ],
+    "menu-draw": [
+      "src/ui/drawing/MenuDrawCommands.h"
     ]
   },
   "rootCmakeIncludes": [
@@ -48566,6 +48569,424 @@
       "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
       "status": "backend-private",
       "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-edge",
+      "path": "src/runtime/presentation/win32/D3D11FramePresenterWin32.cpp",
+      "detail": "src/runtime/presentation/win32/D3D11MenuPresentWin32.inl",
+      "maxOccurrences": 1,
+      "reason": "S40 private GPU raster/submission, native production-window assembly or bounded native diagnostics. Public MenuDrawCommands remains device/World independent; existing native budgets unchanged.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-edge",
+      "path": "src/runtime/presentation/win32/D3D11FramePresenterWin32.cpp",
+      "detail": "src/runtime/presentation/win32/MenuRasterD3D11.inl",
+      "maxOccurrences": 1,
+      "reason": "S40 private GPU raster/submission, native production-window assembly or bounded native diagnostics. Public MenuDrawCommands remains device/World independent; existing native budgets unchanged.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-edge",
+      "path": "src/ui/skirmish/RuntimeSkirmishMenu.cpp",
+      "detail": "src/runtime/presentation/win32/D3D11FramePresenterWin32.h",
+      "maxOccurrences": 1,
+      "reason": "S40 private GPU raster/submission, native production-window assembly or bounded native diagnostics. Public MenuDrawCommands remains device/World independent; existing native budgets unchanged.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-edge",
+      "path": "src/ui/skirmish/RuntimeSkirmishMenu.cpp",
+      "detail": "src/ui/skirmish/diagnostics/RuntimeGpuMenuContract.inl",
+      "maxOccurrences": 1,
+      "reason": "S40 private GPU raster/submission, native production-window assembly or bounded native diagnostics. Public MenuDrawCommands remains device/World independent; existing native budgets unchanged.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-edge",
+      "path": "src/ui/skirmish/RuntimeSkirmishMenu.cpp",
+      "detail": "src/ui/skirmish/diagnostics/RuntimeGpuMenuTiming.inl",
+      "maxOccurrences": 1,
+      "reason": "S40 private GPU raster/submission, native production-window assembly or bounded native diagnostics. Public MenuDrawCommands remains device/World independent; existing native budgets unchanged.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-edge",
+      "path": "src/ui/skirmish/RuntimeSkirmishMenu.cpp",
+      "detail": "src/ui/skirmish/win32/RuntimeGpuMenuInputTraceWin32.inl",
+      "maxOccurrences": 1,
+      "reason": "S40 private GPU raster/submission, native production-window assembly or bounded native diagnostics. Public MenuDrawCommands remains device/World independent; existing native budgets unchanged.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-edge",
+      "path": "tests/infrastructure/MenuRasterD3D11Contract.cpp",
+      "detail": "src/runtime/presentation/win32/D3D11FramePresenterWin32.h",
+      "maxOccurrences": 1,
+      "reason": "S40 private GPU raster/submission, native production-window assembly or bounded native diagnostics. Public MenuDrawCommands remains device/World independent; existing native budgets unchanged.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_menu_raster_d3d11_contract",
+      "detail": "d3d11",
+      "maxOccurrences": 1,
+      "reason": "Private native fixture links the original Windows device/presentation owner and GDI oracle; no PUBLIC/INTERFACE portable dependency.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_menu_raster_d3d11_contract",
+      "detail": "dwmapi",
+      "maxOccurrences": 1,
+      "reason": "Private native fixture links the original Windows device/presentation owner and GDI oracle; no PUBLIC/INTERFACE portable dependency.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_menu_raster_d3d11_contract",
+      "detail": "dxgi",
+      "maxOccurrences": 1,
+      "reason": "Private native fixture links the original Windows device/presentation owner and GDI oracle; no PUBLIC/INTERFACE portable dependency.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_menu_raster_d3d11_contract",
+      "detail": "gdi32",
+      "maxOccurrences": 1,
+      "reason": "Private native fixture links the original Windows device/presentation owner and GDI oracle; no PUBLIC/INTERFACE portable dependency.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_menu_raster_d3d11_contract",
+      "detail": "user32",
+      "maxOccurrences": 1,
+      "reason": "Private native fixture links the original Windows device/presentation owner and GDI oracle; no PUBLIC/INTERFACE portable dependency.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/D3D11MenuPresentWin32.inl",
+      "detail": "HRESULT",
+      "maxOccurrences": 1,
+      "reason": "S40 private GPU raster/submission, native production-window assembly or bounded native diagnostics. Public MenuDrawCommands remains device/World independent; existing native budgets unchanged.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/D3D11MenuPresentWin32.inl",
+      "detail": "RECT",
+      "maxOccurrences": 1,
+      "reason": "S40 private GPU raster/submission, native production-window assembly or bounded native diagnostics. Public MenuDrawCommands remains device/World independent; existing native budgets unchanged.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/MenuRasterD3D11.inl",
+      "detail": "HRESULT",
+      "maxOccurrences": 5,
+      "reason": "S40 private GPU raster/submission, native production-window assembly or bounded native diagnostics. Public MenuDrawCommands remains device/World independent; existing native budgets unchanged.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/MenuRasterD3D11.inl",
+      "detail": "ID3D11Buffer",
+      "maxOccurrences": 2,
+      "reason": "S40 private GPU raster/submission, native production-window assembly or bounded native diagnostics. Public MenuDrawCommands remains device/World independent; existing native budgets unchanged.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/MenuRasterD3D11.inl",
+      "detail": "ID3D11Device",
+      "maxOccurrences": 2,
+      "reason": "S40 private GPU raster/submission, native production-window assembly or bounded native diagnostics. Public MenuDrawCommands remains device/World independent; existing native budgets unchanged.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/MenuRasterD3D11.inl",
+      "detail": "ID3D11DeviceContext",
+      "maxOccurrences": 2,
+      "reason": "S40 private GPU raster/submission, native production-window assembly or bounded native diagnostics. Public MenuDrawCommands remains device/World independent; existing native budgets unchanged.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/MenuRasterD3D11.inl",
+      "detail": "ID3D11PixelShader",
+      "maxOccurrences": 1,
+      "reason": "S40 private GPU raster/submission, native production-window assembly or bounded native diagnostics. Public MenuDrawCommands remains device/World independent; existing native budgets unchanged.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/MenuRasterD3D11.inl",
+      "detail": "ID3D11Query",
+      "maxOccurrences": 1,
+      "reason": "S40 private GPU raster/submission, native production-window assembly or bounded native diagnostics. Public MenuDrawCommands remains device/World independent; existing native budgets unchanged.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/MenuRasterD3D11.inl",
+      "detail": "ID3D11RasterizerState",
+      "maxOccurrences": 1,
+      "reason": "S40 private GPU raster/submission, native production-window assembly or bounded native diagnostics. Public MenuDrawCommands remains device/World independent; existing native budgets unchanged.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/MenuRasterD3D11.inl",
+      "detail": "ID3D11RenderTargetView",
+      "maxOccurrences": 1,
+      "reason": "S40 private GPU raster/submission, native production-window assembly or bounded native diagnostics. Public MenuDrawCommands remains device/World independent; existing native budgets unchanged.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/MenuRasterD3D11.inl",
+      "detail": "ID3D11ShaderResourceView",
+      "maxOccurrences": 4,
+      "reason": "S40 private GPU raster/submission, native production-window assembly or bounded native diagnostics. Public MenuDrawCommands remains device/World independent; existing native budgets unchanged.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/MenuRasterD3D11.inl",
+      "detail": "ID3D11Texture2D",
+      "maxOccurrences": 1,
+      "reason": "S40 private GPU raster/submission, native production-window assembly or bounded native diagnostics. Public MenuDrawCommands remains device/World independent; existing native budgets unchanged.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/MenuRasterD3D11.inl",
+      "detail": "ID3D11VertexShader",
+      "maxOccurrences": 1,
+      "reason": "S40 private GPU raster/submission, native production-window assembly or bounded native diagnostics. Public MenuDrawCommands remains device/World independent; existing native budgets unchanged.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/ui/skirmish/diagnostics/RuntimeGpuMenuContract.inl",
+      "detail": "HWND",
+      "maxOccurrences": 1,
+      "reason": "S40 private GPU raster/submission, native production-window assembly or bounded native diagnostics. Public MenuDrawCommands remains device/World independent; existing native budgets unchanged.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/ui/skirmish/diagnostics/RuntimeGpuMenuContract.inl",
+      "detail": "LPARAM",
+      "maxOccurrences": 1,
+      "reason": "S40 private GPU raster/submission, native production-window assembly or bounded native diagnostics. Public MenuDrawCommands remains device/World independent; existing native budgets unchanged.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/ui/skirmish/diagnostics/RuntimeGpuMenuContract.inl",
+      "detail": "POINT",
+      "maxOccurrences": 1,
+      "reason": "S40 private GPU raster/submission, native production-window assembly or bounded native diagnostics. Public MenuDrawCommands remains device/World independent; existing native budgets unchanged.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/ui/skirmish/diagnostics/RuntimeGpuMenuTiming.inl",
+      "detail": "DWORD",
+      "maxOccurrences": 1,
+      "reason": "S40 private GPU raster/submission, native production-window assembly or bounded native diagnostics. Public MenuDrawCommands remains device/World independent; existing native budgets unchanged.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/ui/skirmish/diagnostics/RuntimeGpuMenuTiming.inl",
+      "detail": "HDC",
+      "maxOccurrences": 1,
+      "reason": "S40 private GPU raster/submission, native production-window assembly or bounded native diagnostics. Public MenuDrawCommands remains device/World independent; existing native budgets unchanged.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/ui/skirmish/diagnostics/RuntimeGpuMenuTiming.inl",
+      "detail": "POINT",
+      "maxOccurrences": 5,
+      "reason": "S40 private GPU raster/submission, native production-window assembly or bounded native diagnostics. Public MenuDrawCommands remains device/World independent; existing native budgets unchanged.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/ui/skirmish/win32/RuntimeGpuMenuInputTraceWin32.inl",
+      "detail": "HWND",
+      "maxOccurrences": 1,
+      "reason": "S40 private GPU raster/submission, native production-window assembly or bounded native diagnostics. Public MenuDrawCommands remains device/World independent; existing native budgets unchanged.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/ui/skirmish/win32/RuntimeGpuMenuInputTraceWin32.inl",
+      "detail": "LPARAM",
+      "maxOccurrences": 1,
+      "reason": "S40 private GPU raster/submission, native production-window assembly or bounded native diagnostics. Public MenuDrawCommands remains device/World independent; existing native budgets unchanged.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/ui/skirmish/win32/RuntimeGpuMenuInputTraceWin32.inl",
+      "detail": "POINT",
+      "maxOccurrences": 1,
+      "reason": "S40 private GPU raster/submission, native production-window assembly or bounded native diagnostics. Public MenuDrawCommands remains device/World independent; existing native budgets unchanged.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/ui/skirmish/win32/RuntimeGpuMenuInputTraceWin32.inl",
+      "detail": "WPARAM",
+      "maxOccurrences": 1,
+      "reason": "S40 private GPU raster/submission, native production-window assembly or bounded native diagnostics. Public MenuDrawCommands remains device/World independent; existing native budgets unchanged.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "platform-type",
+      "path": "tests/infrastructure/MenuRasterD3D11Contract.cpp",
+      "detail": "HWND",
+      "maxOccurrences": 1,
+      "reason": "S40 private GPU raster/submission, native production-window assembly or bounded native diagnostics. Public MenuDrawCommands remains device/World independent; existing native budgets unchanged.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "unresolved-local-include",
+      "path": "src/runtime/presentation/win32/MenuRasterD3D11.inl",
+      "detail": "MenuRaster-ps.h",
+      "maxOccurrences": 1,
+      "reason": "Exact offline FXC-generated private header, emitted by cmake/D3D11FramePresenter.cmake and compiled into the native leaf; generated artifact identities recorded. No public unresolved dependency.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
+    },
+    {
+      "rule": "unresolved-local-include",
+      "path": "src/runtime/presentation/win32/MenuRasterD3D11.inl",
+      "detail": "MenuRaster-vs.h",
+      "maxOccurrences": 1,
+      "reason": "Exact offline FXC-generated private header, emitted by cmake/D3D11FramePresenter.cmake and compiled into the native leaf; generated artifact identities recorded. No public unresolved dependency.",
+      "owner_step": "S40",
+      "follow_up": "G002 covered by S40; resource budgets/recovery remain G010/S42, map passes G003/S41",
+      "status": "backend-private",
+      "evidence": "S40/ui-20261027-r1: contract-r6 actual0, timing-r2 actual0, synthetic-r2 actual0, mechanical-private-extractions.json and structure-r2 exact review"
     }
   ],
   "reviewedUpdates": [
@@ -48745,6 +49166,12 @@
       "step": "S39",
       "reason": "37 exact private D3D11/Win32 factory, native fixture and final device-link facts. Removed extra fixture host-state pointer and unrelated shell/dialog links rather than raising historical budgets. Added pure backend-options transitive fixtures.",
       "evidence": "development_records/refactoring/S39/presentation-20261027-r1/private-facts-review-r1.json"
+    },
+    {
+      "date": "2026-10-27",
+      "step": "S40",
+      "reason": "38 exact private native/generated-header facts. All 4435 old exception fields/budgets preserved; new menu-draw module has strict exact value closure and three negative fixtures.",
+      "evidence": "development_records/refactoring/S40/ui-20261027-r1/private-facts-review.json"
     }
   ]
 }

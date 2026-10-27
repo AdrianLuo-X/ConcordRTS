@@ -37,7 +37,8 @@
 | 寻路目标候选 | 同步生成普通与环形回退候选 | [PathGoalCandidates.h](src/simulation/navigation/pathfinding/PathGoalCandidates.h)、[PathGoalTypes.h](src/simulation/navigation/pathfinding/PathGoalTypes.h) |
 | 确定性候选任务 | 自有输入、固定顺序消费与同步回退 | [PathGoalCandidateTask.h](src/simulation/navigation/pathfinding/PathGoalCandidateTask.h) |
 | 软件窗口与事件 | 类型化窗口操作、像素事件与同步帧呈现 | [RuntimeSoftwareWindow.h](src/runtime/window/RuntimeSoftwareWindow.h) |
-| 呈现后端选项 | 仅本机显示的后端与设备选择 | [FrameBackendOptions.h](src/runtime/presentation/FrameBackendOptions.h) |
+| 菜单绘制命令 | 有序命令、自有资源字节与同步帧借用 | [MenuDrawCommands.h](src/ui/drawing/MenuDrawCommands.h) |
+| 呈现后端选项 | 本机战局呈现和菜单绘制的独立选择 | [FrameBackendOptions.h](src/runtime/presentation/FrameBackendOptions.h) |
 | 完整软件帧 | 同步像素借用、场景版本与提交结果 | [SoftwareFrame.h](src/runtime/presentation/SoftwareFrame.h) |
 | 地图地形帧 | 资源、光照与视野的短期只读输入 | [RuntimeMapTerrainFrame.h](src/render/core/RuntimeMapTerrainFrame.h)、[RuntimeMapTerrainFrameRenderer.h](src/render/core/RuntimeMapTerrainFrameRenderer.h) |
 | 视频播放服务 | 解码子进程、IPC 与自有 BGRA 帧 | [BinkPlaybackService.h](src/assets/video/BinkPlaybackService.h) |
@@ -877,20 +878,42 @@ enum class FrameDevice { Hardware, Warp };
 struct FrameBackendOptions {
     FrameBackend backend = FrameBackend::Software;
     FrameDevice device = FrameDevice::Hardware;
+    FrameBackend menuBackend = FrameBackend::Software;
+    FrameDevice menuDevice = FrameDevice::Hardware;
 };
 ```
 
-选项只控制当前进程的显示路径，不写入 `RuntimeConfig`、存档、网络协议或哈希。原 `runRuntimeWindow` 两种签名保持；新的四参数重载接收配置、加载后退出标记、联机桥接所有权与呈现选项。软件路径为默认，硬件请求不会自动改为 WARP；SDL3 菜单与 D3D11／WARP 的组合由启动入口明确拒绝。
+选项只控制当前进程的显示路径，不写入 `RuntimeConfig`、存档、网络协议或哈希。`backend / device` 选择战局完整 CPU 帧呈现，`menuBackend / menuDevice` 独立选择 Win32 遭遇战菜单绘制，二者都默认使用软件路径。原 `runRuntimeWindow` 两种签名保持；新的四参数重载接收配置、加载后退出标记、联机桥接所有权与呈现选项。软件路径为默认，硬件请求不会自动改为 WARP；SDL3 菜单与 D3D11／WARP 的组合由启动入口明确拒绝。
 
 私有 [D3D11FramePresenterWin32](src/runtime/presentation/win32/D3D11FramePresenterWin32.h) 实现同一 `FramePresenter` 协议。其工厂接收原生窗口、选项、统计对象和可选原生测试探针；只有 Windows 组装层可使用此头文件。`create()` 返回的对象可能已经处于软件回退状态，调用方必须检查 `active()` 和 `report()`，不能仅凭指针非空判断 D3D11 可用；分配或异常路径也可能返回空值。
 
-设备、即时上下文、交换链、查询及 `Present` 均归单一 UI 线程。初始化请求最低功能级别 11_0，并检查 BGRA 格式与 timestamp/disjoint 查询资源。每帧使用调用方的真实行距上传到与客户区同尺寸的 BGRA8_UNORM 缓冲，再调用 `Present(1, 0)`；第四字节原样上传，显示时忽略。不创建着色器、采样器或混合状态，不做 GPU 缩放、预乘或颜色空间转换。
+设备、即时上下文、交换链、查询及 `Present` 均归单一 UI 线程。初始化请求最低功能级别 11_0，并检查 BGRA 格式与 timestamp/disjoint 查询资源。每帧使用调用方的真实行距上传到与客户区同尺寸的 BGRA8_UNORM 缓冲，再调用 `Present(1, 0)`；第四字节原样上传，显示时忽略。上述完整 CPU 帧上传路径不创建着色器、采样器或混合状态，不做 GPU 缩放、预乘或颜色空间转换；菜单直接绘制通过单独的 `presentMenu()` 入口使用离线着色器。
 
 缩放先释放后台缓冲引用，再重建匹配尺寸；最小化时不提交，恢复后重新核对尺寸。设备、资源、上传或呈现失败会记录错误并释放全部 GPU 引用，宿主在当前窗口会话中转回原 GDI，不重新尝试 D3D11。`fallbackToSoftware()` 是这一单向清理入口；字体组成等原生互操作也留在此私有所有者内，公共帧与软件窗口接口不传递设备句柄。
 
 `report()` 返回请求／实际后端、设备能力、回退原因、成功呈现和上传字节统计。`timings() / timingCount()` 提供最多 4,096 条有界样本；通过 8 组异步 timestamp/disjoint 查询单独记录 GPU 上传时间，并保留有效、无效、未就绪及丢弃情况。`recordCpuWork()` 补充 CPU 绘制与组成时间，`enableTimingOutput()` 控制逐条输出。数据借用不应超过呈现器生命周期，Present 的 CPU 调用时间不等于 GPU 时间或实际屏幕帧率。
 
 `D3D11FrameProbeWin32` 仅用于原生合同的故障注入和上传读回，不通过用户配置或命令行公开；正常呈现不执行诊断 staging／Map 读回。构建入口见 [D3D11FramePresenter.cmake](cmake/D3D11FramePresenter.cmake)，测试源码见 [D3D11FramePresenterWin32Contract.cpp](tests/infrastructure/D3D11FramePresenterWin32Contract.cpp)。该测试使用自编像素，不需要游戏素材，但需要真实 Windows 窗口和图形设备环境。
+
+## 菜单绘制命令与 GPU 提交
+
+[MenuDrawCommands.h](src/ui/drawing/MenuDrawCommands.h) 在 `concord::ui` 中定义有序纯值命令，不包含原生窗口、设备句柄或活动世界对象。`MenuDrawKind` 包括 `Fill / Darken / Bgra / Scale / Indexed / Glyph`，每条 `MenuDrawCommand` 为 64 字节，保存矩形、资源偏移、步长、尺寸、调色板与标志等值。
+
+`MenuDrawList` 拥有命令数组和资源字节，限定最多 16,384 条命令与 32 MiB 资源。`begin()` 开始新一帧命令并更新命令修订号；`reset()` 清空资源和命令并更新代际。`intern()` 同时检查输入地址、长度及已复制的字节，原地等长更新不会继续使用旧内容；空资源、预算超限等情况会抛出相应标准异常。`fill() / darken() / bgra() / image()` 记录命令，`valid()` 检查命令类型、范围和资源边界。
+
+`MenuDrawFrame` 是对列表的同步只读借用，携带序号、客户区尺寸、视口和捕获时的 `generation / resourceRevision / commandRevision`。列表及其资源必须存活到 `presentMenu()` 返回，期间不得修改；借用后修改命令或资源会使旧帧失效。该接口不转移资源所有权，也不用于跨线程共享实时菜单状态。
+
+[MenuImage](src/assets/menu/MenuImage.h) 在保留原 BGRA 软件参考数据的同时，持有已有解码器生成的局部索引、画布偏移、调色板和透明索引策略。[recordSkirmishBitmapText()](src/ui/text/RuntimeSkirmishBitmapText.h) 沿用原字体布局、回退、裁剪及整段阴影先于正文的顺序，将 packed glyph 字节记录为菜单命令；设备端不引入另一套资源解码或系统字体实现。
+
+私有 [D3D11FramePresenterWin32::presentMenu()](src/runtime/presentation/win32/D3D11FramePresenterWin32.h) 复用现有窗口所属线程的 device、context、交换链及 Present。它拒绝错线程、无效或陈旧资源、失效修订号、重复或倒退序号等输入；返回 `bool` 表示本次提交是否成功，具体回退和计数由 `report()` 读取。此入口独立于接收 `SoftwareFrameView` 的完整 CPU 帧提交。
+
+[MenuRasterD3D11.inl](src/runtime/presentation/win32/MenuRasterD3D11.inl) 准备稳定有序的 tile 命令索引和资源；[MenuRaster.hlsl](src/runtime/presentation/win32/MenuRaster.hlsl) 通过全屏三角形的像素着色器按原次序光栅。索引 0 的透明判断发生在 remap 之前，255 仍是有效索引；图片、字形、暗化与混色使用原整数与舍入规则，客户区映射沿用既有像素行为。正常路径不生成完整 CPU 菜单帧，不做诊断 staging／Map 读回。
+
+计时样本的 `menuRaster` 区分菜单光栅与完整帧上传；菜单 GPU 查询覆盖 Draw 光栅区间，CPU 提交包含资源、命令和 tile 准备及上传，不能按战局上传的 GPU 时间解释。`menuDraws / menuRejected` 单独记录菜单成功与拒绝情况。故障清理遵循现有软件回退规则，释放绑定与资源后才转回 GDI。
+
+[runRuntimeSkirmishMenu()](src/ui/skirmish/RuntimeSkirmishMenu.h) 保留原两参数形式，并提供带 `FrameBackendOptions` 的三参数重载。选定大厅、选图及转场可使用 GPU；进入其他页面会在当前窗口会话中回到原软件路径。关闭时释放 GPU 所有者，再保存菜单缓存；菜单选择仍由原控制器与配置映射提交，关闭下拉后的命中检测会忽略已失效的旧弹出项。
+
+着色器由 [D3D11FramePresenter.cmake](cmake/D3D11FramePresenter.cmake) 使用所选 SDK 的 FXC 离线生成，采用 Shader Model 5 与 `/WX /Ges /O3`，生成头位于构建目录并私有嵌入运行程序。源码包只提供 HLSL 和生成规则，不提供编译后的字节码或着色器编译器 DLL。原生合同见 [MenuRasterD3D11Contract.cpp](tests/infrastructure/MenuRasterD3D11Contract.cpp)，构建及显式启用方法见 [README](README.md#遭遇战菜单-gpu-绘制)。
 
 ## CPU 性能采样与隔离设备诊断
 
@@ -900,7 +923,7 @@ struct FrameBackendOptions {
 
 [性能工具](tools/benchmarks) 中新增的 ES 模块脚本使用 Node.js 内置模块记录输入身份、分轮采样并从原始流复算分位数；基线和诊断脚本按公开默认 Release 构建目录校验部署来源，输出必须使用新的工程内目录。工具的实际资源输入仍需自行准备，建议输出统一放在 `build/`。
 
-[设备探针](tools/diagnostics) 是独立程序，检查 CPU/图形设备、纹理格式、上传读回与 timestamp 能力。游戏产品中的 D3D11、DXGI、DWM 依赖由私有呈现后端接入，不进入独立核心或公共接口。环境采集、进程路径及原始输出只供本机分析，不随源码包发布。这里的独立设备能力不代表游戏已经启用 GPU 绘制。
+[设备探针](tools/diagnostics) 是独立程序，检查 CPU/图形设备、纹理格式、上传读回与 timestamp 能力。游戏产品中的 D3D11、DXGI、DWM 依赖由私有呈现后端接入，不进入独立核心或公共接口。环境采集、进程路径及原始输出只供本机分析，不随源码包发布。设备探针只反映其检查范围；生产菜单的 GPU 绘制和战局完整帧呈现分别通过各自入口选择与验证。
 
 ## 模块库与独立合同
 
@@ -960,9 +983,10 @@ struct FrameBackendOptions {
 | `--skip-main-menu` / `--skip-skirmish-menu`           | 跳过对应菜单            |
 | `--skirmish-window <win32\|sdl3>` | 选择独立遭遇战菜单窗口，默认 Win32；战局窗口保持 Win32 |
 | `--frame-backend <software\|d3d11\|d3d11-warp>` | 选择主 Win32 窗口的完整 CPU 帧呈现方式，默认 software |
+| `--skirmish-drawing <software\|d3d11\|d3d11-warp>` | 独立选择 Win32 大厅与选图页的绘制方式，默认 software |
 | `--smoke-test`                                        | 加载启动数据并输出报告，不打开窗口 |
 
-`--frame-backend` 的硬件与 WARP 选项需要匹配的 Windows 图形能力；失败时记录原因并回退软件路径。`--skirmish-window sdl3` 与二者组合时直接报错。用法见 [README](README.md#主战局呈现后端)。
+`--frame-backend` 的硬件与 WARP 选项需要匹配的 Windows 图形能力；失败时记录原因并回退软件路径。`--skirmish-window sdl3` 与任一 D3D11／WARP 战局呈现或菜单绘制选项组合时直接报错。用法见 [README](README.md#主战局呈现后端)。
 
 `--smoke-test` 仍需要对应的私人数据，退出码 `0` 表示启动报告成功，`1` 表示失败。该结果只反映启动检查。参数处理见 [RuntimeMain.cpp](src/runtime/host/RuntimeMain.cpp)。
 

@@ -334,6 +334,26 @@ class GuardFixtures(unittest.TestCase):
         with self.assertRaises(ValueError):
             guard.evaluate(report, baseline)
 
+    def test_menu_draw_allows_only_exact_pure_values(self):
+        self.put("src/ui/drawing/MenuDrawCommands.h", '#include "ui/surface/RuntimeMenuPixelSurface.h"\n')
+        self.put("src/ui/surface/RuntimeMenuPixelSurface.h", '#include "ui/input/RuntimeInputPixelValues.h"\n')
+        self.put("src/ui/input/RuntimeInputPixelValues.h", "struct RuntimeInputPixelRect {};\n")
+        facts=self.scan({"menu-draw":["src/ui/drawing/MenuDrawCommands.h"]})["findings"]
+        self.assertFalse(any(f["rule"].startswith("protected-") or f["rule"].startswith("menu-draw-") for f in facts))
+
+    def test_menu_draw_rejects_native_transitively(self):
+        self.put("src/ui/drawing/MenuDrawCommands.h", '#include "ui/surface/RuntimeMenuPixelSurface.h"\n')
+        self.put("src/ui/surface/RuntimeMenuPixelSurface.h", '#include <d3d11.h>\nID3D11Device* device;\n')
+        facts=self.scan({"menu-draw":["src/ui/drawing/MenuDrawCommands.h"]})["findings"]
+        self.assertTrue(any(f["rule"]=="protected-platform" for f in facts))
+
+    def test_menu_draw_rejects_live_world_and_other_ui(self):
+        self.put("src/ui/drawing/MenuDrawCommands.h", '#include "ui/Other.h"\n')
+        self.put("src/ui/Other.h", "struct GameWorld {};\n")
+        facts=self.scan({"menu-draw":["src/ui/drawing/MenuDrawCommands.h"]})["findings"]
+        self.assertTrue(any(f["rule"]=="menu-draw-dependency" for f in facts))
+        self.assertTrue(any(f["rule"]=="menu-draw-live-or-device" for f in facts))
+
     def test_exception_requires_owner_reason_followup(self):
         self.put("src/core/Pure.h", "HWND x;\n")
         report = self.scan()

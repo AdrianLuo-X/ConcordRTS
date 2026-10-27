@@ -12,8 +12,11 @@ void invalidate(RuntimeSkirmishController& state) { state.backDirty = true; stat
 std::wstring label(const RuntimeSkirmishController& state, std::initializer_list<std::string> keys, const wchar_t* fallback) { return state.services.label(keys,fallback); }
 bool ensurePreview(RuntimeSkirmishController& state, int index) { return state.services.ensurePreview(index); }
 const HitRegion* hitTest(const RuntimeSkirmishController& state, RuntimeInputPixelPoint point) {
-    for(auto it=state.hits.rbegin(); it!=state.hits.rend(); ++it)
+    for(auto it=state.hits.rbegin(); it!=state.hits.rend(); ++it) {
+        // A close can precede the next paint; old popup hits are no longer live.
+        if(state.openDropdown==DropdownKind::None&&it->target.kind==HitKind::DropdownOption)continue;
         if(point.x>=it->rect.left && point.x<it->rect.right && point.y>=it->rect.top && point.y<it->rect.bottom) return &*it;
+    }
     return nullptr;
 }
 std::string trimAscii(const std::string& text) {

@@ -31,6 +31,15 @@ bool makeMenuImage(const MenuIndexedFrameView& frame,
         }
     }
     output.source = source;
+    output.indices.assign(frame.pixels.begin(),frame.pixels.begin()+static_cast<std::ptrdiff_t>(frame.width*frame.height));
+    output.indexWidth=frame.width;output.indexHeight=frame.height;
+    output.indexLeft=frame.offsetX;output.indexTop=frame.offsetY;
+    output.transparentZero=transparentZero;
+    for(std::size_t i=0;i<256;++i) {
+        const auto c=palette[i];
+        output.paletteBgra[i]=static_cast<std::uint32_t>(c.b)|(static_cast<std::uint32_t>(c.g)<<8)
+            |(static_cast<std::uint32_t>(c.r)<<16)|0xff000000U;
+    }
     return true;
 }
 

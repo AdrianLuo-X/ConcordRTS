@@ -176140,7 +176140,7 @@ int runRuntimeWindowSession(
         }
 
         const RuntimeSkirmishSelection selection =
-            runRuntimeSkirmishMenu(activeConfig, skirmishParent.id());
+            runRuntimeSkirmishMenu(activeConfig, skirmishParent.id(),presentation);
         if (!menuHost.valid()) {
             return 0;
         }
@@ -176156,7 +176156,7 @@ int runRuntimeWindowSession(
 
     if (!activeConfig.showMainMenu && activeConfig.showSkirmishMenu) {
         const RuntimeSkirmishSelection selection =
-            runRuntimeSkirmishMenu(activeConfig, skirmishParent.id());
+            runRuntimeSkirmishMenu(activeConfig, skirmishParent.id(),presentation);
         if (!selection.accepted || !menuHost.valid()) {
             menuHost.close();
             return 0;
