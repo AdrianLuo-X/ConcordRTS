@@ -1,5 +1,6 @@
 #include "analysis/sandbox/ReplaySandbox.h"
 
+#include "core/platform/PathEncoding.h"
 #include "runtime/contracts/RuntimeReplayEventSnapshot.h"
 
 #include <algorithm>
@@ -3396,10 +3397,11 @@ ReplaySandboxReport runReplaySandbox(
     }
     if (runtimeSource.events == nullptr || runtimeSource.count == 0U) {
         std::string runtimeEventFilePath;
-        if (const char* environmentPath =
-                std::getenv("CONCORD_REPLAY_RUNTIME_EVENTS")) {
+        const std::string environmentPath =
+            concord::platform::environmentUtf8("CONCORD_REPLAY_RUNTIME_EVENTS");
+        if (!environmentPath.empty()) {
             runtimeEventFilePath = environmentPath;
-            if (!runtimeEventFilePath.empty()) report.provenance.inputKind = "environment-event-file";
+            report.provenance.inputKind = "environment-event-file";
         }
         if (runtimeEventFilePath.empty()) {
             runtimeEventFilePath = findDefaultRuntimeReplayEventFile();
