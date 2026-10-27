@@ -14,6 +14,8 @@
 #include <unordered_map>
 #include <vector>
 
+class PathGoalCandidateRunner;
+
 struct PathRequestHandle {
     int id = -1;
 };
@@ -272,6 +274,9 @@ public:
     );
     int pump(int maxRequests);
     int pumpWithBudget(int maxRequests, int expandedNodeBudget);
+    int pumpWithCandidates(int maxRequests, PathGoalCandidateRunner&, std::int64_t simulationTick);
+    int pumpWithCandidates(int maxRequests, int expandedNodeBudget,
+        PathGoalCandidateRunner&, std::int64_t simulationTick);
 
     const std::vector<PathResult>& getResults() const;
     int pendingCount() const;
@@ -458,7 +463,9 @@ private:
     std::vector<PathCell> reconstructPath(
         int currentIndex
     ) const;
-    PathResult solve(const PendingRequest& request, int expandedNodeBudget);
+    int pumpWithBudgetImpl(int, int, PathGoalCandidateRunner*, std::int64_t);
+    PathResult solve(const PendingRequest& request, int expandedNodeBudget,
+        PathGoalCandidateRunner*, std::int64_t simulationTick);
 };
 
 PathfindingSandboxReport runPathfindingSandbox(const GameWorld& world);

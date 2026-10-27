@@ -41,7 +41,14 @@ BUSINESS_LIB = re.compile(
 FRONTEND_FLAG = re.compile(r'(?<!\w)(/[A-Za-z][A-Za-z0-9:,+-]*|-W[\w=-]+|-f[\w=-]+)')
 VS_PATH = re.compile(r'(?i)[A-Z]:[\\/][^"\r\n]*(?:Visual[ /]Studio|Microsoft[ /]Visual[ /]Studio)[^"\r\n]*')
 FORBIDDEN_PREFIXES = ("src/runtime/host/", "src/ui/")
+SOFTWARE_FRAME_VALUES = {
+    "src/ui/surface/RuntimeMenuPixelSurface.h",
+    "src/ui/input/RuntimeInputPixelValues.h",
+    "src/ui/values/RuntimeColorValues.h",
+}
 DEFAULT_MODULES = {
+    "software-frame": ["src/runtime/presentation/SoftwareFrame.h"],
+    "path-candidate-task": ["src/simulation/navigation/pathfinding/PathGoalCandidateTask.h","src/simulation/navigation/pathfinding/PathGoalCandidateTask.cpp","src/simulation/navigation/pathfinding/PathGoalCandidates.h","src/simulation/navigation/pathfinding/PathGoalCandidates.cpp"],
     "bounded-tasks": ["src/core/tasks/BoundedTaskExecutor.h",
                       "src/core/tasks/BoundedTaskExecutor.cpp"],
     "menu-image": ["src/assets/menu/MenuImage.h", "src/assets/menu/MenuImage.cpp"],
@@ -234,13 +241,29 @@ def scan(root, build, inventory, trace, modules=None):
                 add("protected-module-missing", start, module)
                 continue
             for target, witness in closure(graph, start).items():
+                if module == "software-frame":
+                    if target not in roots and target not in SOFTWARE_FRAME_VALUES:
+                        add("software-frame-dependency", start, target, witness=witness)
+                    if re.search(r'\b(?:GameWorld|WorldObjectInstance|RuntimeMapRenderCache|renderCache)\b',
+                                 code_views.get(target, "")):
+                        add("software-frame-live-state", start, target, witness=witness)
+                if module == "path-candidate-task":
+                    allowed = set(DEFAULT_MODULES["path-candidate-task"]) | {
+                        "src/simulation/navigation/pathfinding/PathGoalTypes.h",
+                        "src/core/tasks/BoundedTaskExecutor.h"}
+                    if target not in allowed:
+                        add("path-candidate-dependency", start, target, witness=witness)
+                    if re.search(r'\b(?:PathRequestQueue|GameWorld|WorldObjectInstance|RuntimeMapRenderCache|renderCache)\b',
+                                 code_views.get(target, "")):
+                        add("path-candidate-live-state", start, target, witness=witness)
                 if module == "bounded-tasks":
                     if target not in roots:
                         add("task-executor-dependency", start, target, witness=witness)
                     if re.search(r'\b(?:GameWorld|WorldObjectInstance|RuntimeMapRenderCache|renderCache)\b',
                                  code_views.get(target, "")):
                         add("task-executor-live-state", start, target, witness=witness)
-                if target.startswith(FORBIDDEN_PREFIXES):
+                if target.startswith(FORBIDDEN_PREFIXES) and not (
+                        module == "software-frame" and target in SOFTWARE_FRAME_VALUES):
                     add("protected-dependency", start, module + ":" + target, witness=witness)
                 for detail in platform.get(target, ()):
                     add("protected-platform", start, module + ":" + target + ":" + detail, witness=witness)

@@ -229,9 +229,9 @@ static bool runRuntimeProjectionHistoryContract(RuntimeWindowState& probe,
         context.surfacePixels = static_cast<std::uint32_t*>(surface.buffer.pixels);
         context.surfaceWidth = width; context.surfaceHeight = height;
         drawRuntimeMap(surface.buffer.memoryDc, viewport, probe.world, context, probe.camera, probe.renderCache);
-        std::swap(probe.backBuffer, surface.buffer);
+        probe.backBuffer.swap(surface.buffer);
         drawRuntimeInteractionOverlay(probe.backBuffer.memoryDc, clientRect, probe, context, true);
-        GdiFlush(); std::swap(probe.backBuffer, surface.buffer);
+        GdiFlush(); probe.backBuffer.swap(surface.buffer);
         const auto* pixels = static_cast<const std::uint32_t*>(surface.buffer.pixels);
         return std::vector<std::uint32_t>(pixels, pixels + count);
     };

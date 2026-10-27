@@ -8,6 +8,8 @@ public:
     void stopEva() override { stopRuntimeEvaPlayback(*state_); }
     void stopMusic() override { stopRuntimeMusic(*state_); }
     void releaseGraphics() override {
+        releaseRuntimeBackBuffer(state_->completedFrameBuffer);
+        (void)state_->fpsDeviceOverlay.release();
         releaseRuntimeBackBuffer(state_->backBuffer);
         releaseRuntimeBackBuffer(state_->sidebarStaticBuffer);
         releaseRuntimeBackBuffer(state_->radarTerrainBuffer);

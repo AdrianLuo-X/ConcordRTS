@@ -44,6 +44,48 @@ class GuardFixtures(unittest.TestCase):
                           self.root / "build/trace.jsonl",
                           modules or {"pure": ["src/core/Pure.h", "src/core/Pure.cpp"]})
 
+    def software_frame_fixture(self):
+        self.put("src/runtime/presentation/SoftwareFrame.h", '#include "ui/surface/RuntimeMenuPixelSurface.h"\n')
+        self.put("src/ui/surface/RuntimeMenuPixelSurface.h", '#include "ui/input/RuntimeInputPixelValues.h"\n#include "ui/values/RuntimeColorValues.h"\n')
+        self.put("src/ui/input/RuntimeInputPixelValues.h", "struct Pixel { int x, y; };\n")
+        self.put("src/ui/values/RuntimeColorValues.h", "struct Color { unsigned value; };\n")
+        return {"software-frame": ["src/runtime/presentation/SoftwareFrame.h"]}
+
+    def test_software_frame_only_reuses_exact_pure_pixel_values(self):
+        report = self.scan(self.software_frame_fixture())
+        self.assertFalse(any(f["rule"].startswith("protected-") or f["rule"].startswith("software-frame-")
+                             for f in report["findings"]))
+        self.put("src/ui/NewWidget.h", "struct Widget {};\n")
+        self.put("src/runtime/presentation/SoftwareFrame.h", '#include "ui/NewWidget.h"\n')
+        report = self.scan({"software-frame": ["src/runtime/presentation/SoftwareFrame.h"]})
+        self.assertIn("software-frame-dependency", {f["rule"] for f in report["findings"]})
+
+    def test_software_frame_pixel_value_cannot_hide_native_dependency(self):
+        modules = self.software_frame_fixture()
+        self.put("src/ui/values/RuntimeColorValues.h", "#include <windows.h>\nstruct Color { HWND window; };\n")
+        report = self.scan(modules)
+        self.assertTrue(any(f["rule"] == "protected-platform" and len(f["witness"]) == 3
+                            for f in report["findings"]))
+
+    def test_software_frame_cannot_borrow_mutable_world(self):
+        modules = self.software_frame_fixture()
+        self.put("src/runtime/presentation/SoftwareFrame.h", "struct GameWorld; struct Frame { GameWorld* live; };\n")
+        report = self.scan(modules)
+        self.assertIn("software-frame-live-state", {f["rule"] for f in report["findings"]})
+
+    def test_path_candidate_rejects_queue_dependency(self):
+        self.put("src/simulation/navigation/pathfinding/PathRequestQueue.h", "class PathRequestQueue {};\n")
+        self.put("src/simulation/navigation/pathfinding/PathGoalCandidateTask.h",
+                 '#include "simulation/navigation/pathfinding/PathRequestQueue.h"\n')
+        report = self.scan({"path-candidate-task": ["src/simulation/navigation/pathfinding/PathGoalCandidateTask.h"]})
+        self.assertIn("path-candidate-dependency", {f["rule"] for f in report["findings"]})
+
+    def test_path_candidate_rejects_forward_live_state(self):
+        self.put("src/simulation/navigation/pathfinding/PathGoalCandidateTask.h",
+                 "struct WorldObjectInstance; struct Input { WorldObjectInstance* live; };\n")
+        report = self.scan({"path-candidate-task": ["src/simulation/navigation/pathfinding/PathGoalCandidateTask.h"]})
+        self.assertIn("path-candidate-live-state", {f["rule"] for f in report["findings"]})
+
     def test_task_executor_rejects_application_dependency(self):
         self.put("src/world/model/GameWorld.h", "struct World {};\n")
         self.put("src/core/tasks/BoundedTaskExecutor.h", '#include "world/model/GameWorld.h"\n')

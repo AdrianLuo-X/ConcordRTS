@@ -1,4 +1,7 @@
+#include "runtime/presentation/win32/FramePresenterWin32.h"
+#include "ui/surface/win32/RuntimeMainBackBufferWin32.h"
 #include "runtime/host/RuntimeShell.h"
+#include "network/maps/RuntimeMultiplayerCompatibilityFingerprint.h"
 #include "runtime/window/RuntimeWindowLifecycle.h"
 #include "assets/text/WestwoodFontCodec.h"
 #include "runtime/window/win32/RuntimeWindowHostWin32.h"
@@ -72,6 +75,7 @@
 #include "ui/main_menu/RuntimeMainMenu.h"
 #include "render/core/RuntimeMapRenderer.h"
 #include "render/voxel/RuntimeGrandCannonPrewarm.h"
+#include "simulation/navigation/pathfinding/PathGoalCandidateTask.h"
 #include "render/buildings/RuntimeBuildingDepthEmptyScene.h"
 #include "../../../tests/rendering/RuntimeBuildingDepthOracle.h"
 #include "render/core/RuntimeRendererEnvironment.h"
@@ -3035,17 +3039,7 @@ struct RuntimePlacementCellCheck {
     std::string reason;
 };
 
-struct RuntimeBackBuffer {
-    HDC memoryDc = nullptr;
-    HBITMAP bitmap = nullptr;
-    HGDIOBJ oldBitmap = nullptr;
-    void* pixels = nullptr;
-    int width = 0;
-    int height = 0;
-    // GetObject normalizes the DIB height sign. Keep the creation fact with
-    // this owned bitmap instead of inferring scanline order from that query.
-    bool topDownDib = false;
-};
+using RuntimeBackBuffer = concord::ui::win32::MainBackBufferWin32;
 
 struct RuntimePerfCounters {
     double lastPaintMs = 0.0;
@@ -3569,6 +3563,9 @@ struct RuntimeWindowState {
     std::unordered_map<int, int> cloakObservedHealthByObject;
     std::uint64_t grandCannonPrewarmGeneration = 0;
     std::unique_ptr<RuntimeGrandCannonPrewarmJob> grandCannonPrewarmJob;
+    // Diagnostic execution only; no task survives its original path decision.
+    bool pathCandidateRunnerChecked = false;
+    std::unique_ptr<PathGoalCandidateRunner> pathCandidateRunner;
     RuntimeMapRenderStats renderStats;
     int lastSelectedCargoPipObjects = 0;
     int lastSelectedCargoPipSegments = 0;
@@ -3615,6 +3612,12 @@ struct RuntimeWindowState {
     int lastHoveredStructureHealthBars = 0;
     int lastHoveredUnitHealthBars = 0;
     RuntimeBackBuffer backBuffer;
+    RuntimeBackBuffer completedFrameBuffer;
+    concord::ui::win32::SkirmishBackBufferWin32 fpsDeviceOverlay;
+    concord::presentation::FramePresentStatistics softwareFrameCounters;
+    std::uint64_t softwareFrameSequence=0,softwareSceneVersion=0,softwareFallbackSubmissions=0;
+    int softwareSceneTick=0;
+    concord::ui::win32::MainFrameProbeWin32* frameProbeWin32 = nullptr;
     RuntimeBackBuffer sidebarStaticBuffer;
     RuntimeBackBuffer radarTerrainBuffer;
     RuntimeRadarRulesColorsMemo radarRulesColorsMemo;
@@ -5319,87 +5322,10 @@ struct RuntimeSnapshotActiveStateScope {
     const RuntimeWindowState* previous = nullptr;
 };
 
-void releaseRuntimeBackBuffer(RuntimeBackBuffer& buffer) {
-    if (buffer.memoryDc != nullptr
-        && buffer.oldBitmap != nullptr
-        && buffer.oldBitmap != HGDI_ERROR) {
-        SelectObject(buffer.memoryDc, buffer.oldBitmap);
-    }
-    if (buffer.bitmap != nullptr) {
-        DeleteObject(buffer.bitmap);
-    }
-    if (buffer.memoryDc != nullptr) {
-        DeleteDC(buffer.memoryDc);
-    }
-    buffer = RuntimeBackBuffer{};
-}
+void releaseRuntimeBackBuffer(RuntimeBackBuffer& buffer) { (void)buffer.release(); }
 
-bool ensureRuntimeBackBuffer(
-    RuntimeBackBuffer& buffer,
-    HDC paintDc,
-    int width,
-    int height
-) {
-    if (width <= 0 || height <= 0 || paintDc == nullptr) {
-        releaseRuntimeBackBuffer(buffer);
-        return false;
-    }
-
-    if (buffer.memoryDc != nullptr
-        && buffer.bitmap != nullptr
-        && buffer.pixels != nullptr
-        && buffer.width == width
-        && buffer.height == height) {
-        return true;
-    }
-
-    releaseRuntimeBackBuffer(buffer);
-
-    HDC memoryDc = CreateCompatibleDC(paintDc);
-    if (memoryDc == nullptr) {
-        return false;
-    }
-
-    BITMAPINFO bitmapInfo{};
-    bitmapInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    bitmapInfo.bmiHeader.biWidth = width;
-    bitmapInfo.bmiHeader.biHeight = -height;
-    bitmapInfo.bmiHeader.biPlanes = 1;
-    bitmapInfo.bmiHeader.biBitCount = 32;
-    bitmapInfo.bmiHeader.biCompression = BI_RGB;
-
-    void* pixels = nullptr;
-    HBITMAP bitmap = CreateDIBSection(
-        paintDc,
-        &bitmapInfo,
-        DIB_RGB_COLORS,
-        &pixels,
-        nullptr,
-        0
-    );
-    if (bitmap == nullptr || pixels == nullptr) {
-        if (bitmap != nullptr) {
-            DeleteObject(bitmap);
-        }
-        DeleteDC(memoryDc);
-        return false;
-    }
-
-    HGDIOBJ oldBitmap = SelectObject(memoryDc, bitmap);
-    if (oldBitmap == nullptr || oldBitmap == HGDI_ERROR) {
-        DeleteObject(bitmap);
-        DeleteDC(memoryDc);
-        return false;
-    }
-
-    buffer.memoryDc = memoryDc;
-    buffer.bitmap = bitmap;
-    buffer.oldBitmap = oldBitmap;
-    buffer.pixels = pixels;
-    buffer.width = width;
-    buffer.height = height;
-    buffer.topDownDib = bitmapInfo.bmiHeader.biHeight == -height;
-    return true;
+bool ensureRuntimeBackBuffer(RuntimeBackBuffer& buffer,HDC paintDc,int width,int height) {
+    return buffer.ensure(paintDc,width,height);
 }
 
 void resetRuntimePerfPeaks(RuntimePerfCounters& perf) {
@@ -20977,7 +20903,10 @@ RuntimeQueuedPathResult resolveRuntimePathWithQueue(
     const PathRequestHandle handle =
         queue.submit(toPathCell(start), toPathCell(goal), context);
     if (handle.id >= 0) {
-        queue.pumpWithBudget(1, runtimePathExpandedNodeBudget);
+        if (auto* runner = getPathGoalCandidateRunner(
+            state.pathCandidateRunnerChecked, state.pathCandidateRunner))
+            queue.pumpWithCandidates(1, runtimePathExpandedNodeBudget, *runner, state.tick);
+        else queue.pumpWithBudget(1, runtimePathExpandedNodeBudget);
     }
     state.lastPathQueueStats =
         toRuntimePathQueueStatsSnapshot(queue.liveStats());
@@ -21035,6 +20964,7 @@ std::vector<RuntimeCellPoint> findRuntimePathUntimed(
         toPathCell(goal),
         movementContext
     );
+    // This separate const query retains the original synchronous path.
     queue.pump(1);
     if (pathStatsOutput != nullptr) {
         *pathStatsOutput = toRuntimePathQueueStatsSnapshot(queue.liveStats());
@@ -23386,7 +23316,11 @@ bool processRuntimeMovePathBatch(
         handles.push_back({work, handle});
     }
 
-    queue.pumpWithBudget(
+    if (auto* runner = getPathGoalCandidateRunner(
+            state.pathCandidateRunnerChecked, state.pathCandidateRunner))
+        queue.pumpWithCandidates(static_cast<int>(handles.size()),
+            runtimePathBatchExpandedNodeBudget, *runner, state.tick);
+    else queue.pumpWithBudget(
         static_cast<int>(handles.size()),
         runtimePathBatchExpandedNodeBudget
     );
@@ -115402,14 +115336,9 @@ bool runRuntimeCampaignScorePageRenderSmoke(
     HGDIOBJ oldBitmap = SelectObject(memoryDc, bitmap);
 
     RuntimeWindowState probe;
-    probe.backBuffer.memoryDc = memoryDc;
-    probe.backBuffer.bitmap = bitmap;
-    probe.backBuffer.oldBitmap = oldBitmap;
-    probe.backBuffer.pixels = pixels;
-    probe.backBuffer.width = width;
-    probe.backBuffer.height = height;
+    probe.backBuffer.borrow(memoryDc,bitmap,pixels,width,height);
     const auto cleanup = [&] {
-        probe.backBuffer = RuntimeBackBuffer{};
+        probe.backBuffer.detachBorrowed();
         SelectObject(memoryDc, oldBitmap);
         DeleteObject(bitmap);
         DeleteDC(memoryDc);
@@ -115813,19 +115742,14 @@ bool runRuntimeCampaignScorePageRenderSmoke(
         fallbackProbe->campaignScore.underParMessageKey =
             "Fallback score media path";
         fallbackProbe->campaignScore.finishedUnderPar = true;
-        fallbackProbe->backBuffer.memoryDc = memoryDc;
-        fallbackProbe->backBuffer.bitmap = bitmap;
-        fallbackProbe->backBuffer.oldBitmap = oldBitmap;
-        fallbackProbe->backBuffer.pixels = pixels;
-        fallbackProbe->backBuffer.width = width;
-        fallbackProbe->backBuffer.height = height;
+        fallbackProbe->backBuffer.borrow(memoryDc,bitmap,pixels,width,height);
         drawRuntimeCampaignScoreOverlay(
             memoryDc,
             RECT{0, 0, width, height},
             *fallbackProbe
         );
         std::vector<std::uint32_t> fallbackPixels = capture();
-        fallbackProbe->backBuffer = RuntimeBackBuffer{};
+        fallbackProbe->backBuffer.detachBorrowed();
         if (nonBlackPixels(fallbackPixels) < 100000
             || fallbackPixels == yuriPixels
             || !writeCapture(
@@ -116622,8 +116546,8 @@ LRESULT CALLBACK runtimeWindowProc(
 
         HDC dc = paintDc;
         bool backBufferReady = false;
-        void* surfacePixels = nullptr;
         if (state != nullptr
+            && !(state->frameProbeWin32 && state->frameProbeWin32->failSceneAllocation)
             && ensureRuntimeBackBuffer(
                 state->backBuffer,
                 paintDc,
@@ -116631,10 +116555,10 @@ LRESULT CALLBACK runtimeWindowProc(
                 clientHeight
             )) {
             dc = state->backBuffer.memoryDc;
-            surfacePixels = state->backBuffer.pixels;
             backBufferReady = true;
         }
 
+        if (backBufferReady && !reuseCachedFrame) state->backBuffer.beginWrite();
         SetBkMode(dc, TRANSPARENT);
         SetTextColor(dc, RGB(220, 230, 240));
 
@@ -116695,15 +116619,13 @@ LRESULT CALLBACK runtimeWindowProc(
                     runtimeStructurePalettePath(state->config, state->report.map);
                 renderContext.stableRenderConfiguration = true;
                 renderContext.coarseStageTimingEnabled = state->frameDiagnostics != nullptr;
-                renderContext.surfacePixels =
-                    static_cast<std::uint32_t*>(surfacePixels);
-                renderContext.surfaceWidth =
-                    surfacePixels == nullptr ? 0 : clientWidth;
-                renderContext.surfaceHeight =
-                    surfacePixels == nullptr ? 0 : clientHeight;
-                renderContext.surfaceTopDownOwned = backBufferReady
-                    && surfacePixels == state->backBuffer.pixels
-                    && state->backBuffer.topDownDib;
+                const auto workingSurface = backBufferReady
+                    ? state->backBuffer.writablePixelView() : concord::ui::MenuPixelSurfaceView{};
+                renderContext.surfacePixels = workingSurface.valid()
+                    ? reinterpret_cast<std::uint32_t*>(workingSurface.bytes.data()) : nullptr;
+                renderContext.surfaceWidth = workingSurface.valid() ? workingSurface.width : 0;
+                renderContext.surfaceHeight = workingSurface.valid() ? workingSurface.height : 0;
+                renderContext.surfaceTopDownOwned = workingSurface.valid();
                 renderContext.animationTick = state->tick;
                 renderContext.fixedTickHz = state->config.fixedTickHz;
                 renderContext.visualDetail = state->runtimeVisualDetail;
@@ -116821,64 +116743,100 @@ LRESULT CALLBACK runtimeWindowProc(
             }
         }
 
+        // Complete the clean scene first. Cached paints keep its version/tick,
+        // while each presentation receives a fresh submission identity.
+        if (backBufferReady && (!reuseCachedFrame || state->softwareSceneVersion==0)) {
+            if (++state->softwareSceneVersion==0) ++state->softwareSceneVersion;
+            state->softwareSceneTick=state->tick;
+        }
         const auto baselineSubmissionStart = state != nullptr && state->liveBenchmark != nullptr
             ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
-        bool submissionSucceeded = false;
-        if (backBufferReady) {
-            submissionSucceeded = BitBlt(
-                paintDc,
-                0,
-                0,
-                clientWidth,
-                clientHeight,
-                state->backBuffer.memoryDc,
-                0,
-                0,
-                SRCCOPY
-            ) != FALSE;
-        } else if (state != nullptr && !reuseCachedFrame && paintDc != nullptr) {
-            // The allocation-failure fallback renders directly to paintDc.
-            // Flush its GDI batch so a failed submission is not counted.
-            submissionSucceeded = GdiFlush() != FALSE;
-        }
-
-        const double baselineSubmissionCpuMs = state != nullptr && state->liveBenchmark != nullptr
-            ? std::chrono::duration<double, std::milli>(
-                std::chrono::steady_clock::now() - baselineSubmissionStart).count() : 0.0;
-        bool baselineVisibleSubmission = false;
+        bool submissionSucceeded=false,baselineVisibleSubmission=false;
+        concord::ui::ConstMenuPixelSurfaceView completedPixels;
         if (state != nullptr) {
-            const bool visible = IsWindowVisible(window) != FALSE;
-            const bool minimized = IsIconic(window) != FALSE;
-            const bool hasClientArea = clientWidth > 0 && clientHeight > 0;
-            RECT paintClip{};
-            const int clipKind = paintDc == nullptr
-                ? ERROR : GetClipBox(paintDc, &paintClip);
-            const bool hasPaintArea = !IsRectEmpty(&paint.rcPaint)
-                && clipKind != ERROR && clipKind != NULLREGION
-                && !IsRectEmpty(&paintClip);
-            baselineVisibleSubmission = visible && !minimized && hasClientArea
-                && hasPaintArea && submissionSucceeded;
-            if (!state->world.getSummary().loaded || !visible || minimized
-                || !hasClientArea) {
-                state->fpsDisplayMeter.reset();
-            } else if (runtimeFpsDisplayShouldCountFrame(
-                    visible, minimized, hasClientArea,
-                    hasPaintArea, submissionSucceeded)) {
-                state->fpsDisplayMeter.recordPresentedFrame(
-                    std::chrono::duration<double>(
-                        std::chrono::steady_clock::now().time_since_epoch()
-                    ).count()
-                );
-                drawRuntimeFpsDisplay(paintDc, clientRect, state->fpsDisplayMeter);
-                // Keep the software cursor above the HUD, without drawing it
-                // twice over any pixels outside the newly replaced panel.
-                const RECT fpsBounds = runtimeFpsDisplayRect(clientRect);
-                if (!IsRectEmpty(&fpsBounds)) {
-                    drawRuntimeMouseCursorOverlay(paintDc, clientRect, *state, &fpsBounds);
+            const bool visible=IsWindowVisible(window)!=FALSE,minimized=IsIconic(window)!=FALSE;
+            const bool hasClientArea=clientWidth>0&&clientHeight>0;
+            RECT paintClip{};const int clipKind=paintDc?GetClipBox(paintDc,&paintClip):ERROR;
+            const bool hasPaintArea=!IsRectEmpty(&paint.rcPaint)&&clipKind!=ERROR
+                &&clipKind!=NULLREGION&&!IsRectEmpty(&paintClip);
+            const bool eligible=runtimeFpsDisplayShouldCountFrame(
+                visible,minimized,hasClientArea,hasPaintArea,true);
+            const bool loaded=state->world.getSummary().loaded;
+            if(!loaded||!visible||minimized||!hasClientArea)state->fpsDisplayMeter.reset();
+            auto prospectiveMeter=state->fpsDisplayMeter;
+            if(loaded&&eligible)prospectiveMeter.recordPresentedFrame(
+                state->frameProbeWin32&&state->frameProbeWin32->fixedClock
+                ?state->frameProbeWin32->seconds:std::chrono::duration<double>(
+                    std::chrono::steady_clock::now().time_since_epoch()).count());
+            const RuntimeBackBuffer* completedOwner=&state->backBuffer;
+            if(backBufferReady){
+                const RECT bounds=runtimeFpsDisplayRect(clientRect);
+                if(loaded&&eligible&&!IsRectEmpty(&bounds)){
+                    // Preserve the original window-device font raster. Only
+                    // this private GDI bridge touches/restores the small HUD
+                    // rectangle; the final complete image is an owned DIB.
+                    const bool allow=!state->frameProbeWin32||!state->frameProbeWin32->failCompletedAllocation;
+                    if(allow&&ensureRuntimeBackBuffer(state->completedFrameBuffer,paintDc,clientWidth,clientHeight)){
+                        auto& finalBuffer=state->completedFrameBuffer;
+                        finalBuffer.beginWrite();
+                        const bool copied=BitBlt(finalBuffer.memoryDc,0,0,clientWidth,clientHeight,
+                            state->backBuffer.memoryDc,0,0,SRCCOPY)!=FALSE;
+                        struct OverlayContext {
+                            RuntimeWindowState* state;const RECT* client;const RECT* bounds;
+                            const RuntimeFpsDisplayMeter* meter;
+                        } context{state,&clientRect,&bounds,&prospectiveMeter};
+                        const auto draw=+[](HDC native,void* cookie){
+                            const auto& c=*static_cast<OverlayContext*>(cookie);
+                            drawRuntimeFpsDisplay(native,*c.client,*c.meter);
+                            drawRuntimeMouseCursorOverlay(native,*c.client,*c.state,c.bounds);
+                        };
+                        if(copied&&concord::presentation::win32::composeWindowDeviceOverlayWin32(
+                            window,state->backBuffer,finalBuffer,state->fpsDeviceOverlay,
+                            {bounds.left,bounds.top,bounds.right,bounds.bottom},draw,&context)){
+                            completedPixels=finalBuffer.completedPixels();completedOwner=&finalBuffer;
+                        }
+                    }
+                }else completedPixels=state->backBuffer.completedPixels();
+                if(completedPixels.valid()){
+                    using namespace concord::presentation;
+                    const auto sequence=++state->softwareFrameSequence;
+                    SoftwareFrameView frame{completedPixels,sequence,state->softwareSceneVersion,
+                        static_cast<std::uint64_t>(std::max(0,state->softwareSceneTick)),
+                        reuseCachedFrame?SoftwareFrameContent::ReusedScene:SoftwareFrameContent::Redrawn};
+                    concord::presentation::win32::DibFramePresenterWin32 presenter(
+                        paintDc,*completedOwner,state->softwareFrameCounters);
+                    submissionSucceeded=presenter.present(frame)==FramePresentResult::Presented;
+                }else{
+                    // Resource/flush failure keeps the original direct native
+                    // path. It does not claim to publish CPU-readable pixels.
+                    submissionSucceeded=BitBlt(paintDc,0,0,clientWidth,clientHeight,
+                        state->backBuffer.memoryDc,0,0,SRCCOPY)!=FALSE;
+                    if(submissionSucceeded&&loaded&&eligible){
+                        drawRuntimeFpsDisplay(paintDc,clientRect,prospectiveMeter);
+                        const auto fallbackBounds=runtimeFpsDisplayRect(clientRect);
+                        if(!IsRectEmpty(&fallbackBounds))drawRuntimeMouseCursorOverlay(
+                            paintDc,clientRect,*state,&fallbackBounds);
+                    }
+                    submissionSucceeded=(GdiFlush()!=FALSE)&&submissionSucceeded;
+                    if(submissionSucceeded)++state->softwareFallbackSubmissions;
                 }
+            }else if(!reuseCachedFrame&&paintDc){
+                submissionSucceeded=GdiFlush()!=FALSE;
+                if(submissionSucceeded&&loaded&&eligible){
+                    drawRuntimeFpsDisplay(paintDc,clientRect,prospectiveMeter);
+                    const auto bounds=runtimeFpsDisplayRect(clientRect);
+                    if(!IsRectEmpty(&bounds))drawRuntimeMouseCursorOverlay(paintDc,clientRect,*state,&bounds);
+                    submissionSucceeded=GdiFlush()!=FALSE;
+                }
+                if(submissionSucceeded)++state->softwareFallbackSubmissions;
             }
+            if(submissionSucceeded&&loaded&&eligible)state->fpsDisplayMeter=prospectiveMeter;
+            baselineVisibleSubmission=eligible&&submissionSucceeded;
+            if(state->frameProbeWin32)state->frameProbeWin32->observe(paintDc,
+                clientWidth,clientHeight,reuseCachedFrame,submissionSucceeded,completedPixels);
         }
-
+        const double baselineSubmissionCpuMs=state!=nullptr&&state->liveBenchmark!=nullptr
+            ?std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-baselineSubmissionStart).count():0.0;
         if (state != nullptr) {
             ++state->paintedFramesThisSecond;
             if (!reuseCachedFrame) {
@@ -124544,6 +124502,7 @@ int runRuntimeResultPresentationSmokeTest(const RuntimeConfig& config) {
 
 #include "runtime/performance/diagnostics/RuntimeFullscreenPerformanceSmoke.inl"
 #include "runtime/performance/diagnostics/RuntimeFpsDisplaySmoke.inl"
+#include "runtime/performance/diagnostics/RuntimeMainFrameContract.inl"
 #include "ui/selection/diagnostics/RuntimeIdleOverlayContract.inl"
 #include "render/core/diagnostics/RuntimeCombinedCameraBoundsContract.inl"
 #include "render/geometry/diagnostics/RuntimeCameraGeometryMemoContract.inl"
@@ -124589,6 +124548,11 @@ int runRuntimeInteractionSmokeTest(const RuntimeConfig& config) {
             std::cerr << "Camera bounds contract failed: " << cameraBoundsError << '\n';
             return 1;
         }
+        return 0;
+    }
+    if (std::getenv("CONCORD_MAIN_FRAME_CONTRACT_OUTPUT")) {
+        std::string frameError;
+        if (!runRuntimeMainFrameContract(state,frameError)) {std::cerr << "Main frame contract failed: " << frameError << '\n';return 1;}
         return 0;
     }
     if (const char* fpsDisplay = std::getenv("CONCORD_INTERACTION_SMOKE_FPS_DISPLAY_ONLY");
@@ -171480,8 +171444,19 @@ std::uint64_t runtimeMultiplayerSnapshotSmokeMigratedLegacyHash(
 
 #include "network/snapshots/diagnostics/RuntimeDetailSnapshotSmoke.inl"
 #include "runtime/persistence/diagnostics/RuntimeRecoveryConsistencySmoke.inl"
+#include "simulation/navigation/pathfinding/diagnostics/RuntimePathCandidateSmoke.inl"
+namespace path_candidate_network { int run(); int lifecycle(); }
 
 int runRuntimeMultiplayerSnapshotV15SmokeTest() {
+    if (std::getenv("CONCORD_PATH_CANDIDATE_LIFECYCLE_OUTPUT")) {
+        try { return path_candidate_network::lifecycle(); }
+        catch (const std::exception& e) { std::cerr << "S37 lifecycle failed: " << e.what() << '\n'; return 1; }
+    }
+    if (std::getenv("CONCORD_PATH_CANDIDATE_NETWORK_ROLE")) {
+        try { return path_candidate_network::run(); }
+        catch (const std::exception& e) { std::cerr << "S37 actual-product peer failed: " << e.what() << '\n'; return 1; }
+    }
+    if (std::getenv("CONCORD_PATH_CANDIDATE_AUTHORITY_ONLY")) return runRuntimePathCandidateSmoke();
     if (const char* only = std::getenv("CONCORD_RECOVERY_CONSISTENCY_ONLY");
         only && std::string(only) == "1") {
         std::string error;
@@ -175751,6 +175726,7 @@ bool attachRuntimeMultiplayerRuntimeBridge(
 
 } // namespace
 
+#include "simulation/navigation/pathfinding/diagnostics/RuntimePathCandidateNetworkSmoke.inl"
 #include "network/session/diagnostics/RuntimeMultiplayerResumeSmoke.inl"
 #include "ui/input/diagnostics/RuntimeKeyboardParentReconciliationSmoke.inl"
 

@@ -835,13 +835,8 @@ target_include_directories(concord_shp_codec_contract PRIVATE src)
 if(CONCORD_MSVC_FRONTEND)
     concord_target_compile_options(concord_shp_codec_contract PRIVATE /utf-8 /W4 /WX /permissive-)
 endif()
-add_executable(concord_auxiliary_animation_contract
-    tests/rendering/RuntimeAuxiliaryAnimationContract.cpp
-)
-target_include_directories(concord_auxiliary_animation_contract PRIVATE src)
-if(CONCORD_MSVC_FRONTEND)
-    concord_target_compile_options(concord_auxiliary_animation_contract PRIVATE /utf-8 /W4 /WX /permissive-)
-endif()
+# Independent rewrite test: isolate its unused Windows default libraries.
+add_subdirectory(tests/rendering/auxiliary_animation_contract)
 
 include(cmake/SelectionKeyContracts.cmake)
 
@@ -1001,3 +996,8 @@ include("${CMAKE_CURRENT_LIST_DIR}/ProductionCoreLibraries.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/TaskExecutorContracts.cmake")
 
 include("${CMAKE_CURRENT_LIST_DIR}/GrandCannonPrewarmContracts.cmake")
+
+include("${CMAKE_CURRENT_LIST_DIR}/PathGoalCandidateTaskContracts.cmake")
+
+# S38 is the sole complete-frame Presenter interface owner.
+include("${CMAKE_CURRENT_LIST_DIR}/SoftwareFrameContracts.cmake")

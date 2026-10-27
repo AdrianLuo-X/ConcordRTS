@@ -248,3 +248,27 @@ if(WIN32 AND TARGET concord_runtime AND EXISTS "${CMAKE_SOURCE_DIR}/RedAlert2")
         ENVIRONMENT "CONCORD_GRAND_CANNON_PREWARM_VERIFY=1" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
         TIMEOUT 600 RUN_SERIAL TRUE LABELS "assets;bounded-tasks;render")
 endif()
+
+if(TARGET concord_path_goal_candidate_task_contract)
+    add_test(NAME path_goal_candidate_task_contract_test COMMAND concord_path_goal_candidate_task_contract)
+    set_tests_properties(path_goal_candidate_task_contract_test PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE LABELS "no-assets;bounded-tasks;pathfinding")
+endif()
+
+if(TARGET concord_path_goal_candidate_queue_differential)
+    add_test(NAME path_goal_candidate_queue_differential_test COMMAND concord_path_goal_candidate_queue_differential 4)
+    set_tests_properties(path_goal_candidate_queue_differential_test PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE LABELS "no-assets;bounded-tasks;pathfinding")
+endif()
+
+if(TARGET concord_main_back_buffer_win32_contract)
+    add_test(NAME main_back_buffer_win32_contract_test COMMAND concord_main_back_buffer_win32_contract)
+    set_tests_properties(main_back_buffer_win32_contract_test PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE LABELS "no-assets;win32-buffer")
+endif()
+
+if(TARGET concord_software_frame_contract)
+    add_test(NAME software_frame_contract_test COMMAND concord_software_frame_contract)
+    set_tests_properties(software_frame_contract_test PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE LABELS "no-assets;software-frame")
+endif()
+if(TARGET concord_frame_presenter_win32_contract)
+    add_test(NAME frame_presenter_win32_contract_test COMMAND concord_frame_presenter_win32_contract)
+    set_tests_properties(frame_presenter_win32_contract_test PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE LABELS "no-assets;win32-presenter")
+endif()

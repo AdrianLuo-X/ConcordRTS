@@ -1,4 +1,5 @@
 #include "simulation/navigation/pathfinding/PathGoalCandidates.h"
+#include "simulation/navigation/pathfinding/PathGoalCandidateTask.h"
 #include "simulation/navigation/pathfinding/PathRequestQueue.h"
 #include "simulation/navigation/pathfinding/RuntimePathProfileHash.h"
 #include "simulation/navigation/pathfinding/RuntimePathProfileZeroRuns.h"
@@ -659,6 +660,21 @@ int PathRequestQueue::pump(int maxRequests) {
 }
 
 int PathRequestQueue::pumpWithBudget(int maxRequests, int expandedNodeBudget) {
+    return pumpWithBudgetImpl(maxRequests, expandedNodeBudget, nullptr, -1);
+}
+
+int PathRequestQueue::pumpWithCandidates(int maxRequests,
+    PathGoalCandidateRunner& runner, std::int64_t simulationTick) {
+    return pumpWithBudgetImpl(maxRequests, DefaultExpandedNodesPerPump, &runner, simulationTick);
+}
+
+int PathRequestQueue::pumpWithCandidates(int maxRequests, int expandedNodeBudget,
+    PathGoalCandidateRunner& runner, std::int64_t simulationTick) {
+    return pumpWithBudgetImpl(maxRequests, expandedNodeBudget, &runner, simulationTick);
+}
+
+int PathRequestQueue::pumpWithBudgetImpl(int maxRequests, int expandedNodeBudget,
+    PathGoalCandidateRunner* candidateRunner, std::int64_t simulationTick) {
     RuntimePerfTraceScope pumpTrace("pathQueue.pump", -1);
     int processed = 0;
     lastPumpExpandedNodes_ = 0;
@@ -684,7 +700,7 @@ int PathRequestQueue::pumpWithBudget(int maxRequests, int expandedNodeBudget) {
         pendingRequestIds_.erase(request.collapseKey);
 
         ++logicalTick_;
-        PathResult result = solve(request, remainingBudget);
+        PathResult result = solve(request, remainingBudget, candidateRunner, simulationTick);
         lastPumpExpandedNodes_ += result.expandedNodes;
         if (result.searchBudgetExhausted) {
             result.queueBackpressure = true;
@@ -1248,7 +1264,9 @@ std::vector<PathCell> PathRequestQueue::reconstructPath(
 
 PathResult PathRequestQueue::solve(
     const PendingRequest& request,
-    int expandedNodeBudget
+    int expandedNodeBudget,
+    PathGoalCandidateRunner* candidateRunner,
+    std::int64_t simulationTick
 ) {
     RuntimePerfTraceScope solveTrace("pathQueue.solve", -1);
     PathResult result;
@@ -1369,7 +1387,13 @@ PathResult PathRequestQueue::solve(
     const PathGoalCandidateInput candidateInput{request.start, request.goal,
         request.movementMode, request.goalSlotCount, request.mapQueryApproach,
         request.approachCells, request.alternateGoalCells};
-    auto generated = generatePathGoalCandidates(candidateInput, terrainView);
+    // The queue's complete merged-terrain fingerprint is a content revision:
+    // it covers map and occupancy values, not merely a pointer or cell count.
+    const PathGoalTaskStamp candidateStamp{1, 0, passabilityProfileHash_,
+        passabilityProfileHash_, simulationTick, logicalTick_, request.id, requestBudget};
+    auto generated = candidateRunner
+        ? candidateRunner->generate(candidateInput, terrainView, candidateStamp)
+        : generatePathGoalCandidates(candidateInput, terrainView);
     std::vector<PathCell> targetCandidates = std::move(generated.cells);
     if (generated.mapQueryApproachUsed) {
         result.mapQueryApproachUsed = true;

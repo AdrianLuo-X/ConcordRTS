@@ -21,3 +21,6 @@ endif()
 # Runtime static archive. The independent native Contract declares its own link.
 target_link_libraries(concord_skirmish_back_buffer_win32_contract_leaf PRIVATE gdi32)
 target_link_libraries(concord_skirmish_back_buffer_win32_contract PRIVATE concord_menu_pixel_surface_contract_leaf)
+
+# W018-01/W019-01 native fixture in a narrowly linked child scope.
+add_subdirectory(tests/infrastructure/main_back_buffer)

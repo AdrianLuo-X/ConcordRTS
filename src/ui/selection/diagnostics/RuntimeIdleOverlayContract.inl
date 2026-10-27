@@ -170,7 +170,7 @@ bool runRuntimeIdleOverlayContract(RuntimeWindowState& live, std::string& error)
         GdiFlush();
         std::copy(backdrop.begin(), backdrop.end(), static_cast<std::uint32_t*>(target.pixels));
         // UI sprite paths use state.backBuffer to find the same CPU surface.
-        std::swap(probe.backBuffer, target);
+        probe.backBuffer.swap(target);
         context.surfacePixels = static_cast<std::uint32_t*>(probe.backBuffer.pixels);
         context.surfaceWidth = width;
         context.surfaceHeight = height;
@@ -178,7 +178,7 @@ bool runRuntimeIdleOverlayContract(RuntimeWindowState& live, std::string& error)
         drawRuntimeInteractionOverlay(probe.backBuffer.memoryDc, clientRect, probe, context,
             forceProjection, !forceProjection, !forceProjection);
         GdiFlush();
-        std::swap(probe.backBuffer, target);
+        probe.backBuffer.swap(target);
     };
 
     constexpr std::array<const char*, 10> names{

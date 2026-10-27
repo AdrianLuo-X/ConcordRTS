@@ -102,7 +102,7 @@ bool runRuntimeOrderLineBodySmoke(RuntimeWindowState& live,std::string& error) {
         std::array<int,3> drawn{};
         for(int mode=0;mode<3;++mode){RuntimeSelectedPathRasterReferenceScope rasterReference(mode!=2);
             auto& b=surfaces.buffers[mode+1];
-            if(mode==2){std::swap(s.backBuffer,b);drawn[mode]=drawRuntimeSelectedPaths(s.backBuffer.memoryDc,viewport,s,true);std::swap(s.backBuffer,b);}
+            if(mode==2){s.backBuffer.swap(b);drawn[mode]=drawRuntimeSelectedPaths(s.backBuffer.memoryDc,viewport,s,true);s.backBuffer.swap(b);}
             else drawn[mode]=drawRuntimeSelectedPaths(b.memoryDc,viewport,s,mode==1);GdiFlush();
         }
         const auto after=runtimeStandaloneSimulationStateHash(s,hashError);if(before!=after||!hashError.empty())return fail(label+" drawing changed authority");

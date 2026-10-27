@@ -18,6 +18,13 @@ ConcordRTS 是使用 C++20 开发的 RTS 引擎工程，面向《命令与征服
 
 ### 2026-10-27
 
+- 将初始寻路目标候选计算接入有界执行器，先逐项对照同步结果，再按固定消费顺序采用结果；输入和输出独立持有，失败时使用相同输入同步计算，保留原搜索、队列、随机数与逻辑预算。
+- 提供 `reference / shadow / parallel` 模式与 `0 / 1 / 2 / 4` 工作数选择。普通运行默认仍为 `reference`，并行仅作用于初始候选内核，现有测量不足以支持默认提速结论。
+- 提取主窗口像素视图、后台缓冲所有权及 `SoftwareFrameView / FramePresenter` 接口，交付包含地图、界面、FPS 和软件鼠标的完整软件帧。
+- 保留缓存及暂停画面的场景版本，区分提交尝试与实际成功；仅在原生绘制完成后同步借出像素，保留资源不足时的原 GDI 回退路径。
+- 完成所选候选顺序、完整状态与保存文本、实际保存载入、回放、切图及双进程联机对照；补充完整画面、输入、窗口生命周期与资源失败合同，扩充结构检查。
+- 当前呈现仍为 Windows GDI，字体组成仍使用私有窗口设备适配。既有矿物生成器动画及部分场景深度、地面残骸复合检查失败继续保留，所选合同通过不代表全部渲染已通过。
+
 - 根据本项目的功能需求，重新实现 SHP 图像解码、辅助动画帧选择、恐慌反应、开火临时视野与等级视野倍率相关逻辑，保留既有玩法、规则参数和消费者接口。
 - 将 SHP 帧记录、行数据范围与像素展开分开处理，保留预览和运行时的兼容策略；辅助动画集中处理帧范围、往返循环、播放节奏与整数边界。
 - 整理恐慌状态的刷新、暂停和到期处理，以及开火视野的重叠、续期和保存恢复；等级视野按当前等级的能力集合应用一次倍率。
@@ -128,7 +135,7 @@ ConcordRTS/
 │   │   ├── abilities/              单位能力与特殊机制
 │   │   │   └── unit_special/       定时炸弹状态、事件与独立诊断
 │   │   ├── navigation/             导航、寻路与移动查询
-│   │   │   ├── pathfinding/        寻路队列、目标候选与回退候选
+│   │   │   ├── pathfinding/        寻路队列、目标候选与确定性候选任务
 │   │   │   └── terrain/            导航地形类型与只读查询端口
 │   │   └── superweapons/           特殊武器与传送位置提交
 │   ├── runtime/                    运行时配置与游戏宿主
@@ -139,6 +146,7 @@ ConcordRTS/
 │   │   ├── persistence/            保存、加载与恢复一致性诊断
 │   │   ├── replay/                 回放封包与宿主恢复内核
 │   │   ├── performance/            生产循环性能计时与诊断
+│   │   ├── presentation/           完整软件帧接口与私有呈现适配
 │   │   └── host/                   启动检查、游戏窗口与战局宿主
 │   ├── render/                     地图、单位、效果与软件绘制
 │   │   ├── core/                   地图绘图与短期地形帧输入
@@ -150,6 +158,7 @@ ConcordRTS/
 │   │   ├── time/                   UI 毫秒时钟与原计时策略
 │   │   ├── values/                 与设备无关的 UI 颜色值
 │   │   ├── surface/                CPU 像素缓冲与绘图操作
+│   │   │   └── win32/              主窗口后台缓冲与像素借用
 │   │   ├── text/                   遭遇战位图文字测量与绘制
 │   │   ├── audio/                  菜单音乐启停与重播策略
 │   │   ├── skirmish/               遭遇战菜单接入与私有 GDI 缓冲
@@ -167,13 +176,18 @@ ConcordRTS/
 │   │   └── offline_report_evidence/  离线报告的合成事件与规则
 │   ├── assets/                     资源解码与视频服务合同测试
 │   ├── infrastructure/             配置、文件、输入、窗口与菜单合同
-│   │   └── task_executor/          有界任务执行器独立合同工程
+│   │   ├── task_executor/          有界任务执行器独立合同工程
+│   │   ├── main_back_buffer/       主窗口后台缓冲合同目标
+│   │   └── frame_presenter/        Windows 软件帧提交合同目标
 │   ├── gameplay/                   战斗、生产、单位行为与机制检查
 │   ├── multiplayer/                局域网、同步、快照与恢复检查
 │   ├── internet/                   互联网服务、TLS 与匹配检查
 │   ├── render/                     巨炮光栅内核独立合同工程
 │   ├── rendering/                  绘制、深度、光照与表现检查
+│   │   ├── auxiliary_animation_contract/  辅助动画的纯计算目标
+│   │   └── software_frame/         完整软件帧公共合同目标
 │   ├── pathfinding/                寻路与请求队列检查
+│   │   └── candidate_task/         候选任务与完整队列对照目标
 │   ├── rules/                      规则解析与生产规则检查
 │   ├── maps/                       地图解析、地图包与随机地图检查
 │   ├── campaign/                   战役、进度与影片解析检查
@@ -198,6 +212,8 @@ ConcordRTS/
 ├── cmake/                          游戏、工具、平台与测试构建配置
 │   ├── TaskExecutorContracts.cmake  执行器生产库与合同工程接入
 │   ├── GrandCannonPrewarmContracts.cmake  巨炮光栅与预热库接入
+│   ├── PathGoalCandidateTaskContracts.cmake  候选任务库与测试接入
+│   ├── SoftwareFrameContracts.cmake  完整软件帧与呈现适配接入
 │   ├── CoreTargets.cmake           独立核心的实际目标与生产库
 │   ├── CoreTestSuite.cmake         核心测试集合与串行检查入口
 │   ├── ProfiledLeaf.cmake          按消费者编译约定建立静态库
@@ -372,7 +388,7 @@ pwsh -NoProfile -File .\tools\testing\Run-LocalTests.ps1 -Compiler Clang -BuildD
 
 经济与传送标准目标定义见 [RuntimeSmokeTargets.cmake](cmake/RuntimeSmokeTargets.cmake)。传送提交和户级经济上下文的测试注册在 [TestsAdditionalRegression.cmake](cmake/TestsAdditionalRegression.cmake)，采矿编解码及经济生产固定步注册在 [TestsUnitAndNetwork.cmake](cmake/TestsUnitAndNetwork.cmake)。这些目标读取源码包内的自编夹具，仍按独立目标运行，不计入固定的 12＋4 集合。
 
-源码还保留 [定时炸弹模块测试](tests/gameplay/RuntimeTimedBombModuleSmoke.cpp)、[定时炸弹兼容检查](tests/gameplay/RuntimeTimedBombCompatibilitySmoke.cpp)、[寻路候选独立测试](tests/pathfinding/PathGoalCandidatesIndependent.cpp)、[寻路结果对照](tests/pathfinding/PathGoalCandidateDifferential.cpp)、[生产规则合同测试](tests/rules/RulesProductionLoaderContract.cpp) 和 [地形帧测试](tests/rendering/RuntimeMapTerrainFrameSmoke.cpp)。这些新增测试源码在开发环境单独构建验证，尚未注册为当前 CMake/CTest 目标，也未加入固定的 12＋4 集合；公开包不包含私人验证脚本、旧版本对照副本或运行记录。
+源码还保留 [定时炸弹模块测试](tests/gameplay/RuntimeTimedBombModuleSmoke.cpp)、[定时炸弹兼容检查](tests/gameplay/RuntimeTimedBombCompatibilitySmoke.cpp)、[寻路候选独立测试](tests/pathfinding/PathGoalCandidatesIndependent.cpp)、[生产规则合同测试](tests/rules/RulesProductionLoaderContract.cpp) 和 [地形帧测试](tests/rendering/RuntimeMapTerrainFrameSmoke.cpp)。这些新增测试源码在开发环境单独构建验证，尚未注册为当前 CMake/CTest 目标，也未加入固定的 12＋4 集合；公开包不包含私人验证脚本、旧版本对照副本或运行记录。
 
 视频服务、回放封包与恢复一致性检查分别以 `bink_playback_service_contract_test`、`match_replay_envelope_contract_test` 和 `runtime_recovery_consistency_contract_test` 注册在 [TestsUnitAndNetwork.cmake](cmake/TestsUnitAndNetwork.cmake)，LAN 地图传输检查 `runtime_lobby_map_transfer_contract_test` 注册在 [TestsAdditionalRegression.cmake](cmake/TestsAdditionalRegression.cmake)。它们仍独立于固定的 12＋4 集合。视频服务的无素材合同只验证服务边界和缺失输入处理，不能代替实际影片播放验收。
 
@@ -394,6 +410,18 @@ if ($LASTEXITCODE -ne 0) { throw '合同检查失败。' }
 
 素材合同 `runtime_grand_cannon_prewarm_contract_test` 只在 Windows 且工程中存在 `RedAlert2/` 时注册，还需要本机规则、资源及配置指定的地图。它比较原预热结果与多种工作数的完整输出；无素材的纯内核合同不能替代这项检查。
 
+候选任务和软件帧新增以下 CTest 注册，入口见 [TestsAdditionalRegression.cmake](cmake/TestsAdditionalRegression.cmake)：
+
+| 测试名 | 范围 |
+| --- | --- |
+| `path_goal_candidate_task_contract_test` | 自有输入、结果身份、取消、异常与同步回退 |
+| `path_goal_candidate_queue_differential_test` | 完整队列对照，默认使用 4 个工作线程 |
+| `main_back_buffer_win32_contract_test` | Windows 主缓冲所有权、写入代际与释放 |
+| `software_frame_contract_test` | 完整帧元数据、像素借用与提交计数 |
+| `frame_presenter_win32_contract_test` | Windows 完整帧提交、字体组成与失败处理 |
+
+这些测试不需要官方素材，但 Windows 适配合同仍需要相应系统能力；它们按完整产品配置中的独立目标执行，没有自动加入 12＋4 本地集合或独立核心的固定 10 项集合。[寻路结果对照](tests/pathfinding/PathGoalCandidateDifferential.cpp) 已接入上述队列测试。
+
 [离线报告检查脚本](tools/testing/Test-OfflineReportEvidence.ps1) 使用 [自编规则与事件](tests/fixtures/offline_report_evidence)，核对报告来源、空输入、部分输入、完整字段与错误处理；生成的报告不等同于真实游戏行为通过。
 
 结构检查入口见 [Run-StructureChecks.ps1](tools/testing/Run-StructureChecks.ps1)。它需要本工程已校验的 Clang/Ninja Release 构建目录、PowerShell 7，以及 Python 3.10 或更新版本的绝对路径。先按自己的安装位置修改示例解释器路径：
@@ -404,7 +432,7 @@ pwsh -NoProfile -File .\tools\testing\Run-LocalTests.ps1 -Compiler Clang -BuildD
 
 `-StructureOnly` 单独执行结构检查，不追加执行 12＋4 测试集合。入口校验缓存、刷新 CMake 元数据、冻结目标清单并运行合成夹具，然后检查依赖与精确例外；它不会构建游戏目标。结果默认写入已忽略的 `build/local-tests/structure-*/`，其中可能包含本机路径和环境信息，应留在本机。
 
-[结构基线](tools/structure/structure-baseline.json) 保留 4,335 条逐项审核的历史例外。新增违规、出现次数增加或已经消失而尚未收紧的例外都会导致失败；工具不会自动扩大豁免范围。它提供所选构建配置的静态结构证据，不表示完整游戏、其他平台或性能已经验收。
+[结构基线](tools/structure/structure-baseline.json) 保留 4,383 条逐项审核的精确例外。新增违规、出现次数增加或已经消失而尚未收紧的例外都会导致失败；工具不会自动扩大豁免范围。它提供所选构建配置的静态结构证据，不表示完整游戏、其他平台或性能已经验收。
 
 已记录的验证覆盖所选标准合同、Windows 适配、资源查询、命令桥接及经济保存恢复对照。旧回归中已知的月球剧场深度、部分交互和几何绘制，以及 Yuri 采矿收入、完整 AI 经济、部分编队紧凑度与矿石动画检查失败仍保留；完整物理输入、IME、双端运行游戏、其他窗口后端与平台及性能不据此视为通过。
 
@@ -421,6 +449,16 @@ CMake 保留专项测试目标。部分测试只使用自编夹具，部分需�
 [设备诊断目录](tools/diagnostics) 是独立 Windows Clang 项目，检测设备、纹理、读回和计时能力，设备库不链接进游戏或独立核心。CPU 提交间隔、独立 GPU 探针和实际显示帧率是不同指标；当前工具没有测量游戏 GPU 帧时间或屏幕扫描输出帧率，所选阶段计时也不构成全游戏加速结论。
 
 运行时产生的环境信息、绝对路径、日志和输入哈希属于本机记录，请将输出放在 `build/` 下并保留在本地。源码包不附带这些记录，也不附带依赖私人文档的验收和交接脚本。
+
+### 确定性候选计算与软件帧
+
+`CONCORD_PATH_CANDIDATE_MODE` 可设为 `reference`、`shadow` 或 `parallel`，缺省为 `reference`。`reference` 使用原同步路径；`shadow` 对照结果并继续返回原同步结果；`parallel` 在原消费点校验并采用任务结果，拒绝或失败时同步回退。工作数由 `CONCORD_PATH_CANDIDATE_WORKERS` 指定为 `0 / 1 / 2 / 4`，缺省为 1；0 在提交线程执行，不创建工作线程。
+
+这组选项只控制初始目标候选内核，与巨炮预热选项及分析工具的 `--workers` 分开使用。原 A*、环形回退、请求顺序、缓存、随机数及逻辑预算继续由原所有者处理，不能据此推断整个寻路或模拟已经并行。
+
+软件帧接口同步借用最终像素，保留原 GDI 显示路径。每次提交有新序号；复用场景时，场景版本与模拟 tick 保持，界面叠加仍可变化。完整帧准备与最终提交共同计入当前提交 CPU 时间，不能与旧版只统计 `BitBlt` 的数值直接比较。
+
+需要实际游戏素材的 [候选联机及生命周期诊断](src/simulation/navigation/pathfinding/diagnostics/RuntimePathCandidateNetworkSmoke.inl) 须从工程根运行，自行准备 `RedAlert2/`、`local_data/` 和指定地图。公开版将诊断记录、配置与保存路径限制在 `build/smoke/path-candidate/` 内，并要求新的输出位置；本机运行记录不随源码发布。
 
 ## 上传 GitHub
 

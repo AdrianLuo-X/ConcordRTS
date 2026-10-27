@@ -96,7 +96,7 @@ struct RuntimeLoadingStabilityWindowAudit {
         if (message == WM_NCDESTROY) {
             const auto& buffer = audit->loading->backBuffer;
             audit->releasedOnDestroy = audit->loading->window == nullptr && buffer.memoryDc == nullptr
-                && buffer.bitmap == nullptr && buffer.pixels == nullptr && buffer.oldBitmap == nullptr
+                && buffer.bitmap == nullptr && buffer.pixels == nullptr && buffer.nativeResourcesReleased()
                 && buffer.width == 0 && buffer.height == 0;
         }
         return result;

@@ -1,4 +1,7 @@
 #include "simulation/navigation/pathfinding/PathRequestQueue.h"
+#include "simulation/navigation/pathfinding/PathGoalCandidateTask.h"
+#include <memory>
+#include <cstdlib>
 #include <algorithm>
 #include <iostream>
 #include <string>
@@ -47,7 +50,15 @@ void state(const PathRequestQueue& q) {
     std::cout << '\n'; for (const auto& r:q.getResults()) result(r);
 }
 }
-int main() {
+int main(int argc, char** argv) {
+    std::unique_ptr<PathGoalCandidateRunner> runner;
+    if (argc >= 2) runner = std::make_unique<PathGoalCandidateRunner>(static_cast<std::size_t>(std::atoi(argv[1])), true,
+        concord::tasks::ExecutorConfig{}, argc == 3 && std::string_view(argv[2]) == "parallel"
+            ? PathGoalCandidateMode::Parallel : PathGoalCandidateMode::Shadow);
+    const auto pump = [&](PathRequestQueue& queue, int count, int budget) {
+        return runner ? queue.pumpWithCandidates(count, budget, *runner, 123)
+                      : queue.pumpWithBudget(count, budget);
+    };
     std::cout << "abi " << sizeof(PathCell) << ' ' << sizeof(PathTerrainCell)
         << ' ' << sizeof(PathRequestQueue) << ' ' << sizeof(PathResult) << '\n';
     constexpr int budgets[]={1,32,256,16384};
@@ -83,10 +94,10 @@ int main() {
             context.requesterStableHash=i<3?1:2;context.movementConstraintHash=i<3?1:2;
             const auto h=q.submit(start,goal,context);std::cout << "submit " << h.id << '\n';
             if(i==0){const auto duplicate=q.submit(start,goal,context);std::cout << "duplicate " << duplicate.id << '\n';}
-            if(i==3){auto copy=q;std::cout << "copy-pump " << copy.pumpWithBudget(4,budget) << '\n';state(copy);}
-            std::cout << "pump " << q.pumpWithBudget(4,budget) << '\n';state(q);
+            if(i==3){auto copy=q;std::cout << "copy-pump " << pump(copy,4,budget) << '\n';state(copy);}
+            std::cout << "pump " << pump(q,4,budget) << '\n';state(q);
         }
     }
     std::cout << "complete cases=" << cases << '\n';
-    return cases==1024?0:1;
+    return cases==1024 && (!runner || (runner->stats().compared + runner->stats().adopted > 0 && runner->stats().mismatches == 0)) ? 0:1;
 }

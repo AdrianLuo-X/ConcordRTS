@@ -35,6 +35,8 @@
 | 生产规则解析 | 类型化生产参数与有序诊断 | [ProductionRules.h](src/data/rules/ProductionRules.h)、[ProductionRulesLoader.h](src/data/rules/ProductionRulesLoader.h) |
 | 定时炸弹 | C4、Ivan 状态与值类型动作 | [RuntimeTimedBomb.h](src/simulation/abilities/unit_special/RuntimeTimedBomb.h)、[RuntimeSpecialMechanismEvents.h](src/simulation/abilities/unit_special/RuntimeSpecialMechanismEvents.h) |
 | 寻路目标候选 | 同步生成普通与环形回退候选 | [PathGoalCandidates.h](src/simulation/navigation/pathfinding/PathGoalCandidates.h)、[PathGoalTypes.h](src/simulation/navigation/pathfinding/PathGoalTypes.h) |
+| 确定性候选任务 | 自有输入、固定顺序消费与同步回退 | [PathGoalCandidateTask.h](src/simulation/navigation/pathfinding/PathGoalCandidateTask.h) |
+| 完整软件帧 | 同步像素借用、场景版本与提交结果 | [SoftwareFrame.h](src/runtime/presentation/SoftwareFrame.h) |
 | 地图地形帧 | 资源、光照与视野的短期只读输入 | [RuntimeMapTerrainFrame.h](src/render/core/RuntimeMapTerrainFrame.h)、[RuntimeMapTerrainFrameRenderer.h](src/render/core/RuntimeMapTerrainFrameRenderer.h) |
 | 视频播放服务 | 解码子进程、IPC 与自有 BGRA 帧 | [BinkPlaybackService.h](src/assets/video/BinkPlaybackService.h) |
 | LAN 地图传输 | 大厅地图请求、分块与应答状态 | [RuntimeMultiplayerLobbyMapTransfer.h](src/network/lobby/RuntimeMultiplayerLobbyMapTransfer.h) |
@@ -644,6 +646,32 @@ PathGoalFallbackCandidates generatePathGoalFallbackCandidates(
 
 返回值拥有候选向量，不保存输入、view 或 span。普通结果同时报告是否使用地图接近点及是否需要环形回退；回退结果附带距离查询和连通块检查计数。候选顺序与截断仍遵循原规则，邻近目标总数上限 16，环形回退上限 32。生成函数不执行 A* 搜索、更新队列或缓存、轮转槽位，也不消耗搜索预算；这些职责继续由 `PathRequestQueue` 持有。
 
+## 确定性候选任务
+
+[PathGoalCandidateTask.h](src/simulation/navigation/pathfinding/PathGoalCandidateTask.h) 将初始候选计算封装为数值输入与自有输出：
+
+```cpp
+std::optional<PathGoalTaskInput> capturePathGoalTaskInput(
+    const PathGoalCandidateInput&, const PathGoalTerrainView&, PathGoalTaskStamp);
+PathGoalTaskOutput computePathGoalTask(
+    const PathGoalTaskInput&, std::span<PathCell> privateScratch);
+concord::tasks::Task makePathGoalTask(const PathGoalTaskInput&);
+std::optional<PathGoalTaskOutput> takePathGoalTask(
+    concord::tasks::BoundedTaskExecutor&, concord::tasks::JobKey,
+    const PathGoalTaskStamp& expected);
+PathGoalCandidateSet adoptPathGoalTask(
+    const PathGoalTaskInput&, const std::optional<PathGoalTaskOutput>&,
+    bool& usedWorker);
+```
+
+`PathGoalTaskInput` 最多保存 64 个目标和 25 个邻域节点，保留原输入索引顺序，只复制格子值与通行标志。`PathGoalTaskStamp` 含代际、序号、地图与占用身份、模拟 tick、队列 tick、请求编号及搜索预算。当前地图与占用身份均取自完整合并地形内容指纹，不是两个独立递增计数。任务不保留世界、地形视图、队列、随机数或可变缓存的指针。
+
+`computePathGoalTask()` 需要至少 64 个 `PathCell` 的独占工作区，返回固定容量的输出，报告候选数量、接近点使用情况和是否需要环形回退；它不消耗搜索节点。无效计数或工作区不足抛出 `std::invalid_argument`。`takePathGoalTask()` 核对任务身份、状态及输出后领取一次结果；`adoptPathGoalTask()` 再次核对全部身份字段、数量和零搜索消耗，缺失或拒绝结果时用相同自有输入及独立工作区同步计算。
+
+`PathGoalCandidateRunner` 归会话所有。`generate()` 在原决策点完整领取当前任务，再继续处理下一项依赖请求；析构停止并回收工作线程。`Shadow` 模式返回原同步候选，`Parallel` 模式采用经核对的任务结果或同步回退结果。`PathRequestQueue::pumpWithCandidates()` 是显式接入入口，原同步入口保留。环形候选、连通块缓存、A*、FIFO、预算和世界提交继续在原所有者执行。
+
+运行时设置通过 `CONCORD_PATH_CANDIDATE_MODE=reference|shadow|parallel` 与 `CONCORD_PATH_CANDIDATE_WORKERS=0|1|2|4` 读取。默认 `reference` 不创建任务池，启用其他模式时工作数缺省为 1；0 在调用线程执行。统计中的计算与等待耗时只用于诊断，不作为玩法决策输入。所选内核并行尚无足够收益证据支持改变普通运行默认值。
+
 ## 辅助动画帧选择
 
 [RuntimeAuxiliaryAnimation.h](src/render/buildings/RuntimeAuxiliaryAnimation.h) 提供无需资源读取或窗口状态的帧索引计算：
@@ -794,11 +822,32 @@ JSON 中 `productionRuntimeValidation` 为 `not-run`，`productionRuntimeValidat
 
 环境变量 `CONCORD_GRAND_CANNON_PREWARM_WORKERS` 接受 `0|1|2|4|auto`；非法值会报错。`workerBudget(requested, hardwareThreads)` 用于本消费者的预算，负数请求自动预算，预留两个逻辑处理器后夹到 1–4，未知数量取 1。普通运行默认仍为 1，穷尽预热诊断默认仍为 4；`0` 是实际同步参考模式。该选项不是全局模拟工作数，分析 CLI 的 `--workers` 也不用于控制它。
 
+## 完整软件帧呈现
+
+[SoftwareFrame.h](src/runtime/presentation/SoftwareFrame.h) 在 `concord::presentation` 命名空间定义 `SoftwareFrameView`、`FramePresenter` 及其结果和统计类型。公共接口复用 `ConstMenuPixelSurfaceView`，不包含原生窗口或设备句柄。
+
+`SoftwareFrameView` 是已完成的客户区图像：顶向 BGRA8，包含尺寸、字节步长、容量和像素代际，以及 `sequence`、`sceneVersion`、`simulationTick`、`content`。第四字节完整保留，由软件后端忽略，不执行预乘或 alpha 混合。像素仅在 `present()` 调用期间同步借用；调用前必须完成 CPU 与原生绘制，下一次写入、缩放或释放结束旧视图寿命。
+
+每次提交使用新的非零 `sequence`。`Redrawn` 更新场景版本及其模拟 tick，`ReusedScene` 保留场景身份，界面叠加仍可更新。版本字段不推进模拟，也不构成保存状态。`FramePresenter::present()` 返回：
+
+| 结果 | 含义 |
+| --- | --- |
+| `Presented` | 后端完成本次提交，增加成功计数 |
+| `InvalidFrame` | 像素或帧元数据无效 |
+| `Rejected` | 所属线程检查失败、序号重复或倒退，或计数已达上限 |
+| `Failed` | 有效提交已尝试，但后端未成功完成 |
+
+所属线程、有效性或序号检查拒绝时，不增加尝试数；进入后端后会记录尝试，即使提交失败。同一失败序号不能再次使用。`FramePresentStatistics` 分开保存尝试与成功次数及最后序号，本身不是屏幕扫描输出 FPS。
+
+私有 [DibFramePresenterWin32](src/runtime/presentation/win32/FramePresenterWin32.h) 在 UI 所有者线程借用窗口 DC 和 [MainBackBufferWin32](src/ui/surface/win32/RuntimeMainBackBufferWin32.h)，检查像素存储身份与代际，并在原生复制及刷新成功后返回成功。主缓冲复用既有 [SkirmishBackBufferWin32](src/ui/skirmish/win32/RuntimeSkirmishBackBufferWin32.h) 所有权；写入、尺寸变化、交换及释放会使旧借用失效。
+
+产品完整帧包含地图、UI、FPS 和软件鼠标。为保留现有字体像素，私有适配会暂存并恢复窗口叠加区域，将相同设备字体结果读入完整帧；临时组成不计成功呈现。资源分配或完整区域读取失败时保留原生回退，回退单独计数，不伪造完整帧视图。当前实现仍依赖 Windows GDI 和窗口字体设备。
+
 ## CPU 性能采样与隔离设备诊断
 
 [RuntimeLiveFrameBenchmark.h](src/runtime/performance/diagnostics/RuntimeLiveFrameBenchmark.h) 提供生产循环中的可选测量，不用墙钟时间决定模拟 tick 数量。`CONCORD_LIVE_BENCHMARK=1` 开启测量，`CONCORD_LIVE_BENCHMARK_VISIBLE=1` 请求可见运行，`CONCORD_LIVE_BENCHMARK_RAW_SAMPLES=1` 追加有界原始样本。`CONCORD_LIVE_BENCHMARK_TICKS` 默认 600，合法数值限制在 60–216,000；测量之前保留原 60 tick 暖场。
 
-计时分别记录模拟、CPU paint、GDI CPU 提交、提交间隔和会话进入到 ready。整段时间样本最多 4,096 个、分段最多 512 个，分位数与样本是否截断必须一起理解。CPU 提交或窗口观察结果不等同于屏幕扫描输出帧率，也不等同于游戏 GPU 时间。
+计时分别记录模拟、CPU paint、软件帧准备与 GDI CPU 提交、提交间隔和会话进入到 ready。当前提交计时覆盖完整帧准备与最终提交，比旧版仅统计原生复制的范围更大。整段时间样本最多 4,096 个、分段最多 512 个，分位数与样本是否截断必须一起理解。CPU 提交或窗口观察结果不等同于屏幕扫描输出帧率，也不等同于游戏 GPU 时间。
 
 [性能工具](tools/benchmarks) 中新增的 ES 模块脚本使用 Node.js 内置模块记录输入身份、分轮采样并从原始流复算分位数；基线和诊断脚本按公开默认 Release 构建目录校验部署来源，输出必须使用新的工程内目录。工具的实际资源输入仍需自行准备，建议输出统一放在 `build/`。
 
@@ -828,13 +877,15 @@ JSON 中 `productionRuntimeValidation` 为 `not-run`，`productionRuntimeValidat
 
 经济与传送的标准目标定义见 [RuntimeSmokeTargets.cmake](cmake/RuntimeSmokeTargets.cmake)，它们直接编译相应生产实现。`chronosphere_relocation_contract_test`、`house_economy_context_contract_test` 在 [TestsAdditionalRegression.cmake](cmake/TestsAdditionalRegression.cmake) 注册；`computer_mining_codec_contract_test` 和 `economy_production_fixed_step_contract_test` 在 [TestsUnitAndNetwork.cmake](cmake/TestsUnitAndNetwork.cmake) 注册。后两项读取 [采矿保存夹具](tests/fixtures/runtime_computer_mining_codec) 和 [固定步夹具](tests/fixtures/runtime_economy_production_fixed_step)，比较完整预期文本；公开构建入口只读取这些夹具。
 
-定时炸弹、寻路候选、生产规则和地形帧的新增独立与对照测试源码见 [README 的测试说明](README.md#测试与开发)。这六份测试目前未注册为工程的 CMake/CTest 目标；开发时使用的私人验证脚本、旧版对照副本和执行记录不随源码发布。
+定时炸弹、寻路候选、生产规则和地形帧的新增独立与对照测试源码见 [README 的测试说明](README.md#测试与开发)。其中寻路队列对照已注册为 `path_goal_candidate_queue_differential_test`，其余五份测试仍未注册为工程的 CMake/CTest 目标；开发时使用的私人验证脚本、旧版对照副本和执行记录不随源码发布。
 
 视频服务、LAN 地图传输、回放封包与恢复一致性分别注册为 `bink_playback_service_contract_test`、`runtime_lobby_map_transfer_contract_test`、`match_replay_envelope_contract_test`、`runtime_recovery_consistency_contract_test`。前者在不支持的平台使用跳过返回码；跳过不能计作通过。这些检查未并入固定的 12＋4 测试集合。
 
 [TaskExecutorContracts.cmake](cmake/TaskExecutorContracts.cmake) 与 [GrandCannonPrewarmContracts.cmake](cmake/GrandCannonPrewarmContracts.cmake) 接入执行器、光栅与预热生产库，保留原根目录 include 顺序。新执行器和光栅合同在独立子目录作用域中使用相同生产源码；完整产品继承对应 Runtime 编译约定。`bounded_task_executor_contract_test` 和 `grand_cannon_raster_contract_test` 不需要游戏素材，`runtime_grand_cannon_prewarm_contract_test` 使用本机素材进行集成核对，注册条件及运行方法见 [README](README.md#测试与开发)。
 
 [结构检查入口](tools/testing/Run-StructureChecks.ps1) 接收已有 Release 构建目录和明确的 Python 路径；[检查器](tools/structure/structure_guard.py)、[精确例外基线](tools/structure/structure-baseline.json) 与 [合成夹具](tools/structure/test_structure_guard.py) 共同检查依赖、平台类型、目标归属和测试注册。接口与运行条件见 [README](README.md#测试与开发)，无需复制私人开发记录。
+
+[PathGoalCandidateTaskContracts.cmake](cmake/PathGoalCandidateTaskContracts.cmake) 接入候选任务库、纯任务合同与完整队列对照，保留各消费者的编译约定。[SoftwareFrameContracts.cmake](cmake/SoftwareFrameContracts.cmake) 接入公共软件帧合同及私有 Windows 呈现库；[SkirmishBackBufferWin32Contracts.cmake](cmake/SkirmishBackBufferWin32Contracts.cmake) 同时接入主缓冲合同。相关五项 CTest 名称与平台要求见 [README 的测试说明](README.md#测试与开发)，均未自动并入 12＋4 集合或核心固定 10 项集合。
 
 ## 命令行接口
 

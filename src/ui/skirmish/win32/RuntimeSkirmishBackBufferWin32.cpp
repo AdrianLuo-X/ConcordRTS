@@ -24,11 +24,11 @@ bool SkirmishBackBufferWin32::release(SkirmishGdiReleaseTrace* trace) noexcept {
     }
     // Failed deletion retains the precise remaining handle for a later retry.
     // A live DC no longer selects our bitmap after successful restoration.
-    if(!dc_&&!bitmap_){width_=height_=0;stride_=0;}
+    if(!dc_&&!bitmap_){width_=height_=0;stride_=0;deviceBitmap_=false;}
     return success;
 }
 bool SkirmishBackBufferWin32::ensure(HDC reference,std::int32_t w,std::int32_t h) noexcept {
-    if(ready()&&width_==w&&height_==h)return true;
+    if(ready()&&!deviceBitmap_&&width_==w&&height_==h)return true;
     if(!release()||w<=0||h<=0)return false;
     const auto width=static_cast<std::size_t>(w),height=static_cast<std::size_t>(h);
     if(width>std::numeric_limits<std::size_t>::max()/4
@@ -46,8 +46,18 @@ bool SkirmishBackBufferWin32::ensure(HDC reference,std::int32_t w,std::int32_t h
     if(!old_||old_==HGDI_ERROR){old_=nullptr;release();return false;}
     width_=w;height_=h;stride_=width*4;return true;
 }
+bool SkirmishBackBufferWin32::ensureDeviceBitmap(HDC reference,std::int32_t w,std::int32_t h) noexcept {
+    if(ready()&&deviceBitmap_&&width_==w&&height_==h)return true;
+    if(!release()||!reference||w<=0||h<=0)return false;
+    dc_=api_.createDc(reference);if(!dc_)return false;
+    bitmap_=api_.createDeviceBitmap(reference,w,h);
+    if(!bitmap_){release();return false;}
+    old_=api_.select(dc_,bitmap_);
+    if(!old_||old_==HGDI_ERROR){old_=nullptr;release();return false;}
+    width_=w;height_=h;stride_=0;bits_=nullptr;deviceBitmap_=true;return true;
+}
 bool SkirmishBackBufferWin32::upload(ConstMenuPixelSurfaceView source) noexcept {
-    if(!ready()||!source.valid()||source.width!=width_||source.height!=height_)return false;
+    if(!ready()||!bits_||!source.valid()||source.width!=width_||source.height!=height_)return false;
     if(api_.flush()==FALSE)return false;
     for(std::int32_t y=0;y<height_;++y)
         std::copy_n(source.bytes.data()+static_cast<std::size_t>(y)*source.rowStride,

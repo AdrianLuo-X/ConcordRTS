@@ -6,6 +6,7 @@
 #include <windows.h>
 #include "ui/surface/RuntimeMenuPixelSurface.h"
 #include <array>
+#include <utility>
 namespace concord::ui::win32 {
 struct SkirmishGdiReleaseTrace {
     std::array<bool, 7> succeeded{};
@@ -27,6 +28,7 @@ struct SkirmishBackBufferGdiApi {
     decltype(&::DeleteObject) deleteObject = &::DeleteObject;
     decltype(&::DeleteDC) deleteDc = &::DeleteDC;
     decltype(&::GdiFlush) flush = &::GdiFlush;
+    decltype(&::CreateCompatibleBitmap) createDeviceBitmap = &::CreateCompatibleBitmap;
 };
 class SkirmishBackBufferWin32 {
 public:
@@ -37,16 +39,31 @@ public:
     // Same dimensions reuse the owner. Resize releases first. Creation failures
     // roll back; failed cleanup retains its remaining handles for later retry.
     bool ensure(HDC reference,std::int32_t width,std::int32_t height) noexcept;
+    // Native-device-only HUD; no CPU view is published for this bitmap.
+    bool ensureDeviceBitmap(HDC reference,std::int32_t width,std::int32_t height) noexcept;
     // Synchronous CPU completion -> flush previous GDI access -> copy rows.
     // Failed flush never writes the DIB; caller keeps dirty and returns failure.
     bool upload(ConstMenuPixelSurfaceView) noexcept;
     // false reports real cleanup failure; remaining handles stay owned.
     bool release(SkirmishGdiReleaseTrace* trace = nullptr) noexcept;
-    bool ready() const noexcept { return dc_ && bitmap_ && old_ && old_!=HGDI_ERROR && bits_; }
+    bool ready() const noexcept { return dc_ && bitmap_ && old_ && old_!=HGDI_ERROR && (bits_||deviceBitmap_); }
     HDC dc() const noexcept { return dc_; }
     HBITMAP bitmap() const noexcept { return bitmap_; }
+    std::int32_t width() const noexcept { return width_; }
+    std::int32_t height() const noexcept { return height_; }
+    std::size_t rowStride() const noexcept { return stride_; }
+    bool selectionRestored() const noexcept { return old_==nullptr; }
+    // Explicit UI-owner exchange; no native handle is ever copied as ownership.
+    void swap(SkirmishBackBufferWin32& other) noexcept {
+        using std::swap;swap(api_,other.api_);swap(dc_,other.dc_);swap(bitmap_,other.bitmap_);
+        swap(old_,other.old_);swap(bits_,other.bits_);swap(width_,other.width_);
+        swap(height_,other.height_);swap(stride_,other.stride_);swap(deviceBitmap_,other.deviceBitmap_);
+    }
     // Private backend/diagnostic borrow, invalid on ensure-resize/release.
     const unsigned char* pixels() const noexcept { return bits_; }
+    // Private UI-thread mutable borrow. Complete GDI writes before any reader.
+    unsigned char* writablePixels() noexcept { return bits_; }
+    bool finishGdiWrites() const noexcept { return ready() && api_.flush()!=FALSE; }
 private:
     SkirmishBackBufferGdiApi api_;
     HDC dc_ = nullptr;
@@ -55,5 +72,6 @@ private:
     unsigned char* bits_ = nullptr;
     std::int32_t width_ = 0,height_ = 0;
     std::size_t stride_ = 0;
+    bool deviceBitmap_ = false;
 };
 } // namespace concord::ui::win32
