@@ -48,7 +48,7 @@ SOFTWARE_FRAME_VALUES = {
 }
 DEFAULT_MODULES = {
     "software-window": ["src/runtime/window/RuntimeSoftwareWindow.h"],
-    "software-frame": ["src/runtime/presentation/SoftwareFrame.h"],
+    "software-frame": ["src/runtime/presentation/SoftwareFrame.h", "src/runtime/presentation/FrameBackendOptions.h"],
     "path-candidate-task": ["src/simulation/navigation/pathfinding/PathGoalCandidateTask.h","src/simulation/navigation/pathfinding/PathGoalCandidateTask.cpp","src/simulation/navigation/pathfinding/PathGoalCandidates.h","src/simulation/navigation/pathfinding/PathGoalCandidates.cpp"],
     "bounded-tasks": ["src/core/tasks/BoundedTaskExecutor.h",
                       "src/core/tasks/BoundedTaskExecutor.cpp"],

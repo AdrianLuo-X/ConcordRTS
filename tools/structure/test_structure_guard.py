@@ -80,6 +80,23 @@ class GuardFixtures(unittest.TestCase):
         report = self.scan({"path-candidate-task": ["src/simulation/navigation/pathfinding/PathGoalCandidateTask.h"]})
         self.assertIn("path-candidate-dependency", {f["rule"] for f in report["findings"]})
 
+    def test_backend_options_have_no_native_or_live_dependencies(self):
+        self.put("src/runtime/presentation/FrameBackendOptions.h", "enum class Backend { Software, D3D11 };\n")
+        report = self.scan({"software-frame": ["src/runtime/presentation/FrameBackendOptions.h"]})
+        self.assertFalse(any(f["rule"].startswith("protected-") or f["rule"].startswith("software-frame-") for f in report["findings"]))
+
+    def test_backend_options_transitive_native_rejected(self):
+        self.put("src/runtime/presentation/FrameBackendOptions.h", '#include "runtime/presentation/private.h"\n')
+        self.put("src/runtime/presentation/private.h", "#include <windows.h>\nstruct Settings { HWND owner; };\n")
+        report = self.scan({"software-frame": ["src/runtime/presentation/FrameBackendOptions.h"]})
+        self.assertTrue({"software-frame-dependency", "protected-platform"}.issubset({f["rule"] for f in report["findings"]}))
+
+    def test_backend_options_transitive_live_world_rejected(self):
+        self.put("src/runtime/presentation/FrameBackendOptions.h", '#include "runtime/presentation/private.h"\n')
+        self.put("src/runtime/presentation/private.h", "struct GameWorld; struct Settings { GameWorld* world; };\n")
+        report = self.scan({"software-frame": ["src/runtime/presentation/FrameBackendOptions.h"]})
+        self.assertIn("software-frame-live-state", {f["rule"] for f in report["findings"]})
+
     def test_path_candidate_rejects_forward_live_state(self):
         self.put("src/simulation/navigation/pathfinding/PathGoalCandidateTask.h",
                  "struct WorldObjectInstance; struct Input { WorldObjectInstance* live; };\n")

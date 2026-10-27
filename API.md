@@ -37,6 +37,7 @@
 | 寻路目标候选 | 同步生成普通与环形回退候选 | [PathGoalCandidates.h](src/simulation/navigation/pathfinding/PathGoalCandidates.h)、[PathGoalTypes.h](src/simulation/navigation/pathfinding/PathGoalTypes.h) |
 | 确定性候选任务 | 自有输入、固定顺序消费与同步回退 | [PathGoalCandidateTask.h](src/simulation/navigation/pathfinding/PathGoalCandidateTask.h) |
 | 软件窗口与事件 | 类型化窗口操作、像素事件与同步帧呈现 | [RuntimeSoftwareWindow.h](src/runtime/window/RuntimeSoftwareWindow.h) |
+| 呈现后端选项 | 仅本机显示的后端与设备选择 | [FrameBackendOptions.h](src/runtime/presentation/FrameBackendOptions.h) |
 | 完整软件帧 | 同步像素借用、场景版本与提交结果 | [SoftwareFrame.h](src/runtime/presentation/SoftwareFrame.h) |
 | 地图地形帧 | 资源、光照与视野的短期只读输入 | [RuntimeMapTerrainFrame.h](src/render/core/RuntimeMapTerrainFrame.h)、[RuntimeMapTerrainFrameRenderer.h](src/render/core/RuntimeMapTerrainFrameRenderer.h) |
 | 视频播放服务 | 解码子进程、IPC 与自有 BGRA 帧 | [BinkPlaybackService.h](src/assets/video/BinkPlaybackService.h) |
@@ -332,7 +333,7 @@ int runRuntimeWindow(const RuntimeConfig& config,
 
 `buildRuntimeStartupReport()` 检查配置、资源、规则和地图，结果应检查 `success`、`errorMessage`、`warnings`。可选输出参数用于取得加载后的数据库和世界；另有输出 `MapFacts` 的重载。
 
-`saveRuntimeConfigPreferences()` 原子更新指定的用户偏好项，并保留其他段、键和注释；它不保存完整世界状态。`runRuntimeWindow()` 打开并运行游戏窗口，另有接收 `RuntimeMultiplayerRuntimeBridge` 的重载。
+`saveRuntimeConfigPreferences()` 原子更新指定的用户偏好项，并保留其他段、键和注释；它不保存完整世界状态。`runRuntimeWindow()` 打开并运行游戏窗口，保留原有的配置入口和接收 `RuntimeMultiplayerRuntimeBridge` 的重载；新增第四参数为 `FrameBackendOptions` 的重载，用于显式选择本机呈现方式。
 
 ## 输入值、UI 时钟与交互
 
@@ -864,17 +865,42 @@ JSON 中 `productionRuntimeValidation` 为 `not-run`，`productionRuntimeValidat
 
 私有 [DibFramePresenterWin32](src/runtime/presentation/win32/FramePresenterWin32.h) 在 UI 所有者线程借用窗口 DC 和 [MainBackBufferWin32](src/ui/surface/win32/RuntimeMainBackBufferWin32.h)，检查像素存储身份与代际，并在原生复制及刷新成功后返回成功。主缓冲复用既有 [SkirmishBackBufferWin32](src/ui/skirmish/win32/RuntimeSkirmishBackBufferWin32.h) 所有权；写入、尺寸变化、交换及释放会使旧借用失效。
 
-产品完整帧包含地图、UI、FPS 和软件鼠标。为保留现有字体像素，私有适配会暂存并恢复窗口叠加区域，将相同设备字体结果读入完整帧；临时组成不计成功呈现。资源分配或完整区域读取失败时保留原生回退，回退单独计数，不伪造完整帧视图。主战局完整帧实现仍依赖 Windows GDI 和窗口字体设备。可选 SDL3 菜单使用同一公共帧协议，通过位图文字与 CPU 绘图形成菜单画面，再交给其私有软件呈现实现。
+产品完整帧包含地图、UI、FPS 和软件鼠标。默认 GDI 路径通过私有窗口字体适配组成最终画面；D3D11 路径使用独立、不可激活且输入穿透的私有字体目标，只将对应 HUD 区域复制进最终 CPU 帧，GPU 活跃时不向同一游戏窗口做 GDI 绘制。两者都在完整帧准备结束后才同步借出像素。资源不足或后端失败时由宿主执行软件回退，回退单独计数，不伪造成功帧视图。可选 SDL3 菜单使用同一公共帧协议，通过位图文字与 CPU 绘图形成菜单画面，再交给其私有软件呈现实现。
+
+## 本机后端选项与 D3D11 呈现
+
+[FrameBackendOptions.h](src/runtime/presentation/FrameBackendOptions.h) 在 `concord::presentation` 定义纯值类型，不依赖 Windows、D3D 或 SDL 头文件：
+
+```cpp
+enum class FrameBackend { Software, D3D11 };
+enum class FrameDevice { Hardware, Warp };
+struct FrameBackendOptions {
+    FrameBackend backend = FrameBackend::Software;
+    FrameDevice device = FrameDevice::Hardware;
+};
+```
+
+选项只控制当前进程的显示路径，不写入 `RuntimeConfig`、存档、网络协议或哈希。原 `runRuntimeWindow` 两种签名保持；新的四参数重载接收配置、加载后退出标记、联机桥接所有权与呈现选项。软件路径为默认，硬件请求不会自动改为 WARP；SDL3 菜单与 D3D11／WARP 的组合由启动入口明确拒绝。
+
+私有 [D3D11FramePresenterWin32](src/runtime/presentation/win32/D3D11FramePresenterWin32.h) 实现同一 `FramePresenter` 协议。其工厂接收原生窗口、选项、统计对象和可选原生测试探针；只有 Windows 组装层可使用此头文件。`create()` 返回的对象可能已经处于软件回退状态，调用方必须检查 `active()` 和 `report()`，不能仅凭指针非空判断 D3D11 可用；分配或异常路径也可能返回空值。
+
+设备、即时上下文、交换链、查询及 `Present` 均归单一 UI 线程。初始化请求最低功能级别 11_0，并检查 BGRA 格式与 timestamp/disjoint 查询资源。每帧使用调用方的真实行距上传到与客户区同尺寸的 BGRA8_UNORM 缓冲，再调用 `Present(1, 0)`；第四字节原样上传，显示时忽略。不创建着色器、采样器或混合状态，不做 GPU 缩放、预乘或颜色空间转换。
+
+缩放先释放后台缓冲引用，再重建匹配尺寸；最小化时不提交，恢复后重新核对尺寸。设备、资源、上传或呈现失败会记录错误并释放全部 GPU 引用，宿主在当前窗口会话中转回原 GDI，不重新尝试 D3D11。`fallbackToSoftware()` 是这一单向清理入口；字体组成等原生互操作也留在此私有所有者内，公共帧与软件窗口接口不传递设备句柄。
+
+`report()` 返回请求／实际后端、设备能力、回退原因、成功呈现和上传字节统计。`timings() / timingCount()` 提供最多 4,096 条有界样本；通过 8 组异步 timestamp/disjoint 查询单独记录 GPU 上传时间，并保留有效、无效、未就绪及丢弃情况。`recordCpuWork()` 补充 CPU 绘制与组成时间，`enableTimingOutput()` 控制逐条输出。数据借用不应超过呈现器生命周期，Present 的 CPU 调用时间不等于 GPU 时间或实际屏幕帧率。
+
+`D3D11FrameProbeWin32` 仅用于原生合同的故障注入和上传读回，不通过用户配置或命令行公开；正常呈现不执行诊断 staging／Map 读回。构建入口见 [D3D11FramePresenter.cmake](cmake/D3D11FramePresenter.cmake)，测试源码见 [D3D11FramePresenterWin32Contract.cpp](tests/infrastructure/D3D11FramePresenterWin32Contract.cpp)。该测试使用自编像素，不需要游戏素材，但需要真实 Windows 窗口和图形设备环境。
 
 ## CPU 性能采样与隔离设备诊断
 
 [RuntimeLiveFrameBenchmark.h](src/runtime/performance/diagnostics/RuntimeLiveFrameBenchmark.h) 提供生产循环中的可选测量，不用墙钟时间决定模拟 tick 数量。`CONCORD_LIVE_BENCHMARK=1` 开启测量，`CONCORD_LIVE_BENCHMARK_VISIBLE=1` 请求可见运行，`CONCORD_LIVE_BENCHMARK_RAW_SAMPLES=1` 追加有界原始样本。`CONCORD_LIVE_BENCHMARK_TICKS` 默认 600，合法数值限制在 60–216,000；测量之前保留原 60 tick 暖场。
 
-计时分别记录模拟、CPU paint、软件帧准备与 GDI CPU 提交、提交间隔和会话进入到 ready。当前提交计时覆盖完整帧准备与最终提交，比旧版仅统计原生复制的范围更大。整段时间样本最多 4,096 个、分段最多 512 个，分位数与样本是否截断必须一起理解。CPU 提交或窗口观察结果不等同于屏幕扫描输出帧率，也不等同于游戏 GPU 时间。
+计时分别记录模拟、CPU paint、完整帧准备与实际后端的 CPU 提交、提交间隔和会话进入到 ready；报告记录实际 software、D3D11 或发生过切换的 mixed 路径。当前提交计时覆盖完整帧准备与最终提交，比旧版仅统计原生复制的范围更大。整段时间样本最多 4,096 个、分段最多 512 个，分位数与样本是否截断必须一起理解。CPU 提交或窗口观察结果不等同于屏幕扫描输出帧率，也不等同于游戏 GPU 时间。
 
 [性能工具](tools/benchmarks) 中新增的 ES 模块脚本使用 Node.js 内置模块记录输入身份、分轮采样并从原始流复算分位数；基线和诊断脚本按公开默认 Release 构建目录校验部署来源，输出必须使用新的工程内目录。工具的实际资源输入仍需自行准备，建议输出统一放在 `build/`。
 
-[设备探针](tools/diagnostics) 独立编译，检查 CPU/图形设备、纹理格式、上传读回与 timestamp 能力；其 D3D11、DXGI、DWM 依赖不进入游戏产品。环境采集、进程路径及原始输出只供本机分析，不随源码包发布。这里的独立设备能力不代表游戏已经启用 GPU 绘制。
+[设备探针](tools/diagnostics) 是独立程序，检查 CPU/图形设备、纹理格式、上传读回与 timestamp 能力。游戏产品中的 D3D11、DXGI、DWM 依赖由私有呈现后端接入，不进入独立核心或公共接口。环境采集、进程路径及原始输出只供本机分析，不随源码包发布。这里的独立设备能力不代表游戏已经启用 GPU 绘制。
 
 ## 模块库与独立合同
 
@@ -933,7 +959,10 @@ JSON 中 `productionRuntimeValidation` 为 `not-run`，`productionRuntimeValidat
 | `--runtime-events <path>`                             | 指定运行时事件记录输出       |
 | `--skip-main-menu` / `--skip-skirmish-menu`           | 跳过对应菜单            |
 | `--skirmish-window <win32\|sdl3>` | 选择独立遭遇战菜单窗口，默认 Win32；战局窗口保持 Win32 |
+| `--frame-backend <software\|d3d11\|d3d11-warp>` | 选择主 Win32 窗口的完整 CPU 帧呈现方式，默认 software |
 | `--smoke-test`                                        | 加载启动数据并输出报告，不打开窗口 |
+
+`--frame-backend` 的硬件与 WARP 选项需要匹配的 Windows 图形能力；失败时记录原因并回退软件路径。`--skirmish-window sdl3` 与二者组合时直接报错。用法见 [README](README.md#主战局呈现后端)。
 
 `--smoke-test` 仍需要对应的私人数据，退出码 `0` 表示启动报告成功，`1` 表示失败。该结果只反映启动检查。参数处理见 [RuntimeMain.cpp](src/runtime/host/RuntimeMain.cpp)。
 

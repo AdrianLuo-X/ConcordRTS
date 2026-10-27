@@ -1,4 +1,5 @@
 #pragma once
+#include "runtime/presentation/FrameBackendOptions.h"
 
 #include "runtime/config/RuntimeConfig.h"
 #include "runtime/contracts/RuntimeReplayEventSnapshot.h"
@@ -290,6 +291,12 @@ int runRuntimeWindow(
     const RuntimeConfig& config,
     bool exitAfterLoadingSmoke,
     std::unique_ptr<RuntimeMultiplayerRuntimeBridge> multiplayerBridge
+);
+int runRuntimeWindow(
+    const RuntimeConfig& config,
+    bool exitAfterLoadingSmoke,
+    std::unique_ptr<RuntimeMultiplayerRuntimeBridge> multiplayerBridge,
+    concord::presentation::FrameBackendOptions presentation
 );
 
 std::vector<RuntimeProjectileActorSnapshot> runtimeProjectileActorSnapshots();

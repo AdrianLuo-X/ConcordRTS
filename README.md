@@ -8,7 +8,7 @@ ConcordRTS 是使用 C++20 开发的 RTS 引擎工程，面向《命令与征服
 
 ## 功能与开发状态
 
-源码包含遭遇战、AI、战役、局域网与互联网联机、观战、存档与联机恢复，以及规则分析、地图解析、资源读取和导出工具。遭遇战菜单可选择 Win32 或可选的 SDL3 软件窗口，开始战局后使用原 Win32 游戏窗口。
+源码包含遭遇战、AI、战役、局域网与互联网联机、观战、存档与联机恢复，以及规则分析、地图解析、资源读取和导出工具。遭遇战菜单可选择 Win32 或可选的 SDL3 软件窗口，开始战局后使用 Win32 游戏窗口。主战局可选择默认的软件呈现、硬件 D3D11 或显式 WARP，完整画面仍由 CPU 绘制。
 
 另提供独立核心构建，支持在不创建窗口、图形、音频和视频后端的情况下构建所选实际生产模块。已验证的核心环境为 Windows Clang；文件和 LAN 仍保留私有操作系统适配，不表示整个游戏已完成跨平台运行。
 
@@ -17,6 +17,11 @@ ConcordRTS 是使用 C++20 开发的 RTS 引擎工程，面向《命令与征服
 ## 更新记录
 
 ### 2026-10-27
+
+- 接入 Windows D3D11 完整帧呈现：地图、界面、FPS 和软件鼠标仍由 CPU 组成，再按客户区尺寸上传并显示；保留软件呈现默认值，以及显式硬件和 WARP 选择。
+- 完成窗口缩放、最小化恢复、焦点切换与关闭处理；设备创建、资源或呈现失败时释放 GPU 资源，并在当前窗口会话中转回原 GDI 路径。
+- 补充原生 D3D11 合同和主窗口完整画面对照，覆盖硬件、WARP、软件路径、实际 API 错误及明确的故障注入；所选完整帧颜色字节和权威状态保持一致。
+- 分别记录 CPU 画面组成、上传调用、GPU 上传时间与 Present 调用时间，并记录实际采用的后端和回退原因。已完成所选可见窗口采样，现有结果不支持整体提速结论，默认选择保持不变。
 
 - 增加可选的 SDL3 遭遇战菜单窗口，复用大厅、地图选择、槽位设置及确认、取消流程；确认后进入原 Win32 战局，默认窗口仍为 Win32。
 - 提供类型化的软件窗口与事件接口，菜单通过完整软件帧接口同步呈现；补充客户区像素坐标转换、缩放、鼠标捕获、焦点与关闭处理。
@@ -28,7 +33,7 @@ ConcordRTS 是使用 C++20 开发的 RTS 引擎工程，面向《命令与征服
 - 提取主窗口像素视图、后台缓冲所有权及 `SoftwareFrameView / FramePresenter` 接口，交付包含地图、界面、FPS 和软件鼠标的完整软件帧。
 - 保留缓存及暂停画面的场景版本，区分提交尝试与实际成功；仅在原生绘制完成后同步借出像素，保留资源不足时的原 GDI 回退路径。
 - 完成所选候选顺序、完整状态与保存文本、实际保存载入、回放、切图及双进程联机对照；补充完整画面、输入、窗口生命周期与资源失败合同，扩充结构检查。
-- 主战局呈现仍为 Windows GDI，字体组成仍使用私有窗口设备适配。既有矿物生成器动画及部分场景深度、地面残骸复合检查失败继续保留，所选合同通过不代表全部渲染已通过。
+- 主战局默认呈现为 Windows GDI，字体组成仍使用私有窗口设备适配。既有矿物生成器动画及部分场景深度、地面残骸复合检查失败继续保留，所选合同通过不代表全部渲染已通过。
 
 - 根据本项目的功能需求，重新实现 SHP 图像解码、辅助动画帧选择、恐慌反应、开火临时视野与等级视野倍率相关逻辑，保留既有玩法、规则参数和消费者接口。
 - 将 SHP 帧记录、行数据范围与像素展开分开处理，保留预览和运行时的兼容策略；辅助动画集中处理帧范围、往返循环、播放节奏与整数边界。
@@ -152,7 +157,8 @@ ConcordRTS/
 │   │   ├── persistence/            保存、加载与恢复一致性诊断
 │   │   ├── replay/                 回放封包与宿主恢复内核
 │   │   ├── performance/            生产循环性能计时与诊断
-│   │   ├── presentation/           完整软件帧接口与私有呈现适配
+│   │   ├── presentation/           完整帧、后端选项与私有呈现适配
+│   │   │   └── win32/              GDI 与 D3D11 完整帧呈现
 │   │   └── host/                   启动检查、游戏窗口与战局宿主
 │   ├── render/                     地图、单位、效果与软件绘制
 │   │   ├── core/                   地图绘图与短期地形帧输入
@@ -184,7 +190,8 @@ ConcordRTS/
 │   ├── infrastructure/             配置、文件、输入、窗口与菜单合同
 │   │   ├── task_executor/          有界任务执行器独立合同工程
 │   │   ├── main_back_buffer/       主窗口后台缓冲合同目标
-│   │   └── frame_presenter/        Windows 软件帧提交合同目标
+│   │   ├── frame_presenter/        Windows 软件帧提交合同目标
+│   │   └── d3d11_frame_presenter/  D3D11 原生呈现与软件回退合同目标
 │   ├── gameplay/                   战斗、生产、单位行为与机制检查
 │   ├── multiplayer/                局域网、同步、快照与恢复检查
 │   ├── internet/                   互联网服务、TLS 与匹配检查
@@ -221,6 +228,7 @@ ConcordRTS/
 │   ├── GrandCannonPrewarmContracts.cmake  巨炮光栅与预热库接入
 │   ├── PathGoalCandidateTaskContracts.cmake  候选任务库与测试接入
 │   ├── SoftwareFrameContracts.cmake  完整软件帧与呈现适配接入
+│   ├── D3D11FramePresenter.cmake   私有 D3D11 后端与原生合同接入
 │   ├── Sdl3Window.cmake             可选 SDL3 软件窗口接入，默认关闭
 │   ├── RunSecondWindowNative.cmake  真实菜单窗口合同执行入口
 │   ├── dependencies/               第三方依赖的工具链配置
@@ -409,6 +417,28 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-Game.ps1 -
 .\bin\concord_runtime.exe --help
 ```
 
+### 主战局呈现后端
+
+完整 Windows 产品构建包含私有 D3D11 呈现器，使用已选 Windows SDK 的 D3D11、DXGI 和 DWM 接口；独立核心构建不包含此后端，无需增加 SDL3 或着色器编译步骤。准备本地游戏资源后，在仓库根目录显式选择：
+
+```powershell
+.\bin\concord_runtime.exe --frame-backend software
+.\bin\concord_runtime.exe --frame-backend d3d11
+.\bin\concord_runtime.exe --frame-backend d3d11-warp
+```
+
+| 参数值 | 含义 |
+| --- | --- |
+| `software` | 默认软件／GDI 呈现 |
+| `d3d11` | 请求硬件 D3D11，最低功能级别 11_0，并检查格式与计时查询能力 |
+| `d3d11-warp` | 明确请求 WARP 软件设备，用于兼容性和对照，不代表硬件 GPU 性能 |
+
+这些选项只影响本机显示，不写入游戏配置、存档、协议或确定性哈希。D3D11 使用已完成的 BGRA8 CPU 帧，按当前客户区尺寸上传并以 `Present(1, 0)` 呈现；不改变原 CPU 缩放、输入坐标或世界绘制，也不进行着色器绘图、颜色转换或 alpha 混合。
+
+设备或呈现失败时会记录原因，释放 GPU 资源并转回原 GDI；同一窗口会话中不反复尝试切回 D3D11，也不会自动改用 WARP。`--skirmish-window sdl3` 只能与 `software` 组合，选择 D3D11 或 WARP 时明确拒绝。
+
+性能记录分别反映 CPU、GPU 上传及提交等待，不能据此声称整体加速或屏幕实际输出帧率。主战局字体组成仍有 Windows 私有实现，当前选项不表示整个游戏已跨平台。
+
 ## 联机与 MOD
 
 局域网和互联网相关实现包含在源码中。互联网联机需要自行部署、配置本项目的服务端、证书和客户端凭据；它不代表兼容或接入原版 Westwood Online 服务。公开配置示例中的域名和凭据均为占位符。
@@ -477,9 +507,9 @@ pwsh -NoProfile -File .\tools\testing\Run-LocalTests.ps1 -Compiler Clang -BuildD
 
 `-StructureOnly` 单独执行结构检查，不追加执行 12＋4 测试集合。入口校验缓存、刷新 CMake 元数据、冻结目标清单并运行合成夹具，然后检查依赖与精确例外；它不会构建游戏目标。结果默认写入已忽略的 `build/local-tests/structure-*/`，其中可能包含本机路径和环境信息，应留在本机。
 
-[结构基线](tools/structure/structure-baseline.json) 保留 4,398 条逐项审核的精确例外。新增违规、出现次数增加或已经消失而尚未收紧的例外都会导致失败；工具不会自动扩大豁免范围。它提供所选构建配置的静态结构证据，不表示完整游戏、其他平台或性能已经验收。
+[结构基线](tools/structure/structure-baseline.json) 保留 4,435 条逐项审核的精确例外。新增违规、出现次数增加或已经消失而尚未收紧的例外都会导致失败；工具不会自动扩大豁免范围。它提供所选构建配置的静态结构证据，不表示完整游戏、其他平台或性能已经验收。
 
-已记录的验证覆盖所选标准合同、Windows 适配、资源查询、命令桥接及经济保存恢复对照。旧回归中已知的月球剧场深度、部分交互和几何绘制，以及 Yuri 采矿收入、完整 AI 经济、部分编队紧凑度与矿石动画检查失败仍保留；完整物理输入、IME、双端运行游戏、其他窗口后端与平台及性能不据此视为通过。
+已记录的验证覆盖所选标准合同、Windows 适配、资源查询、命令桥接及经济保存恢复对照。旧回归中已知的月球剧场深度、部分交互和几何绘制，以及 Yuri 采矿收入、完整 AI 经济、部分编队紧凑度与矿石动画检查失败仍保留；完整物理输入、IME、双端运行游戏，以及未覆盖的窗口、平台和性能场景不据此视为通过。
 
 CMake 保留专项测试目标。部分测试只使用自编夹具，部分需要本地原游戏数据；资源相关测试与调试工具需要按自己的环境配置路径。不能将无素材环境下的编译成功视为全部游戏功能或全部测试通过。
 
@@ -490,6 +520,23 @@ CMake 保留专项测试目标。部分测试只使用自编夹具，部分需�
 `runtime_second_window_contract_test` 在 Windows、`CONCORD_ENABLE_SDL3_WINDOW=ON` 且工程内存在 `local_data/resources/mix_exports/multimd/2peaks.map` 时注册。它需要自行准备的完整游戏资源和匹配的 SDL3 DLL，会实际创建窗口，不属于无素材测试集合。
 
 执行入口为 [RunSecondWindowNative.cmake](cmake/RunSecondWindowNative.cmake)，另提供 [Run-SecondWindowContract.ps1](tools/testing/Run-SecondWindowContract.ps1) 用于指定运行程序和新的工程内输出目录。检查覆盖两种窗口的所选菜单画面与控制器状态、真实事件、像素坐标、捕获、缩放、关闭及资源释放；输出记录保存在本机构建目录中。它只验证所选菜单场景，不代表主战局已使用 SDL3 或所有游戏检查均已通过。
+
+### D3D11 原生呈现合同
+
+[D3D11FramePresenterWin32Contract.cpp](tests/infrastructure/D3D11FramePresenterWin32Contract.cpp) 使用自编像素输入，覆盖尺寸与步长、完整颜色、所属线程、窗口生命周期、失败清理和原 GDI 回退。它不需要官方游戏素材，但会实际创建窗口并检查硬件及 WARP，需要相应 Windows 图形环境；不是无窗口测试。
+
+先完成完整 Windows 构建并设置“第一次构建”中的工具路径变量，再执行：
+
+```powershell
+$gameBuild = 'build/clang-cl-x64-release'
+$ctestExe = Join-Path (Split-Path -Parent $cmakeExe) 'ctest.exe'
+& $cmakeExe --build $gameBuild --target concord_d3d11_frame_presenter_win32_contract --parallel 1
+if ($LASTEXITCODE -ne 0) { throw 'D3D11 合同构建失败。' }
+& $ctestExe --test-dir $gameBuild --no-tests=error --output-on-failure -j 1 -R '^d3d11_frame_presenter_win32_contract_test$'
+if ($LASTEXITCODE -ne 0) { throw 'D3D11 合同检查失败。' }
+```
+
+已完成的开发验证还包括主窗口软件、硬件和 WARP 的所选完整帧对照。设备移除场景使用明确故障注入，未据此声称真实驱动重置、设备热拔出、跨显示器 DPI／HDR 或长期设备恢复均已验证。既有游戏表现问题仍按原记录保留。
 
 ### 并行预热与性能工具
 
@@ -507,7 +554,7 @@ CMake 保留专项测试目标。部分测试只使用自编夹具，部分需�
 
 这组选项只控制初始目标候选内核，与巨炮预热选项及分析工具的 `--workers` 分开使用。原 A*、环形回退、请求顺序、缓存、随机数及逻辑预算继续由原所有者处理，不能据此推断整个寻路或模拟已经并行。
 
-软件帧接口同步借用最终像素，保留原 GDI 显示路径。每次提交有新序号；复用场景时，场景版本与模拟 tick 保持，界面叠加仍可变化。完整帧准备与最终提交共同计入当前提交 CPU 时间，不能与旧版只统计 `BitBlt` 的数值直接比较。
+软件帧接口同步借用最终像素，支持默认 GDI 和可选 D3D11 完整帧呈现，故障时保留原 GDI 路径。每次提交有新序号；复用场景时，场景版本与模拟 tick 保持，界面叠加仍可变化。完整帧准备与最终提交共同计入当前提交 CPU 时间，不能与旧版只统计 `BitBlt` 的数值直接比较。
 
 需要实际游戏素材的 [候选联机及生命周期诊断](src/simulation/navigation/pathfinding/diagnostics/RuntimePathCandidateNetworkSmoke.inl) 须从工程根运行，自行准备 `RedAlert2/`、`local_data/` 和指定地图。公开版将诊断记录、配置与保存路径限制在 `build/smoke/path-candidate/` 内，并要求新的输出位置；本机运行记录不随源码发布。
 

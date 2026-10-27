@@ -2,9 +2,19 @@
   "schema": "ConcordStructureBaseline/v1",
   "scope": "Current ConcordRTS engine; exact entries only.",
   "protectedModules": {
-    "software-window": ["src/runtime/window/RuntimeSoftwareWindow.h"],
-    "software-frame": ["src/runtime/presentation/SoftwareFrame.h"],
-    "path-candidate-task": ["src/simulation/navigation/pathfinding/PathGoalCandidateTask.h","src/simulation/navigation/pathfinding/PathGoalCandidateTask.cpp","src/simulation/navigation/pathfinding/PathGoalCandidates.h","src/simulation/navigation/pathfinding/PathGoalCandidates.cpp"],
+    "software-window": [
+      "src/runtime/window/RuntimeSoftwareWindow.h"
+    ],
+    "software-frame": [
+      "src/runtime/presentation/SoftwareFrame.h",
+      "src/runtime/presentation/FrameBackendOptions.h"
+    ],
+    "path-candidate-task": [
+      "src/simulation/navigation/pathfinding/PathGoalCandidateTask.h",
+      "src/simulation/navigation/pathfinding/PathGoalCandidateTask.cpp",
+      "src/simulation/navigation/pathfinding/PathGoalCandidates.h",
+      "src/simulation/navigation/pathfinding/PathGoalCandidates.cpp"
+    ],
     "bounded-tasks": [
       "src/core/tasks/BoundedTaskExecutor.h",
       "src/core/tasks/BoundedTaskExecutor.cpp"
@@ -48149,6 +48159,413 @@
       "follow_up": "W029-01 exact private adapter/native acceptance boundary",
       "status": "backend-private",
       "evidence": "P11/window-20261027-r1: core-r8, registered-window-r1, live-entry-r2/r3 and strict structure-r1 actual1"
+    },
+    {
+      "rule": "platform-edge",
+      "path": "src/runtime/host/RuntimeShell.cpp",
+      "detail": "src/runtime/presentation/win32/D3D11FramePresenterWin32.h",
+      "maxOccurrences": 1,
+      "reason": "Private Windows complete-CPU-frame presentation, device font ROI or typed application factory assembly. No public native/SDL/World contract or worker access.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-edge",
+      "path": "src/runtime/presentation/win32/D3D11FramePresenterWin32.cpp",
+      "detail": "src/runtime/presentation/win32/D3D11FramePresenterWin32.h",
+      "maxOccurrences": 1,
+      "reason": "Private Windows complete-CPU-frame presentation, device font ROI or typed application factory assembly. No public native/SDL/World contract or worker access.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-edge",
+      "path": "src/runtime/presentation/win32/D3D11FramePresenterWin32.h",
+      "detail": "src/runtime/presentation/win32/FramePresenterWin32.h",
+      "maxOccurrences": 1,
+      "reason": "Private Windows complete-CPU-frame presentation, device font ROI or typed application factory assembly. No public native/SDL/World contract or worker access.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-edge",
+      "path": "tests/infrastructure/D3D11FramePresenterWin32Contract.cpp",
+      "detail": "src/runtime/performance/RuntimeFpsDisplay.inl",
+      "maxOccurrences": 1,
+      "reason": "Private Windows complete-CPU-frame presentation, device font ROI or typed application factory assembly. No public native/SDL/World contract or worker access.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-edge",
+      "path": "tests/infrastructure/D3D11FramePresenterWin32Contract.cpp",
+      "detail": "src/runtime/presentation/win32/D3D11FramePresenterWin32.h",
+      "maxOccurrences": 1,
+      "reason": "Private Windows complete-CPU-frame presentation, device font ROI or typed application factory assembly. No public native/SDL/World contract or worker access.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-header",
+      "path": "src/runtime/presentation/win32/D3D11FramePresenterWin32.cpp",
+      "detail": "d3d11.h",
+      "maxOccurrences": 1,
+      "reason": "Private Windows complete-CPU-frame presentation, device font ROI or typed application factory assembly. No public native/SDL/World contract or worker access.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-header",
+      "path": "src/runtime/presentation/win32/D3D11FramePresenterWin32.cpp",
+      "detail": "dxgi1_2.h",
+      "maxOccurrences": 1,
+      "reason": "Private Windows complete-CPU-frame presentation, device font ROI or typed application factory assembly. No public native/SDL/World contract or worker access.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_d3d11_frame_presenter_win32_contract",
+      "detail": "d3d11",
+      "maxOccurrences": 1,
+      "reason": "Real Windows native fixture uses only its own windows/processes, GDI oracle and private D3D11 presenter; minimal SDK libraries.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_d3d11_frame_presenter_win32_contract",
+      "detail": "dwmapi",
+      "maxOccurrences": 1,
+      "reason": "Real Windows native fixture uses only its own windows/processes, GDI oracle and private D3D11 presenter; minimal SDK libraries.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_d3d11_frame_presenter_win32_contract",
+      "detail": "dxgi",
+      "maxOccurrences": 1,
+      "reason": "Real Windows native fixture uses only its own windows/processes, GDI oracle and private D3D11 presenter; minimal SDK libraries.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_d3d11_frame_presenter_win32_contract",
+      "detail": "gdi32",
+      "maxOccurrences": 1,
+      "reason": "Real Windows native fixture uses only its own windows/processes, GDI oracle and private D3D11 presenter; minimal SDK libraries.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_d3d11_frame_presenter_win32_contract",
+      "detail": "user32",
+      "maxOccurrences": 1,
+      "reason": "Real Windows native fixture uses only its own windows/processes, GDI oracle and private D3D11 presenter; minimal SDK libraries.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_runtime",
+      "detail": "d3d11",
+      "maxOccurrences": 1,
+      "reason": "Final native host links private D3D11/DXGI owner; DWM is diagnostic visible synchronization only. No PUBLIC/INTERFACE portable-core dependency.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_runtime",
+      "detail": "dwmapi",
+      "maxOccurrences": 1,
+      "reason": "Final native host links private D3D11/DXGI owner; DWM is diagnostic visible synchronization only. No PUBLIC/INTERFACE portable-core dependency.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-link",
+      "path": "target:concord_runtime",
+      "detail": "dxgi",
+      "maxOccurrences": 1,
+      "reason": "Final native host links private D3D11/DXGI owner; DWM is diagnostic visible synchronization only. No PUBLIC/INTERFACE portable-core dependency.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/D3D11FramePresenterWin32.cpp",
+      "detail": "DWORD",
+      "maxOccurrences": 1,
+      "reason": "Private Windows complete-CPU-frame presentation, device font ROI or typed application factory assembly. No public native/SDL/World contract or worker access.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/D3D11FramePresenterWin32.cpp",
+      "detail": "HDC",
+      "maxOccurrences": 1,
+      "reason": "Private Windows complete-CPU-frame presentation, device font ROI or typed application factory assembly. No public native/SDL/World contract or worker access.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/D3D11FramePresenterWin32.cpp",
+      "detail": "HRESULT",
+      "maxOccurrences": 11,
+      "reason": "Private Windows complete-CPU-frame presentation, device font ROI or typed application factory assembly. No public native/SDL/World contract or worker access.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/D3D11FramePresenterWin32.cpp",
+      "detail": "HWND",
+      "maxOccurrences": 2,
+      "reason": "Private Windows complete-CPU-frame presentation, device font ROI or typed application factory assembly. No public native/SDL/World contract or worker access.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/D3D11FramePresenterWin32.cpp",
+      "detail": "ID3D11Device",
+      "maxOccurrences": 1,
+      "reason": "Private Windows complete-CPU-frame presentation, device font ROI or typed application factory assembly. No public native/SDL/World contract or worker access.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/D3D11FramePresenterWin32.cpp",
+      "detail": "ID3D11DeviceContext",
+      "maxOccurrences": 1,
+      "reason": "Private Windows complete-CPU-frame presentation, device font ROI or typed application factory assembly. No public native/SDL/World contract or worker access.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/D3D11FramePresenterWin32.cpp",
+      "detail": "ID3D11Query",
+      "maxOccurrences": 1,
+      "reason": "Private Windows complete-CPU-frame presentation, device font ROI or typed application factory assembly. No public native/SDL/World contract or worker access.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/D3D11FramePresenterWin32.cpp",
+      "detail": "ID3D11Texture2D",
+      "maxOccurrences": 2,
+      "reason": "Private Windows complete-CPU-frame presentation, device font ROI or typed application factory assembly. No public native/SDL/World contract or worker access.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/D3D11FramePresenterWin32.cpp",
+      "detail": "IDXGIAdapter",
+      "maxOccurrences": 1,
+      "reason": "Private Windows complete-CPU-frame presentation, device font ROI or typed application factory assembly. No public native/SDL/World contract or worker access.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/D3D11FramePresenterWin32.cpp",
+      "detail": "IDXGIAdapter1",
+      "maxOccurrences": 1,
+      "reason": "Private Windows complete-CPU-frame presentation, device font ROI or typed application factory assembly. No public native/SDL/World contract or worker access.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/D3D11FramePresenterWin32.cpp",
+      "detail": "IDXGIDevice",
+      "maxOccurrences": 2,
+      "reason": "Private Windows complete-CPU-frame presentation, device font ROI or typed application factory assembly. No public native/SDL/World contract or worker access.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/D3D11FramePresenterWin32.cpp",
+      "detail": "IDXGIFactory",
+      "maxOccurrences": 1,
+      "reason": "Private Windows complete-CPU-frame presentation, device font ROI or typed application factory assembly. No public native/SDL/World contract or worker access.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/D3D11FramePresenterWin32.cpp",
+      "detail": "IDXGISwapChain",
+      "maxOccurrences": 1,
+      "reason": "Private Windows complete-CPU-frame presentation, device font ROI or typed application factory assembly. No public native/SDL/World contract or worker access.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/D3D11FramePresenterWin32.cpp",
+      "detail": "LARGE_INTEGER",
+      "maxOccurrences": 1,
+      "reason": "Private Windows complete-CPU-frame presentation, device font ROI or typed application factory assembly. No public native/SDL/World contract or worker access.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/D3D11FramePresenterWin32.cpp",
+      "detail": "POINT",
+      "maxOccurrences": 1,
+      "reason": "Private Windows complete-CPU-frame presentation, device font ROI or typed application factory assembly. No public native/SDL/World contract or worker access.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/D3D11FramePresenterWin32.cpp",
+      "detail": "RECT",
+      "maxOccurrences": 1,
+      "reason": "Private Windows complete-CPU-frame presentation, device font ROI or typed application factory assembly. No public native/SDL/World contract or worker access.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/D3D11FramePresenterWin32.h",
+      "detail": "HWND",
+      "maxOccurrences": 1,
+      "reason": "Private Windows complete-CPU-frame presentation, device font ROI or typed application factory assembly. No public native/SDL/World contract or worker access.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-type",
+      "path": "tests/infrastructure/D3D11FramePresenterWin32Contract.cpp",
+      "detail": "DWORD",
+      "maxOccurrences": 5,
+      "reason": "Private Windows complete-CPU-frame presentation, device font ROI or typed application factory assembly. No public native/SDL/World contract or worker access.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-type",
+      "path": "tests/infrastructure/D3D11FramePresenterWin32Contract.cpp",
+      "detail": "HDC",
+      "maxOccurrences": 4,
+      "reason": "Private Windows complete-CPU-frame presentation, device font ROI or typed application factory assembly. No public native/SDL/World contract or worker access.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-type",
+      "path": "tests/infrastructure/D3D11FramePresenterWin32Contract.cpp",
+      "detail": "HWND",
+      "maxOccurrences": 4,
+      "reason": "Private Windows complete-CPU-frame presentation, device font ROI or typed application factory assembly. No public native/SDL/World contract or worker access.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-type",
+      "path": "tests/infrastructure/D3D11FramePresenterWin32Contract.cpp",
+      "detail": "MSG",
+      "maxOccurrences": 1,
+      "reason": "Private Windows complete-CPU-frame presentation, device font ROI or typed application factory assembly. No public native/SDL/World contract or worker access.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+    },
+    {
+      "rule": "platform-type",
+      "path": "tests/infrastructure/D3D11FramePresenterWin32Contract.cpp",
+      "detail": "RECT",
+      "maxOccurrences": 5,
+      "reason": "Private Windows complete-CPU-frame presentation, device font ROI or typed application factory assembly. No public native/SDL/World contract or worker access.",
+      "owner_step": "S39",
+      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+      "status": "backend-private",
+      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
     }
   ],
   "reviewedUpdates": [
@@ -48322,6 +48739,12 @@
       "oldBudgetIncreases": 0,
       "newProtectedModule": "software-window",
       "producerMapping": "existing exact CMake native runner mapping extended by one reviewed path; no test-without-target exception"
+    },
+    {
+      "date": "2026-10-27",
+      "step": "S39",
+      "reason": "37 exact private D3D11/Win32 factory, native fixture and final device-link facts. Removed extra fixture host-state pointer and unrelated shell/dialog links rather than raising historical budgets. Added pure backend-options transitive fixtures.",
+      "evidence": "development_records/refactoring/S39/presentation-20261027-r1/private-facts-review-r1.json"
     }
   ]
 }

@@ -44,6 +44,7 @@ void enableRuntimeDpiAwareness() {
 
 struct RuntimeCommandLine {
     std::string skirmishWindow = "win32";
+    concord::presentation::FrameBackendOptions presentation;
     RuntimeConfigOverrides overrides;
     bool showHelp = false;
     bool smokeTest = false;
@@ -364,6 +365,16 @@ RuntimeCommandLine parseRuntimeCommandLine(int argc, char** argv) {
             continue;
         }
 
+        if (argument == "--frame-backend") {
+            std::string value;
+            if (!readRequiredValue(argc, argv, index, argument, value, commandLine.errorMessage)) return commandLine;
+            using namespace concord::presentation;
+            if(value=="software")commandLine.presentation={FrameBackend::Software,FrameDevice::Hardware};
+            else if(value=="d3d11")commandLine.presentation={FrameBackend::D3D11,FrameDevice::Hardware};
+            else if(value=="d3d11-warp")commandLine.presentation={FrameBackend::D3D11,FrameDevice::Warp};
+            else {commandLine.errorMessage="--frame-backend requires software, d3d11 or d3d11-warp";return commandLine;}
+            continue;
+        }
         if (argument == "--skirmish-window") {
             if (!readRequiredValue(argc, argv, index, "--skirmish-window",
                     commandLine.skirmishWindow, commandLine.errorMessage)) return commandLine;
@@ -648,6 +659,7 @@ void printRuntimeHelp(const std::string& programName) {
     std::cout << "                         Validate and render the original WOL/observer/rank PCX skin.\n";
     std::cout << "  --skirmish-ui-smoke-test <bmp>\n";
     std::cout << "  --skirmish-window <win32|sdl3>  Select the standalone skirmish window (game window stays Win32).\n";
+    std::cout << "  --frame-backend <software|d3d11|d3d11-warp>  Main Win32 complete CPU-frame presentation; default software. WARP is a software device.\n";
     std::cout << "                         Render and validate the interactive skirmish setup screen offscreen.\n";
     std::cout << "  --main-menu-ui-smoke-test <bmp>\n";
     std::cout << "                         Render and validate the original 800x600 Yuri's Revenge shell.\n";
@@ -667,13 +679,14 @@ void printRuntimeHelp(const std::string& programName) {
 }
 
 int runRuntimeWindowWithMultiplayerFailureRecovery(
-    const RuntimeConfig& config
+    const RuntimeConfig& config,
+    concord::presentation::FrameBackendOptions presentation
 ) {
     for (;;) {
         // A previous successful/menu-return session must not leak a stale
         // teardown fallback into the next match attempt.
         (void)consumeRuntimeMultiplayerVisibleFailure();
-        const int result = runRuntimeWindow(config);
+        const int result = runRuntimeWindow(config,false,std::unique_ptr<RuntimeMultiplayerRuntimeBridge>{},presentation);
         const std::optional<std::string> multiplayerFailure =
             consumeRuntimeMultiplayerVisibleFailure();
         if (result == 0 || !config.showMainMenu
@@ -721,6 +734,10 @@ int runRuntimeApplication(int argc, char** argv) {
         return 1;
     }
 
+    if(commandLine.skirmishWindow=="sdl3"&&commandLine.presentation.backend==concord::presentation::FrameBackend::D3D11){
+        std::cerr<<"Unsupported window/graphics combination: SDL3 x D3D11; SDL3 supports bitmap software frames only.\n";
+        return 1;
+    }
     RuntimeConfig config = loadRuntimeConfig(commandLine.overrides);
     if (commandLine.skipMainMenu) {
         config.showMainMenu = false;
@@ -922,7 +939,7 @@ int runRuntimeApplication(int argc, char** argv) {
         config.showMainMenu = false;
         config.showSkirmishMenu = false;
     }
-    return runRuntimeWindowWithMultiplayerFailureRecovery(config);
+    return runRuntimeWindowWithMultiplayerFailureRecovery(config,commandLine.presentation);
 }
 
 } // namespace

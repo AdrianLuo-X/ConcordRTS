@@ -1,4 +1,5 @@
 #include "runtime/presentation/win32/FramePresenterWin32.h"
+#include "runtime/presentation/win32/D3D11FramePresenterWin32.h"
 #include "ui/surface/win32/RuntimeMainBackBufferWin32.h"
 #include "runtime/host/RuntimeShell.h"
 #include "network/maps/RuntimeMultiplayerCompatibilityFingerprint.h"
@@ -3615,6 +3616,9 @@ struct RuntimeWindowState {
     RuntimeBackBuffer completedFrameBuffer;
     concord::ui::win32::SkirmishBackBufferWin32 fpsDeviceOverlay;
     concord::presentation::FramePresentStatistics softwareFrameCounters;
+    concord::presentation::FrameBackendOptions frameBackendRequest;
+    std::unique_ptr<concord::presentation::win32::D3D11FramePresenterWin32> d3d11Presenter;
+    bool frameBackendInitialized=false;
     std::uint64_t softwareFrameSequence=0,softwareSceneVersion=0,softwareFallbackSubmissions=0;
     int softwareSceneTick=0;
     concord::ui::win32::MainFrameProbeWin32* frameProbeWin32 = nullptr;
@@ -116532,6 +116536,18 @@ LRESULT CALLBACK runtimeWindowProc(
             advanceRuntimeResultPresentation(*state,presentationMs);
             expireRuntimePlayerDefeatNotices(*state,presentationMs);
         }
+        if(state&&state->frameBackendRequest.backend==concord::presentation::FrameBackend::D3D11){
+            if(IsIconic(window)||clientWidth<=0||clientHeight<=0){
+                state->fpsDisplayMeter.reset();EndPaint(window,&paint);return 0;
+            }
+            if(!state->frameBackendInitialized){
+                state->frameBackendInitialized=true;
+                state->d3d11Presenter=concord::presentation::win32::D3D11FramePresenterWin32::create(
+                    window,state->frameBackendRequest,state->softwareFrameCounters);
+                if(state->d3d11Presenter&&state->liveBenchmark)state->d3d11Presenter->enableTimingOutput();
+                if(!state->d3d11Presenter)std::cerr<<"Frame backend requested=d3d11 selected=software fallback=owner-allocation\n";
+            }
+        }
         const bool reuseCachedFrame =
             state != nullptr
             && !state->repaintRequested
@@ -116558,6 +116574,8 @@ LRESULT CALLBACK runtimeWindowProc(
             backBufferReady = true;
         }
 
+        if(state&&state->d3d11Presenter&&state->d3d11Presenter->active()&&!backBufferReady)
+            state->d3d11Presenter->fallbackToSoftware("CPU-scene-allocation");
         if (backBufferReady && !reuseCachedFrame) state->backBuffer.beginWrite();
         SetBkMode(dc, TRANSPARENT);
         SetTextColor(dc, RGB(220, 230, 240));
@@ -116749,7 +116767,7 @@ LRESULT CALLBACK runtimeWindowProc(
             if (++state->softwareSceneVersion==0) ++state->softwareSceneVersion;
             state->softwareSceneTick=state->tick;
         }
-        const auto baselineSubmissionStart = state != nullptr && state->liveBenchmark != nullptr
+        const auto baselineSubmissionStart = state != nullptr && (state->liveBenchmark != nullptr || state->d3d11Presenter)
             ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
         bool submissionSucceeded=false,baselineVisibleSubmission=false;
         concord::ui::ConstMenuPixelSurfaceView completedPixels;
@@ -116790,9 +116808,17 @@ LRESULT CALLBACK runtimeWindowProc(
                             drawRuntimeFpsDisplay(native,*c.client,*c.meter);
                             drawRuntimeMouseCursorOverlay(native,*c.client,*c.state,c.bounds);
                         };
-                        if(copied&&concord::presentation::win32::composeWindowDeviceOverlayWin32(
-                            window,state->backBuffer,finalBuffer,state->fpsDeviceOverlay,
-                            {bounds.left,bounds.top,bounds.right,bounds.bottom},draw,&context)){
+                        bool overlayReady=false;
+                        if(copied&&state->d3d11Presenter&&state->d3d11Presenter->active()){
+                            overlayReady=state->d3d11Presenter->composeDeviceOverlay(state->backBuffer,finalBuffer,
+                                {bounds.left,bounds.top,bounds.right,bounds.bottom},draw,&context);
+                            if(!overlayReady)state->d3d11Presenter->fallbackToSoftware("CPU-device-font-target");
+                        }
+                        if(copied&&!overlayReady&&(!state->d3d11Presenter||!state->d3d11Presenter->active()))
+                            overlayReady=concord::presentation::win32::composeWindowDeviceOverlayWin32(
+                                window,state->backBuffer,finalBuffer,state->fpsDeviceOverlay,
+                                {bounds.left,bounds.top,bounds.right,bounds.bottom},draw,&context);
+                        if(overlayReady){
                             completedPixels=finalBuffer.completedPixels();completedOwner=&finalBuffer;
                         }
                     }
@@ -116803,10 +116829,22 @@ LRESULT CALLBACK runtimeWindowProc(
                     SoftwareFrameView frame{completedPixels,sequence,state->softwareSceneVersion,
                         static_cast<std::uint64_t>(std::max(0,state->softwareSceneTick)),
                         reuseCachedFrame?SoftwareFrameContent::ReusedScene:SoftwareFrameContent::Redrawn};
-                    concord::presentation::win32::DibFramePresenterWin32 presenter(
-                        paintDc,*completedOwner,state->softwareFrameCounters);
-                    submissionSucceeded=presenter.present(frame)==FramePresentResult::Presented;
+                    if(state->d3d11Presenter&&state->d3d11Presenter->active()){
+                        const auto compositionEnd=std::chrono::steady_clock::now();
+                        submissionSucceeded=state->d3d11Presenter->present(frame)==FramePresentResult::Presented;
+                        state->d3d11Presenter->recordCpuWork(
+                            std::chrono::duration<double,std::milli>(baselineSubmissionStart-paintStart).count(),
+                            std::chrono::duration<double,std::milli>(compositionEnd-baselineSubmissionStart).count());
+                        if(!submissionSucceeded&&!state->d3d11Presenter->active())frame.sequence=++state->softwareFrameSequence;
+                    }
+                    if(!state->d3d11Presenter||!state->d3d11Presenter->active()){
+                        concord::presentation::win32::DibFramePresenterWin32 presenter(
+                            paintDc,*completedOwner,state->softwareFrameCounters);
+                        submissionSucceeded=presenter.present(frame)==FramePresentResult::Presented;
+                    }
                 }else{
+                    if(state->d3d11Presenter&&state->d3d11Presenter->active())
+                        state->d3d11Presenter->fallbackToSoftware("CPU-complete-frame-unavailable");
                     // Resource/flush failure keeps the original direct native
                     // path. It does not claim to publish CPU-readable pixels.
                     submissionSucceeded=BitBlt(paintDc,0,0,clientWidth,clientHeight,
@@ -116865,7 +116903,8 @@ LRESULT CALLBACK runtimeWindowProc(
                 reuseCachedFrame ? 0.0 : state->perf.lastMapDrawMs,
                 reuseCachedFrame ? 0.0 : state->renderStats.visionMs,
                 !reuseCachedFrame, state->renderStats.visibleWorldObjects,
-                baselineSubmissionCpuMs, baselineVisibleSubmission
+                baselineSubmissionCpuMs, baselineVisibleSubmission,
+                state->d3d11Presenter && state->d3d11Presenter->active()
             );
             if (!reuseCachedFrame && state->perf.lastPaintMs >= 50.0) {
                 std::cout << "Live slow frame: tick=" << state->tick
@@ -175883,7 +175922,8 @@ int runRuntimeWindowSession(
     RuntimeConfig& config,
     bool exitAfterLoadingSmoke,
     RuntimeWindowCompletion& completion,
-    RuntimeMultiplayerRuntimeBridge* multiplayerBridge
+    RuntimeMultiplayerRuntimeBridge* multiplayerBridge,
+    concord::presentation::FrameBackendOptions presentation
 ) {
     completion = RuntimeWindowCompletion::ExitProcess;
     RuntimeLiveFrameBenchmark liveBenchmark;
@@ -176599,6 +176639,7 @@ int runRuntimeWindowSession(
     }
     finishRuntimeLoadingWindow(loading, window,
         !liveBenchmark.enabled() || RuntimeLiveFrameBenchmark::visibleRequested());
+    state.frameBackendRequest=presentation;
     startRuntimeMusic(state);
     RuntimeProcessPerformanceScope processPerformanceScope;
     const bool highResolutionTimerActive =
@@ -177234,6 +177275,14 @@ int runRuntimeWindow(
     bool exitAfterLoadingSmoke,
     std::unique_ptr<RuntimeMultiplayerRuntimeBridge> multiplayerBridge
 ) {
+    return runRuntimeWindow(config,exitAfterLoadingSmoke,std::move(multiplayerBridge),{});
+}
+int runRuntimeWindow(
+    const RuntimeConfig& config,
+    bool exitAfterLoadingSmoke,
+    std::unique_ptr<RuntimeMultiplayerRuntimeBridge> multiplayerBridge,
+    concord::presentation::FrameBackendOptions presentation
+) {
     RuntimeConfig sessionConfig = config;
     bool firstSession = true;
     for (;;) {
@@ -177243,7 +177292,7 @@ int runRuntimeWindow(
             sessionConfig,
             exitAfterLoadingSmoke && firstSession,
             completion,
-            multiplayerBridge.get()
+            multiplayerBridge.get(),presentation
         );
         if (result != 0
             || completion != RuntimeWindowCompletion::ReturnToMainMenu) {

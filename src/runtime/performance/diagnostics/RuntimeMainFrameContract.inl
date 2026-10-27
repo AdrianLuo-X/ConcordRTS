@@ -7,6 +7,8 @@ struct Probe final : concord::ui::win32::MainFrameProbeWin32 {
     std::vector<unsigned char> last;
     bool got=false,success=false,cached=false,complete=false;
     int width=0,height=0;std::string error;
+    concord::presentation::win32::D3D11FrameProbeWin32* gpu=nullptr;
+    const concord::presentation::win32::D3D11FrameReport* gpuReport=nullptr;
     void observe(HDC dc,int w,int h,bool reused,bool submitted,concord::ui::ConstMenuPixelSurfaceView frame) override {
         got=true;success=submitted;cached=reused;width=w;height=h;complete=frame.valid();
         if(!capture.ensure(dc,w,h)||!BitBlt(capture.memoryDc,0,0,w,h,dc,0,0,SRCCOPY)){error="final client readback failed";return;}
@@ -18,6 +20,14 @@ struct Probe final : concord::ui::win32::MainFrameProbeWin32 {
                 const auto i=static_cast<std::size_t>(y)*pixels.rowStride+static_cast<std::size_t>(x)*4+c;
                 const auto j=static_cast<std::size_t>(y)*frame.rowStride+static_cast<std::size_t>(x)*4+c;
                 if(last[i]!=frame.bytes[j]){error="complete view/window pixel mismatch x="+std::to_string(x)+" y="+std::to_string(y)+" channel="+std::to_string(c);return;}
+            }
+            if(gpu&&gpuReport&&gpuReport->selected==concord::presentation::FrameBackend::D3D11){
+                if(gpu->uploadedPixels.size()!=static_cast<std::size_t>(w)*static_cast<std::size_t>(h)*4){error="actual GPU upload missing";return;}
+                for(int y=0;y<h;++y)for(int x=0;x<w;++x)for(std::size_t c=0;c<4;++c){
+                    const auto i=(static_cast<std::size_t>(y)*static_cast<std::size_t>(w)+static_cast<std::size_t>(x))*4+c;
+                    const auto j=static_cast<std::size_t>(y)*frame.rowStride+static_cast<std::size_t>(x)*4+c;
+                    if(gpu->uploadedPixels[i]!=frame.bytes[j]){error="actual GPU upload differs from completed CPU frame";return;}
+                }
             }
         }
     }
@@ -37,7 +47,21 @@ bool runRuntimeMainFrameContract(RuntimeWindowState& state,std::string& error)tr
     state.uiClock=&uiClock;state.frameProbeWin32=&probe;
     RuntimeWindowHostWin32 host(runtimeWindowProc);require(host.create(800,600)==RuntimeWindowCreateResult::Created,"real WindowHost create");
     const auto window=host.window();host.attachSession(reinterpret_cast<LONG_PTR>(&state));
-    struct Cleanup{RuntimeWindowState& state;RuntimeWindowHostWin32& host;const RuntimeUiClock* clock;~Cleanup(){state.frameProbeWin32=nullptr;state.uiClock=clock;if(host.window()){host.attachSession(0);DestroyWindow(host.window());}releaseRuntimeBackBuffer(state.backBuffer);releaseRuntimeBackBuffer(state.sidebarStaticBuffer);releaseRuntimeBackBuffer(state.radarTerrainBuffer);}} cleanup{state,host,oldClock};
+    const char* backend=std::getenv("CONCORD_MAIN_FRAME_BACKEND");
+    const bool s39Matrix=backend&&*backend;
+    const bool gpuRequested=s39Matrix&&std::strcmp(backend,"software")!=0;
+    concord::presentation::win32::D3D11FrameProbeWin32 gpuProbe;
+    if(s39Matrix)require(std::strcmp(backend,"software")==0||std::strcmp(backend,"hardware")==0||std::strcmp(backend,"warp")==0,"invalid diagnostic backend");
+    if(gpuRequested){
+        state.frameBackendRequest={concord::presentation::FrameBackend::D3D11,
+            std::strcmp(backend,"warp")==0?concord::presentation::FrameDevice::Warp:concord::presentation::FrameDevice::Hardware};
+        gpuProbe.captureUpload=true;probe.gpu=&gpuProbe;
+        state.d3d11Presenter=concord::presentation::win32::D3D11FramePresenterWin32::create(window,state.frameBackendRequest,state.softwareFrameCounters,&gpuProbe);
+        require(state.d3d11Presenter&&state.d3d11Presenter->active(),"actual diagnostic GPU backend required");
+        probe.gpuReport=&state.d3d11Presenter->report();
+        state.frameBackendInitialized=true;
+    }
+    struct Cleanup{RuntimeWindowState& state;RuntimeWindowHostWin32& host;const RuntimeUiClock* clock;~Cleanup(){state.d3d11Presenter.reset();state.frameProbeWin32=nullptr;state.uiClock=clock;if(host.window()){host.attachSession(0);DestroyWindow(host.window());}releaseRuntimeBackBuffer(state.backBuffer);releaseRuntimeBackBuffer(state.sidebarStaticBuffer);releaseRuntimeBackBuffer(state.radarTerrainBuffer);}} cleanup{state,host,oldClock};
     RECT work{};SystemParametersInfoW(SPI_GETWORKAREA,0,&work,0);
     SetWindowPos(window,HWND_TOP,work.left+8,work.top+8,0,0,SWP_NOSIZE|SWP_NOACTIVATE|SWP_SHOWWINDOW);
     require(IsWindowVisible(window)!=FALSE,"actual visible product window");
@@ -73,6 +97,12 @@ bool runRuntimeMainFrameContract(RuntimeWindowState& state,std::string& error)tr
     SendMessageW(window,WM_MOUSEMOVE,0,MAKELPARAM(127,163));require(state.mouseClientPointValid&&state.mouseClientPoint.x==127&&state.mouseClientPoint.y==163,"unchanged native client input coordinates");
     HWND other=CreateWindowExW(WS_EX_TOOLWINDOW,L"STATIC",L"Concord focus verification",WS_POPUP|WS_VISIBLE,work.left+820,work.top+8,32,32,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);require(other!=nullptr,"owned focus destination");SetFocus(window);state.forceAttackHeld=true;state.rightPointer.active=true;state.rightPointer.moved=true;SetCapture(window);SetFocus(other);
     const bool focusMoved=GetFocus()==other;DestroyWindow(other);require(focusMoved&&!state.forceAttackHeld&&!state.rightPointer.active&&GetCapture()!=window,"actual focus loss cleared held input/capture");
+    if(s39Matrix){
+        if(gpuRequested){require(state.d3d11Presenter->active()&&state.d3d11Presenter->report().presented>=10&&gpuProbe.readbacks>=10,"all normal production paints actually used GPU");gpuProbe.deviceRemoved=true;}
+        paint("device-loss-fallback",true);
+        if(gpuRequested){require(!state.d3d11Presenter->active()&&state.d3d11Presenter->report().removedReason==DXGI_ERROR_DEVICE_REMOVED,"device removal retires GPU before actual GDI fallback");
+            require(state.d3d11Presenter->timingCount()==0,"diagnostic readbacks excluded from normal timings");}
+    }
     releaseRuntimeBackBuffer(state.completedFrameBuffer);(void)state.fpsDeviceOverlay.release();
     probe.failCompletedAllocation=true;paint("completed-allocation-fallback",true,false);probe.failCompletedAllocation=false;
     releaseRuntimeBackBuffer(state.backBuffer);probe.failSceneAllocation=true;paint("scene-allocation-fallback",true,false);probe.failSceneAllocation=false;

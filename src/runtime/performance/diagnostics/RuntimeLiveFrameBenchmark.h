@@ -128,10 +128,13 @@ public:
 
     void recordPaint(int currentTick, double paintMs, double mapMs,
                      double fogMs, bool rendered, int visibleObjects = 0,
-                     double submissionCpuMs = 0.0, bool visibleSubmission = false) {
+                     double submissionCpuMs = 0.0, bool visibleSubmission = false,
+                     bool d3d11Submission = false) {
         if (!enabled_ || !sampling_ || stopped_
             || currentTick <= warmupEndTick_ || currentTick > targetTick_) return;
         ++paints_;
+        sawD3D11Submission_ = sawD3D11Submission_ || d3d11Submission;
+        sawSoftwareSubmission_ = sawSoftwareSubmission_ || !d3d11Submission;
         const auto paintedAt = Clock::now();
         const double gapMs = seconds(paintedAt - lastPaintedAt_) * 1000.0;
         lastPaintedAt_ = paintedAt;
@@ -317,9 +320,14 @@ public:
             << " maxSimTicksBetweenPaints=" << maxSimulationBatchCount_
             << " maxSimMsBetweenPaints=" << maxSimulationBatchMs_
             << " worldHash=" << worldHash << '\n';
-        std::cout << "Live presentation baseline: backend=software-gdi gpuGameTime=not-applicable"
-            << " gpuUploadBytes=not-applicable dxgiPresent=not-applicable displayFpsMeasured=no"
-            << " submissionApi=BitBlt-or-GdiFlush submissionMeasures=cpu-call-only"
+        std::cout << "Live presentation baseline: backend="
+            << (sawD3D11Submission_ ? (sawSoftwareSubmission_ ? "mixed-software-d3d11" : "d3d11-cpu-frame") : "software-gdi")
+            << " gpuGameTime=not-applicable"
+            << " gpuUploadBytes=" << (sawD3D11Submission_ ? "see-D3D11-owner-report" : "not-applicable")
+            << " dxgiPresent=" << (sawD3D11Submission_ ? "see-D3D11-owner-report" : "not-applicable")
+            << " displayFpsMeasured=no submissionApi="
+            << (sawD3D11Submission_ ? (sawSoftwareSubmission_ ? "mixed" : "DXGI-Present") : "BitBlt-or-GdiFlush")
+            << " submissionMeasures=cpu-composition-and-submit-call"
             << " submissionMeanMs=" << (paints_ ? submissionTotalMs_ / paints_ : 0.0)
             << " submissionMedianMs=" << submissionQuantiles.median
             << " submissionP95Ms=" << submissionQuantiles.p95
@@ -498,6 +506,7 @@ private:
     int visibleSubmissions_ = 0, rejectedVisibleSubmissions_ = 0;
     double submissionTotalMs_ = 0.0, sessionToReadyMs_ = 0.0;
     bool haveVisibleSubmission_ = false;
+    bool sawD3D11Submission_ = false, sawSoftwareSubmission_ = false;
     Clock::time_point sessionBeganAt_{}, lastVisibleAt_{};
     Clock::time_point beganAt_{}, sampleBeganAt_{}, endedAt_{}, lastPaintedAt_{}, lastSegmentActivityAt_{};
 };
