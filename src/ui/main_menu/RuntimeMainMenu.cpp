@@ -16,6 +16,7 @@
 #include "network/lockstep/RuntimeMultiplayerRuntimeBridge.h"
 #include "ui/skirmish/RuntimeSkirmishMenu.h"
 
+#include "core/platform/PathEncoding.h"
 #include <windows.h>
 #include <mmsystem.h>
 
@@ -95,7 +96,7 @@ std::wstring toWide(const std::string& value) {
     UINT page = CP_UTF8;
     DWORD flags = MB_ERR_INVALID_CHARS;
     if (count <= 0) {
-        page = CP_ACP;
+        page = concord::platform::legacyTextCodePage();
         flags = 0;
         count = MultiByteToWideChar(
             page, flags, value.data(), static_cast<int>(value.size()), nullptr, 0

@@ -31,6 +31,7 @@
 #include "audio/events/RuntimeMenuSoundPool.h"
 #include "runtime/performance/RuntimePerfTrace.h"
 
+#include "core/platform/PathEncoding.h"
 #include <windows.h>
 #include <mmsystem.h>
 
@@ -148,7 +149,7 @@ std::wstring utf8ToWide(const std::string& text) {
     UINT codePage = CP_UTF8;
     DWORD flags = MB_ERR_INVALID_CHARS;
     if (count <= 0) {
-        codePage = CP_ACP;
+        codePage = concord::platform::legacyTextCodePage();
         flags = 0;
         count = MultiByteToWideChar(
             codePage,

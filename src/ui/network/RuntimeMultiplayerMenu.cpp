@@ -31,6 +31,7 @@
 #if defined(_WIN32)
 #define NOMINMAX
 #include "runtime/window/win32/RuntimeWindowParentWin32.h"
+#include "core/platform/PathEncoding.h"
 #include <windows.h>
 #include <bcrypt.h>
 #include <commdlg.h>
@@ -1063,7 +1064,7 @@ std::wstring wideFromUtf8(const std::string& value) {
     UINT codePage = CP_UTF8;
     DWORD flags = MB_ERR_INVALID_CHARS;
     if (count <= 0) {
-        codePage = CP_ACP;
+        codePage = concord::platform::legacyTextCodePage();
         flags = 0U;
         count = MultiByteToWideChar(
             codePage,
