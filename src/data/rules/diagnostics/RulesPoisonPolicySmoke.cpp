@@ -1,8 +1,10 @@
 #include "core/io/IniFile.h"
+#include "core/platform/PathEncoding.h"
 #include "data/rules/RulesDatabase.h"
 
 #include <iostream>
 #include <string>
+#include <vector>
 
 namespace {
 bool expect(bool condition, const std::string& message) {
@@ -214,11 +216,13 @@ bool stockContract(const std::string& path) {
 } // namespace
 
 int main(int argc, char** argv) {
-    if (argc != 2) {
+    (void)concord::platform::enableUtf8NarrowEncoding();
+    std::vector<std::string> arguments = concord::platform::utf8Arguments(argc, argv);
+    if (arguments.size() != 2) {
         std::cerr << "usage: concord_rules_poison_policy_smoke <original rulesmd.ini>\n";
         return 2;
     }
-    if (!syntheticContract() || !stockContract(argv[1])) return 1;
+    if (!syntheticContract() || !stockContract(arguments[1])) return 1;
     std::cout << "Poison rules policy passed: renamed/list/discovered/default/explicit-no/yes, "
         "unit/building immunity, three independent fingerprints, stock declarations preserved\n";
     return 0;

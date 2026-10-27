@@ -1,4 +1,5 @@
 #include "runtime/host/RuntimeShell.h"
+#include "core/platform/PathEncoding.h"
 #include "data/campaign/CampaignDatabase.h"
 #include "ui/main_menu/RuntimeMainMenu.h"
 #include "ui/campaign/RuntimeCampaignMenu.h"
@@ -11,11 +12,15 @@
 
 #include <iostream>
 #include <string>
+#include <vector>
 
 #ifdef _WIN32
 #include <cstdio>
 #include <cstdlib>
 #include <io.h>
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #endif
 
@@ -715,6 +720,9 @@ int runRuntimeWindowWithMultiplayerFailureRecovery(
 }
 
 int runRuntimeApplication(int argc, char** argv) {
+    // Pin the narrow encoding before any path is built: the runtime stores UTF-8
+    // paths, so the CRT locale has to agree with that choice for std::filesystem.
+    (void)concord::platform::enableUtf8NarrowEncoding();
     enableRuntimeDpiAwareness();
     RuntimeCommandLine commandLine = parseRuntimeCommandLine(argc, argv);
 
@@ -946,6 +954,9 @@ int runRuntimeApplication(int argc, char** argv) {
 
 #ifdef _WIN32
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
+    // Pin the UTF-8 narrow encoding before the CRT hands over ANSI-code-page
+    // bytes, so a path such as D:\Games\红警2 resolves correctly.
+    (void)concord::platform::enableUtf8NarrowEncoding();
     // Reuse a developer's console when present, but never create one for a
     // shortcut launch. Keep redirected stdout/stderr intact for smoke tests.
     if (AttachConsole(ATTACH_PARENT_PROCESS)) {
@@ -958,11 +969,21 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
             freopen_s(&consoleStream, "CONOUT$", "w", stderr);
             std::cerr.clear();
         }
+        concord::platform::enableUtf8ConsoleOutput();
     }
-    return runRuntimeApplication(__argc, __argv);
+    std::vector<std::string> arguments = concord::platform::utf8Arguments(__argc, __argv);
+    std::vector<char*> argumentPointers = concord::platform::argumentPointers(arguments);
+    return runRuntimeApplication(
+        static_cast<int>(argumentPointers.size()),
+        argumentPointers.data());
 }
 #else
 int main(int argc, char** argv) {
-    return runRuntimeApplication(argc, argv);
+    (void)concord::platform::enableUtf8NarrowEncoding();
+    std::vector<std::string> arguments = concord::platform::utf8Arguments(argc, argv);
+    std::vector<char*> argumentPointers = concord::platform::argumentPointers(arguments);
+    return runRuntimeApplication(
+        static_cast<int>(argumentPointers.size()),
+        argumentPointers.data());
 }
 #endif

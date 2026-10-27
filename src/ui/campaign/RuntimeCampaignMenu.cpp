@@ -14,6 +14,7 @@
 #include "render/core/RuntimeMapRenderer.h"
 #include "ui/skirmish/RuntimeSkirmishMenu.h"
 
+#include "core/platform/PathEncoding.h"
 #include <windows.h>
 #include <mmsystem.h>
 
@@ -87,7 +88,7 @@ std::wstring widen(const std::string& value) {
     UINT codePage = CP_UTF8;
     DWORD flags = MB_ERR_INVALID_CHARS;
     if (count <= 0) {
-        codePage = CP_ACP;
+        codePage = concord::platform::legacyTextCodePage();
         flags = 0;
         count = MultiByteToWideChar(
             codePage,

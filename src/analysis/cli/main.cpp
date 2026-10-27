@@ -1,5 +1,6 @@
 #include "data/art/ArtDatabase.h"
 #include "assets/inspection/AssetInspector.h"
+#include "core/platform/PathEncoding.h"
 #include "assets/audio/AudioCatalog.h"
 #include "assets/audio/AudioSampleResolver.h"
 #include "analysis/sandbox/AiTriggerSandbox.h"
@@ -2331,9 +2332,16 @@ static int extractMapObjectArtFiles(
 }
 
 int main(int argc, char** argv) {
+    // Paths on the command line arrive as ANSI code page bytes; the rest of the
+    // CLI stores UTF-8.
+    (void)concord::platform::enableUtf8NarrowEncoding();
     configureCommandLineErrorReporting();
 
-    const CommandLineOptions options = parseCommandLine(argc, argv);
+    std::vector<std::string> arguments = concord::platform::utf8Arguments(argc, argv);
+    std::vector<char*> argumentPointers = concord::platform::argumentPointers(arguments);
+    const CommandLineOptions options = parseCommandLine(
+        static_cast<int>(argumentPointers.size()),
+        argumentPointers.data());
 
     if (options.showHelp) {
         printHelp(std::cout, options.programName);

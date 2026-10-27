@@ -41,9 +41,9 @@ std::size_t raster(const tasks::JobContext& context) {
     auto* vplSections = planes + Vpl * count;
     auto* depthLevels = planes + Depth * count;
     auto* shadowPixels = planes + ShadowPixels * count;
-    std::fill_n(lightLevels, count, 192);
-    std::fill_n(normalBrightnessLevels, count, 128);
-    std::fill_n(vplSections, count, 255);
+    std::fill_n(lightLevels, count, static_cast<unsigned char>(192));
+    std::fill_n(normalBrightnessLevels, count, static_cast<unsigned char>(128));
+    std::fill_n(vplSections, count, static_cast<unsigned char>(255));
     Output result{};
     const auto putShadowPixel = [&](int x, int y, unsigned char strength) {
         if (x < 0 || y < 0 || x >= width || y >= height) return;
