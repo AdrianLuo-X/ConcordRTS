@@ -6,6 +6,7 @@
 #include "ui/network/RuntimeInternetMultiplayerMenu.h"
 #include "network/lockstep/RuntimeMultiplayerRuntimeBridge.h"
 #include "ui/skirmish/RuntimeSkirmishMenu.h"
+#include "ui/skirmish/RuntimeSkirmishSetup.h"
 #include "simulation/superweapons/SuperWeaponSystem.h"
 
 #include <iostream>
@@ -42,6 +43,7 @@ void enableRuntimeDpiAwareness() {
 }
 
 struct RuntimeCommandLine {
+    std::string skirmishWindow = "win32";
     RuntimeConfigOverrides overrides;
     bool showHelp = false;
     bool smokeTest = false;
@@ -362,6 +364,16 @@ RuntimeCommandLine parseRuntimeCommandLine(int argc, char** argv) {
             continue;
         }
 
+        if (argument == "--skirmish-window") {
+            if (!readRequiredValue(argc, argv, index, "--skirmish-window",
+                    commandLine.skirmishWindow, commandLine.errorMessage)) return commandLine;
+            if (commandLine.skirmishWindow != "win32" && commandLine.skirmishWindow != "sdl3") {
+                commandLine.errorMessage = "--skirmish-window requires win32 or sdl3";
+                return commandLine;
+            }
+            continue;
+        }
+
         if (argument == "--skirmish-ui-smoke-test") {
             if (!readRequiredValue(
                     argc,
@@ -635,6 +647,7 @@ void printRuntimeHelp(const std::string& programName) {
     std::cout << "  --internet-menu-skin-smoke-test <bmp>\n";
     std::cout << "                         Validate and render the original WOL/observer/rank PCX skin.\n";
     std::cout << "  --skirmish-ui-smoke-test <bmp>\n";
+    std::cout << "  --skirmish-window <win32|sdl3>  Select the standalone skirmish window (game window stays Win32).\n";
     std::cout << "                         Render and validate the interactive skirmish setup screen offscreen.\n";
     std::cout << "  --main-menu-ui-smoke-test <bmp>\n";
     std::cout << "                         Render and validate the original 800x600 Yuri's Revenge shell.\n";
@@ -900,6 +913,15 @@ int runRuntimeApplication(int argc, char** argv) {
         return runRuntimeVoxelAtlasDump(config, commandLine.vxlAtlasObjects);
     }
 
+    if (commandLine.skirmishWindow == "sdl3") {
+        std::string error;
+        const auto selection = runRuntimeSkirmishMenuSdl3(config, error);
+        if (!error.empty()) { std::cerr << "Skirmish window: " << error << '\n'; return 1; }
+        if (!selection.accepted) return 0;
+        applyRuntimeSkirmishSelection(config, selection);
+        config.showMainMenu = false;
+        config.showSkirmishMenu = false;
+    }
     return runRuntimeWindowWithMultiplayerFailureRecovery(config);
 }
 

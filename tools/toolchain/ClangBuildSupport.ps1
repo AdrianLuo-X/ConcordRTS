@@ -120,6 +120,19 @@ function New-ClangStage([string]$Stage,[string]$Runtime,[string]$Helper,[string]
     $sources=@{'concord_runtime.exe'=$Runtime;'BinkFrameExtractor.exe'=$Helper}
     $edges=New-Object 'Collections.Generic.List[object]';$inspected=@{};$pending=New-Object 'Collections.Generic.Queue[string]'
     $pending.Enqueue('concord_runtime.exe');$pending.Enqueue('BinkFrameExtractor.exe')
+    # P11 is optional for the reference backend. When explicitly compiled in,
+    # stage its independently built C DLL and inspect its real imports too.
+    $sdl=$null
+    $productCache=Read-ClangCache (Split-Path -Parent $Runtime)
+    if($productCache.CONCORD_ENABLE_SDL3_WINDOW -eq 'ON'){
+        $dependencyFile=Join-Path (Split-Path -Parent $Runtime) 'sdl3-dependency.json'
+        if(!(Test-Path -LiteralPath $dependencyFile)){throw 'Build the pinned optional SDL3 dependency first with tools/dependencies/Build-Sdl3.ps1'}
+        $sdl=Get-Content -LiteralPath $dependencyFile -Raw|ConvertFrom-Json
+        if($sdl.version -ne '3.4.16' -or $sdl.archiveSha256 -ne '5F399FDFBC040169EF4418A3CB99CCC5A0641681F7CCC1DA66EEEC3C97FA4076' -or (Get-ClangSha $sdl.dll) -ne $sdl.sha256 -or
+            (Get-ClangSha $sdl.archive) -ne $sdl.archiveSha256 -or (Get-ClangSha $sdl.license) -ne $sdl.licenseSha256 -or !$sdl.notices -or (Get-ClangSha $sdl.notices) -ne $sdl.noticesSha256){throw 'SDL dependency identity changed'}
+        foreach($file in $sdl.sourceHashes){if((Get-ClangSha $file.path) -ne $file.sha256){throw ('SDL dependency source changed: '+$file.path)}}
+        $sources['SDL3.dll']=$sdl.dll;$pending.Enqueue('SDL3.dll')
+    }
     while($pending.Count){
         $name=$pending.Dequeue();if($inspected.ContainsKey($name)){continue};$inspected[$name]=$true
         $source=$sources[$name];$machine=Get-ClangPEMachine $source
@@ -145,9 +158,21 @@ function New-ClangStage([string]$Stage,[string]$Runtime,[string]$Helper,[string]
         $sha=Get-ClangSha $sources[$name];if($sha -ne (Get-ClangSha $dest)){throw "Stage hash mismatch: $name"}
         [ordered]@{name=$name;source=$sources[$name];staged=$dest;sha256=$sha;machine=Get-ClangPEMachine $dest}
     })
+    if($sdl){
+        $licenseName='SDL3-LICENSE.txt';$dest=Join-Path $Stage $licenseName
+        Copy-Item -LiteralPath $sdl.license -Destination $dest
+        if((Get-ClangSha $dest) -ne $sdl.licenseSha256){throw 'SDL license stage mismatch'}
+        $files+=@([ordered]@{name=$licenseName;source=$sdl.license;staged=$dest;sha256=$sdl.licenseSha256;machine=0})
+        $noticeName='SDL3-NOTICES.txt';$noticeDest=Join-Path $Stage $noticeName
+        Copy-Item -LiteralPath $sdl.notices -Destination $noticeDest
+        if((Get-ClangSha $noticeDest) -ne $sdl.noticesSha256){throw 'SDL third-party notice stage mismatch'}
+        $files+=@([ordered]@{name=$noticeName;source=$sdl.notices;staged=$noticeDest;sha256=$sdl.noticesSha256;machine=0})
+        Copy-Item -LiteralPath $dependencyFile -Destination (Join-Path $Stage 'sdl3-dependency.json')
+    }
     $bink=Join-Path $projectRoot 'RedAlert2/GameMD/Binkw32.dll'
     $dynamic=@([ordered]@{name='Binkw32.dll';architecture='x86';kind='user-game-asset';source=$bink;available=(Test-Path -LiteralPath $bink);sha256=$(if(Test-Path -LiteralPath $bink){Get-ClangSha $bink});distributed=$false},
         [ordered]@{name='xaudio2_9.dll';architecture='x64';kind='Windows-system-dynamic';source=(Join-Path $env:SystemRoot 'System32/xaudio2_9.dll');distributed=$false})
+    if($sdl){$dynamic+=@([ordered]@{name='SDL3.dll';architecture='x64';kind='optional-window-provider';source=$sdl.dll;sha256=$sdl.sha256;version=$sdl.version;archiveSha256=$sdl.archiveSha256;licenseSha256=$sdl.licenseSha256;noticesSha256=$sdl.noticesSha256;distributed=$true;load='adjacent executable directory only; no Win32 reference dependency'})}
     return [ordered]@{schema=2;toolchain='clang-cl';builtAtUtc=[DateTime]::UtcNow.ToString('o');sourceRoot=$projectRoot;buildDirectory='';configuration='Release';stage=$Stage;parallel=1;
         files=$files;imports=@($edges.ToArray());dynamicDependencies=$dynamic;components=@{};cacheSha256='';helperCacheSha256='';commands=@();
         sourceHashes=@(Get-ChildItem -LiteralPath (Join-Path $projectRoot 'src'),(Join-Path $projectRoot 'cmake') -File -Recurse | Sort-Object FullName | ForEach-Object {[ordered]@{path=$_.FullName;sha256=Get-ClangSha $_.FullName}})}

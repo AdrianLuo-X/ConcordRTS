@@ -258,6 +258,24 @@ class GuardFixtures(unittest.TestCase):
         self.put("tools/Build.ps1", "$tool='C:\\Microsoft Visual Studio\\VC\\cl.exe'\n")
         self.assertIn("hardcoded-vs-path", self.rules())
 
+    def test_software_window_reuses_only_frame_and_pixel_values(self):
+        self.software_frame_fixture()
+        self.put("src/runtime/window/RuntimeSoftwareWindow.h", '#include "runtime/presentation/SoftwareFrame.h"\n')
+        report = self.scan({"software-window": ["src/runtime/window/RuntimeSoftwareWindow.h"]})
+        self.assertFalse(any(f["rule"].startswith("protected-") or f["rule"].startswith("software-window-") for f in report["findings"]))
+
+    def test_software_window_cannot_expose_sdl_device(self):
+        self.put("src/runtime/window/RuntimeSoftwareWindow.h", "struct SDL_Window; SDL_Window* device;\n")
+        report = self.scan({"software-window": ["src/runtime/window/RuntimeSoftwareWindow.h"]})
+        self.assertIn("software-window-device-or-live-state", {f["rule"] for f in report["findings"]})
+
+    def test_software_window_transitive_native_or_host_rejected(self):
+        self.put("src/runtime/window/RuntimeSoftwareWindow.h", '#include "runtime/host/Hidden.h"\n')
+        self.put("src/runtime/host/Hidden.h", "HDC device; GameWorld* world;\n")
+        report = self.scan({"software-window": ["src/runtime/window/RuntimeSoftwareWindow.h"]})
+        rules = {f["rule"] for f in report["findings"]}
+        self.assertTrue({"software-window-dependency", "software-window-device-or-live-state", "protected-platform", "protected-dependency"}.issubset(rules))
+
     def test_unguarded_frontend_flags(self):
         self.put("cmake/Flags.cmake", 'if(MSVC)\n target_compile_options(t PRIVATE /WX)\nendif()\n')
         self.assertIn("unguarded-frontend-flags", self.rules())

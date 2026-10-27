@@ -5,6 +5,8 @@
 
 #include "ui/skirmish/RuntimeSkirmishMenu.h"
 #include "runtime/menu/RuntimeSkirmishController.h"
+#include "runtime/window/RuntimeSoftwareWindow.h"
+#include <cstdlib>
 #include "runtime/host/RuntimeUiClockWin32.h"
 #include "ui/audio/RuntimeSkirmishMusicPolicy.h"
 #include "audio/menu/win32/RuntimeSkirmishMusicWin32.h"
@@ -913,6 +915,8 @@ struct MenuState : RuntimeSkirmishServices, RuntimeSkirmishController {
 
 
 
+    concord::window::SoftwareWindow* softwareWindow = nullptr;
+    std::string softwareFailure;
     HWND hwnd = nullptr;
 
 
@@ -1414,7 +1418,7 @@ void resetMenuForEntry(MenuState& state, const RuntimeConfig& config) {
     resetControllerForEntry(state, config);
 }
 
-bool initializeState(MenuState& state, const RuntimeConfig& config, bool smoke) {
+bool initializeState(MenuState& state, const RuntimeConfig& config, bool smoke, bool nativeFonts = true) {
     RuntimePerfTraceScope initializeTrace("skirmish.initialize", 0);
     state.config = config;
     state.resourceWatch = std::make_unique<RuntimeMenuResourceWatch>(config);
@@ -1632,7 +1636,7 @@ bool initializeState(MenuState& state, const RuntimeConfig& config, bool smoke) 
         fs::path(config.localDataRootPath) / "soundmd.ini"
     });
     state.audio.initialize(soundPath);
-    initializeFonts(state);
+    if (nativeFonts) initializeFonts(state);
     state.initialized = !state.maps.empty() && shellLoaded && state.gameFont.valid();
     return state.initialized;
 }
@@ -3961,9 +3965,9 @@ void synchronizeShellMouse(MenuState& state, HWND window) {
 void MenuState::requestRepaint() { invalidate(*this); }
 void MenuState::playSound(const std::string& event, bool beep) { audio.play(event, beep); }
 void MenuState::stopMusic() { audio.stopMusic(); }
-std::uint64_t MenuState::nowMs() const { return GetTickCount64(); }
-void MenuState::destroyWindow() { if(hwnd != nullptr && IsWindow(hwnd)) DestroyWindow(hwnd); }
-void MenuState::prewarmMainMenu() { prewarmRuntimeMainMenu(config, hwnd == nullptr ? nullptr : GetParent(hwnd)); }
+std::uint64_t MenuState::nowMs() const { return softwareWindow ? softwareWindow->nowMs() : GetTickCount64(); }
+void MenuState::destroyWindow() { if(softwareWindow) softwareWindow->close(); else if(hwnd != nullptr && IsWindow(hwnd)) DestroyWindow(hwnd); }
+void MenuState::prewarmMainMenu() { if(!softwareWindow) prewarmRuntimeMainMenu(config, hwnd == nullptr ? nullptr : GetParent(hwnd)); }
 bool MenuState::saveCratePreference(const RuntimeConfig& c, bool value, std::string& error) { return saveRuntimeSkirmishCratePreference(c,value,error); }
 bool MenuState::saveNoCooldownPreference(const RuntimeConfig& c, bool value, std::string& error) { return saveRuntimeSkirmishNoCooldownPreference(c,value,error); }
 bool MenuState::ensurePreview(int index) { return ::ensurePreview(*this,index); }
@@ -3977,12 +3981,19 @@ const CooperativeScenarioDefinition* MenuState::cooperativeScenario(const std::s
 bool MenuState::generatedMapFile(const std::string& file) const { RuntimeRandomMapOptions options; return runtimeRandomMapOptionsFromFileName(file,options); }
 int MenuState::sliderGripWidth() const { return trackGrip.valid() ? trackGrip.width : 12; }
 bool MenuState::cursorAvailable() const { return mouse.valid(); }
-bool MenuState::activateRandomTarget(HitTarget target, int direction) { return activateRandomMapTarget(*this,target,direction); }
+bool MenuState::activateRandomTarget(HitTarget target, int direction) {
+    if(softwareWindow) {
+        const bool randomTarget = target.kind >= HitKind::CreateRandomMap && target.kind <= HitKind::RandomCancel;
+        if(randomTarget) { status=L"此窗口暂不支持随机地图编辑，请返回原窗口使用。"; concord::skirmish::invalidate(*this); }
+        return randomTarget;
+    }
+    return activateRandomMapTarget(*this,target,direction);
+}
 bool MenuState::randomMapReady() const { return randomResult.has_value() && !randomDirty; }
 void MenuState::warnInvalidSelection() { MessageBeep(MB_ICONWARNING); }
-void MenuState::focus() { SetFocus(hwnd); }
-void MenuState::capture() { SetCapture(hwnd); }
-void MenuState::releaseCaptureIfOwned() { if(GetCapture()==hwnd) ReleaseCapture(); }
+void MenuState::focus() { if(softwareWindow) { if(!softwareWindow->focus()) softwareFailure=softwareWindow->error(); } else SetFocus(hwnd); }
+void MenuState::capture() { if(softwareWindow) { if(!softwareWindow->capture()) softwareFailure=softwareWindow->error(); } else SetCapture(hwnd); }
+void MenuState::releaseCaptureIfOwned() { if(softwareWindow) softwareWindow->releaseCapture(); else if(GetCapture()==hwnd) ReleaseCapture(); }
 
 LRESULT CALLBACK shellSkirmishWindowProc(
     HWND window,
@@ -4200,6 +4211,7 @@ HWND createShellSkirmishWindow(
 }
 
 #include "ui/skirmish/diagnostics/RuntimeSkirmishCursorSmoke.inl"
+#include "ui/skirmish/RuntimeSkirmishSoftwareWindow.inl"
 
 } // namespace
 
@@ -4387,6 +4399,10 @@ std::string runtimeLoadingBriefKeyForCountry(const std::string& countryId) {
     return "";
 }
 
+RuntimeSkirmishSelection runRuntimeSkirmishMenuSdl3(const RuntimeConfig& config, std::string& error) {
+    return runSdlSkirmishMenu(config,error);
+}
+
 void prewarmRuntimeSkirmishMenu(const RuntimeConfig& config) {
     if (pendingMenuState.valid()) return;
     if (prewarmedMenuState != nullptr && prewarmedMenuState->initialized
@@ -4524,11 +4540,14 @@ RuntimeSkirmishSelection runRuntimeSkirmishMenu(
 #include "ui/skirmish/diagnostics/RuntimeSkirmishWindowLifecycleSmoke.inl"
 #include "ui/skirmish/diagnostics/RuntimeSkirmishPixelSurfaceSmoke.inl"
 #include "audio/menu/diagnostics/RuntimeSkirmishMusicClockSmoke.inl"
+#include "ui/skirmish/diagnostics/RuntimeSecondWindowContract.inl"
 
 int runRuntimeSkirmishMenuSmokeTest(
     const RuntimeConfig& config,
     const std::string& bmpPath
 ) {
+    if (const char* output = std::getenv("CONCORD_SECOND_WINDOW_CONTRACT_OUTPUT"))
+        return runSecondWindowContract(config, fs::path(output));
     if (std::getenv("CONCORD_SKIRMISH_MUSIC_CLOCK_ONLY"))
         return runSkirmishMusicClockSmoke(fs::path(bmpPath));
     if (std::getenv("CONCORD_SKIRMISH_WINDOW_LIFECYCLE_ONLY"))

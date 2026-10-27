@@ -47,6 +47,7 @@ SOFTWARE_FRAME_VALUES = {
     "src/ui/values/RuntimeColorValues.h",
 }
 DEFAULT_MODULES = {
+    "software-window": ["src/runtime/window/RuntimeSoftwareWindow.h"],
     "software-frame": ["src/runtime/presentation/SoftwareFrame.h"],
     "path-candidate-task": ["src/simulation/navigation/pathfinding/PathGoalCandidateTask.h","src/simulation/navigation/pathfinding/PathGoalCandidateTask.cpp","src/simulation/navigation/pathfinding/PathGoalCandidates.h","src/simulation/navigation/pathfinding/PathGoalCandidates.cpp"],
     "bounded-tasks": ["src/core/tasks/BoundedTaskExecutor.h",
@@ -241,6 +242,12 @@ def scan(root, build, inventory, trace, modules=None):
                 add("protected-module-missing", start, module)
                 continue
             for target, witness in closure(graph, start).items():
+                if module == "software-window":
+                    allowed = set(roots) | SOFTWARE_FRAME_VALUES | {"src/runtime/presentation/SoftwareFrame.h"}
+                    if target not in allowed:
+                        add("software-window-dependency", start, target, witness=witness)
+                    if re.search(r'\b(?:SDL_Window|SDL_Event|SDL_Surface|GameWorld|WorldObjectInstance|RuntimeMapRenderCache|renderCache)\b', code_views.get(target, "")):
+                        add("software-window-device-or-live-state", start, target, witness=witness)
                 if module == "software-frame":
                     if target not in roots and target not in SOFTWARE_FRAME_VALUES:
                         add("software-frame-dependency", start, target, witness=witness)
@@ -263,7 +270,7 @@ def scan(root, build, inventory, trace, modules=None):
                                  code_views.get(target, "")):
                         add("task-executor-live-state", start, target, witness=witness)
                 if target.startswith(FORBIDDEN_PREFIXES) and not (
-                        module == "software-frame" and target in SOFTWARE_FRAME_VALUES):
+                        module in ("software-frame", "software-window") and target in SOFTWARE_FRAME_VALUES):
                     add("protected-dependency", start, module + ":" + target, witness=witness)
                 for detail in platform.get(target, ()):
                     add("protected-platform", start, module + ":" + target + ":" + detail, witness=witness)

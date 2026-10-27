@@ -1,0 +1,11 @@
+{
+  "name": "SDL3",
+  "version": "3.4.16",
+  "source": "https://github.com/libsdl-org/SDL/releases/download/release-3.4.16/SDL3-3.4.16.zip",
+  "sha256": "5F399FDFBC040169EF4418A3CB99CCC5A0641681F7CCC1DA66EEEC3C97FA4076",
+  "license": "zlib",
+  "scope": "optional Windows x64 skirmish window, events and software window surface",
+  "binary": "source-built clang-cl C ABI, /MD, matching selected LLVM/MSVC/SDK components",
+  "preparation": "explicit project-local source supply; Build-Sdl3.ps1 does not download or install",
+  "runtime": "adjacent SDL3.dll only; Win32 reference does not import or require SDL"
+}

@@ -8,7 +8,7 @@ ConcordRTS 是使用 C++20 开发的 RTS 引擎工程，面向《命令与征服
 
 ## 功能与开发状态
 
-源码包含遭遇战、AI、战役、局域网与互联网联机、观战、存档与联机恢复，以及规则分析、地图解析、资源读取和导出工具。
+源码包含遭遇战、AI、战役、局域网与互联网联机、观战、存档与联机恢复，以及规则分析、地图解析、资源读取和导出工具。遭遇战菜单可选择 Win32 或可选的 SDL3 软件窗口，开始战局后使用原 Win32 游戏窗口。
 
 另提供独立核心构建，支持在不创建窗口、图形、音频和视频后端的情况下构建所选实际生产模块。已验证的核心环境为 Windows Clang；文件和 LAN 仍保留私有操作系统适配，不表示整个游戏已完成跨平台运行。
 
@@ -18,12 +18,17 @@ ConcordRTS 是使用 C++20 开发的 RTS 引擎工程，面向《命令与征服
 
 ### 2026-10-27
 
+- 增加可选的 SDL3 遭遇战菜单窗口，复用大厅、地图选择、槽位设置及确认、取消流程；确认后进入原 Win32 战局，默认窗口仍为 Win32。
+- 提供类型化的软件窗口与事件接口，菜单通过完整软件帧接口同步呈现；补充客户区像素坐标转换、缩放、鼠标捕获、焦点与关闭处理。
+- 固定 SDL3 依赖版本、源码校验与本机构建入口，按需加载程序旁的 DLL，并将依赖来源、许可与通知文件纳入部署校验。
+- 完成两种窗口所选菜单场景的画面、控制器状态、输入与生命周期对照，验证确认后进入战局；扩充真实窗口合同与结构检查。当前范围仅为 Windows 上的位图遭遇战菜单，主战局绘制与菜单音频继续使用已有实现。
+
 - 将初始寻路目标候选计算接入有界执行器，先逐项对照同步结果，再按固定消费顺序采用结果；输入和输出独立持有，失败时使用相同输入同步计算，保留原搜索、队列、随机数与逻辑预算。
 - 提供 `reference / shadow / parallel` 模式与 `0 / 1 / 2 / 4` 工作数选择。普通运行默认仍为 `reference`，并行仅作用于初始候选内核，现有测量不足以支持默认提速结论。
 - 提取主窗口像素视图、后台缓冲所有权及 `SoftwareFrameView / FramePresenter` 接口，交付包含地图、界面、FPS 和软件鼠标的完整软件帧。
 - 保留缓存及暂停画面的场景版本，区分提交尝试与实际成功；仅在原生绘制完成后同步借出像素，保留资源不足时的原 GDI 回退路径。
 - 完成所选候选顺序、完整状态与保存文本、实际保存载入、回放、切图及双进程联机对照；补充完整画面、输入、窗口生命周期与资源失败合同，扩充结构检查。
-- 当前呈现仍为 Windows GDI，字体组成仍使用私有窗口设备适配。既有矿物生成器动画及部分场景深度、地面残骸复合检查失败继续保留，所选合同通过不代表全部渲染已通过。
+- 主战局呈现仍为 Windows GDI，字体组成仍使用私有窗口设备适配。既有矿物生成器动画及部分场景深度、地面残骸复合检查失败继续保留，所选合同通过不代表全部渲染已通过。
 
 - 根据本项目的功能需求，重新实现 SHP 图像解码、辅助动画帧选择、恐慌反应、开火临时视野与等级视野倍率相关逻辑，保留既有玩法、规则参数和消费者接口。
 - 将 SHP 帧记录、行数据范围与像素展开分开处理，保留预览和运行时的兼容策略；辅助动画集中处理帧范围、往返循环、播放节奏与整数边界。
@@ -141,7 +146,8 @@ ConcordRTS/
 │   ├── runtime/                    运行时配置与游戏宿主
 │   │   ├── config/                 配置类型、解析与命令行覆盖
 │   │   ├── contracts/              回放事件与菜单选择数据
-│   │   ├── window/                 窗口标识、生命周期与私有原生适配
+│   │   ├── window/                 窗口标识、生命周期与软件窗口接口
+│   │   │   └── sdl3/               可选 SDL3 窗口、事件与软件呈现
 │   │   ├── menu/                   遭遇战菜单控制器与同步服务
 │   │   ├── persistence/            保存、加载与恢复一致性诊断
 │   │   ├── replay/                 回放封包与宿主恢复内核
@@ -161,7 +167,7 @@ ConcordRTS/
 │   │   │   └── win32/              主窗口后台缓冲与像素借用
 │   │   ├── text/                   遭遇战位图文字测量与绘制
 │   │   ├── audio/                  菜单音乐启停与重播策略
-│   │   ├── skirmish/               遭遇战菜单接入与私有 GDI 缓冲
+│   │   ├── skirmish/               遭遇战菜单、软件窗口接入与原生缓冲
 │   │   └── sidebar/                侧栏分页与滚轮控制
 │   ├── audio/                      音频播放、空间音效与世界音频
 │   │   └── menu/                   菜单音乐设备与私有 Windows 实现
@@ -194,7 +200,8 @@ ConcordRTS/
 │   └── audio/                      音频解码、混音与反馈检查
 ├── tools/                          构建与开发工具源码
 │   ├── Build-Game.ps1              默认 Clang 构建，兼容显式 MSVC 参考
-│   ├── testing/                    测试清单、分层执行与结果汇总
+│   ├── testing/                    测试清单、分层执行与真实窗口合同
+│   ├── dependencies/               可选 SDL3 源码锁文件与本机构建脚本
 │   ├── structure/                  结构检查器、精确基线与合成夹具
 │   ├── toolchain/                  Clang 配置、构建、依赖与部署工具
 │   │   ├── Build-WindowsClang.ps1   Clang 产品构建与部署
@@ -214,6 +221,9 @@ ConcordRTS/
 │   ├── GrandCannonPrewarmContracts.cmake  巨炮光栅与预热库接入
 │   ├── PathGoalCandidateTaskContracts.cmake  候选任务库与测试接入
 │   ├── SoftwareFrameContracts.cmake  完整软件帧与呈现适配接入
+│   ├── Sdl3Window.cmake             可选 SDL3 软件窗口接入，默认关闭
+│   ├── RunSecondWindowNative.cmake  真实菜单窗口合同执行入口
+│   ├── dependencies/               第三方依赖的工具链配置
 │   ├── CoreTargets.cmake           独立核心的实际目标与生产库
 │   ├── CoreTestSuite.cmake         核心测试集合与串行检查入口
 │   ├── ProfiledLeaf.cmake          按消费者编译约定建立静态库
@@ -289,6 +299,41 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-Game.ps1
 `-ValidateOnly` 只检查已有配置，不配置、构建或部署；`-StageOnly` 会构建并准备隔离产物，完成校验后不部署到 `bin/`。构建记录、阶段产物和程序均留在本机，不属于源码发布内容。
 
 `bin/` 内的运行库来自选定的 Microsoft CRT 分发源。视频桥接源码不包含 `Binkw32.dll` 或影片数据；播放视频时由使用者自行提供本地游戏所需文件。
+
+### 可选 SDL3 遭遇战菜单窗口
+
+普通构建默认关闭 `CONCORD_ENABLE_SDL3_WINDOW`，无需 SDL3。要启用此窗口，先完成上面的 Clang Release 首次构建，再按 [依赖锁文件](tools/dependencies/sdl3.lock.json) 中的官方地址、版本和 SHA-256 自行准备未经修改的 SDL3 3.4.16 ZIP 与解压目录：
+
+```text
+build/dependencies/sdl3-3.4.16/SDL3-3.4.16.zip
+build/dependencies/sdl3-3.4.16/SDL3-3.4.16/
+```
+
+[Build-Sdl3.ps1](tools/dependencies/Build-Sdl3.ps1) 复用已选游戏工具链，先核对压缩包和解压文件，再从源码构建依赖；它不下载或安装依赖。沿用首次构建中的工具路径变量，从仓库根目录执行：
+
+```powershell
+$gameBuild = 'build/clang-cl-x64-release'
+& $winPs -NoProfile -ExecutionPolicy Bypass -File .\tools\dependencies\Build-Sdl3.ps1 -GameBuildDirectory $gameBuild
+if ($LASTEXITCODE -ne 0) { throw 'SDL3 依赖构建失败。' }
+
+& $cmakeExe -S . -B $gameBuild -DCONCORD_ENABLE_SDL3_WINDOW=ON
+if ($LASTEXITCODE -ne 0) { throw 'SDL3 窗口配置失败。' }
+
+& $winPs -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-Game.ps1 -BuildDirectory $gameBuild
+if ($LASTEXITCODE -ne 0) { throw '游戏构建或部署失败。' }
+```
+
+使用自定义依赖源码目录时，必须位于工程内，同时向依赖脚本传入 `-SourceDirectory`，并将 CMake 的 `CONCORD_SDL3_SOURCE_ROOT` 设为同一目录；ZIP 仍需位于该源码目录的父目录。游戏部署会校验并携带 `SDL3.dll`、`SDL3-LICENSE.txt` 和 `SDL3-NOTICES.txt`。运行时只从程序所在目录加载匹配版本的 DLL。
+
+准备本地游戏资源后，从仓库根目录选择窗口：
+
+```powershell
+.\bin\concord_runtime.exe --skirmish-window sdl3
+```
+
+`--skirmish-window win32` 为默认选择。SDL3 入口仅接管独立的位图遭遇战菜单；确认后由既有配置映射进入 Win32 战局，取消则退出。未启用依赖或 DLL 不可用时会明确报错。菜单音频仍使用现有 Windows 设备实现，当前窗口不提供系统字体绘制、D3D、SDL Renderer、嵌入式父窗口或原生随机地图编辑器。
+
+此仓库只包含本项目的适配源码、锁文件和构建脚本；上述第三方源码、压缩包、DLL 与本机构建记录均不随源码包分发。
 
 ### 独立核心构建
 
@@ -432,13 +477,19 @@ pwsh -NoProfile -File .\tools\testing\Run-LocalTests.ps1 -Compiler Clang -BuildD
 
 `-StructureOnly` 单独执行结构检查，不追加执行 12＋4 测试集合。入口校验缓存、刷新 CMake 元数据、冻结目标清单并运行合成夹具，然后检查依赖与精确例外；它不会构建游戏目标。结果默认写入已忽略的 `build/local-tests/structure-*/`，其中可能包含本机路径和环境信息，应留在本机。
 
-[结构基线](tools/structure/structure-baseline.json) 保留 4,383 条逐项审核的精确例外。新增违规、出现次数增加或已经消失而尚未收紧的例外都会导致失败；工具不会自动扩大豁免范围。它提供所选构建配置的静态结构证据，不表示完整游戏、其他平台或性能已经验收。
+[结构基线](tools/structure/structure-baseline.json) 保留 4,398 条逐项审核的精确例外。新增违规、出现次数增加或已经消失而尚未收紧的例外都会导致失败；工具不会自动扩大豁免范围。它提供所选构建配置的静态结构证据，不表示完整游戏、其他平台或性能已经验收。
 
 已记录的验证覆盖所选标准合同、Windows 适配、资源查询、命令桥接及经济保存恢复对照。旧回归中已知的月球剧场深度、部分交互和几何绘制，以及 Yuri 采矿收入、完整 AI 经济、部分编队紧凑度与矿石动画检查失败仍保留；完整物理输入、IME、双端运行游戏、其他窗口后端与平台及性能不据此视为通过。
 
 CMake 保留专项测试目标。部分测试只使用自编夹具，部分需要本地原游戏数据；资源相关测试与调试工具需要按自己的环境配置路径。不能将无素材环境下的编译成功视为全部游戏功能或全部测试通过。
 
 普通构建只编译游戏核心与视频助手，避免一次构建全部历史测试目标。`samples/` 内的演示准备脚本与部分开发工具需要先具备相应本地数据；Python 工具的解释器和依赖应自行准备。
+
+### 可选菜单窗口合同
+
+`runtime_second_window_contract_test` 在 Windows、`CONCORD_ENABLE_SDL3_WINDOW=ON` 且工程内存在 `local_data/resources/mix_exports/multimd/2peaks.map` 时注册。它需要自行准备的完整游戏资源和匹配的 SDL3 DLL，会实际创建窗口，不属于无素材测试集合。
+
+执行入口为 [RunSecondWindowNative.cmake](cmake/RunSecondWindowNative.cmake)，另提供 [Run-SecondWindowContract.ps1](tools/testing/Run-SecondWindowContract.ps1) 用于指定运行程序和新的工程内输出目录。检查覆盖两种窗口的所选菜单画面与控制器状态、真实事件、像素坐标、捕获、缩放、关闭及资源释放；输出记录保存在本机构建目录中。它只验证所选菜单场景，不代表主战局已使用 SDL3 或所有游戏检查均已通过。
 
 ### 并行预热与性能工具
 

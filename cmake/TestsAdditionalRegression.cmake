@@ -175,6 +175,14 @@ set_tests_properties(window_parent_win32_contract_test PROPERTIES TIMEOUT 60 RUN
 add_test(NAME skirmish_controller_contract_test COMMAND concord_skirmish_controller_contract)
 set_tests_properties(skirmish_controller_contract_test PROPERTIES TIMEOUT 60 LABELS "no-assets;skirmish-controller")
 
+if(WIN32 AND CONCORD_ENABLE_SDL3_WINDOW AND EXISTS "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/multimd/2peaks.map")
+    add_test(NAME runtime_second_window_contract_test COMMAND "${CMAKE_COMMAND}"
+        "-DGAME_EXECUTABLE=$<TARGET_FILE:concord_runtime>" "-DSOURCE_ROOT=${CMAKE_SOURCE_DIR}"
+        "-DOUTPUT_PARENT=${CMAKE_BINARY_DIR}/p11-window-contract" -P "${CMAKE_SOURCE_DIR}/cmake/RunSecondWindowNative.cmake")
+    set_tests_properties(runtime_second_window_contract_test PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" LABELS "local-assets;real-window;p11;software-frame")
+endif()
+
 if(WIN32 AND EXISTS "${CMAKE_SOURCE_DIR}/local_data/resources/mix_exports/multimd/2peaks.map")
     add_test(NAME runtime_skirmish_window_lifecycle_test COMMAND concord_runtime
         --config "${CMAKE_BINARY_DIR}/w014-window-lifecycle-private.ini"

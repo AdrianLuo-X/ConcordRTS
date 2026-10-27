@@ -24,6 +24,11 @@ RuntimeSkirmishSelection runRuntimeSkirmishMenu(
     RuntimeWindowId parent = {}
 );
 
+// Optional standalone bitmap scene. Failure is explicit and never substitutes
+// another window. The existing Win32 entry and parent-window contract remain.
+RuntimeSkirmishSelection runRuntimeSkirmishMenuSdl3(
+    const RuntimeConfig& config, std::string& error);
+
 // Starts resource preparation on a worker. Neither this call nor the ready
 // poll blocks the shell's message loop. Call on the UI thread; all HWNDs and
 // painting remain on that thread. Unchanged resources survive menu visits.

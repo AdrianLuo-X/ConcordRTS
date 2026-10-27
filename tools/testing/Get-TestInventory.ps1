@@ -333,7 +333,8 @@ foreach ($test in $ctestData.tests) {
         (Get-AbsolutePath $command[0] $buildRoot) -ieq (Get-AbsolutePath $cache.CMAKE_COMMAND $buildRoot)) {
         $runnerPositions = @(for ($i=1; $i -lt $command.Count; $i++) { if ($command[$i] -ceq '-P') { $i } })
         $knownNativeRunners = @((Join-Path $projectRoot 'cmake/RunCursorNative.cmake'),
-            (Join-Path $projectRoot 'cmake/RunInputCancellationNative.cmake'))
+            (Join-Path $projectRoot 'cmake/RunInputCancellationNative.cmake'),
+            (Join-Path $projectRoot 'cmake/RunSecondWindowNative.cmake'))
         if ($runnerPositions.Count -eq 1 -and $runnerPositions[0] -eq ($command.Count - 2) -and
             [IO.Path]::IsPathRooted($command[-1]) -and
             (Get-AbsolutePath $command[-1] $buildRoot) -in $knownNativeRunners) {

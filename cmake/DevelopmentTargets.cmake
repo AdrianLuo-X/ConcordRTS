@@ -975,6 +975,7 @@ endif()
 include(cmake/WindowLifecycleContracts.cmake)
 
 include("${CMAKE_CURRENT_LIST_DIR}/SkirmishControllerContracts.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/Sdl3Window.cmake")
 
 include("${CMAKE_CURRENT_LIST_DIR}/WestwoodFontContracts.cmake")
 

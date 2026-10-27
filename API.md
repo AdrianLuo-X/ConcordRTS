@@ -36,6 +36,7 @@
 | 定时炸弹 | C4、Ivan 状态与值类型动作 | [RuntimeTimedBomb.h](src/simulation/abilities/unit_special/RuntimeTimedBomb.h)、[RuntimeSpecialMechanismEvents.h](src/simulation/abilities/unit_special/RuntimeSpecialMechanismEvents.h) |
 | 寻路目标候选 | 同步生成普通与环形回退候选 | [PathGoalCandidates.h](src/simulation/navigation/pathfinding/PathGoalCandidates.h)、[PathGoalTypes.h](src/simulation/navigation/pathfinding/PathGoalTypes.h) |
 | 确定性候选任务 | 自有输入、固定顺序消费与同步回退 | [PathGoalCandidateTask.h](src/simulation/navigation/pathfinding/PathGoalCandidateTask.h) |
+| 软件窗口与事件 | 类型化窗口操作、像素事件与同步帧呈现 | [RuntimeSoftwareWindow.h](src/runtime/window/RuntimeSoftwareWindow.h) |
 | 完整软件帧 | 同步像素借用、场景版本与提交结果 | [SoftwareFrame.h](src/runtime/presentation/SoftwareFrame.h) |
 | 地图地形帧 | 资源、光照与视野的短期只读输入 | [RuntimeMapTerrainFrame.h](src/render/core/RuntimeMapTerrainFrame.h)、[RuntimeMapTerrainFrameRenderer.h](src/render/core/RuntimeMapTerrainFrameRenderer.h) |
 | 视频播放服务 | 解码子进程、IPC 与自有 BGRA 帧 | [BinkPlaybackService.h](src/assets/video/BinkPlaybackService.h) |
@@ -388,6 +389,28 @@ public:
 [RuntimeSkirmishController](src/runtime/menu/RuntimeSkirmishController.h) 位于 `concord::skirmish`，保存菜单页、地图筛选、槽位、命中区域及交互状态；`RuntimeSkirmishServices` 提供重绘、音效、时间、偏好保存、预览等同步操作。`handleSkirmishMouseMove`、`handleSkirmishLeftDown`、`handleSkirmishLeftUp`、`handleSkirmishKey` 和 `handleSkirmishWheel` 接收已转换的坐标或按键值；原生消息转换仍由适配层负责。
 
 选择数据见 [RuntimeSkirmishSelection.h](src/runtime/contracts/RuntimeSkirmishSelection.h)。调用方接受选择后，才通过 [applyRuntimeSkirmishSelection](src/ui/skirmish/RuntimeSkirmishSetup.h) 写入 `RuntimeConfig`；固定步、随机种子、联机身份及无关设置继续由调用方管理。
+
+## 软件窗口与 SDL3 菜单入口
+
+[RuntimeSoftwareWindow.h](src/runtime/window/RuntimeSoftwareWindow.h) 在 `concord::window` 中定义窗口端口和事件值，公共头文件不包含 SDL 或 Windows 类型。`SoftwareWindowOptions` 指定客户区尺寸及绘制能力；当前实现只接受 `BitmapFrame`、正尺寸、独立窗口，其他绘制方式、嵌入父窗口和原生随机地图编辑器由 `softwareWindowUnsupported()` 明确拒绝。
+
+`createSdl3SoftwareWindow(options, events, statistics, error)` 返回独占的 `std::unique_ptr<SoftwareWindow>`。未编入 SDL3、能力不支持、依赖加载或窗口创建失败时返回空值并填写错误。调用方拥有事件接收器和 `FramePresentStatistics`，两者须存活到窗口销毁后；窗口、事件处理与呈现由同一个 UI 线程持有。同一时刻仅允许一个 SDL 视频会话，重复创建会被拒绝。
+
+| 接口或值 | 约定 |
+| --- | --- |
+| `SoftwareWindowEvent` | 自有类型化事件，包含客户区像素点、尺寸、滚轮格数、键值与重复标记；不暴露原生事件指针 |
+| `SoftwareWindowEvents::windowEvent` | 在窗口事件处理中同步回调；消费者沿用既有控制器与坐标命中逻辑 |
+| `poll() / wait(milliseconds)` | 处理或等待窗口事件；UI 时钟由 `nowMs()` 提供，不推进战局模拟 |
+| `focus() / capture() / releaseCapture()` | 请求焦点与鼠标捕获；`captured()` 查询状态，失焦和捕获丢失仍按独立事件处理 |
+| `size() / resize() / minimize() / restore()` | 查询或调整窗口尺寸与显示状态；`alive() / drawable()` 区分生命周期和可绘制状态 |
+| `presenter()` | 返回同步借用的 `FramePresenter`；必须先完成当前尺寸下的 CPU 画面，再调用 `present()` |
+| `close() / error()` | 关闭窗口或读取错误；销毁时释放窗口、视频会话和动态库，并恢复光标状态 |
+
+私有 [RuntimeSdl3Window.cpp](src/runtime/window/sdl3/RuntimeSdl3Window.cpp) 将 SDL 逻辑坐标转换为客户区像素，再交给既有视口转换。窗口缩放后重新获取软件 surface，并按实际格式、步长转换已完成帧；小端平台按 XRGB8888 的 BGRX 字节解释，不执行 alpha 混合。呈现仅同步借用像素，调用结束不保留帧指针。
+
+[runRuntimeSkirmishMenuSdl3(config, error)](src/ui/skirmish/RuntimeSkirmishMenu.h) 是独立菜单入口；[软件菜单接入](src/ui/skirmish/RuntimeSkirmishSoftwareWindow.inl) 复用原控制器、位图文字、资源会话及选择数据。确认后仍调用既有 `applyRuntimeSkirmishSelection` 并进入 Win32 战局；菜单事件不修改战局 tick。此入口不替换主战局绘制或菜单音频设备，创建失败也不会自动换用另一窗口。
+
+依赖由 [sdl3.lock.json](tools/dependencies/sdl3.lock.json) 固定为 3.4.16，通过 [Build-Sdl3.ps1](tools/dependencies/Build-Sdl3.ps1) 从已提供的源码构建；CMake 选项 `CONCORD_ENABLE_SDL3_WINDOW` 默认关闭。运行时仅加载程序旁的匹配版本 `SDL3.dll`。配置步骤见 [README](README.md)，所选真实窗口合同见 [RunSecondWindowNative.cmake](cmake/RunSecondWindowNative.cmake) 和 [Run-SecondWindowContract.ps1](tools/testing/Run-SecondWindowContract.ps1)；该合同需要本地游戏素材、可选依赖和可创建窗口的环境。
 
 ## 菜单图像、字体与 CPU 绘图
 
@@ -841,7 +864,7 @@ JSON 中 `productionRuntimeValidation` 为 `not-run`，`productionRuntimeValidat
 
 私有 [DibFramePresenterWin32](src/runtime/presentation/win32/FramePresenterWin32.h) 在 UI 所有者线程借用窗口 DC 和 [MainBackBufferWin32](src/ui/surface/win32/RuntimeMainBackBufferWin32.h)，检查像素存储身份与代际，并在原生复制及刷新成功后返回成功。主缓冲复用既有 [SkirmishBackBufferWin32](src/ui/skirmish/win32/RuntimeSkirmishBackBufferWin32.h) 所有权；写入、尺寸变化、交换及释放会使旧借用失效。
 
-产品完整帧包含地图、UI、FPS 和软件鼠标。为保留现有字体像素，私有适配会暂存并恢复窗口叠加区域，将相同设备字体结果读入完整帧；临时组成不计成功呈现。资源分配或完整区域读取失败时保留原生回退，回退单独计数，不伪造完整帧视图。当前实现仍依赖 Windows GDI 和窗口字体设备。
+产品完整帧包含地图、UI、FPS 和软件鼠标。为保留现有字体像素，私有适配会暂存并恢复窗口叠加区域，将相同设备字体结果读入完整帧；临时组成不计成功呈现。资源分配或完整区域读取失败时保留原生回退，回退单独计数，不伪造完整帧视图。主战局完整帧实现仍依赖 Windows GDI 和窗口字体设备。可选 SDL3 菜单使用同一公共帧协议，通过位图文字与 CPU 绘图形成菜单画面，再交给其私有软件呈现实现。
 
 ## CPU 性能采样与隔离设备诊断
 
@@ -909,6 +932,7 @@ JSON 中 `productionRuntimeValidation` 为 `not-run`，`productionRuntimeValidat
 | `--tick-hz <n>` / `--target-fps <n>`                  | 覆盖逻辑频率和目标刷新率      |
 | `--runtime-events <path>`                             | 指定运行时事件记录输出       |
 | `--skip-main-menu` / `--skip-skirmish-menu`           | 跳过对应菜单            |
+| `--skirmish-window <win32\|sdl3>` | 选择独立遭遇战菜单窗口，默认 Win32；战局窗口保持 Win32 |
 | `--smoke-test`                                        | 加载启动数据并输出报告，不打开窗口 |
 
 `--smoke-test` 仍需要对应的私人数据，退出码 `0` 表示启动报告成功，`1` 表示失败。该结果只反映启动检查。参数处理见 [RuntimeMain.cpp](src/runtime/host/RuntimeMain.cpp)。

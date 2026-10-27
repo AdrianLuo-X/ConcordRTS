@@ -2,6 +2,7 @@
   "schema": "ConcordStructureBaseline/v1",
   "scope": "Current ConcordRTS engine; exact entries only.",
   "protectedModules": {
+    "software-window": ["src/runtime/window/RuntimeSoftwareWindow.h"],
     "software-frame": ["src/runtime/presentation/SoftwareFrame.h"],
     "path-candidate-task": ["src/simulation/navigation/pathfinding/PathGoalCandidateTask.h","src/simulation/navigation/pathfinding/PathGoalCandidateTask.cpp","src/simulation/navigation/pathfinding/PathGoalCandidates.h","src/simulation/navigation/pathfinding/PathGoalCandidates.cpp"],
     "bounded-tasks": [
@@ -47983,6 +47984,171 @@
       "follow_up": "Retain tools/diagnostics/s33 isolation; S39/S42 must own any later production D3D provider separately.",
       "status": "accepted-private-diagnostic",
       "evidence": "S33 baseline-20261026-r1: capabilities-r1 and isolated CMake target; exact reviewed native facts."
+    },
+    {
+      "rule": "platform-edge",
+      "path": "src/ui/skirmish/RuntimeSkirmishMenu.cpp",
+      "detail": "src/ui/skirmish/diagnostics/RuntimeSecondWindowContract.inl",
+      "maxOccurrences": 1,
+      "reason": "Private native acceptance fixture: operates only its own PID/UI-thread windows, injects OS input, reads back full client pixels and checks native resource disposal; never a public core dependency.",
+      "owner_step": "P11",
+      "follow_up": "W029-01 exact private adapter/native acceptance boundary",
+      "status": "backend-private",
+      "evidence": "P11/window-20261027-r1: core-r8, registered-window-r1, live-entry-r2/r3 and strict structure-r1 actual1"
+    },
+    {
+      "rule": "platform-header",
+      "path": "src/runtime/window/sdl3/RuntimeSdl3Window.cpp",
+      "detail": "windows.h",
+      "maxOccurrences": 1,
+      "reason": "Private Windows loader for the optional adjacent, version-locked SDL C DLL only; no HWND/HDC or scene state crosses the public software-window/frame contracts.",
+      "owner_step": "P11",
+      "follow_up": "W029-01 exact private adapter/native acceptance boundary",
+      "status": "backend-private",
+      "evidence": "P11/window-20261027-r1: core-r8, registered-window-r1, live-entry-r2/r3 and strict structure-r1 actual1"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/window/sdl3/RuntimeSdl3Window.cpp",
+      "detail": "DWORD",
+      "maxOccurrences": 2,
+      "reason": "Private Windows loader for the optional adjacent, version-locked SDL C DLL only; no HWND/HDC or scene state crosses the public software-window/frame contracts.",
+      "owner_step": "P11",
+      "follow_up": "W029-01 exact private adapter/native acceptance boundary",
+      "status": "backend-private",
+      "evidence": "P11/window-20261027-r1: core-r8, registered-window-r1, live-entry-r2/r3 and strict structure-r1 actual1"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/window/sdl3/RuntimeSdl3Window.cpp",
+      "detail": "HMODULE",
+      "maxOccurrences": 1,
+      "reason": "Private Windows loader for the optional adjacent, version-locked SDL C DLL only; no HWND/HDC or scene state crosses the public software-window/frame contracts.",
+      "owner_step": "P11",
+      "follow_up": "W029-01 exact private adapter/native acceptance boundary",
+      "status": "backend-private",
+      "evidence": "P11/window-20261027-r1: core-r8, registered-window-r1, live-entry-r2/r3 and strict structure-r1 actual1"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/ui/skirmish/diagnostics/RuntimeSecondWindowContract.inl",
+      "detail": "BITMAPINFO",
+      "maxOccurrences": 1,
+      "reason": "Private native acceptance fixture: operates only its own PID/UI-thread windows, injects OS input, reads back full client pixels and checks native resource disposal; never a public core dependency.",
+      "owner_step": "P11",
+      "follow_up": "W029-01 exact private adapter/native acceptance boundary",
+      "status": "backend-private",
+      "evidence": "P11/window-20261027-r1: core-r8, registered-window-r1, live-entry-r2/r3 and strict structure-r1 actual1"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/ui/skirmish/diagnostics/RuntimeSecondWindowContract.inl",
+      "detail": "DWORD",
+      "maxOccurrences": 5,
+      "reason": "Private native acceptance fixture: operates only its own PID/UI-thread windows, injects OS input, reads back full client pixels and checks native resource disposal; never a public core dependency.",
+      "owner_step": "P11",
+      "follow_up": "W029-01 exact private adapter/native acceptance boundary",
+      "status": "backend-private",
+      "evidence": "P11/window-20261027-r1: core-r8, registered-window-r1, live-entry-r2/r3 and strict structure-r1 actual1"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/ui/skirmish/diagnostics/RuntimeSecondWindowContract.inl",
+      "detail": "HBITMAP",
+      "maxOccurrences": 1,
+      "reason": "Private native acceptance fixture: operates only its own PID/UI-thread windows, injects OS input, reads back full client pixels and checks native resource disposal; never a public core dependency.",
+      "owner_step": "P11",
+      "follow_up": "W029-01 exact private adapter/native acceptance boundary",
+      "status": "backend-private",
+      "evidence": "P11/window-20261027-r1: core-r8, registered-window-r1, live-entry-r2/r3 and strict structure-r1 actual1"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/ui/skirmish/diagnostics/RuntimeSecondWindowContract.inl",
+      "detail": "HDC",
+      "maxOccurrences": 2,
+      "reason": "Private native acceptance fixture: operates only its own PID/UI-thread windows, injects OS input, reads back full client pixels and checks native resource disposal; never a public core dependency.",
+      "owner_step": "P11",
+      "follow_up": "W029-01 exact private adapter/native acceptance boundary",
+      "status": "backend-private",
+      "evidence": "P11/window-20261027-r1: core-r8, registered-window-r1, live-entry-r2/r3 and strict structure-r1 actual1"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/ui/skirmish/diagnostics/RuntimeSecondWindowContract.inl",
+      "detail": "HGDIOBJ",
+      "maxOccurrences": 1,
+      "reason": "Private native acceptance fixture: operates only its own PID/UI-thread windows, injects OS input, reads back full client pixels and checks native resource disposal; never a public core dependency.",
+      "owner_step": "P11",
+      "follow_up": "W029-01 exact private adapter/native acceptance boundary",
+      "status": "backend-private",
+      "evidence": "P11/window-20261027-r1: core-r8, registered-window-r1, live-entry-r2/r3 and strict structure-r1 actual1"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/ui/skirmish/diagnostics/RuntimeSecondWindowContract.inl",
+      "detail": "HWND",
+      "maxOccurrences": 8,
+      "reason": "Private native acceptance fixture: operates only its own PID/UI-thread windows, injects OS input, reads back full client pixels and checks native resource disposal; never a public core dependency.",
+      "owner_step": "P11",
+      "follow_up": "W029-01 exact private adapter/native acceptance boundary",
+      "status": "backend-private",
+      "evidence": "P11/window-20261027-r1: core-r8, registered-window-r1, live-entry-r2/r3 and strict structure-r1 actual1"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/ui/skirmish/diagnostics/RuntimeSecondWindowContract.inl",
+      "detail": "LPARAM",
+      "maxOccurrences": 3,
+      "reason": "Private native acceptance fixture: operates only its own PID/UI-thread windows, injects OS input, reads back full client pixels and checks native resource disposal; never a public core dependency.",
+      "owner_step": "P11",
+      "follow_up": "W029-01 exact private adapter/native acceptance boundary",
+      "status": "backend-private",
+      "evidence": "P11/window-20261027-r1: core-r8, registered-window-r1, live-entry-r2/r3 and strict structure-r1 actual1"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/ui/skirmish/diagnostics/RuntimeSecondWindowContract.inl",
+      "detail": "MSG",
+      "maxOccurrences": 1,
+      "reason": "Private native acceptance fixture: operates only its own PID/UI-thread windows, injects OS input, reads back full client pixels and checks native resource disposal; never a public core dependency.",
+      "owner_step": "P11",
+      "follow_up": "W029-01 exact private adapter/native acceptance boundary",
+      "status": "backend-private",
+      "evidence": "P11/window-20261027-r1: core-r8, registered-window-r1, live-entry-r2/r3 and strict structure-r1 actual1"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/ui/skirmish/diagnostics/RuntimeSecondWindowContract.inl",
+      "detail": "POINT",
+      "maxOccurrences": 9,
+      "reason": "Private native acceptance fixture: operates only its own PID/UI-thread windows, injects OS input, reads back full client pixels and checks native resource disposal; never a public core dependency.",
+      "owner_step": "P11",
+      "follow_up": "W029-01 exact private adapter/native acceptance boundary",
+      "status": "backend-private",
+      "evidence": "P11/window-20261027-r1: core-r8, registered-window-r1, live-entry-r2/r3 and strict structure-r1 actual1"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/ui/skirmish/diagnostics/RuntimeSecondWindowContract.inl",
+      "detail": "RECT",
+      "maxOccurrences": 3,
+      "reason": "Private native acceptance fixture: operates only its own PID/UI-thread windows, injects OS input, reads back full client pixels and checks native resource disposal; never a public core dependency.",
+      "owner_step": "P11",
+      "follow_up": "W029-01 exact private adapter/native acceptance boundary",
+      "status": "backend-private",
+      "evidence": "P11/window-20261027-r1: core-r8, registered-window-r1, live-entry-r2/r3 and strict structure-r1 actual1"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/ui/skirmish/diagnostics/RuntimeSecondWindowContract.inl",
+      "detail": "WPARAM",
+      "maxOccurrences": 1,
+      "reason": "Private native acceptance fixture: operates only its own PID/UI-thread windows, injects OS input, reads back full client pixels and checks native resource disposal; never a public core dependency.",
+      "owner_step": "P11",
+      "follow_up": "W029-01 exact private adapter/native acceptance boundary",
+      "status": "backend-private",
+      "evidence": "P11/window-20261027-r1: core-r8, registered-window-r1, live-entry-r2/r3 and strict structure-r1 actual1"
     }
   ],
   "reviewedUpdates": [
@@ -48148,6 +48314,14 @@
       "newExactPrivateDiagnosticFacts": 24,
       "newPureNativeFacts": 0,
       "oldBudgetIncreases": 0
+    },
+    {
+      "batch": "P11/W029-01",
+      "newExactPrivateAdapterAndNativeFixtureFacts": 15,
+      "newPublicPureNativeFacts": 0,
+      "oldBudgetIncreases": 0,
+      "newProtectedModule": "software-window",
+      "producerMapping": "existing exact CMake native runner mapping extended by one reviewed path; no test-without-target exception"
     }
   ]
 }
