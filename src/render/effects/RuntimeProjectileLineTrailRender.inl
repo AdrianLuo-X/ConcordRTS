@@ -65,7 +65,7 @@ int drawRuntimeLineTrailSegment(HDC dc, const RECT& viewport, const RuntimeMapRe
         std::uint32_t* pixel = hasPixelSurface(context) && x>=0 && y>=0
             && x<context.surfaceWidth && y<context.surfaceHeight
             ? &context.surfacePixels[static_cast<std::size_t>(y)*context.surfaceWidth+x] : nullptr;
-        const COLORREF old = pixel ? colorRefFromRuntimeDibColor(*pixel) : dc ? GetPixel(dc,x,y) : CLR_INVALID;
+        const COLORREF old = pixel ? colorRefFromRuntimeDibColor(*pixel) : dc ? concord::ui::win32::MapNativeOverlayWin32::readPixel(dc,x,y) : CLR_INVALID;
         if (old==CLR_INVALID) continue;
         const COLORREF next=RGB(std::min(255,GetRValue(old)+color[0]),
             std::min(255,GetGValue(old)+color[1]),std::min(255,GetBValue(old)+color[2]));

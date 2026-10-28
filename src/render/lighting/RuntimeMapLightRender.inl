@@ -191,9 +191,12 @@ void recordRuntimeMapLightShpFrame(const RECT& rect, const RECT& viewport,
                 = frame->drawingReceiver;
 }
 
+#include "render/core/win32/RuntimeMapGpuReceiverLightWin32.inl"
+
 int applyRuntimeMapLights(HDC dc, const RECT& viewport, const RuntimeMapRenderContext& context,
     const RuntimeMapLightFrame& frame) {
     if (frame.sources.empty()) return applyRuntimeLightingTintToViewport(dc, viewport, context);
+    if(runtimeGpuWorldDc(dc)&&runtimeGpuWorldTarget(context))return runtimeGpuWorldMapLightTiles(viewport,frame);
     int changed = 0;
     for (int y = std::max(0L, viewport.top); y < viewport.bottom; ++y) {
         if (hasPixelSurface(context) && y >= context.surfaceHeight) break;
@@ -203,7 +206,7 @@ int applyRuntimeMapLights(HDC dc, const RECT& viewport, const RuntimeMapRenderCo
                 auto& pixel = context.surfacePixels[static_cast<std::size_t>(y) * context.surfaceWidth + x];
                 pixel = frame.transform(x, y, pixel); ++changed;
             } else if (dc) {
-                const COLORREF color = GetPixel(dc, x, y);
+                const COLORREF color = concord::ui::win32::MapNativeOverlayWin32::readPixel(dc, x, y);
                 if (color == CLR_INVALID) continue;
                 const auto packed = (static_cast<std::uint32_t>(GetRValue(color)) << 16U)
                     | (static_cast<std::uint32_t>(GetGValue(color)) << 8U) | GetBValue(color);

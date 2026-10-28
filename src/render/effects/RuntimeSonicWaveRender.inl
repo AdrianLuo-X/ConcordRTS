@@ -53,7 +53,7 @@ int drawRuntimeSonicWave(HDC dc, const RECT& viewport,
     for(int y=sample.top;y<sample.bottom;++y)for(int x=sample.left;x<sample.right;++x)
         background[static_cast<std::size_t>(y-sample.top)*width+x-sample.left]=direct
             ? context.surfacePixels[static_cast<std::size_t>(y)*context.surfaceWidth+x]
-            : packRuntimeDibColor(GetPixel(dc,x,y));
+            : packRuntimeDibColor(concord::ui::win32::MapNativeOverlayWin32::readPixel(dc,x,y));
     const auto inside=[&](double x,double y) {
         bool contained=false;
         for(std::size_t i=0,j=polygon.size()-1;i<polygon.size();j=i++) {

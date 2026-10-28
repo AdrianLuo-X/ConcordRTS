@@ -21,7 +21,21 @@ RuntimeScreenShakeOffset runtimeScreenShakeForRender(const RuntimeMapRenderConte
 
 bool applyRuntimeScreenShake(HDC dc,const RECT& viewport,const RuntimeMapRenderContext& context,RuntimeMapRenderCache& cache) {
     const auto offset=runtimeScreenShakeForRender(context);
-    if(!offset.x && !offset.y)return false;
+    if(!offset.x && !offset.y){
+        if(auto* native=concord::ui::win32::MapNativeOverlayWin32::current();native&&native->dc()==dc){
+            // No colour operation: close the dynamic map interaction segment
+            // before the separately sampled sidebar/text/bitmap overlay.
+            concord::render::MapDrawCommand boundary;boundary.kind=concord::render::MapDrawKind::NoOp;
+            boundary.right=native->width();boundary.bottom=native->height();(void)native->emit(boundary);
+        }
+        return false;
+    }
+    if(auto* native=concord::ui::win32::MapNativeOverlayWin32::current();native&&native->dc()==dc) {
+        concord::render::MapDrawCommand command;command.kind=concord::render::MapDrawKind::Shift;
+        command.left=viewport.left;command.top=viewport.top;command.right=viewport.right;command.bottom=viewport.bottom;
+        command.originX=offset.x;command.originY=offset.y;return native->emit(command);
+    }
+
     GdiFlush();
     if(context.surfacePixels)return runtimeTranslateScreenShakePixels(context.surfacePixels,
         context.surfaceWidth,context.surfaceHeight,viewport.left,viewport.top,viewport.right,viewport.bottom,

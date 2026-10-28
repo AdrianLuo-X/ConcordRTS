@@ -8,13 +8,23 @@ ConcordRTS 是使用 C++20 开发的 RTS 引擎工程，面向《命令与征服
 
 ## 功能与开发状态
 
-源码包含遭遇战、AI、战役、局域网与互联网联机、观战、存档与联机恢复，以及规则分析、地图解析、资源读取和导出工具。遭遇战菜单可选择 Win32 或可选的 SDL3 软件窗口；Win32 大厅和选图页另可显式启用 GPU 绘制，开始战局后使用 Win32 游戏窗口。主战局可选择默认的软件呈现、硬件 D3D11 或显式 WARP，完整画面仍由 CPU 绘制。
+源码包含遭遇战、AI、战役、局域网与互联网联机、观战、存档与联机恢复，以及规则分析、地图解析、资源读取和导出工具。遭遇战菜单可选择 Win32 或可选的 SDL3 软件窗口；Win32 大厅和选图页另可显式启用 GPU 绘制，开始战局后使用 Win32 游戏窗口。主战局默认使用软件绘制与呈现，也可显式选择 D3D11 完整帧呈现或地图 GPU 绘制。地图 GPU 路径覆盖地形、物体材质、阴影、光照与迷雾显示；资源解码、几何、地形查询、视野和模拟仍由 CPU 的原实现负责。硬件与 WARP 分别选择。
 
 另提供独立核心构建，支持在不创建窗口、图形、音频和视频后端的情况下构建所选实际生产模块。已验证的核心环境为 Windows Clang；文件和 LAN 仍保留私有操作系统适配，不表示整个游戏已完成跨平台运行。
 
 项目仍在持续开发，不保证原版所有细节、全部战役或任意第三方 MOD 均已完整兼容。
 
 ## 更新记录
+
+### 2026-10-28
+
+- 将地图绘制接入 GPU，覆盖原 TMP 索引地形、SHP／VXL 材质、阴影、世界与局部光照、辐射效果及迷雾显示，保留原调色板、remap、整数颜色精度和稳定绘制顺序。
+- 增加自有地图资源、绘制命令与原生覆盖合成接口，复用现有 D3D11 呈现器；正常路径不先生成完整 CPU 地图图像，也不逐帧读回 GPU 图像参与合成。
+- 保留 CPU 的原资源解码、VXL 投影、索引深度、几何命中、地形和视野权威；接入原 Reference／Point 完整 VXL 模式，保持炮身、炮塔、炮管及阴影动画的既有行为。
+- 修复 CPU 地形查询破坏 GPU 地形缓存编码的问题，保持同相机缓存复用、跨区域查询、原几何深度与双重归属信息，以及软件回退时的真实 RGB 数据。
+- 增加独立的 `--map-drawing` 选项、地图着色器源码和原生地图合同；保留软件默认，以及设备或分配失败时的同帧软件回退。
+- 开发验收完成 616 帧完整图像对照、156 个完整窗口案例、735 项原生 GPU 合同检查、20 项相关 CTest 和 62 个结构夹具检查；这些结果覆盖所选场景，未运行全部已注册测试，既有动画及场景深度问题仍保留。
+- 分别记录软件、硬件与 WARP 的 CPU 准备、上传提交、GPU 合成和窗口呈现耗时，并对照混合移动场景的模拟状态。当前测量未证明整体加速，默认路径保持不变。
 
 ### 2026-10-27
 
@@ -164,11 +174,12 @@ ConcordRTS/
 │   │   ├── replay/                 回放封包与宿主恢复内核
 │   │   ├── performance/            生产循环性能计时与诊断
 │   │   ├── presentation/           完整帧、后端选项与私有呈现适配
-│   │   │   └── win32/              GDI、D3D11 完整帧与菜单 GPU 绘制
-│   │   │       └── MenuRaster.hlsl  自编菜单顶点／像素着色器源码
+│   │   │   └── win32/              GDI、D3D11 完整帧、菜单与地图 GPU 绘制
+│   │   │       ├── MenuRaster.hlsl  自编菜单顶点／像素着色器源码
+│   │   │       └── MapRaster.hlsl   自编地图顶点／像素着色器源码
 │   │   └── host/                   启动检查、游戏窗口与战局宿主
-│   ├── render/                     地图、单位、效果与软件绘制
-│   │   ├── core/                   地图绘图与短期地形帧输入
+│   ├── render/                     地图、单位、效果与软件／GPU 绘图接入
+│   │   ├── core/                   地图绘图、短期帧输入与自有 GPU 命令资源
 │   │   ├── buildings/              建筑绘制与辅助动画帧选择
 │   │   ├── voxel/                  体素绘制、巨炮光栅任务与预热生命周期
 │   │   └── resources/              菜单资源接口的既有缓存实现
@@ -178,7 +189,7 @@ ConcordRTS/
 │   │   ├── values/                 与设备无关的 UI 颜色值
 │   │   ├── drawing/                有序菜单命令、资源字节与代际
 │   │   ├── surface/                CPU 像素缓冲与绘图操作
-│   │   │   └── win32/              主窗口后台缓冲与像素借用
+│   │   │   └── win32/              后台缓冲、像素借用与地图原生覆盖合成
 │   │   ├── text/                   遭遇战位图文字测量与绘制
 │   │   ├── audio/                  菜单音乐启停与重播策略
 │   │   ├── skirmish/               遭遇战菜单、软件窗口接入与原生缓冲
@@ -199,7 +210,7 @@ ConcordRTS/
 │   │   ├── task_executor/          有界任务执行器独立合同工程
 │   │   ├── main_back_buffer/       主窗口后台缓冲合同目标
 │   │   ├── frame_presenter/        Windows 软件帧提交合同目标
-│   │   └── d3d11_frame_presenter/  完整帧、菜单光栅与软件回退合同目标
+│   │   └── d3d11_frame_presenter/  完整帧、菜单、地图与原生覆盖合同目标
 │   ├── gameplay/                   战斗、生产、单位行为与机制检查
 │   ├── multiplayer/                局域网、同步、快照与恢复检查
 │   ├── internet/                   互联网服务、TLS 与匹配检查
@@ -269,7 +280,7 @@ ConcordRTS/
 - Windows x64，Windows PowerShell 5.1；本地测试入口另需 PowerShell 7。
 - LLVM，包含 `clang-cl.exe`、`lld-link.exe`、`llvm-lib.exe` 和 `llvm-readobj.exe`。
 - CMake 3.20 或更新版本、Ninja；测试使用同套 CMake 中的 CTest。
-- Microsoft C++ 的 x64/x86 头文件与库、x64 CRT 分发文件，以及 Windows SDK 的头文件、库和 RC/MT 工具；完整 Windows 产品构建还需要该 SDK 的 x64 `fxc.exe`，用于离线编译菜单着色器。
+- Microsoft C++ 的 x64/x86 头文件与库、x64 CRT 分发文件，以及 Windows SDK 的头文件、库和 RC/MT 工具；完整 Windows 产品构建还需要该 SDK 的 x64 `fxc.exe`，用于离线编译菜单与地图着色器。
 
 已验收的组合为 LLVM 22.1.3、CMake 4.3.1、Ninja 1.13.2、Microsoft 头库/CRT 14.51.36231、ABI 兼容版本 19.51.36257、Windows SDK 10.0.26100.0；测试使用 PowerShell 7.6.5。这些工具和运行库不包含在源码包中。
 
@@ -300,7 +311,7 @@ if ($LASTEXITCODE -ne 0) { throw '构建失败，请检查本次错误信息。'
 
 CMake、Ninja、LLVM 可通过完整路径指定，或由脚本从普通终端发现。脚本不自动安装工具，不修改持久 PATH，缺失或冲突时不会回退到 MSVC。已有缓存固定源码目录、组件、架构与配置；请勿复制他机缓存，也不要在原目录中切换工具链。
 
-完整 Windows 产品构建通过 [D3D11FramePresenter.cmake](cmake/D3D11FramePresenter.cmake) 从选定 SDK 查找 `fxc.exe`，将 [MenuRaster.hlsl](src/runtime/presentation/win32/MenuRaster.hlsl) 离线编译为 Shader Model 5 顶点／像素字节码，并在构建目录生成头文件。脚本不会安装工具；找不到时会明确报错，可在 CMake 配置中用 `CONCORD_FXC_EXECUTABLE` 指定已有编译器的完整路径。生成头文件、字节码和编译器不包含在源码包中，运行时无需部署着色器编译器 DLL；独立核心构建不包含此菜单后端。
+完整 Windows 产品构建通过 [D3D11FramePresenter.cmake](cmake/D3D11FramePresenter.cmake) 从选定 SDK 查找 `fxc.exe`，将 [MenuRaster.hlsl](src/runtime/presentation/win32/MenuRaster.hlsl) 与 [MapRaster.hlsl](src/runtime/presentation/win32/MapRaster.hlsl) 离线编译为 Shader Model 5 顶点／像素字节码，并在构建目录生成头文件。脚本不会安装工具；找不到时会明确报错，可在 CMake 配置中用 `CONCORD_FXC_EXECUTABLE` 指定已有编译器的完整路径。生成头文件、字节码和编译器不包含在源码包中，运行时无需部署着色器编译器 DLL；独立核心构建不包含这些图形后端。
 
 ### 日常构建与部署
 
@@ -429,7 +440,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-Game.ps1 -
 
 ### 主战局呈现后端
 
-完整 Windows 产品构建包含私有 D3D11 呈现器，使用已选 Windows SDK 的 D3D11、DXGI 和 DWM 接口，构建时一并离线编译菜单着色器。主战局完整 CPU 帧的上传路径仍不使用着色器，独立核心构建不包含此后端，也无需 SDL3。准备本地游戏资源后，在仓库根目录显式选择：
+完整 Windows 产品构建包含私有 D3D11 呈现器，使用已选 Windows SDK 的 D3D11、DXGI 和 DWM 接口，构建时一并离线编译菜单与地图着色器。这里的完整 CPU 帧上传路径仍不使用着色器；地图 GPU 绘制由独立选项控制。独立核心构建不包含这些后端，也无需 SDL3。准备本地游戏资源后，在仓库根目录显式选择：
 
 ```powershell
 .\bin\concord_runtime.exe --frame-backend software
@@ -464,6 +475,24 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-Game.ps1 -
 硬件与 WARP 请求分开，WARP 仍是软件设备。切入随机地图编辑等未支持页面或发生后端故障时，释放 GPU 资源并在当前窗口会话中回到软件路径。SDL3 窗口仅支持软件菜单，与 GPU 菜单选项组合时明确拒绝。
 
 `--frame-backend` 继续单独控制战局完整 CPU 帧如何显示，两组选项互不代替；启用菜单 GPU 绘制不改变世界模拟、资源优先级或战局绘图。所选菜单保留原像素与输入行为，测量结果只覆盖该菜单场景。
+
+### 地图 GPU 绘制
+
+`--map-drawing` 独立选择 Win32 战局地图的绘制方式，默认 `software`。完成构建并准备本地游戏资源后，从仓库根目录运行：
+
+```powershell
+.\bin\concord_runtime.exe --map-drawing software
+.\bin\concord_runtime.exe --map-drawing d3d11
+.\bin\concord_runtime.exe --map-drawing d3d11-warp
+```
+
+GPU 从自有 TMP／SHP／VXL 索引、调色板与原光照表执行颜色计算和有序合成，覆盖地形、物体、阴影、光照与迷雾。CPU 仍负责原解码、投影、索引深度、命中测试、地形查询、视野和模拟，不以硬件深度缓冲替代原遮挡规则。当前 VXL 范围为原 Reference／Point 模式，不表示 GPU 三维投影或其他绘制模式已经接入。
+
+该路径复用窗口所属线程的 D3D11 呈现器，正常情况下不需要完整 CPU 地图图像或逐帧 GPU 图像读回；原生文字与界面覆盖通过私有适配组成绘制命令。设备或分配失败时，保留同帧转回原软件绘制的处理。
+
+`--frame-backend` 控制完整 CPU 帧的呈现，`--skirmish-drawing` 控制菜单绘制，`--map-drawing` 控制地图绘制。显式同时启用 D3D11 完整帧呈现与地图绘制时，两者必须选择相同设备；硬件与 WARP 混用会报错。SDL3 菜单与任一 D3D11／WARP 选项组合也会被拒绝。
+
+硬件和 WARP 的测量结果分别记录；GPU 时间包含融合地图合成过程，不能逐层归因，也不能从 Present 调用或窗口提交间隔推定屏幕帧率。当前对照未证明整体加速，软件默认保持不变。
 
 ## 联机与 MOD
 
@@ -533,7 +562,7 @@ pwsh -NoProfile -File .\tools\testing\Run-LocalTests.ps1 -Compiler Clang -BuildD
 
 `-StructureOnly` 单独执行结构检查，不追加执行 12＋4 测试集合。入口校验缓存、刷新 CMake 元数据、冻结目标清单并运行合成夹具，然后检查依赖与精确例外；它不会构建游戏目标。结果默认写入已忽略的 `build/local-tests/structure-*/`，其中可能包含本机路径和环境信息，应留在本机。
 
-[结构基线](tools/structure/structure-baseline.json) 保留 4,473 条逐项审核的精确例外。新增违规、出现次数增加或已经消失而尚未收紧的例外都会导致失败；工具不会自动扩大豁免范围。它提供所选构建配置的静态结构证据，不表示完整游戏、其他平台或性能已经验收。
+[结构基线](tools/structure/structure-baseline.json) 保留 4,660 条逐项审核的精确例外。新增违规、出现次数增加或已经消失而尚未收紧的例外都会导致失败；工具不会自动扩大豁免范围。它提供所选构建配置的静态结构证据，不表示完整游戏、其他平台或性能已经验收。
 
 已记录的验证覆盖所选标准合同、Windows 适配、资源查询、命令桥接及经济保存恢复对照。旧回归中已知的月球剧场深度、部分交互和几何绘制，以及 Yuri 采矿收入、完整 AI 经济、部分编队紧凑度与矿石动画检查失败仍保留；完整物理输入、IME、双端运行游戏，以及未覆盖的窗口、平台和性能场景不据此视为通过。
 
@@ -580,6 +609,25 @@ if ($LASTEXITCODE -ne 0) { throw '菜单光栅合同检查失败。' }
 ```
 
 正式菜单的 [完整画面对照](src/ui/skirmish/diagnostics/RuntimeGpuMenuContract.inl) 与 [计时入口](src/ui/skirmish/diagnostics/RuntimeGpuMenuTiming.inl) 也保留源码；它们需要自行准备的游戏资源和交互桌面。开发验证覆盖了完整菜单、所选真实输入及预热后的重复资源创建与关闭，不将此结果扩大到全部游戏测试、长期设备恢复或其他平台。
+
+### GPU 地图与原生覆盖合同
+
+[MapRasterD3D11Contract.cpp](tests/infrastructure/MapRasterD3D11Contract.cpp) 与 [MapNativeOverlayD3D11Contract.cpp](tests/infrastructure/MapNativeOverlayD3D11Contract.cpp) 保留自编像素、材质、命令与原生覆盖输入，检查颜色、顺序、资源寿命、错误输入和失败回退。它们不需要官方素材，但需要 Windows 交互桌面及可用的图形设备。
+
+沿用前文构建工具路径变量，可单独构建和检查：
+
+```powershell
+$gameBuild = 'build/clang-cl-x64-release'
+$ctestExe = Join-Path (Split-Path -Parent $cmakeExe) 'ctest.exe'
+& $cmakeExe --build $gameBuild --target concord_map_raster_d3d11_contract concord_map_native_overlay_d3d11_contract --parallel 1
+if ($LASTEXITCODE -ne 0) { throw '地图 GPU 合同构建失败。' }
+& $ctestExe --test-dir $gameBuild --no-tests=error --output-on-failure -j 1 -R '^(map_raster_d3d11_contract_test|map_native_overlay_d3d11_contract_test)$'
+if ($LASTEXITCODE -ne 0) { throw '地图 GPU 合同检查失败。' }
+```
+
+实际地图、物体、阴影、光照、迷雾与 VXL 的集成诊断源码保留在各绘图模块的 `diagnostics/` 下；[地图计时入口](src/runtime/performance/diagnostics/RuntimeMapGpuTiming.inl) 也随源码提供。正式场景诊断需要自行准备的游戏资源；本机验收脚本、截图、原始计时和交接记录不随源码发布。
+
+另保留独立的 [可见窗口诊断源码](tools/diagnostics/s41/visible_observer/VisibleObserver.cpp) 及其构建工程，用于观察指定进程的窗口可见性和呈现环境；它不属于游戏日常构建，也不附带本机采样数据。
 
 ### 并行预热与性能工具
 

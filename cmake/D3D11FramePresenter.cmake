@@ -34,4 +34,19 @@ target_include_directories(concord_d3d11_frame_presenter_win32 PRIVATE "${CMAKE_
 if(CONCORD_MSVC_FRONTEND)
     concord_target_compile_options(concord_d3d11_frame_presenter_win32 PRIVATE /W4 /WX)
 endif()
+
+# S41 reuses the same offline compiler and private presentation leaf.
+set(s41_shader "${PROJECT_SOURCE_DIR}/src/runtime/presentation/win32/MapRaster.hlsl")
+foreach(s41_stage IN ITEMS vs ps)
+    set(s41_header "${CMAKE_CURRENT_BINARY_DIR}/s41-shaders/MapRaster-${s41_stage}.h")
+    add_custom_command(OUTPUT "${s41_header}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/s41-shaders"
+        COMMAND "${CONCORD_FXC_EXECUTABLE}" /nologo /WX /Ges /O3 /T ${s41_stage}_5_0 /E ${s41_stage}
+            /Fh "${s41_header}" /Vn s41_${s41_stage} "${s41_shader}"
+        DEPENDS "${s41_shader}" "${CONCORD_FXC_EXECUTABLE}" VERBATIM)
+    target_sources(concord_d3d11_frame_presenter_win32 PRIVATE "${s41_header}")
+endforeach()
+target_include_directories(concord_d3d11_frame_presenter_win32 PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/s41-shaders")
+
+include("${CMAKE_CURRENT_LIST_DIR}/MapNativeOverlayWin32.cmake")
 add_subdirectory(tests/infrastructure/d3d11_frame_presenter)

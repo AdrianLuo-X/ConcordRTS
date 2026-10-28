@@ -17,10 +17,12 @@ public:
             bounds_.bottom=std::min<LONG>(context.surfaceHeight,bounds_.bottom);
         }
         if(bounds_.left>=bounds_.right||bounds_.top>=bounds_.bottom)return;
+        if(runtimeGpuWorldDc(dc_)&&runtimeGpuWorldTarget(context_)){auto c=runtimeGpuWorldRegion(bounds_,concord::render::MapDrawKind::Save);gpu_=runtimeGpuWorldEmit(c);return;}
         GdiFlush();before_.reserve(static_cast<std::size_t>(bounds_.right-bounds_.left)*(bounds_.bottom-bounds_.top));
         for(int y=bounds_.top;y<bounds_.bottom;++y)for(int x=bounds_.left;x<bounds_.right;++x)before_.push_back(read(x,y));
     }
     ~RuntimeTemporalBodyOpacityScope() {
+        if(gpu_){auto c=runtimeGpuWorldRegion(bounds_,concord::render::MapDrawKind::RestoreBlend);c.parameter=128;(void)runtimeGpuWorldEmit(c);return;}
         if(before_.empty())return;
         GdiFlush();std::size_t i=0;bool changed=false;
         for(int y=bounds_.top;y<bounds_.bottom;++y)for(int x=bounds_.left;x<bounds_.right;++x,++i) {
@@ -38,7 +40,7 @@ public:
     RuntimeTemporalBodyOpacityScope(const RuntimeTemporalBodyOpacityScope&)=delete;
     RuntimeTemporalBodyOpacityScope& operator=(const RuntimeTemporalBodyOpacityScope&)=delete;
 private:
-    std::uint32_t read(int x,int y)const{return direct_?context_.surfacePixels[y*context_.surfaceWidth+x]:GetPixel(dc_,x,y);}
+    std::uint32_t read(int x,int y)const{return direct_?context_.surfacePixels[y*context_.surfaceWidth+x]:concord::ui::win32::MapNativeOverlayWin32::readPixel(dc_,x,y);}
     HDC dc_;const RuntimeMapRenderContext& context_;RuntimeMapRenderStats& stats_;
-    RECT bounds_{};bool direct_=false;std::vector<std::uint32_t> before_;
+    RECT bounds_{};bool direct_=false,gpu_=false;std::vector<std::uint32_t> before_;
 };

@@ -16,8 +16,11 @@ COLORREF runtimeRadiationTerrainLight(COLORREF original, COLORREF tint, int alph
         channel(GetBValue(original), GetBValue(tint)));
 }
 
+#include "render/core/win32/RuntimeMapGpuRadiationWin32.inl"
+
 bool tintRuntimeRadiationTerrainPixel(HDC dc, const RuntimeMapRenderContext& context,
     int x, int y, COLORREF tint, int alpha) {
+    if(runtimeGpuWorldTarget(context))return runtimeGpuCollectRadiationPixel(context,x,y,tint,alpha);
     const auto* rules = context.rules == nullptr ? nullptr : &context.rules->getSpecialMechanismRules();
     const auto lightPixel = [&](COLORREF original) {
         return runtimeRadiationTerrainLight(original, tint, alpha,
@@ -32,7 +35,7 @@ bool tintRuntimeRadiationTerrainPixel(HDC dc, const RuntimeMapRenderContext& con
         return true;
     }
     if (dc == nullptr) return false;
-    const COLORREF original = GetPixel(dc, x, y);
+    const COLORREF original = concord::ui::win32::MapNativeOverlayWin32::readPixel(dc, x, y);
     return original != CLR_INVALID
         && SetPixelV(dc, x, y, lightPixel(original)) != FALSE;
 }
@@ -44,7 +47,11 @@ bool drawRuntimeRadiationOnVisibleTerrain(HDC dc, const RECT& viewport,
     int& tintedCells) {
     const auto& layer = cache.terrainLayer;
     if (!layer.built || layer.width <= 0 || layer.height <= 0
-        || layer.terrainCellIndices.size() != layer.pixels.size()) return false;
+        || layer.terrainCellIndices.size() != layer.pixels.size()) {
+        if(runtimeGpuWorldTarget(context)){runtimeGpuWorldOwner->reject("world-radiation-owner-cache");return true;}
+        return false;
+    }
+    RuntimeGpuRadiationScope gpuRadiation(viewport,context,color);
     // This ownership buffer comes from the same TMP draw that produced the
     // terrain: ramps, extra cliff pixels and overlapping high ground all keep
     // their real silhouettes. A flat diamond cannot describe those surfaces.

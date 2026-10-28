@@ -34,7 +34,7 @@ void drawRuntimeMagBeamStatus(HDC dc, const RECT& viewport,
             const auto packed=context.surfacePixels[y*context.surfaceWidth+x];
             background=RGB((packed>>16)&255,(packed>>8)&255,packed&255);
         } else {
-            background=GetPixel(dc,x,y);
+            background=concord::ui::win32::MapNativeOverlayWin32::readPixel(dc,x,y);
             if(background==CLR_INVALID)return;
         }
         const auto illuminated=runtimeMagBeamPixelColor(background,strength);

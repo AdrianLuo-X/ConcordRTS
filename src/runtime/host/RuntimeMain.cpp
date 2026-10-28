@@ -365,7 +365,7 @@ RuntimeCommandLine parseRuntimeCommandLine(int argc, char** argv) {
             continue;
         }
 
-        if (argument == "--frame-backend" || argument == "--skirmish-drawing") {
+        if (argument == "--frame-backend" || argument == "--skirmish-drawing" || argument == "--map-drawing") {
             std::string value;
             if (!readRequiredValue(argc, argv, index, argument, value, commandLine.errorMessage)) return commandLine;
             using namespace concord::presentation;
@@ -374,6 +374,7 @@ RuntimeCommandLine parseRuntimeCommandLine(int argc, char** argv) {
             else if(value=="d3d11-warp"){backend=FrameBackend::D3D11;device=FrameDevice::Warp;}
             else if(value!="software"){commandLine.errorMessage=argument+" requires software, d3d11 or d3d11-warp";return commandLine;}
             if(argument=="--frame-backend"){commandLine.presentation.backend=backend;commandLine.presentation.device=device;}
+            else if(argument=="--map-drawing"){commandLine.presentation.mapBackend=backend;commandLine.presentation.mapDevice=device;}
             else {commandLine.presentation.menuBackend=backend;commandLine.presentation.menuDevice=device;}
             continue;
         }
@@ -663,6 +664,7 @@ void printRuntimeHelp(const std::string& programName) {
     std::cout << "  --skirmish-window <win32|sdl3>  Select the standalone skirmish window (game window stays Win32).\n";
     std::cout << "  --frame-backend <software|d3d11|d3d11-warp>  Main Win32 complete CPU-frame presentation; default software. WARP is a software device.\n";
     std::cout << "  --skirmish-drawing <software|d3d11|d3d11-warp>  Win32 lobby/map menu raster; default software. Other menu pages fall back to software.\n";
+    std::cout << "  --map-drawing <software|d3d11|d3d11-warp> (default software)\n";
     std::cout << "                         Render and validate the interactive skirmish setup screen offscreen.\n";
     std::cout << "  --main-menu-ui-smoke-test <bmp>\n";
     std::cout << "                         Render and validate the original 800x600 Yuri's Revenge shell.\n";
@@ -738,9 +740,15 @@ int runRuntimeApplication(int argc, char** argv) {
     }
 
     if(commandLine.skirmishWindow=="sdl3"&&(commandLine.presentation.backend==concord::presentation::FrameBackend::D3D11
-        ||commandLine.presentation.menuBackend==concord::presentation::FrameBackend::D3D11)){
+        ||commandLine.presentation.menuBackend==concord::presentation::FrameBackend::D3D11
+        ||commandLine.presentation.mapBackend==concord::presentation::FrameBackend::D3D11)){
         std::cerr<<"Unsupported window/graphics combination: SDL3 x D3D11; SDL3 supports bitmap software frames only.\n";
         return 1;
+    }
+    if(commandLine.presentation.backend==concord::presentation::FrameBackend::D3D11
+        &&commandLine.presentation.mapBackend==concord::presentation::FrameBackend::D3D11
+        &&commandLine.presentation.device!=commandLine.presentation.mapDevice){
+        std::cerr<<"Frame and map drawing must use the same device on the single window presenter.\n";return 1;
     }
     RuntimeConfig config = loadRuntimeConfig(commandLine.overrides);
     if (commandLine.skipMainMenu) {

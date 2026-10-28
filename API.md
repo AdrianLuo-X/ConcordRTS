@@ -38,7 +38,8 @@
 | 确定性候选任务 | 自有输入、固定顺序消费与同步回退 | [PathGoalCandidateTask.h](src/simulation/navigation/pathfinding/PathGoalCandidateTask.h) |
 | 软件窗口与事件 | 类型化窗口操作、像素事件与同步帧呈现 | [RuntimeSoftwareWindow.h](src/runtime/window/RuntimeSoftwareWindow.h) |
 | 菜单绘制命令 | 有序命令、自有资源字节与同步帧借用 | [MenuDrawCommands.h](src/ui/drawing/MenuDrawCommands.h) |
-| 呈现后端选项 | 本机战局呈现和菜单绘制的独立选择 | [FrameBackendOptions.h](src/runtime/presentation/FrameBackendOptions.h) |
+| 呈现后端选项 | 本机完整帧呈现、菜单与地图绘制选择 | [FrameBackendOptions.h](src/runtime/presentation/FrameBackendOptions.h) |
+| 地图绘制命令 | 自有资源、顺序命令与同步帧借用 | [MapDrawCommands.h](src/render/core/MapDrawCommands.h)、[MapSpriteMaterial.h](src/render/core/MapSpriteMaterial.h) |
 | 完整软件帧 | 同步像素借用、场景版本与提交结果 | [SoftwareFrame.h](src/runtime/presentation/SoftwareFrame.h) |
 | 地图地形帧 | 资源、光照与视野的短期只读输入 | [RuntimeMapTerrainFrame.h](src/render/core/RuntimeMapTerrainFrame.h)、[RuntimeMapTerrainFrameRenderer.h](src/render/core/RuntimeMapTerrainFrameRenderer.h) |
 | 视频播放服务 | 解码子进程、IPC 与自有 BGRA 帧 | [BinkPlaybackService.h](src/assets/video/BinkPlaybackService.h) |
@@ -866,7 +867,7 @@ JSON 中 `productionRuntimeValidation` 为 `not-run`，`productionRuntimeValidat
 
 私有 [DibFramePresenterWin32](src/runtime/presentation/win32/FramePresenterWin32.h) 在 UI 所有者线程借用窗口 DC 和 [MainBackBufferWin32](src/ui/surface/win32/RuntimeMainBackBufferWin32.h)，检查像素存储身份与代际，并在原生复制及刷新成功后返回成功。主缓冲复用既有 [SkirmishBackBufferWin32](src/ui/skirmish/win32/RuntimeSkirmishBackBufferWin32.h) 所有权；写入、尺寸变化、交换及释放会使旧借用失效。
 
-产品完整帧包含地图、UI、FPS 和软件鼠标。默认 GDI 路径通过私有窗口字体适配组成最终画面；D3D11 路径使用独立、不可激活且输入穿透的私有字体目标，只将对应 HUD 区域复制进最终 CPU 帧，GPU 活跃时不向同一游戏窗口做 GDI 绘制。两者都在完整帧准备结束后才同步借出像素。资源不足或后端失败时由宿主执行软件回退，回退单独计数，不伪造成功帧视图。可选 SDL3 菜单使用同一公共帧协议，通过位图文字与 CPU 绘图形成菜单画面，再交给其私有软件呈现实现。
+完整 CPU 帧路径包含地图、UI、FPS 和软件鼠标；直接地图 GPU 绘制另走 `MapDrawFrame` 入口。默认 GDI 路径通过私有窗口字体适配组成最终画面；D3D11 路径使用独立、不可激活且输入穿透的私有字体目标，只将对应 HUD 区域复制进最终 CPU 帧，GPU 活跃时不向同一游戏窗口做 GDI 绘制。两者都在完整帧准备结束后才同步借出像素。资源不足或后端失败时由宿主执行软件回退，回退单独计数，不伪造成功帧视图。可选 SDL3 菜单使用同一公共帧协议，通过位图文字与 CPU 绘图形成菜单画面，再交给其私有软件呈现实现。
 
 ## 本机后端选项与 D3D11 呈现
 
@@ -880,14 +881,16 @@ struct FrameBackendOptions {
     FrameDevice device = FrameDevice::Hardware;
     FrameBackend menuBackend = FrameBackend::Software;
     FrameDevice menuDevice = FrameDevice::Hardware;
+    FrameBackend mapBackend = FrameBackend::Software;
+    FrameDevice mapDevice = FrameDevice::Hardware;
 };
 ```
 
-选项只控制当前进程的显示路径，不写入 `RuntimeConfig`、存档、网络协议或哈希。`backend / device` 选择战局完整 CPU 帧呈现，`menuBackend / menuDevice` 独立选择 Win32 遭遇战菜单绘制，二者都默认使用软件路径。原 `runRuntimeWindow` 两种签名保持；新的四参数重载接收配置、加载后退出标记、联机桥接所有权与呈现选项。软件路径为默认，硬件请求不会自动改为 WARP；SDL3 菜单与 D3D11／WARP 的组合由启动入口明确拒绝。
+选项只控制当前进程的显示路径，不写入 `RuntimeConfig`、存档、网络协议或哈希。`backend / device` 选择战局完整 CPU 帧呈现，`menuBackend / menuDevice` 选择 Win32 遭遇战菜单绘制，`mapBackend / mapDevice` 选择地图绘制，三者都默认使用软件路径。原 `runRuntimeWindow` 两种签名保持；新的四参数重载接收配置、加载后退出标记、联机桥接所有权与呈现选项。软件路径为默认，硬件请求不会自动改为 WARP；SDL3 菜单与任一 D3D11／WARP 选项组合由启动入口明确拒绝。完整帧呈现和地图绘制同时启用 D3D11 时，必须选择相同设备。
 
 私有 [D3D11FramePresenterWin32](src/runtime/presentation/win32/D3D11FramePresenterWin32.h) 实现同一 `FramePresenter` 协议。其工厂接收原生窗口、选项、统计对象和可选原生测试探针；只有 Windows 组装层可使用此头文件。`create()` 返回的对象可能已经处于软件回退状态，调用方必须检查 `active()` 和 `report()`，不能仅凭指针非空判断 D3D11 可用；分配或异常路径也可能返回空值。
 
-设备、即时上下文、交换链、查询及 `Present` 均归单一 UI 线程。初始化请求最低功能级别 11_0，并检查 BGRA 格式与 timestamp/disjoint 查询资源。每帧使用调用方的真实行距上传到与客户区同尺寸的 BGRA8_UNORM 缓冲，再调用 `Present(1, 0)`；第四字节原样上传，显示时忽略。上述完整 CPU 帧上传路径不创建着色器、采样器或混合状态，不做 GPU 缩放、预乘或颜色空间转换；菜单直接绘制通过单独的 `presentMenu()` 入口使用离线着色器。
+设备、即时上下文、交换链、查询及 `Present` 均归单一 UI 线程。初始化请求最低功能级别 11_0，并检查 BGRA 格式与 timestamp/disjoint 查询资源。每帧使用调用方的真实行距上传到与客户区同尺寸的 BGRA8_UNORM 缓冲，再调用 `Present(1, 0)`；第四字节原样上传，显示时忽略。上述完整 CPU 帧上传路径不创建着色器、采样器或混合状态，不做 GPU 缩放、预乘或颜色空间转换；菜单和地图直接绘制分别通过 `presentMenu()`、`presentMap()` 使用各自的离线着色器。
 
 缩放先释放后台缓冲引用，再重建匹配尺寸；最小化时不提交，恢复后重新核对尺寸。设备、资源、上传或呈现失败会记录错误并释放全部 GPU 引用，宿主在当前窗口会话中转回原 GDI，不重新尝试 D3D11。`fallbackToSoftware()` 是这一单向清理入口；字体组成等原生互操作也留在此私有所有者内，公共帧与软件窗口接口不传递设备句柄。
 
@@ -915,6 +918,24 @@ struct FrameBackendOptions {
 
 着色器由 [D3D11FramePresenter.cmake](cmake/D3D11FramePresenter.cmake) 使用所选 SDK 的 FXC 离线生成，采用 Shader Model 5 与 `/WX /Ges /O3`，生成头位于构建目录并私有嵌入运行程序。源码包只提供 HLSL 和生成规则，不提供编译后的字节码或着色器编译器 DLL。原生合同见 [MenuRasterD3D11Contract.cpp](tests/infrastructure/MenuRasterD3D11Contract.cpp)，构建及显式启用方法见 [README](README.md#遭遇战菜单-gpu-绘制)。
 
+## 地图绘制命令与 GPU 合成
+
+[MapDrawCommands.h](src/render/core/MapDrawCommands.h) 在 `concord::render` 中定义 `MapDrawKind / MapDrawCommand / MapDrawList / MapDrawFrame`。公共值类型不传递 Windows 或 D3D 设备句柄，命令按原顺序描述索引材质、地形、阴影、光照、视野效果、原生查表与保存／恢复混色等操作。
+
+`MapDrawList` 持有命令和资源字节。`intern() / internValues()` 将输入复制为自有资源；`begin()` 清空当前命令并推进命令修订号，`reset()` 同时清空资源并推进代际。`push() / replace()` 更新命令；`valid()` 检查资源范围、尺寸、标记和保存／恢复配对，不能把未完成命令作为可提交帧。
+
+`MapDrawFrame` 同步借用列表，记录 `sequence / tick / width / height` 以及构造时的资源代际、资源修订号与命令修订号。提交前列表必须完成准备；修改或重置列表会使旧帧失效，调用期间不得变更或释放所有者。
+
+[MapSpriteMaterial.h](src/render/core/MapSpriteMaterial.h) 定义索引、remap 掩码、光照级别及颜色表在自有资源中的偏移。CPU 原解码、VXL 投影、索引深度、覆盖几何与命中仍保持权威；GPU 执行颜色与原顺序合成，保留透明索引、整数采样、原遮挡规则和光照后迷雾顺序。当前 VXL 路径覆盖原 Reference／Point 模式。
+
+私有 [MapCompositionWin32](src/ui/surface/win32/MapCompositionWin32.h) 在 UI 线程拥有场景和最终帧命令；[MapNativeOverlayWin32](src/ui/surface/win32/MapNativeOverlayWin32.h) 同步借用原生绘制上下文，将原生覆盖操作转换为自有命令及资源。它们不拥有世界、模拟或 D3D 设备；失败通过 `cancel() / release()` 清理，由宿主选择软件回退。
+
+[D3D11FramePresenterWin32::presentMap()](src/runtime/presentation/win32/D3D11FramePresenterWin32.h) 接收 `MapDrawFrame`，复用既有设备、交换链与窗口线程所有权。[MapRasterD3D11.inl](src/runtime/presentation/win32/MapRasterD3D11.inl) 准备资源和顺序命令，[MapRaster.hlsl](src/runtime/presentation/win32/MapRaster.hlsl) 执行融合地图合成。正常路径不接收完整 CPU 地图图像，也不逐帧读回 GPU 图像参与组成；诊断读回仅用于显式对照。
+
+`report()` 的 `mapDraws / mapRejected` 区分成功绘制与拒绝，计时的 `mapRaster` 标记地图合成样本。GPU 查询包含融合合成过程，不能解释为单一图层耗时；CPU 准备、上传提交、Present 和窗口延迟分别记录，不能相加推定总耗时或屏幕帧率。
+
+地图着色器与菜单着色器共用已有 FXC 离线构建入口，生成头文件位于构建目录，源码包只提供 HLSL 和构建规则。启用方法见 [README](README.md#地图-gpu-绘制)；原生合同见 [MapRasterD3D11Contract.cpp](tests/infrastructure/MapRasterD3D11Contract.cpp) 与 [MapNativeOverlayD3D11Contract.cpp](tests/infrastructure/MapNativeOverlayD3D11Contract.cpp)。
+
 ## CPU 性能采样与隔离设备诊断
 
 [RuntimeLiveFrameBenchmark.h](src/runtime/performance/diagnostics/RuntimeLiveFrameBenchmark.h) 提供生产循环中的可选测量，不用墙钟时间决定模拟 tick 数量。`CONCORD_LIVE_BENCHMARK=1` 开启测量，`CONCORD_LIVE_BENCHMARK_VISIBLE=1` 请求可见运行，`CONCORD_LIVE_BENCHMARK_RAW_SAMPLES=1` 追加有界原始样本。`CONCORD_LIVE_BENCHMARK_TICKS` 默认 600，合法数值限制在 60–216,000；测量之前保留原 60 tick 暖场。
@@ -923,7 +944,7 @@ struct FrameBackendOptions {
 
 [性能工具](tools/benchmarks) 中新增的 ES 模块脚本使用 Node.js 内置模块记录输入身份、分轮采样并从原始流复算分位数；基线和诊断脚本按公开默认 Release 构建目录校验部署来源，输出必须使用新的工程内目录。工具的实际资源输入仍需自行准备，建议输出统一放在 `build/`。
 
-[设备探针](tools/diagnostics) 是独立程序，检查 CPU/图形设备、纹理格式、上传读回与 timestamp 能力。游戏产品中的 D3D11、DXGI、DWM 依赖由私有呈现后端接入，不进入独立核心或公共接口。环境采集、进程路径及原始输出只供本机分析，不随源码包发布。设备探针只反映其检查范围；生产菜单的 GPU 绘制和战局完整帧呈现分别通过各自入口选择与验证。
+[设备探针](tools/diagnostics) 是独立程序，检查 CPU/图形设备、纹理格式、上传读回与 timestamp 能力。游戏产品中的 D3D11、DXGI、DWM 依赖由私有呈现后端接入，不进入独立核心或公共接口。环境采集、进程路径及原始输出只供本机分析，不随源码包发布。设备探针只反映其检查范围；生产菜单 GPU 绘制、地图 GPU 绘制和战局完整帧呈现分别通过各自入口选择与验证。
 
 ## 模块库与独立合同
 
@@ -984,9 +1005,10 @@ struct FrameBackendOptions {
 | `--skirmish-window <win32\|sdl3>` | 选择独立遭遇战菜单窗口，默认 Win32；战局窗口保持 Win32 |
 | `--frame-backend <software\|d3d11\|d3d11-warp>` | 选择主 Win32 窗口的完整 CPU 帧呈现方式，默认 software |
 | `--skirmish-drawing <software\|d3d11\|d3d11-warp>` | 独立选择 Win32 大厅与选图页的绘制方式，默认 software |
+| `--map-drawing <software\|d3d11\|d3d11-warp>` | 独立选择 Win32 地图绘制方式，默认 software；与 D3D11 完整帧呈现同时启用时必须选择相同设备 |
 | `--smoke-test`                                        | 加载启动数据并输出报告，不打开窗口 |
 
-`--frame-backend` 的硬件与 WARP 选项需要匹配的 Windows 图形能力；失败时记录原因并回退软件路径。`--skirmish-window sdl3` 与任一 D3D11／WARP 战局呈现或菜单绘制选项组合时直接报错。用法见 [README](README.md#主战局呈现后端)。
+`--frame-backend` 的硬件与 WARP 选项需要匹配的 Windows 图形能力；失败时记录原因并回退软件路径。`--skirmish-window sdl3` 与任一 D3D11／WARP 战局呈现、菜单绘制或地图绘制选项组合时直接报错。用法见 [README](README.md#主战局呈现后端)。
 
 `--smoke-test` 仍需要对应的私人数据，退出码 `0` 表示启动报告成功，`1` 表示失败。该结果只反映启动检查。参数处理见 [RuntimeMain.cpp](src/runtime/host/RuntimeMain.cpp)。
 

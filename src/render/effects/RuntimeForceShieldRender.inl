@@ -70,7 +70,7 @@ public:
 
 private:
     std::uint32_t read(int x, int y) const {
-        return direct_ ? context_.surfacePixels[y*context_.surfaceWidth+x] : GetPixel(dc_,x,y);
+        return direct_ ? context_.surfacePixels[y*context_.surfaceWidth+x] : concord::ui::win32::MapNativeOverlayWin32::readPixel(dc_,x,y);
     }
     HDC dc_;
     const RuntimeMapRenderContext& context_;

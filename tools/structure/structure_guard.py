@@ -51,7 +51,11 @@ MENU_DRAW_VALUES = SOFTWARE_FRAME_VALUES | {
     "src/assets/menu/MenuImage.h",
     "src/assets/codecs/RuntimeTmpTypes.h",
 }
+MAP_DRAW_VALUES = {"src/render/core/MapDrawCommands.h", "src/render/core/RuntimeMapPixelRules.h",
+                   "src/render/core/MapSpriteMaterial.h",
+                   "src/ui/input/RuntimeInputPixelValues.h", "src/ui/values/RuntimeColorValues.h"}
 DEFAULT_MODULES = {
+    "map-draw": ["src/render/core/MapDrawCommands.h", "src/render/core/RuntimeMapPixelRules.h"],
     "menu-draw": ["src/ui/drawing/MenuDrawCommands.h"],
     "software-window": ["src/runtime/window/RuntimeSoftwareWindow.h"],
     "software-frame": ["src/runtime/presentation/SoftwareFrame.h", "src/runtime/presentation/FrameBackendOptions.h"],
@@ -248,6 +252,11 @@ def scan(root, build, inventory, trace, modules=None):
                 add("protected-module-missing", start, module)
                 continue
             for target, witness in closure(graph, start).items():
+                if module == "map-draw":
+                    if target not in MAP_DRAW_VALUES:
+                        add("map-draw-dependency", start, target, witness=witness)
+                    if re.search(r'\b(?:GameWorld|WorldObjectInstance|RuntimeMapRenderCache|renderCache|SDL_Window|SDL_Event|SDL_Surface)\b',code_views.get(target,"")):
+                        add("map-draw-live-or-device", start, target, witness=witness)
                 if module == "menu-draw":
                     if target not in MENU_DRAW_VALUES:
                         add("menu-draw-dependency", start, target, witness=witness)
@@ -282,7 +291,8 @@ def scan(root, build, inventory, trace, modules=None):
                         add("task-executor-live-state", start, target, witness=witness)
                 if target.startswith(FORBIDDEN_PREFIXES) and not (
                         (module in ("software-frame", "software-window") and target in SOFTWARE_FRAME_VALUES)
-                        or (module == "menu-draw" and target in MENU_DRAW_VALUES)):
+                        or (module == "menu-draw" and target in MENU_DRAW_VALUES)
+                        or (module == "map-draw" and target in MAP_DRAW_VALUES)):
                     add("protected-dependency", start, module + ":" + target, witness=witness)
                 for detail in platform.get(target, ()):
                     add("protected-platform", start, module + ":" + target + ":" + detail, witness=witness)

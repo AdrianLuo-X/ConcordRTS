@@ -8,5 +8,7 @@ struct FrameBackendOptions {
     FrameDevice device=FrameDevice::Hardware;
     FrameBackend menuBackend=FrameBackend::Software;
     FrameDevice menuDevice=FrameDevice::Hardware;
+    FrameBackend mapBackend=FrameBackend::Software;
+    FrameDevice mapDevice=FrameDevice::Hardware;
 };
 } // namespace concord::presentation

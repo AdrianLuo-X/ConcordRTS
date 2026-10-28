@@ -15,22 +15,7 @@ struct MenuRasterD3D11 {
     HRESULT buffer(ID3D11Device* d,ID3D11DeviceContext* c,const void* bytes,std::size_t count,
         std::size_t stride,ComPtr<ID3D11Buffer>& b,ComPtr<ID3D11ShaderResourceView>& v,
         std::size_t& capacity,std::uint64_t& uploaded) {
-        if(count==0||count>concord::ui::MenuDrawList::maxBytes)return E_INVALIDARG;
-        if(capacity!=count) {
-            b.Reset();v.Reset();capacity=0;
-            D3D11_BUFFER_DESC desc{};desc.ByteWidth=static_cast<UINT>(count);desc.Usage=D3D11_USAGE_DEFAULT;
-            desc.BindFlags=D3D11_BIND_SHADER_RESOURCE;
-            desc.MiscFlags=stride?D3D11_RESOURCE_MISC_BUFFER_STRUCTURED:D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
-            desc.StructureByteStride=static_cast<UINT>(stride);
-            HRESULT hr=d->CreateBuffer(&desc,nullptr,&b);if(FAILED(hr))return hr;
-            D3D11_SHADER_RESOURCE_VIEW_DESC srv{};
-            srv.Format=stride?DXGI_FORMAT_UNKNOWN:DXGI_FORMAT_R32_TYPELESS;
-            srv.ViewDimension=D3D11_SRV_DIMENSION_BUFFEREX;
-            srv.BufferEx.NumElements=static_cast<UINT>(count/(stride?stride:4));
-            srv.BufferEx.Flags=stride?0:D3D11_BUFFEREX_SRV_FLAG_RAW;
-            hr=d->CreateShaderResourceView(b.Get(),&srv,&v);if(FAILED(hr))return hr;capacity=count;
-        }
-        c->UpdateSubresource(b.Get(),0,nullptr,bytes,0,0);uploaded+=count;return S_OK;
+        return uploadRasterBufferD3D11(d,c,bytes,count,stride,b,v,capacity,uploaded,concord::ui::MenuDrawList::maxBytes);
     }
     HRESULT draw(ID3D11Device* d,ID3D11DeviceContext* c,ID3D11Texture2D* back,
         const concord::ui::MenuDrawFrame& f,std::uint64_t& uploaded,ID3D11Query* start) {

@@ -1,4 +1,7 @@
 #include "render/core/RuntimeMapRenderer.h"
+#include "render/core/RuntimeMapPixelRules.h"
+#include "ui/surface/win32/MapNativeOverlayWin32.h"
+#include "ui/surface/win32/MapCompositionWin32.h"
 #include "render/core/RuntimeMapTerrainFrameRenderer.h"
 #include "assets/codecs/RuntimeTmpCodec.h"
 #include "assets/terrain/RuntimeTerrainTmpQuery.h"
@@ -11250,13 +11253,13 @@ void drawDiamond(
         {center.x - width / 2, center.y}
     };
 
-    SetDCBrushColor(dc, fillColor);
-    SetDCPenColor(dc, strokeColor);
+    concord::ui::win32::MapNativeOverlayWin32::setBrushColor(dc, fillColor);
+    concord::ui::win32::MapNativeOverlayWin32::setPenColor(dc, strokeColor);
     Polygon(dc, points, 4);
 }
 
 void drawSmallCross(HDC dc, int x, int y, COLORREF color) {
-    SetDCPenColor(dc, color);
+    concord::ui::win32::MapNativeOverlayWin32::setPenColor(dc, color);
     MoveToEx(dc, x - 4, y, nullptr);
     LineTo(dc, x + 5, y);
     MoveToEx(dc, x, y - 4, nullptr);
@@ -11281,17 +11284,17 @@ void drawRuntimeWallOverlayFallback(
         {center.x + halfWidth, center.y - 2},
         {center.x, center.y + halfHeight - 1}
     };
-    SetDCPenColor(dc, dark);
-    SetDCBrushColor(dc, side);
+    concord::ui::win32::MapNativeOverlayWin32::setPenColor(dc, dark);
+    concord::ui::win32::MapNativeOverlayWin32::setBrushColor(dc, side);
     Polygon(dc, body, 4);
 
     MoveToEx(dc, center.x - halfWidth + 4, center.y - 3, nullptr);
     LineTo(dc, center.x, center.y - halfHeight);
     LineTo(dc, center.x + halfWidth - 4, center.y - 3);
-    SetDCPenColor(dc, ownerColor);
+    concord::ui::win32::MapNativeOverlayWin32::setPenColor(dc, ownerColor);
     MoveToEx(dc, center.x - halfWidth / 2, center.y - 4, nullptr);
     LineTo(dc, center.x + halfWidth / 2, center.y - 4);
-    SetDCPenColor(dc, top);
+    concord::ui::win32::MapNativeOverlayWin32::setPenColor(dc, top);
     MoveToEx(dc, center.x - halfWidth + 3, center.y - 1, nullptr);
     LineTo(dc, center.x + halfWidth - 3, center.y - 1);
 }
@@ -13097,6 +13100,8 @@ RuntimePaletteColor runtimePaletteColorWithExtraUnitLight(
     return {apply(color.r), apply(color.g), apply(color.b)};
 }
 
+#include "render/core/RuntimeMapGpuWorld.inl"
+
 bool hasPixelSurface(const RuntimeMapRenderContext& context) {
     return context.surfacePixels != nullptr
         && context.surfaceWidth > 0
@@ -13173,6 +13178,13 @@ int applyRuntimeLightingTintToViewport(
             ? runtimeMakeLightingLookupRaster(lookup.red, lookup.green, lookup.blue)
             : RuntimeLightingLookupRaster{};
     }
+    if(runtimeGpuWorldDc(dc)&&runtimeGpuWorldTarget(context)) {
+        try{std::array<std::uint32_t,256> colors{};for(std::size_t i=0;i<colors.size();++i)colors[i]=static_cast<std::uint32_t>(lookup.blue[i])|(static_cast<std::uint32_t>(lookup.green[i])<<8U)|(static_cast<std::uint32_t>(lookup.red[i])<<16U);
+            auto* list=runtimeGpuWorldOwner->drawList();if(!list)return width*height;auto c=runtimeGpuWorldRegion(viewport,concord::render::MapDrawKind::Lookup);
+            c.palette=list->internValues<std::uint32_t>(colors);(void)runtimeGpuWorldEmit(c);
+        }catch(...){runtimeGpuWorldOwner->reject("world-global-light-budget");}return width*height;
+    }
+
     if (hasPixelSurface(context)) {
         if (!runtimeFrameScalingReferenceForRender() && lookup.raster.exact) {
             if (!lookup.raster.identity) {
@@ -13336,6 +13348,7 @@ bool putSurfacePixel(
     int y,
     std::uint32_t color
 ) {
+    if(runtimeGpuWorldPixel(context,x,y,concord::render::MapDrawKind::Fill,color))return true;
     if (!hasPixelSurface(context)
         || x < 0
         || y < 0
@@ -13358,6 +13371,7 @@ bool shadeSurfacePixel(
     int y,
     int shade
 ) {
+    if(runtimeGpuWorldPixel(context,x,y,concord::render::MapDrawKind::Shade,static_cast<std::uint32_t>(shade)))return true;
     if (!hasPixelSurface(context)
         || x < 0
         || y < 0
@@ -13379,7 +13393,7 @@ bool shadeSurfacePixel(
 }
 
 void fillViewport(HDC dc, const RECT& viewport) {
-    SetDCBrushColor(dc, RGB(15, 22, 31));
+    concord::ui::win32::MapNativeOverlayWin32::setBrushColor(dc, RGB(15, 22, 31));
     FillRect(dc, &viewport, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
 }
 
@@ -15948,7 +15962,9 @@ RuntimeVoxelCacheEntry* loadRuntimeVoxelFromCache(
 #include "render/lighting/RuntimeAirstrikeBodyTint.inl"
 #include "render/geometry/RuntimeSpriteGeometry.inl"
 #include "render/shadows/RuntimeIndexedOpaqueSpan.h"
+static bool runtimeGpuRestoreFrozenUnderlay(const RuntimeMapRenderContext&,int);
 #include "render/buildings/RuntimeBuildingDepthRender.inl"
+#include "render/core/win32/RuntimeMapGpuObjectBridgeDeclWin32.inl"
 
 bool drawRuntimeShpFrame(
     HDC dc,
@@ -16032,6 +16048,8 @@ bool drawRuntimeShpFrame(
                         ownerRemap,remapColor,brightnessLift,vxlColorGrade,vxlPaletteLookup,255);
                     return colors;
                 };
+                if(runtimeGpuWorldTarget(context))draw.gpuMaterial=[source,pinned,context,camera,palette,ownerRemap,
+                    remapColor,brightnessLift,vxlColorGrade,vxlPaletteLookup](){return runtimeGpuPrepareSpriteMaterial(context,camera,*source,palette,ownerRemap,remapColor,brightnessLift,vxlColorGrade,vxlPaletteLookup);};
             }
             if (collectionProfile)
                 runtimeBuildingDepthFrame->profileCollection.colourCallbackMs += runtimeMaybeElapsedMs(true, colourCallbackStarted);
@@ -16074,6 +16092,8 @@ bool drawRuntimeShpFrame(
         static_cast<int>(viewport.right) - targetX
     );
 
+    if(!runtimeGpuSpriteMaterialCapture&&runtimeGpuWorldShp(dc,viewport,center,context,camera,image,palette,ownerRemap,remapColor,brightnessLift,vxlColorGrade,vxlPaletteLookup,opacity,buildingDepth,buildingDepthEnabled))return true;
+
     const RuntimeVxlColorGrade grade =
         runtimeVxlColorGradeFromEnv(vxlColorGrade, vxlPaletteLookup);
     const double extraUnitLight = vxlPaletteLookup
@@ -16102,7 +16122,7 @@ bool drawRuntimeShpFrame(
         || grade.enabled
         || std::abs(extraUnitLight) > 0.000001;
 
-    if (hasPixelSurface(context)) {
+    if (hasPixelSurface(context)||runtimeGpuSpriteMaterialCapture) {
         std::vector<std::uint32_t>& packedPalette =
             image.packedBaseColors;
         std::vector<std::uint32_t>& packedRemapPalette =
@@ -16292,6 +16312,8 @@ bool drawRuntimeShpFrame(
                 }
             }
         }
+        if(runtimeGpuCaptureSpriteMaterial(image,context,ownerRemap,remapMaskAvailable,lightLevelsAvailable,
+                vxlColorGrade&&runtimeVxlSofteningEnabled(),packedPalette,packedRemapPalette,packedLitPalette,packedLitRemapPalette))return true;
         const int clippedStartX = std::max(startX, -targetX);
         const int clippedEndX = std::min(endX, context.surfaceWidth - targetX);
         if (clippedStartX >= clippedEndX) {
@@ -16383,6 +16405,28 @@ bool drawRuntimeShpFrame(
                     );
             };
 
+        if(auto* native=concord::ui::win32::MapNativeOverlayWin32::current();native&&native->dc()==dc) {
+            if(buildingDepthEnabled||remapMaskAvailable||lightLevelsAvailable||softenVxlPixels) {
+                native->reject("map-indexed-unselected-material");return true;
+            }
+            try {
+                std::array<std::uint32_t,256> colors{};
+                for(unsigned int index=0;index<colors.size();++index) {
+                    auto color=ownerRemap&&runtimePaletteIndexIsOwnerRemap(static_cast<unsigned char>(index))
+                        ?packedRemapPalette[index]:packedPalette[index];
+                    if(context.chaosBodyTint)color=runtimeChaosTintPackedColor(color);
+                    colors[index]=runtimeAirstrikeTintPackedColor(color,context.airstrikeBodyColorAdd);
+                }
+                auto* list=native->drawList();if(!list){native->reject("map-indexed-owner");return true;}
+                concord::render::MapDrawCommand c;c.left=targetX+clippedStartX;c.top=std::max(0,targetY+startY);
+                c.right=targetX+clippedEndX;c.bottom=std::min(context.surfaceHeight,targetY+endY);
+                c.kind=concord::render::MapDrawKind::Indexed;c.originX=targetX;c.originY=targetY;
+                c.width=image.width;c.height=image.height;c.stride=c.width;c.flags=1U;
+                c.parameter=static_cast<std::uint32_t>(std::clamp(opacity,0,255));if(c.parameter<255)c.flags|=4U;if(c.parameter==0)c.flags|=8U;
+                c.offset=list->intern(image.pixels);c.palette=list->internValues<std::uint32_t>(colors);
+                (void)native->emit(c);return true; // No source/destination RGB loop in the selected GPU path.
+            }catch(...){native->reject("map-indexed-budget");return true;}
+        }
         const int clampedOpacity = std::clamp(opacity, 0, 255);
         const auto blendPackedColor = [clampedOpacity, chaos = context.chaosBodyTint, airstrike = context.airstrikeBodyColorAdd](
             std::uint32_t destination,
@@ -16530,7 +16574,7 @@ bool drawRuntimeShpFrame(
             if (buildingDepthEnabled
                 && !acceptRuntimeBuildingPixel(buildingDepth, imageRect, x, y, opacity)) continue;
             if(buildingDepthEnabled&&!runtimeBuildingDepthFrame->blends.empty()) {
-                const COLORREF background=GetPixel(dc,targetX+x,targetY+y);
+                const COLORREF background=concord::ui::win32::MapNativeOverlayWin32::readPixel(dc,targetX+x,targetY+y);
                 if(background!=CLR_INVALID) {
                     auto color=packRuntimeDibColor(background);
                     if(compositeRuntimeBuildingDepthPixel(imageRect,x,y,color)) {
@@ -16604,7 +16648,7 @@ bool drawRuntimeShpFrame(
             }
             const int clampedOpacity = std::clamp(opacity, 0, 255);
             if (clampedOpacity < 255) {
-                const COLORREF destinationColor = GetPixel(dc, screenX, screenY);
+                const COLORREF destinationColor = concord::ui::win32::MapNativeOverlayWin32::readPixel(dc, screenX, screenY);
                 if (destinationColor == CLR_INVALID) {
                     continue;
                 }
@@ -16639,6 +16683,8 @@ bool drawRuntimeShpFrame(
 
     return true;
 }
+
+#include "render/core/RuntimeMapGpuObjectBridge.inl"
 
 bool drawRuntimeVoxelShadowMask(
     HDC dc,
@@ -16698,6 +16744,8 @@ bool drawRuntimeVoxelShadowMask(
         image.width,
         static_cast<int>(viewport.right) - targetX
     );
+
+    if(runtimeGpuWorldShadow(dc,viewport,targetX,targetY,image.width,image.height,shadowPixels,binaryMask,false,darkenedPixels))return true;
 
     if (hasPixelSurface(context)) {
         const bool useHalfBlackFastPath = !runtimeFrameScalingReferenceForRender();
@@ -16791,7 +16839,7 @@ bool drawRuntimeVoxelShadowMask(
                 continue;
             }
 
-            const COLORREF current = GetPixel(dc, screenX, screenY);
+            const COLORREF current = concord::ui::win32::MapNativeOverlayWin32::readPixel(dc, screenX, screenY);
             if (current == CLR_INVALID) {
                 continue;
             }
@@ -16847,6 +16895,16 @@ int drawRuntimeSoftShadowEllipse(
     halfHeight = std::max(1, halfHeight);
     int darkenedPixels = 0;
     const int centerY = center.y - 1;
+    if(runtimeGpuWorldDc(dc)) {
+        try{const int width=halfWidth*2+1,height=halfHeight*2+1;std::vector<unsigned char> alphaMask(static_cast<std::size_t>(width)*height);
+            for(int y=-halfHeight;y<=halfHeight;++y)for(int x=-halfWidth;x<=halfWidth;++x){
+                const double normalized=static_cast<double>(x*x)/static_cast<double>(halfWidth*halfWidth)+static_cast<double>(y*y)/static_cast<double>(halfHeight*halfHeight);
+                if(normalized>1.0)continue;const double edge=std::clamp(normalized,0.0,1.0);
+                alphaMask[static_cast<std::size_t>(y+halfHeight)*width+x+halfWidth]=static_cast<unsigned char>(std::clamp(static_cast<int>(std::lround(static_cast<double>(maximumAlpha)*(1.0-edge)+16.0)),1,128));}
+            const auto clip=runtimeGpuWorldViewport(clipViewport,context.surfaceWidth,context.surfaceHeight);
+            (void)runtimeGpuWorldShadow(dc,clip,center.x-halfWidth,centerY-halfHeight,width,height,alphaMask,false,true,&darkenedPixels);
+        }catch(...){runtimeGpuWorldOwner->reject("world-soft-shadow-budget");}return darkenedPixels;
+    }
     for (int y = -halfHeight; y <= halfHeight; ++y) {
         for (int x = -halfWidth; x <= halfWidth; ++x) {
             const double normalized =
@@ -16876,7 +16934,7 @@ int drawRuntimeSoftShadowEllipse(
                 ++darkenedPixels;
                 continue;
             }
-            const COLORREF current = GetPixel(dc, screenX, screenY);
+            const COLORREF current = concord::ui::win32::MapNativeOverlayWin32::readPixel(dc, screenX, screenY);
             if (current == CLR_INVALID) {
                 continue;
             }
@@ -17035,8 +17093,8 @@ void drawRuntimeVehicleTurretCue(
         pivot.y + static_cast<int>(std::lround(screenY * 6.0))
     };
 
-    SetDCPenColor(dc, RGB(30, 32, 38));
-    SetDCBrushColor(dc, runtimeObjectFallbackColor(context, object.owner));
+    concord::ui::win32::MapNativeOverlayWin32::setPenColor(dc, RGB(30, 32, 38));
+    concord::ui::win32::MapNativeOverlayWin32::setBrushColor(dc, runtimeObjectFallbackColor(context, object.owner));
     MoveToEx(dc, pivot.x, pivot.y, nullptr);
     LineTo(dc, muzzle.x, muzzle.y);
     Ellipse(dc, pivot.x - 3, pivot.y - 2, pivot.x + 4, pivot.y + 3);
@@ -17195,7 +17253,7 @@ bool drawRuntimeVoxelImageSprite(
         if (runtimeVxlDebugEnabled(debugMode, "bounds")) {
             const RECT imageRect =
                 runtimeShpFrameScreenRect(drawCenter, camera, voxel->image);
-            SetDCPenColor(dc, RGB(255, 240, 40));
+            concord::ui::win32::MapNativeOverlayWin32::setPenColor(dc, RGB(255, 240, 40));
             HGDIOBJ oldBrush = SelectObject(dc, GetStockObject(NULL_BRUSH));
             Rectangle(
                 dc,
@@ -17211,7 +17269,7 @@ bool drawRuntimeVoxelImageSprite(
                 drawCenter.x,
                 drawCenter.y + (camera.tileHeight / 2)
             };
-            SetDCPenColor(dc, RGB(255, 64, 64));
+            concord::ui::win32::MapNativeOverlayWin32::setPenColor(dc, RGB(255, 64, 64));
             MoveToEx(dc, anchorPoint.x - 5, anchorPoint.y, nullptr);
             LineTo(dc, anchorPoint.x + 6, anchorPoint.y);
             MoveToEx(dc, anchorPoint.x, anchorPoint.y - 5, nullptr);
@@ -17219,7 +17277,7 @@ bool drawRuntimeVoxelImageSprite(
         }
         if (runtimeVxlDebugEnabled(debugMode, "pivot")) {
             const POINT pivotPoint{drawCenter.x, drawCenter.y};
-            SetDCPenColor(dc, RGB(64, 255, 255));
+            concord::ui::win32::MapNativeOverlayWin32::setPenColor(dc, RGB(64, 255, 255));
             MoveToEx(dc, pivotPoint.x - 6, pivotPoint.y, nullptr);
             LineTo(dc, pivotPoint.x + 7, pivotPoint.y);
             MoveToEx(dc, pivotPoint.x, pivotPoint.y - 6, nullptr);
@@ -24960,7 +25018,7 @@ void drawRuntimeBuildProgressOverlay(
         && baseRect->bottom > baseRect->top;
     const int top = hasBaseRect ? baseRect->top - 8 : center.y - 92;
     const int bottom = hasBaseRect ? baseRect->bottom - 8 : center.y - 18;
-    SetDCPenColor(dc, RGB(104, 214, 168));
+    concord::ui::win32::MapNativeOverlayWin32::setPenColor(dc, RGB(104, 214, 168));
     for (int index = 0; index < 4; ++index) {
         const int x = center.x - halfWidth + index * ((halfWidth * 2) / 3);
         MoveToEx(dc, x, bottom, nullptr);
@@ -24983,9 +25041,9 @@ void drawRuntimeBuildProgressOverlay(
         frame.left + 1 + ((frame.right - frame.left - 2) * done) / total,
         frame.bottom - 1
     };
-    SetDCBrushColor(dc, RGB(7, 10, 14));
+    concord::ui::win32::MapNativeOverlayWin32::setBrushColor(dc, RGB(7, 10, 14));
     Rectangle(dc, frame.left, frame.top, frame.right, frame.bottom);
-    SetDCBrushColor(dc, RGB(90, 226, 126));
+    concord::ui::win32::MapNativeOverlayWin32::setBrushColor(dc, RGB(90, 226, 126));
     FillRect(dc, &fill, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
 }
 
@@ -25028,15 +25086,15 @@ void drawVoxelProxyShape(
         {center.x, center.y + halfHeight}
     };
 
-    SetDCPenColor(dc, outline);
-    SetDCBrushColor(dc, sideColor);
+    concord::ui::win32::MapNativeOverlayWin32::setPenColor(dc, outline);
+    concord::ui::win32::MapNativeOverlayWin32::setBrushColor(dc, sideColor);
     Polygon(dc, front, 4);
-    SetDCBrushColor(dc, shadeColor(sideColor, 18));
+    concord::ui::win32::MapNativeOverlayWin32::setBrushColor(dc, shadeColor(sideColor, 18));
     Polygon(dc, right, 4);
-    SetDCBrushColor(dc, topColor);
+    concord::ui::win32::MapNativeOverlayWin32::setBrushColor(dc, topColor);
     Polygon(dc, top, 4);
 
-    SetDCPenColor(dc, owner);
+    concord::ui::win32::MapNativeOverlayWin32::setPenColor(dc, owner);
     MoveToEx(dc, center.x - halfWidth / 2, center.y - bodyHeight, nullptr);
     LineTo(dc, center.x + halfWidth / 2 + 1, center.y - bodyHeight);
 
@@ -25044,7 +25102,7 @@ void drawVoxelProxyShape(
         (static_cast<double>(object.facing) / 256.0) * 6.283185307179586;
     const int dx = static_cast<int>(std::sin(radians) * (halfWidth + 4));
     const int dy = static_cast<int>(-std::cos(radians) * (halfHeight + 5));
-    SetDCPenColor(dc, RGB(28, 32, 38));
+    concord::ui::win32::MapNativeOverlayWin32::setPenColor(dc, RGB(28, 32, 38));
     MoveToEx(dc, center.x, center.y - bodyHeight, nullptr);
     LineTo(dc, center.x + dx, center.y - bodyHeight + dy);
 }
@@ -25723,6 +25781,8 @@ bool drawTmpTileImage(
         static_cast<int>(viewport.right) - targetX
     );
 
+    if(runtimeGpuWorldIndexed(dc,viewport,imageRect.left,imageRect.top,image.width,image.height,image.pixels,palette))return true;
+
     if (hasPixelSurface(context)) {
         std::array<std::uint32_t, 256> packedPalette{};
         for (int paletteIndex = 0; paletteIndex < 256; ++paletteIndex) {
@@ -25871,6 +25931,8 @@ bool drawTmpTileOverlayImage(
         image.extraWidth,
         static_cast<int>(viewport.right) - targetX
     );
+
+    if(runtimeGpuWorldIndexed(dc,viewport,imageRect.left,imageRect.top,image.extraWidth,image.extraHeight,image.extraPixels,palette))return true;
 
     if (hasPixelSurface(context)) {
         std::array<std::uint32_t, 256> packedPalette{};
@@ -26088,6 +26150,15 @@ bool drawTmpTileResourceMaskImage(
             "resource-pixels="
             + std::to_string(nonZeroPixels)
         );
+    }
+
+    if(runtimeGpuWorldDc(dc)) {
+        if(!hasPackedBase)return runtimeGpuWorldIndexed(dc,viewport,center.x-camera.tileWidth/2+image.offsetX,center.y-camera.tileHeight/2+image.offsetY,image.width,image.height,image.pixels,palette);
+        try{std::vector<unsigned char> rectangular(static_cast<std::size_t>(image.baseWidth)*image.baseHeight);std::size_t sourceIndex=0;int rowWidth=0;
+            for(int y=0;y<image.baseHeight;++y){rowWidth+=y<image.baseHeight/2?4:-4;const int left=(image.baseWidth-rowWidth)/2;
+                for(int x=0;x<rowWidth;++x){if(sourceIndex>=image.basePixels.size())break;rectangular[static_cast<std::size_t>(y)*image.baseWidth+left+x]=image.basePixels[sourceIndex++];}}
+            return runtimeGpuWorldIndexed(dc,viewport,center.x-camera.tileWidth/2+image.baseOffsetX,center.y-camera.tileHeight/2+image.baseOffsetY,image.baseWidth,image.baseHeight,rectangular,palette);
+        }catch(...){runtimeGpuWorldOwner->reject("world-resource-indexed-budget");return true;}
     }
 
     if (!hasPackedBase) {
@@ -28243,7 +28314,8 @@ std::string buildTerrainLayerKey(
     const GameWorld& world,
     const RuntimeMapRenderContext& context,
     const RuntimeMapCamera& camera,
-    const RuntimeTerrainLayerRegion& region
+    const RuntimeTerrainLayerRegion& region,
+    bool materialIndices
 ) {
     const GameWorldSummary& summary = world.getSummary();
     return summary.theater
@@ -28276,6 +28348,7 @@ std::string buildTerrainLayerKey(
         + std::to_string(region.width)
         + "x"
         + std::to_string(region.height)
+        + "|gpu-material=" + (materialIndices?"1":"0")
         + "|textures="
         + (context.useTileTextures ? "1" : "0")
         + "|root="
@@ -28474,7 +28547,8 @@ bool buildTerrainLayer(
     const RuntimeMapCamera& camera,
     int viewportWidth,
     int viewportHeight,
-    RuntimeMapRenderCache& cache
+    RuntimeMapRenderCache& cache,
+    bool preserveColourEncoding = false
 ) {
     const RuntimeTerrainLayerRegion region =
         runtimeTerrainLayerRegionForViewport(
@@ -28482,8 +28556,12 @@ bool buildTerrainLayer(
             viewportWidth,
             viewportHeight
         );
+    // Surface-owner queries consume geometry only; retain existing colour storage.
+    const bool materialIndices = runtimeGpuWorldTarget(context)
+        || (preserveColourEncoding && cache.terrainLayer.built
+            && cache.terrainLayer.key.find("|gpu-material=1") != std::string::npos);
     const std::string key =
-        buildTerrainLayerKey(world, context, camera, region);
+        buildTerrainLayerKey(world, context, camera, region, materialIndices);
     if (cache.terrainLayer.built && cache.terrainLayer.key == key) {
         ++cache.terrainLayerCacheHits;
         return true;
@@ -28510,7 +28588,8 @@ bool buildTerrainLayer(
     std::array<std::uint32_t, 256> packedPalette{};
     for (int paletteIndex = 0; paletteIndex < 256; ++paletteIndex) {
         packedPalette[static_cast<std::size_t>(paletteIndex)] =
-            packDibColor(cache.palette[static_cast<std::size_t>(paletteIndex)]);
+            materialIndices?(0x80000000U|static_cast<std::uint32_t>(paletteIndex))
+                :packDibColor(cache.palette[static_cast<std::size_t>(paletteIndex)]);
     }
 
     const std::size_t pixelCount =
@@ -28983,6 +29062,18 @@ bool drawTerrainLayerToViewport(
 
     const int sourceX = destX - layerScreenX;
     const int sourceY = destY - layerScreenY;
+
+    if(runtimeGpuWorldDc(dc)) {
+        try{auto* list=runtimeGpuWorldOwner->drawList();if(!list)return true;auto c=runtimeGpuWorldRegion(destX,destY,destRight,destBottom,concord::render::MapDrawKind::Terrain);
+            c.originX=layerScreenX;c.originY=layerScreenY;c.width=layer.width;c.height=layer.height;c.stride=layer.width*4;
+            std::array<std::uint32_t,256> palette{};
+            // The decoder palette is already resident; only256 values are prepared, neverterrainRGB.
+            const auto* colors=runtimeGpuTerrainPalette;
+            if(!colors||colors->size()<256){runtimeGpuWorldOwner->reject("world-terrain-palette");return true;}
+            for(std::size_t i=0;i<palette.size();++i)palette[i]=packRuntimeDibColor((*colors)[i]);
+            c.offset=list->internValues<std::uint32_t>(layer.pixels);c.palette=list->internValues<std::uint32_t>(palette);(void)runtimeGpuWorldEmit(c);return true;
+        }catch(...){runtimeGpuWorldOwner->reject("world-terrain-budget");return true;}
+    }
 
     if (hasPixelSurface(context)
         && destX >= 0
@@ -29750,7 +29841,7 @@ bool pickRuntimeMapSurfaceCell(
     }
     RuntimeRendererEnvironmentScope environmentScope;
     if (!buildTerrainLayer(world, context, camera,
-            viewport.right - viewport.left, viewport.bottom - viewport.top, cache)) {
+            viewport.right - viewport.left, viewport.bottom - viewport.top, cache, true)) {
         return false;
     }
     const auto& layer = cache.terrainLayer;
@@ -34826,6 +34917,7 @@ bool blendSurfacePixelWithBlack(
     int y,
     int alpha
 ) {
+    if(runtimeGpuWorldPixel(context,x,y,concord::render::MapDrawKind::ConstantBlend,0,alpha))return true;
     if (!hasPixelSurface(context)
         || x < 0
         || y < 0
@@ -34851,6 +34943,7 @@ bool blendSurfacePixelWithTint(
     COLORREF tint,
     int alpha
 ) {
+    if(runtimeGpuWorldPixel(context,x,y,concord::render::MapDrawKind::ConstantBlend,packRuntimeDibColor(tint),alpha))return true;
     if (!hasPixelSurface(context)
         || x < 0
         || y < 0
@@ -36273,7 +36366,7 @@ bool blendRuntimeParticleFallbackPixel(
     if (dc == nullptr) {
         return false;
     }
-    const COLORREF current = GetPixel(dc, x, y);
+    const COLORREF current = concord::ui::win32::MapNativeOverlayWin32::readPixel(dc, x, y);
     const COLORREF blended = current == CLR_INVALID
         ? color
         : runtimeBlendTint(current, color, opacity);
@@ -36904,6 +36997,17 @@ int applyRuntimeLocalLightsToViewport(
             continue;
         }
 
+        if(runtimeGpuWorldDc(dc)&&runtimeGpuWorldTarget(context)) {
+            const std::int64_t square=static_cast<std::int64_t>(radius)*radius;unsigned int cut=0;bool any=false;
+            for(int y=top;y<bottom&&touchedPixels<kMaximumTouchedPixels;++y)for(int x=left;x<right;++x){
+                if(touchedPixels>=kMaximumTouchedPixels)break;const auto dx=static_cast<std::int64_t>(x-center.x),dy=static_cast<std::int64_t>(y-center.y);
+                if(dx*dx+dy*dy>square)continue;++touchedPixels;any=true;cut=static_cast<unsigned>((y-top)*(right-left)+x-left+1);}
+            if(any){auto c=runtimeGpuWorldRegion(left,top,right,bottom,concord::render::MapDrawKind::LocalLight);c.originX=center.x;c.originY=center.y;c.width=radius;c.auxiliary=cut;
+                c.parameter=static_cast<std::uint32_t>(light->blue)|(static_cast<std::uint32_t>(light->green)<<8U)|(static_cast<std::uint32_t>(light->red)<<16U)|(static_cast<std::uint32_t>(light->intensity)<<24U);
+                (void)runtimeGpuWorldEmit(c);++stats.localLightsApplied;}
+            if(touchedPixels>=kMaximumTouchedPixels)break;continue;
+        }
+
         const std::int64_t radiusSquared =
             static_cast<std::int64_t>(radius) * radius;
         const std::int64_t denominator = 255LL * 255LL * radiusSquared;
@@ -36932,7 +37036,7 @@ int applyRuntimeLocalLightsToViewport(
                         + static_cast<std::size_t>(x);
                     current = colorRefFromRuntimeDibColor(*surfacePixel);
                 } else if (dc != nullptr) {
-                    current = GetPixel(dc, x, y);
+                    current = concord::ui::win32::MapNativeOverlayWin32::readPixel(dc, x, y);
                 }
                 if (current == CLR_INVALID) {
                     continue;
@@ -38134,7 +38238,7 @@ void drawRuntimeTimedBombStatus(
 
     HGDIOBJ oldPen = SelectObject(dc, GetStockObject(DC_PEN));
     HGDIOBJ oldBrush = SelectObject(dc, GetStockObject(HOLLOW_BRUSH));
-    SetDCPenColor(dc, warningColor);
+    concord::ui::win32::MapNativeOverlayWin32::setPenColor(dc, warningColor);
     Polygon(dc, diamond, 4);
     MoveToEx(dc, warningCenter.x, warningCenter.y - 4, nullptr);
     LineTo(dc, warningCenter.x, warningCenter.y + 2);
@@ -40256,6 +40360,7 @@ bool resolveRuntimeInfantryDeathCanvasPivotOffsets(
     return true;
 }
 #include "render/buildings/RuntimeFactoryAirExitForeground.inl"
+#include "render/core/win32/RuntimeMapGpuFactoryForegroundWin32.inl"
 #include "render/terrain/RuntimeTerrainWallDepth.inl"
 #include "render/geometry/RuntimeStructureSpriteGeometry.inl"
 #include "render/geometry/RuntimeAirImpactBodyCenterRender.inl"
@@ -40349,6 +40454,8 @@ void applyRuntimeVisionOverlay(
             <= static_cast<std::size_t>(
                 std::numeric_limits<std::uint32_t>::max()
             );
+    const bool gpuVisionProducer=buildOverlayCache&&runtimeGpuVisionTarget(context.surfacePixels);
+    if(runtimeGpuVisionTarget(context.surfacePixels)&&!buildOverlayCache){concord::ui::win32::MapNativeOverlayWin32::current()->reject("map-vision-grid-unavailable");return;}
     const bool useNativeShroud = buildOverlayCache && runtimeLoadNativeShroud(context, cache);
     const std::uint64_t shroudFingerprint = useNativeShroud ? cache.nativeShroudAtlas.fingerprint : 0;
     const bool useIncrementalOverlay = buildOverlayCache
@@ -40421,6 +40528,7 @@ void applyRuntimeVisionOverlay(
             && runtimeVisionOverlayShroudMatches(overlayCache, visionGrid)));
 
     const auto applyEncodedOverlay = [&]() {
+        if(runtimeGpuVisionEncoded(overlayCache.encodedPixels,context.surfacePixels))return;
         for (const std::uint64_t encoded : overlayCache.encodedPixels) {
             const std::uint32_t offset = static_cast<std::uint32_t>(
                 encoded >> 32U
@@ -40851,8 +40959,10 @@ void applyRuntimeVisionOverlay(
                 const int worldX = (x - static_cast<int>(viewport.left) + camera.worldOffsetX) & 63;
                 const auto& color = colorRow[worldX];
                 const int opacity = solid ? 255 : std::clamp(static_cast<int>(softenedShroud[offset]) + color.mottle, 0, 250);
-                auto& pixel = context.surfacePixels[offset];
-                pixel = solid ? color.color : runtimeBlendVisionShroud(pixel, color.color, opacity);
+                if(!gpuVisionProducer) {
+                    auto& pixel = context.surfacePixels[offset];
+                    pixel = solid ? color.color : runtimeBlendVisionShroud(pixel, color.color, opacity);
+                }
                 ++stats.visionOverlayPixels;
                 if (buildOverlayCache) {
                     const std::uint32_t effect = (static_cast<std::uint32_t>(opacity) << 24U) | color.color;
@@ -40860,6 +40970,7 @@ void applyRuntimeVisionOverlay(
                 }
             }
         }
+        if(gpuVisionProducer)(void)runtimeGpuVisionEncoded(overlayCache.encodedPixels,context.surfacePixels);
         finishOverlayCache();
         return;
     }
@@ -40904,7 +41015,7 @@ void applyRuntimeVisionOverlay(
                     && softenedShroud[offset] >= 220);
             const std::uint32_t packedFogColor =
                 packRuntimeDibColor(fogColor);
-            const bool written =
+            const bool written = gpuVisionProducer || (
                 solidFog
                     // Unexplored terrain must not leak map information. The
                     // subtle variation now belongs to the fog colour itself,
@@ -40921,7 +41032,7 @@ void applyRuntimeVisionOverlay(
                         y,
                         fogColor,
                         opacity
-                    );
+                    ));
             if (written) {
                 ++stats.visionOverlayPixels;
                 if (buildOverlayCache) {
@@ -40940,18 +41051,23 @@ void applyRuntimeVisionOverlay(
             }
         }
     }
+    if(gpuVisionProducer)(void)runtimeGpuVisionEncoded(overlayCache.encodedPixels,context.surfacePixels);
     finishOverlayCache();
 }
+
+#include "render/lighting/diagnostics/RuntimeGpuLightFixtureContext.inl"
 
 RuntimeMapRenderStats drawRuntimeMap(
     HDC dc,
     const RECT& viewport,
     const GameWorld& world,
-    const RuntimeMapRenderContext& context,
+    const RuntimeMapRenderContext& inputContext,
     RuntimeMapCamera& camera,
     RuntimeMapRenderCache& cache
 ) {
+    RuntimeMapRenderContext context=inputContext;
     RuntimeRendererEnvironmentScope environmentScope;
+    RuntimeGpuLightFixtureContext lightFixture(context);
     const bool groundShadowEligibilityReference = runtimeGroundShadowEligibilityReferenceForRender();
     const bool terrainViewportFillReference = runtimeTerrainViewportFillReferenceForRender();
     const bool stageTrace = runtimeRendererEnvironmentValue("CONCORD_RENDER_STAGE_TRACE")
@@ -40996,17 +41112,21 @@ RuntimeMapRenderStats drawRuntimeMap(
     if (!camera.initialized) {
         initializeRuntimeMapCamera(camera, world, viewportWidth, viewportHeight);
     }
+    const auto worldDc=concord::ui::win32::MapCompositionRequestWin32::captureWorld(dc,context.surfacePixels,context.surfaceWidth,context.surfaceHeight);
+    const bool gpuWorld=worldDc!=dc;
+    if(gpuWorld){dc=worldDc;context.surfacePixels=nullptr;}
+    RuntimeGpuWorldScope worldGpuScope(gpuWorld?dc:nullptr);
     RuntimeGeometryQueryScope geometryBatch(world, viewport, context, camera, cache);
     recordRuntimeParticleRenderSnapshots(context, stats);
 
     const HGDIOBJ oldBrush = SelectObject(dc, GetStockObject(DC_BRUSH));
     const HGDIOBJ oldPen = SelectObject(dc, GetStockObject(DC_PEN));
 
-    SetDCBrushColor(dc, RGB(15, 22, 31));
+    concord::ui::win32::MapNativeOverlayWin32::setBrushColor(dc, RGB(15, 22, 31));
     const bool immediateViewportFill = context.effectOnlyProbe || terrainViewportFillReference;
     if (immediateViewportFill) {
         RuntimePerfTraceScope fillTrace("map.terrainViewportFill", context.animationTick);
-        FillRect(dc, &viewport, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+        if(!runtimeGpuWorldFill(dc,viewport,0x000F161FU))FillRect(dc, &viewport, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
         runtimeCountTerrainViewportFill(cache.terrainViewportFillCalls);
         if (runtimeTerrainViewportFillObservation) ++runtimeTerrainViewportFillObservation->fills;
     }
@@ -41116,7 +41236,7 @@ RuntimeMapRenderStats drawRuntimeMap(
             dc, viewport, context, camera, cache.terrainLayer);
         if (!omitFill) {
             RuntimePerfTraceScope fillTrace("map.terrainViewportFill", context.animationTick);
-            FillRect(dc, &viewport, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+            if(!runtimeGpuWorldFill(dc,viewport,0x000F161FU))FillRect(dc, &viewport, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
             runtimeCountTerrainViewportFill(cache.terrainViewportFillCalls);
         } else runtimeCountTerrainViewportFill(cache.terrainViewportFillElisions);
         if (runtimeTerrainViewportFillObservation) {
@@ -41124,6 +41244,7 @@ RuntimeMapRenderStats drawRuntimeMap(
             else ++runtimeTerrainViewportFillObservation->fills;
         }
     }
+    RuntimeGpuTerrainPaletteLease gpuTerrainPaletteLease(gpuWorld?&cache.palette:runtimeGpuTerrainPalette);
     const auto terrainBlitStart = runtimeMaybeTimingStart(stageTiming);
     const bool terrainLayerDrawn =
         terrainLayerBuilt
@@ -42014,8 +42135,8 @@ RuntimeMapRenderStats drawRuntimeMap(
             }
         }
         if (!drewTerrainSprite) {
-            SetDCBrushColor(dc, RGB(30, 111, 72));
-            SetDCPenColor(dc, RGB(8, 48, 34));
+            concord::ui::win32::MapNativeOverlayWin32::setBrushColor(dc, RGB(30, 111, 72));
+            concord::ui::win32::MapNativeOverlayWin32::setPenColor(dc, RGB(8, 48, 34));
             Ellipse(dc, center.x - 4, center.y - 8, center.x + 5, center.y + 1);
         }
         ++stats.visibleTerrainObjects;
@@ -42353,11 +42474,11 @@ RuntimeMapRenderStats drawRuntimeMap(
         RuntimeSpriteGeometryObservationScope bodyObservationScope(observeMobile ? &observedBody : nullptr);
         bool mobileBodyResolved = false;
         const auto prepareFallbackDrawing = [&] {
-            SetDCBrushColor(
+            concord::ui::win32::MapNativeOverlayWin32::setBrushColor(
                 dc,
                 runtimeObjectFallbackColor(context, object.owner)
             );
-            SetDCPenColor(dc, RGB(7, 10, 14));
+            concord::ui::win32::MapNativeOverlayWin32::setPenColor(dc, RGB(7, 10, 14));
         };
 
         const auto protection = specialObjectLookup.find(object.instanceId);
@@ -42447,8 +42568,8 @@ RuntimeMapRenderStats drawRuntimeMap(
             } else {
                 prepareFallbackDrawing();
                 if (runtimeObjectIsRenderableRubble(object)) {
-                    SetDCBrushColor(dc, RGB(82, 78, 70));
-                    SetDCPenColor(dc, RGB(34, 31, 28));
+                    concord::ui::win32::MapNativeOverlayWin32::setBrushColor(dc, RGB(82, 78, 70));
+                    concord::ui::win32::MapNativeOverlayWin32::setPenColor(dc, RGB(34, 31, 28));
                     POINT debris[6] = {
                         {center.x - 11, center.y - 2},
                         {center.x - 5, center.y - 8},
@@ -43432,6 +43553,7 @@ RuntimeMapRenderStats drawRuntimeMap(
         if (bodyViewport.bottom <= bodyViewport.top) continue;
         ++stats.airborneForegroundBodiesDrawn;
         RuntimeFactoryAirExitOcclusionPixels foregroundPixels;
+        std::optional<RuntimeGpuFactoryForegroundScope> gpuForeground;
         const RuntimeWorldObjectDrawRecord* foregroundHost = nullptr;
         RECT foregroundClip{};
         if (drawRecord.object->factoryExitHostId >= 0) {
@@ -43443,7 +43565,8 @@ RuntimeMapRenderStats drawRuntimeMap(
                         context, camera, cache, bodyBounds)
                     && IntersectRect(&foregroundClip, &bodyBounds, &bodyViewport)) {
                     foregroundHost = &host;
-                    foregroundPixels = captureRuntimeFactoryAirExitForegroundPixels(foregroundClip,
+                    if(runtimeGpuWorldTarget(context))gpuForeground.emplace(foregroundClip,*host.object,host.center,context,camera,cache);
+                    else foregroundPixels = captureRuntimeFactoryAirExitForegroundPixels(foregroundClip,
                         *host.object, host.center, context, camera, cache);
                 }
                 break;
@@ -43451,7 +43574,8 @@ RuntimeMapRenderStats drawRuntimeMap(
         }
         drawWorldObjectRecord(liftedRecord, &bodyViewport);
         if (foregroundHost) {
-            if (hasPixelSurface(context)) {
+            if(gpuForeground)gpuForeground->finish();
+            else if (hasPixelSurface(context)) {
                 for (const auto& [index, pixel] : foregroundPixels) context.surfacePixels[index] = pixel;
             } else {
                 drawRuntimeFactoryAirExitForeground(dc, foregroundClip, *foregroundHost->object,
@@ -43526,10 +43650,13 @@ RuntimeMapRenderStats drawRuntimeMap(
 
     // BEHIND is authored on the top layer with normal light. Keep its silver
     // palette above buildings/world lighting while respecting the shroud.
-    drawRuntimeBehindMarkers(dc, viewport, context, camera, cache, stats, behindMarkers);
+    context.surfacePixels=inputContext.surfacePixels;
+    const auto mapOverlayDc=concord::ui::win32::MapCompositionRequestWin32::capture(
+        dc,context.surfacePixels,context.surfaceWidth,context.surfaceHeight);
+    drawRuntimeBehindMarkers(mapOverlayDc, viewport, context, camera, cache, stats, behindMarkers);
     const auto visionStart = runtimeMaybeTimingStart(stageTiming);
     applyRuntimeVisionOverlay(
-        dc,
+        mapOverlayDc,
         viewport,
         world,
         context,
@@ -43540,6 +43667,7 @@ RuntimeMapRenderStats drawRuntimeMap(
     stats.visionMs = runtimeMaybeElapsedMs(stageTiming, visionStart);
     traceStage("vision-ready");
 
+    if(mapOverlayDc!=dc){SelectObject(mapOverlayDc,oldBrush);SelectObject(mapOverlayDc,oldPen);}
     SelectObject(dc, oldBrush);
     SelectObject(dc, oldPen);
     stats.rendered = true;
@@ -43814,3 +43942,19 @@ void RuntimeGrandCannonPreparedFacing::install(RuntimeMapRenderCache& target) {
 }
 
 #include "render/voxel/diagnostics/RuntimeGrandCannonPrewarmContract.inl"
+
+#include "ui/surface/win32/diagnostics/MapVisionGpuFixtureWin32.inl"
+#include "render/visibility/diagnostics/RuntimeGpuVisionOverlayContract.inl"
+
+#include "ui/surface/win32/diagnostics/MapTerrainGpuFixtureWin32.inl"
+#include "ui/surface/win32/diagnostics/MapWorldGpuFixtureWin32.inl"
+#include "render/buildings/diagnostics/RuntimeGpuFrozenWorldContract.inl"
+#include "ui/surface/win32/diagnostics/MapSpriteGpuFixtureWin32.inl"
+#include "render/units/diagnostics/RuntimeGpuSpriteMaterialContract.inl"
+#include "ui/surface/win32/diagnostics/MapOperationsGpuFixtureWin32.inl"
+#include "render/shadows/diagnostics/RuntimeGpuShadowContract.inl"
+#include "render/lighting/diagnostics/RuntimeGpuLightPrecisionContract.inl"
+#include "render/terrain/diagnostics/RuntimeGpuTerrainPickContract.inl"
+#include "render/lighting/diagnostics/RuntimeGpuLightWorldContract.inl"
+#include "render/voxel/diagnostics/RuntimeGpuVxlModeContract.inl"
+#include "render/terrain/diagnostics/RuntimeGpuTerrainContract.inl"

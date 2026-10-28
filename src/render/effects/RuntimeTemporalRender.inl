@@ -7,7 +7,7 @@ bool drawRuntimeTemporalBeam(
     const double lengthSquared = dx * dx + dy * dy;
     if (lengthSquared < 1.0) return false;
     scale = std::clamp(scale, 0.25, 4.0);
-    if (!hasPixelSurface(context)) {
+    if (!hasPixelSurface(context)&&!runtimeGpuWorldTarget(context)) {
         if (dc == nullptr) return false;
         const int saved = SaveDC(dc);
         IntersectClipRect(dc, viewport.left, viewport.top, viewport.right, viewport.bottom);
@@ -46,6 +46,7 @@ bool drawRuntimeTemporalBeam(
         const double edge = 1.0 - distance / radius;
         const int alpha = std::clamp(static_cast<int>(255.0 * edge * edge * pulse), 0, 255);
         if (alpha == 0) continue;
+        if(runtimeGpuWorldPixel(context,x,y,concord::render::MapDrawKind::ConstantBlend,packRuntimeDibColor(color),alpha)){drawn=true;continue;}
         auto& pixel = context.surfacePixels[y * context.surfaceWidth + x];
         const COLORREF original = RGB((pixel >> 16U) & 255U, (pixel >> 8U) & 255U, pixel & 255U);
         pixel = packRuntimeDibColor(runtimeBlendTint(original, color, alpha));

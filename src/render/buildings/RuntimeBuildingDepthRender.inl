@@ -11,10 +11,11 @@ struct RuntimeBuildingDepthDraw {
     std::size_t sequence = 0;
     int opacity = 255;
     std::function<std::vector<std::uint32_t>()> colors;
+    std::function<std::uint32_t()> gpuMaterial;
 };
 
 struct RuntimeBuildingDepthBlendPixel {
-    struct Layer { std::uint32_t color; int opacity; int owner; };
+    struct Layer { std::uint32_t color; int opacity; int owner; std::uint32_t material=UINT32_MAX,sourceIndex=0; };
     std::vector<Layer> layers;
     bool emitted = false;
 };
@@ -654,6 +655,7 @@ void resolveRuntimeBuildingDepthDraws(RuntimeBuildingDepthFrameState& state) {
     // Compose only those sparse pixels, at the winner's existing paint slot;
     // opaque pixels and single-building internal layers keep their old path.
     std::unordered_map<int,std::vector<std::uint32_t>> colors;
+    std::unordered_map<int,std::uint32_t> gpuMaterials;
     for(const auto& [pixelIndex,chain]:chains) {
         const int owner=state.pixels[pixelIndex].visibleOwner;
         // The visible frozen object retains its existing whole-body temporal
@@ -666,10 +668,11 @@ void resolveRuntimeBuildingDepthDraws(RuntimeBuildingDepthFrameState& state) {
         const int screenY=state.viewport.top+static_cast<int>(pixelIndex/state.width);
         for(const int index:chain) {
             const auto& draw=state.draws[index];
+            const auto sourceIndex=static_cast<std::size_t>(screenY-draw.rect.top)*draw.description.width+screenX-draw.rect.left;
+            if(draw.gpuMaterial){auto [m,created]=gpuMaterials.try_emplace(index);if(created)m->second=draw.gpuMaterial();
+                blend.layers.push_back({0,draw.opacity,draw.instanceId,m->second,static_cast<std::uint32_t>(sourceIndex)});continue;}
             auto [entry,inserted]=colors.try_emplace(index);
             if(inserted) {RuntimeBuildingDepthColorSampleScope isolated;entry->second=draw.colors();}
-            const auto sourceIndex=static_cast<std::size_t>(screenY-draw.rect.top)*draw.description.width
-                +screenX-draw.rect.left;
             blend.layers.push_back({entry->second[sourceIndex],draw.opacity,draw.instanceId});
         }
     }
@@ -714,7 +717,11 @@ void resolveRuntimeBuildingDepthDraws(RuntimeBuildingDepthFrameState& state) {
             const int sx=state.viewport.left+static_cast<int>(p%state.width);
             const int sy=state.viewport.top+static_cast<int>(p/state.width);
             for(const int index:chain) {
-                const auto& draw=state.draws[index];auto [entry,inserted]=colors.try_emplace(index);
+                const auto& draw=state.draws[index];
+                if(draw.gpuMaterial){auto [m,created]=gpuMaterials.try_emplace(index);if(created)m->second=draw.gpuMaterial();
+                    const auto sourceIndex=static_cast<std::size_t>(sy-draw.rect.top)*draw.description.width+sx-draw.rect.left;
+                    blend.layers.push_back({0,draw.opacity,draw.instanceId,m->second,static_cast<std::uint32_t>(sourceIndex)});continue;}
+                auto [entry,inserted]=colors.try_emplace(index);
                 if(inserted){RuntimeBuildingDepthColorSampleScope isolated;entry->second=draw.colors();}
                 blend.layers.push_back({entry->second[static_cast<std::size_t>(sy-draw.rect.top)
                     *draw.description.width+sx-draw.rect.left],draw.opacity,draw.instanceId});
@@ -766,6 +773,7 @@ void recordRuntimeBuildingUnderlayForeground(int screenX,int screenY) {
 }
 
 void restoreRuntimeFrozenBuildingUnderlay(HDC dc,const RuntimeMapRenderContext& context,int owner) {
+    if(runtimeGpuRestoreFrozenUnderlay(context,owner))return;
     auto* frame=runtimeBuildingDepthFrame;
     if(!frame||!frame->frozenOwners.contains(owner))return;
     for(const auto& [p,blend]:frame->frozenUnderlays) {
@@ -777,7 +785,7 @@ void restoreRuntimeFrozenBuildingUnderlay(HDC dc,const RuntimeMapRenderContext& 
             auto& destination=context.surfacePixels[static_cast<std::size_t>(y)*context.surfaceWidth+x];
             destination=blendRuntimeBuildingDepthLayers(blend,destination,afterOrdinal);
         } else {
-            const auto background=GetPixel(dc,x,y);if(background==CLR_INVALID)continue;
+            const auto background=concord::ui::win32::MapNativeOverlayWin32::readPixel(dc,x,y);if(background==CLR_INVALID)continue;
             SetPixelV(dc,x,y,colorRefFromRuntimeDibColor(blendRuntimeBuildingDepthLayers(blend,packRuntimeDibColor(background),afterOrdinal)));
         }
     }

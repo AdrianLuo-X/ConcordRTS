@@ -45,7 +45,7 @@ void drawRuntimePrismBeam(HDC dc, const RECT& viewport,
         if (direct) {
             blendSurfacePixelWithTint(context, x, y, pale, alpha);
         } else if (dc != nullptr) {
-            const COLORREF background = GetPixel(dc, x, y);
+            const COLORREF background = concord::ui::win32::MapNativeOverlayWin32::readPixel(dc, x, y);
             if (background != CLR_INVALID) SetPixelV(dc, x, y, runtimeBlendTint(background, pale, alpha));
         }
     };

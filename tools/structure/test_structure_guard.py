@@ -354,6 +354,53 @@ class GuardFixtures(unittest.TestCase):
         self.assertTrue(any(f["rule"]=="menu-draw-dependency" for f in facts))
         self.assertTrue(any(f["rule"]=="menu-draw-live-or-device" for f in facts))
 
+    def map_draw_fixture(self):
+        self.put("src/render/core/MapDrawCommands.h", '#include "ui/input/RuntimeInputPixelValues.h"\n')
+        self.put("src/render/core/RuntimeMapPixelRules.h", "inline unsigned color(unsigned x) {return x;}\n")
+        self.put("src/ui/input/RuntimeInputPixelValues.h", "struct RuntimeInputPixelRect {};\n")
+        return {"map-draw":["src/render/core/MapDrawCommands.h","src/render/core/RuntimeMapPixelRules.h"]}
+
+    def test_map_draw_exact_pure_values(self):
+        facts=self.scan(self.map_draw_fixture())["findings"]
+        self.assertFalse(any(f["rule"].startswith("protected-") or f["rule"].startswith("map-draw-") for f in facts))
+
+    def test_map_draw_native_transitive_rejected(self):
+        modules=self.map_draw_fixture()
+        self.put("src/ui/input/RuntimeInputPixelValues.h", '#include <d3d11.h>\nID3D11Device* device;\n')
+        facts=self.scan(modules)["findings"]
+        self.assertTrue(any(f["rule"]=="protected-platform" for f in facts))
+
+    def test_map_draw_live_world_rejected(self):
+        modules=self.map_draw_fixture()
+        self.put("src/render/core/RuntimeMapPixelRules.h", '#include "core/Bad.h"\n')
+        self.put("src/core/Bad.h", "struct GameWorld {};\n")
+        facts=self.scan(modules)["findings"]
+        self.assertTrue(any(f["rule"]=="map-draw-dependency" for f in facts))
+        self.assertTrue(any(f["rule"]=="map-draw-live-or-device" for f in facts))
+
+    def test_map_sprite_material_pure_values(self):
+        modules=self.map_draw_fixture()
+        self.put("src/render/core/MapDrawCommands.h", '#include "render/core/MapSpriteMaterial.h"\n')
+        self.put("src/render/core/MapSpriteMaterial.h", "struct MapSpriteMaterial { unsigned width, indices, palette; };\n")
+        facts=self.scan(modules)["findings"]
+        self.assertFalse(any(f["rule"].startswith("protected-") or f["rule"].startswith("map-draw-") for f in facts))
+
+    def test_map_sprite_material_native_transitive_rejected(self):
+        modules=self.map_draw_fixture()
+        self.put("src/render/core/MapDrawCommands.h", '#include "render/core/MapSpriteMaterial.h"\n')
+        self.put("src/render/core/MapSpriteMaterial.h", '#include <d3d11.h>\nID3D11Device* device;\n')
+        facts=self.scan(modules)["findings"]
+        self.assertTrue(any(f["rule"]=="protected-platform" for f in facts))
+
+    def test_map_sprite_material_world_transitive_rejected(self):
+        modules=self.map_draw_fixture()
+        self.put("src/render/core/MapDrawCommands.h", '#include "render/core/MapSpriteMaterial.h"\n')
+        self.put("src/render/core/MapSpriteMaterial.h", '#include "simulation/Bad.h"\n')
+        self.put("src/simulation/Bad.h", "struct GameWorld {};\n")
+        facts=self.scan(modules)["findings"]
+        self.assertTrue(any(f["rule"]=="map-draw-dependency" for f in facts))
+        self.assertTrue(any(f["rule"]=="map-draw-live-or-device" for f in facts))
+
     def test_exception_requires_owner_reason_followup(self):
         self.put("src/core/Pure.h", "HWND x;\n")
         report = self.scan()

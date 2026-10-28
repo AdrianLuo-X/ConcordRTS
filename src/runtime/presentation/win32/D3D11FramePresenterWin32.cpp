@@ -18,7 +18,9 @@ double elapsed(Clock::time_point start) noexcept {
 }
 const char* backendName(FrameBackend b) noexcept {return b==FrameBackend::D3D11?"d3d11":"software";}
 }
+#include "runtime/presentation/win32/RasterBufferD3D11.inl"
 #include "runtime/presentation/win32/MenuRasterD3D11.inl"
+#include "runtime/presentation/win32/MapRasterD3D11.inl"
 struct D3D11FramePresenterWin32::Impl {
     HWND window=nullptr,fontWindow=nullptr;
     DWORD thread=GetCurrentThreadId();
@@ -29,7 +31,10 @@ struct D3D11FramePresenterWin32::Impl {
     ComPtr<IDXGISwapChain> chain;
     ComPtr<ID3D11Texture2D> back;
     std::unique_ptr<MenuRasterD3D11> menu;
-    std::uint64_t menuSequence=0;
+    std::unique_ptr<MapRasterD3D11> map;
+    std::uint64_t menuSequence=0,mapSequence=0;
+    std::uint64_t mapIndexedCommands=0,mapVisionCommands=0,diagnosticReadbacks=0;
+    std::array<std::uint64_t,21> mapKinds{};
     int width=0,height=0,fontWidth=0,fontHeight=0;
     struct Query {
         ComPtr<ID3D11Query> disjoint,start,end;
@@ -59,7 +64,7 @@ struct D3D11FramePresenterWin32::Impl {
         collect();
         for(auto& q:queries){if(q.pending){++report.gpuPending;q.pending=false;}q.disjoint.Reset();q.start.Reset();q.end.Reset();}
         // One-way transition: release ALL GPU references before any GDI fallback.
-        menu.reset();back.Reset();
+        map.reset();menu.reset();back.Reset();
         if(context){context->ClearState();context->Flush();}
         chain.Reset();context.Reset();device.Reset();width=height=0;
         if(fontWindow&&IsWindow(fontWindow))DestroyWindow(fontWindow);
@@ -151,7 +156,7 @@ struct D3D11FramePresenterWin32::Impl {
             probe->uploadedPixels.resize(static_cast<std::size_t>(width)*static_cast<std::size_t>(height)*4);
             for(int y=0;y<height;++y)std::memcpy(probe->uploadedPixels.data()+static_cast<std::size_t>(y)*static_cast<std::size_t>(width)*4,
                 static_cast<const unsigned char*>(mapped.pData)+static_cast<std::size_t>(y)*mapped.RowPitch,static_cast<std::size_t>(width)*4);
-            ++probe->readbacks;
+            ++probe->readbacks;++diagnosticReadbacks;
         }catch(...){ok=false;}
         context->Unmap(staging.Get(),0);
         if(!ok)fail("diagnostic-readback-allocation",E_OUTOFMEMORY);
@@ -185,9 +190,10 @@ const D3D11FrameTiming* D3D11FramePresenterWin32::timings() const noexcept{retur
 std::size_t D3D11FramePresenterWin32::timingCount() const noexcept{return impl_->sampleCount;}
 void D3D11FramePresenterWin32::enableTimingOutput() noexcept{if(onOwningThread())impl_->printTimings=true;}
 void D3D11FramePresenterWin32::recordCpuWork(double drawMs,double compositionMs) noexcept {
-    if(onOwningThread()&&impl_->sampleCount){auto& s=impl_->samples[impl_->sampleCount-1];s.cpuDrawMs=drawMs;s.compositionMs=compositionMs;}
+    if(onOwningThread()&&impl_->sampleCount){auto& s=impl_->samples[impl_->sampleCount-1];s.cpuDrawMs=drawMs;s.compositionMs=std::max(0.0,compositionMs-(s.mapRaster?s.uploadCpuMs+s.presentCpuMs:0.0));}
 }
 #include "runtime/presentation/win32/D3D11MenuPresentWin32.inl"
+#include "runtime/presentation/win32/D3D11MapPresentWin32.inl"
 bool D3D11FramePresenterWin32::submitCompleteFrame(const SoftwareFrameView& f) noexcept {
     auto& p=*impl_;
     if(!active())return false;
@@ -265,16 +271,18 @@ void D3D11FramePresenterWin32::printReport() noexcept {
         const auto& r=p.report;
         std::cout<<"D3D11 presentation summary requested="<<backendName(r.requested.backend)<<" selected="<<backendName(r.selected)
             <<" hardware="<<(r.featureLevel>=0xB000&&!r.softwareDevice)<<" featureLevel="<<r.featureLevel<<" driverVersion="<<r.driverVersion
-            <<" frames="<<r.presented<<" menuDraws="<<r.menuDraws<<" uploadBytes="<<r.uploadedBytes<<" gpuValid="<<r.gpuValid<<" gpuInvalid="<<r.gpuInvalid
+            <<" mapTerrainCommands="<<p.mapKinds[11]<<" mapShadowCommands="<<p.mapKinds[13]<<" mapReceiverLightCommands="<<p.mapKinds[14]<<" mapLocalLightCommands="<<p.mapKinds[15]<<" mapDepthChainCommands="<<p.mapKinds[18]<<" mapSpriteMaterialCommands="<<p.mapKinds[19]<<" mapMaskedRestoreCommands="<<p.mapKinds[20]
+            <<" frames="<<r.presented<<" mapIndexedCommands="<<p.mapIndexedCommands<<" mapVisionCommands="<<p.mapVisionCommands
+            <<" diagnosticReadbacks="<<p.diagnosticReadbacks<<" mapDraws="<<r.mapDraws<<" menuDraws="<<r.menuDraws<<" uploadBytes="<<r.uploadedBytes<<" gpuValid="<<r.gpuValid<<" gpuInvalid="<<r.gpuInvalid
             <<" gpuPending="<<r.gpuPending<<" gpuDropped="<<r.gpuDropped<<" timingDropped="<<r.timingDropped
             <<" failureCode="<<r.failureCode<<" removedReason="<<r.removedReason<<" fallback=\""<<r.fallbackReason.data()
-            <<"\" worldDrawing=CPU shaderCompiler="<<(r.menuDraws?"offline-fxc-sm5":"none")
-            <<" sampling="<<(r.menuDraws?"integer-Load-menu-raster":"exact-client-copy")
+            <<"\" worldDrawing="<<(p.mapKinds[11]?"GPU-terrain-and-composition":"CPU")<<" shaderCompiler="<<((r.menuDraws||r.mapDraws)?"offline-fxc-sm5":"none")
+            <<" sampling="<<(r.mapDraws?"integer-Load-map-raster":r.menuDraws?"integer-Load-menu-raster":"exact-client-copy")
             <<" color=BGRA8-UNORM-no-conversion vsync=1 displayFpsMeasured=false\n";
         for(std::size_t i=0;p.printTimings&&i<p.sampleCount;++i){const auto& s=p.samples[i];
             std::cout<<"D3D11 timing sequence="<<s.sequence<<" tick="<<s.tick<<" cpuDrawMs="<<s.cpuDrawMs<<" compositionMs="<<s.compositionMs
                 <<" uploadBytes="<<s.uploadBytes<<" uploadCpuMs="<<s.uploadCpuMs<<" presentCpuMs="<<s.presentCpuMs
-                <<" menuRaster="<<s.menuRaster<<" gpuValid="<<s.gpuValid<<" gpuUploadMs="<<s.gpuUploadMs<<" gpuFrequency="<<s.gpuFrequency<<" gpuStart="<<s.gpuStart<<" gpuEnd="<<s.gpuEnd<<'\n';}
+                <<" gpuPassMs="<<((s.mapRaster||s.menuRaster)?s.gpuUploadMs:0.0)<<" menuRaster="<<s.menuRaster<<" mapRaster="<<s.mapRaster<<" gpuValid="<<s.gpuValid<<" gpuUploadMs="<<s.gpuUploadMs<<" gpuFrequency="<<s.gpuFrequency<<" gpuStart="<<s.gpuStart<<" gpuEnd="<<s.gpuEnd<<'\n';}
     }catch(...){}
 }
 } // namespace concord::presentation::win32

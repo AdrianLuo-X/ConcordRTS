@@ -9,6 +9,7 @@ public:
     void stopMusic() override { stopRuntimeMusic(*state_); }
     void releaseGraphics() override {
         // Retire the graphics owner while the native window still exists.
+        state_->mapComposition.release();
         state_->d3d11Presenter.reset();
         releaseRuntimeBackBuffer(state_->completedFrameBuffer);
         (void)state_->fpsDeviceOverlay.release();

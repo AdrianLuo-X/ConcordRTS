@@ -92,7 +92,7 @@ void drawRuntimeMindControlArc(
             static_cast<LONG>(std::lround(from.y + dy * t - 4.0 * height * t * (1.0 - t)))
         });
     }
-    if (!hasPixelSurface(context)) {
+    if (!hasPixelSurface(context)&&!runtimeGpuWorldTarget(context)) {
         if (dc == nullptr) return;
         HPEN pen = CreatePen(PS_SOLID, 1, color);
         if (pen == nullptr) return;
@@ -118,6 +118,7 @@ void drawRuntimeMindControlArc(
                 && y >= viewport.top && y < viewport.bottom
                 && x >= 0 && x < context.surfaceWidth
                 && y >= 0 && y < context.surfaceHeight) {
+                if(!runtimeGpuWorldPixel(context,x,y,concord::render::MapDrawKind::Fill,pixel))
                 context.surfacePixels[y * context.surfaceWidth + x] = pixel;
             }
             if (x == endX && y == endY) break;

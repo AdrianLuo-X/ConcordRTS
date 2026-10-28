@@ -39,8 +39,43 @@ struct RuntimeShroudPerformanceReferenceScope {
     }
 };
 
+// Display commands only: CPU sight/terrain ownership/masks/cache remain authoritative.
+static bool runtimeGpuVisionTarget(const std::uint32_t* pixels) {
+    auto* native=concord::ui::win32::MapNativeOverlayWin32::current();
+    return native&&native->targets(pixels);
+}
+
+static bool runtimeGpuVisionEncoded(const std::vector<std::uint64_t>& encoded,std::uint32_t* pixels) {
+    auto* native=concord::ui::win32::MapNativeOverlayWin32::current();
+    if(!native||!native->targets(pixels))return false;
+    if(encoded.empty())return true;
+    try {
+        const int width=native->width(),height=native->height();int left=width,top=height,right=0,bottom=0;
+        for(const auto value:encoded) {
+            const auto offset=static_cast<std::uint32_t>(value>>32U);
+            if(offset>=static_cast<std::uint64_t>(width)*height){native->reject("map-vision-offset");return true;}
+            const int x=offset%width,y=offset/width;left=std::min(left,x);right=std::max(right,x+1);top=std::min(top,y);bottom=std::max(bottom,y+1);
+        }
+        const int columns=right-left,rows=bottom-top;const auto area=static_cast<std::size_t>(columns)*rows;
+        std::vector<std::uint32_t> effects(area);std::vector<unsigned char> present(area);
+        const auto emit=[&]() {
+            auto* list=native->drawList();if(!list)return false;
+            concord::render::MapDrawCommand c;c.left=left;c.top=top;c.right=right;c.bottom=bottom;
+            c.kind=concord::render::MapDrawKind::Vision;c.originX=left;c.originY=top;c.width=columns;c.height=rows;c.stride=c.width*4;c.flags=1;
+            c.offset=list->internValues<std::uint32_t>(effects);c.auxiliary=list->intern(present);return native->emit(c);
+        };
+        for(const auto value:encoded) {
+            const auto offset=static_cast<std::uint32_t>(value>>32U);const auto index=static_cast<std::size_t>(offset/width-top)*columns+offset%width-left;
+            if(present[index]) {if(!emit())return true;std::fill(present.begin(),present.end(),0);}
+            effects[index]=static_cast<std::uint32_t>(value);present[index]=1;
+        }
+        if(emit())native->recordVisionEffects(encoded.size());return true;
+    }catch(...){native->reject("map-vision-budget");return true;}
+}
+
 static void runtimeApplyVisionEncodedPixels(const std::vector<std::uint64_t>& encoded,
     std::uint32_t* pixels) {
+    if(runtimeGpuVisionEncoded(encoded,pixels))return;
     for (const std::uint64_t value : encoded) {
         const std::uint32_t offset = static_cast<std::uint32_t>(value >> 32U);
         const std::uint32_t effect = static_cast<std::uint32_t>(value);
@@ -83,6 +118,7 @@ static void runtimeBuildVisionOpaqueRuns(RuntimeVisionOverlayTile& tile) {
 static void runtimeApplyVisionTilePixels(const RuntimeVisionOverlayTile& tile,
     std::uint32_t* pixels, RuntimeMapRenderStats& stats, bool reference) {
     stats.visionOpaqueRunCacheBytes += tile.opaqueRuns.capacity() * sizeof(RuntimeVisionOpaqueRun);
+    if(runtimeGpuVisionEncoded(tile.encodedPixels,pixels)){stats.visionOpaqueRunPixels+=tile.opaqueRunPixels;return;}
     if (reference || tile.opaqueRuns.empty()) {
         runtimeApplyVisionEncodedPixels(tile.encodedPixels, pixels);
         return;

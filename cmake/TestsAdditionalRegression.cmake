@@ -288,3 +288,13 @@ if(TARGET concord_menu_raster_d3d11_contract)
     add_test(NAME menu_raster_d3d11_contract_test COMMAND concord_menu_raster_d3d11_contract)
     set_tests_properties(menu_raster_d3d11_contract_test PROPERTIES LABELS "no-assets;real-window;d3d11;menu-raster" RUN_SERIAL TRUE TIMEOUT 180)
 endif()
+
+if(TARGET concord_map_raster_d3d11_contract)
+    add_test(NAME map_raster_d3d11_contract_test COMMAND concord_map_raster_d3d11_contract)
+    set_tests_properties(map_raster_d3d11_contract_test PROPERTIES LABELS "no-assets;real-window;d3d11;map-raster" RUN_SERIAL TRUE TIMEOUT 180)
+endif()
+
+if(TARGET concord_map_native_overlay_d3d11_contract)
+    add_test(NAME map_native_overlay_d3d11_contract_test COMMAND concord_map_native_overlay_d3d11_contract)
+    set_tests_properties(map_native_overlay_d3d11_contract_test PROPERTIES LABELS "no-assets;real-window;d3d11;map-native-overlay" RUN_SERIAL TRUE TIMEOUT 180)
+endif()

@@ -56,11 +56,5 @@ static const std::array<RuntimeVisionShroudColor, 64 * 128>& runtimeVisionShroud
 
 static std::uint32_t runtimeBlendVisionShroud(std::uint32_t pixel,
     std::uint32_t color, int alpha) {
-    const unsigned int opacity = static_cast<unsigned int>(alpha);
-    const unsigned int keep = 255U - opacity;
-    const auto channel = [&](int shift) {
-        return (((pixel >> shift) & 255U) * keep
-            + ((color >> shift) & 255U) * opacity + 127U) / 255U;
-    };
-    return (channel(16) << 16) | (channel(8) << 8) | channel(0);
+    return concord::render::blendMapVisionRgb(pixel,color,alpha);
 }

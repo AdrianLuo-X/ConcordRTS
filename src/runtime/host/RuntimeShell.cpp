@@ -1,7 +1,11 @@
 #include "runtime/presentation/win32/FramePresenterWin32.h"
 #include "runtime/presentation/win32/D3D11FramePresenterWin32.h"
+#include "ui/surface/win32/MapCompositionWin32.h"
+#include "ui/surface/win32/MapFrameProbeWin32.h"
 #include "ui/surface/win32/RuntimeMainBackBufferWin32.h"
 #include "runtime/host/RuntimeShell.h"
+#include "render/visibility/diagnostics/RuntimeGpuVisionOverlayContract.h"
+#include "render/terrain/diagnostics/RuntimeGpuTerrainContract.h"
 #include "network/maps/RuntimeMultiplayerCompatibilityFingerprint.h"
 #include "runtime/window/RuntimeWindowLifecycle.h"
 #include "assets/text/WestwoodFontCodec.h"
@@ -3618,10 +3622,12 @@ struct RuntimeWindowState {
     concord::presentation::FramePresentStatistics softwareFrameCounters;
     concord::presentation::FrameBackendOptions frameBackendRequest;
     std::unique_ptr<concord::presentation::win32::D3D11FramePresenterWin32> d3d11Presenter;
+    concord::ui::win32::MapCompositionWin32 mapComposition;
     bool frameBackendInitialized=false;
     std::uint64_t softwareFrameSequence=0,softwareSceneVersion=0,softwareFallbackSubmissions=0;
     int softwareSceneTick=0;
     concord::ui::win32::MainFrameProbeWin32* frameProbeWin32 = nullptr;
+    concord::ui::win32::MapFrameProbeWin32* mapFrameProbeWin32 = nullptr;
     RuntimeBackBuffer sidebarStaticBuffer;
     RuntimeBackBuffer radarTerrainBuffer;
     RuntimeRadarRulesColorsMemo radarRulesColorsMemo;
@@ -105412,7 +105418,7 @@ bool drawRuntimeIndexedImage(
                 color = displayColor(palette[paletteIndex]);
             }
             if (sourceAlpha < runtimeIndexedOpaqueAlpha) {
-                const COLORREF destination = GetPixel(
+                const COLORREF destination = concord::ui::win32::MapNativeOverlayWin32::readPixel(
                     dc,
                     startX + x,
                     startY + y
@@ -107638,8 +107644,8 @@ void drawRuntimeRadarMarkerCell(
         runtimeRadarPointFromDxy(layout, projection, bottom),
         runtimeRadarPointFromDxy(layout, projection, left)
     };
-    SetDCBrushColor(dc, color);
-    SetDCPenColor(dc, color);
+    concord::ui::win32::MapNativeOverlayWin32::setBrushColor(dc, color);
+    concord::ui::win32::MapNativeOverlayWin32::setPenColor(dc, color);
     Polygon(dc, diamond, 4);
     const POINT centerPixel =
         runtimeRadarPointFromDxy(layout, projection, center);
@@ -107837,7 +107843,7 @@ void drawRuntimeSidebar(
                 radarProjection,
                 cameraRadarBounds
             )) {
-            SetDCPenColor(dc, RGB(212, 232, 246));
+            concord::ui::win32::MapNativeOverlayWin32::setPenColor(dc, RGB(212, 232, 246));
             HGDIOBJ viewportBrush =
                 SelectObject(dc, GetStockObject(NULL_BRUSH));
             Rectangle(
@@ -107850,8 +107856,8 @@ void drawRuntimeSidebar(
             SelectObject(dc, viewportBrush);
         }
     } else if (!radarFrameDrawn) {
-        SetDCBrushColor(dc, RGB(4, 7, 11));
-        SetDCPenColor(dc, RGB(36, 48, 58));
+        concord::ui::win32::MapNativeOverlayWin32::setBrushColor(dc, RGB(4, 7, 11));
+        concord::ui::win32::MapNativeOverlayWin32::setPenColor(dc, RGB(36, 48, 58));
         Rectangle(
             dc,
             radarInterior.left,
@@ -108061,7 +108067,7 @@ void drawRuntimeSidebar(
         }
 
         if (hovered || placementReady || busy || onHold || ready) {
-            SetDCPenColor(
+            concord::ui::win32::MapNativeOverlayWin32::setPenColor(
                 dc,
                 placementReady ? RGB(120, 242, 220)
                     : onHold ? RGB(214, 182, 96)
@@ -108086,7 +108092,7 @@ void drawRuntimeSidebar(
             HBRUSH countBrush = CreateSolidBrush(RGB(2, 5, 8));
             FillRect(dc, &countBack, countBrush);
             DeleteObject(countBrush);
-            SetDCPenColor(dc, RGB(180, 228, 252));
+            concord::ui::win32::MapNativeOverlayWin32::setPenColor(dc, RGB(180, 228, 252));
             MoveToEx(dc, countBack.left, countBack.top, nullptr);
             LineTo(dc, countBack.right, countBack.top);
             LineTo(dc, countBack.right, countBack.bottom);
@@ -108198,7 +108204,7 @@ void drawRuntimeSidebar(
         const bool ready = snapshot.state == SuperWeaponRuntimeState::Ready;
         const bool hovered = state.mouseClientPointValid
             && PtInRect(&rect, state.mouseClientPoint);
-        SetDCPenColor(
+        concord::ui::win32::MapNativeOverlayWin32::setPenColor(
             dc,
             selected ? RGB(255, 236, 116)
                 : hovered ? RGB(152, 204, 236)
@@ -108954,7 +108960,7 @@ bool validateRuntimeSidebarPowerUi(std::string& diagnostic) {
                     drawRuntimeSidebarLowPowerIndicator(memoryDc, iconRect);
                 for (int y = 0; y < 48; ++y) {
                     for (int x = 0; x < 60; ++x) {
-                        const COLORREF pixel = GetPixel(memoryDc, x, y);
+                        const COLORREF pixel = concord::ui::win32::MapNativeOverlayWin32::readPixel(memoryDc, x, y);
                         if (pixel == RGB(228, 48, 40)) {
                             ++redPixels;
                         } else if (pixel == RGB(72, 8, 8)) {
@@ -109068,7 +109074,7 @@ bool validateRuntimeSidebarLowPowerIntegration(
             for (int x = indicatorRects.fill.left;
                 x < indicatorRects.fill.right;
                 ++x) {
-                if (GetPixel(memoryDc, x, y) == RGB(228, 48, 40)) {
+                if (concord::ui::win32::MapNativeOverlayWin32::readPixel(memoryDc, x, y) == RGB(228, 48, 40)) {
                     ++exactFillPixels;
                 }
             }
@@ -109773,7 +109779,7 @@ void drawRuntimeCombatEffects(
                 )
             );
 
-        SetDCPenColor(
+        concord::ui::win32::MapNativeOverlayWin32::setPenColor(
             dc,
             projectile.houseColorLaser
                 ? runtimeProjectileHouseColor(projectile.owner)
@@ -109806,7 +109812,7 @@ void drawRuntimeCombatEffects(
         if (!drewProjectileSprite) {
             HGDIOBJ oldProjectileBrush =
                 SelectObject(dc, GetStockObject(DC_BRUSH));
-            SetDCBrushColor(dc, runtimeProjectileColor(projectile));
+            concord::ui::win32::MapNativeOverlayWin32::setBrushColor(dc, runtimeProjectileColor(projectile));
             const int radius =
                 projectile.bright ? 5 : (projectile.animates ? 4 : 3);
             Ellipse(
@@ -109875,7 +109881,7 @@ void drawRuntimeCombatEffects(
         }
         const int radius =
             std::max(2, static_cast<int>(std::round(impact.radius * (0.4 + age))));
-        SetDCPenColor(dc, runtimeImpactColor(impact));
+        concord::ui::win32::MapNativeOverlayWin32::setPenColor(dc, runtimeImpactColor(impact));
         if (impact.cellSpread > 0.0) {
             const int spreadRadius =
                 std::max(radius, static_cast<int>(std::round(impact.cellSpread * 18.0)));
@@ -116531,26 +116537,38 @@ LRESULT CALLBACK runtimeWindowProc(
         RuntimeWindowState* state = reinterpret_cast<RuntimeWindowState*>(
             GetWindowLongPtrW(window, GWLP_USERDATA)
         );
+        #include "runtime/window/win32/diagnostics/RuntimeScenePaintTrace.inl"
         if (state != nullptr) {
             const std::uint64_t presentationMs=runtimeUiClockNow(*state);
             advanceRuntimeResultPresentation(*state,presentationMs);
             expireRuntimePlayerDefeatNotices(*state,presentationMs);
         }
-        if(state&&state->frameBackendRequest.backend==concord::presentation::FrameBackend::D3D11){
+        if(state&&(state->frameBackendRequest.backend==concord::presentation::FrameBackend::D3D11
+            ||state->frameBackendRequest.mapBackend==concord::presentation::FrameBackend::D3D11)){
             if(IsIconic(window)||clientWidth<=0||clientHeight<=0){
                 state->fpsDisplayMeter.reset();EndPaint(window,&paint);return 0;
             }
             if(!state->frameBackendInitialized){
                 state->frameBackendInitialized=true;
                 state->d3d11Presenter=concord::presentation::win32::D3D11FramePresenterWin32::create(
-                    window,state->frameBackendRequest,state->softwareFrameCounters);
+                    window,[&]{auto options=state->frameBackendRequest;
+                        if(options.mapBackend==concord::presentation::FrameBackend::D3D11){options.backend=options.mapBackend;options.device=options.mapDevice;}return options;}(),state->softwareFrameCounters);
                 if(state->d3d11Presenter&&state->liveBenchmark)state->d3d11Presenter->enableTimingOutput();
                 if(!state->d3d11Presenter)std::cerr<<"Frame backend requested=d3d11 selected=software fallback=owner-allocation\n";
             }
         }
-        const bool reuseCachedFrame =
+        bool reuseCachedFrame=false,backBufferReady=false,submissionSucceeded=false,baselineVisibleSubmission=false;
+        std::chrono::steady_clock::time_point baselineSubmissionStart{};
+        concord::ui::ConstMenuPixelSurfaceView completedPixels;
+        for(int mapAttempt=0;mapAttempt<2;++mapAttempt) {
+        const bool mapMode=state&&state->world.getSummary().loaded
+            &&state->frameBackendRequest.mapBackend==concord::presentation::FrameBackend::D3D11
+            &&state->d3d11Presenter&&state->d3d11Presenter->active();
+        bool mapCaptureFailed=false;
+        reuseCachedFrame =
             state != nullptr
             && !state->repaintRequested
+            && (!mapMode||state->mapComposition.ready(clientWidth,clientHeight))
             // Invalidation alone still reuses the cached bitmap. The score
             // SHP animation must redraw even though the terminal world is paused.
             && !runtimeResultScoreIsAnimated(*state)
@@ -116561,7 +116579,7 @@ LRESULT CALLBACK runtimeWindowProc(
             && state->backBuffer.height == clientHeight;
 
         HDC dc = paintDc;
-        bool backBufferReady = false;
+        backBufferReady = false;
         if (state != nullptr
             && !(state->frameProbeWin32 && state->frameProbeWin32->failSceneAllocation)
             && ensureRuntimeBackBuffer(
@@ -116579,6 +116597,9 @@ LRESULT CALLBACK runtimeWindowProc(
         if (backBufferReady && !reuseCachedFrame) state->backBuffer.beginWrite();
         SetBkMode(dc, TRANSPARENT);
         SetTextColor(dc, RGB(220, 230, 240));
+        std::optional<concord::ui::win32::MapCompositionRequestWin32> mapCaptureRequest;
+        if(mapMode&&!reuseCachedFrame)mapCaptureRequest.emplace(state->mapComposition,dc,
+            static_cast<const std::uint32_t*>(state->backBuffer.pixels),clientWidth,clientHeight);
 
         if (state != nullptr && !reuseCachedFrame) {
             if (state->world.getSummary().loaded) {
@@ -116695,6 +116716,10 @@ LRESULT CALLBACK runtimeWindowProc(
                     state->renderStats
                 );
 
+                if(mapMode) {
+                    const auto native=mapCaptureRequest->start();
+                    if(native)dc=native;else mapCaptureFailed=true;
+                }
                 const auto overlayStart = std::chrono::steady_clock::now();
                 drawRuntimeInteractionOverlay(
                     dc,
@@ -116761,16 +116786,25 @@ LRESULT CALLBACK runtimeWindowProc(
             }
         }
 
+        if(mapMode&&!reuseCachedFrame) {
+            const bool nativeReady=!mapCaptureFailed&&state->mapComposition.finish();
+            dc=state->backBuffer.memoryDc;
+            if(!nativeReady) {
+                std::cerr<<"Map native capture rejected: "<<state->mapComposition.native().report().failure.data()<<'\n';
+                state->mapComposition.cancel();state->d3d11Presenter->fallbackToSoftware("map-native-overlay");
+                state->repaintRequested=true;continue;
+            }
+        }
+        traceScenePaint("after-scene");
         // Complete the clean scene first. Cached paints keep its version/tick,
         // while each presentation receives a fresh submission identity.
         if (backBufferReady && (!reuseCachedFrame || state->softwareSceneVersion==0)) {
             if (++state->softwareSceneVersion==0) ++state->softwareSceneVersion;
             state->softwareSceneTick=state->tick;
         }
-        const auto baselineSubmissionStart = state != nullptr && (state->liveBenchmark != nullptr || state->d3d11Presenter)
+        baselineSubmissionStart = state != nullptr && (state->liveBenchmark != nullptr || state->d3d11Presenter)
             ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
-        bool submissionSucceeded=false,baselineVisibleSubmission=false;
-        concord::ui::ConstMenuPixelSurfaceView completedPixels;
+        submissionSucceeded=false;baselineVisibleSubmission=false;completedPixels={};
         if (state != nullptr) {
             const bool visible=IsWindowVisible(window)!=FALSE,minimized=IsIconic(window)!=FALSE;
             const bool hasClientArea=clientWidth>0&&clientHeight>0;
@@ -116780,6 +116814,7 @@ LRESULT CALLBACK runtimeWindowProc(
             const bool eligible=runtimeFpsDisplayShouldCountFrame(
                 visible,minimized,hasClientArea,hasPaintArea,true);
             const bool loaded=state->world.getSummary().loaded;
+            traceScenePaint("eligibility",eligible);
             if(!loaded||!visible||minimized||!hasClientArea)state->fpsDisplayMeter.reset();
             auto prospectiveMeter=state->fpsDisplayMeter;
             if(loaded&&eligible)prospectiveMeter.recordPresentedFrame(
@@ -116823,7 +116858,21 @@ LRESULT CALLBACK runtimeWindowProc(
                         }
                     }
                 }else completedPixels=state->backBuffer.completedPixels();
-                if(completedPixels.valid()){
+                if(mapMode) {
+                    bool packetReady=state->mapComposition.prepare();
+                    if(loaded&&eligible&&!IsRectEmpty(&bounds))packetReady=packetReady&&completedPixels.valid()
+                        &&state->mapComposition.appendOpaque({bounds.left,bounds.top,bounds.right,bounds.bottom},
+                            static_cast<const std::uint32_t*>(state->completedFrameBuffer.pixels),clientWidth);
+                    completedPixels={}; // The world DIB is a partial producer in map mode, never a complete CPU publication.
+                    if(packetReady)submissionSucceeded=state->d3d11Presenter->presentMap({state->mapComposition.frame(),
+                        ++state->softwareFrameSequence,clientWidth,clientHeight,static_cast<std::uint64_t>(std::max(0,state->softwareSceneTick))});
+                    state->d3d11Presenter->recordCpuWork(std::chrono::duration<double,std::milli>(baselineSubmissionStart-paintStart).count(),
+                        std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-baselineSubmissionStart).count());
+                    if(!submissionSucceeded) {
+                        state->mapComposition.cancel();if(state->d3d11Presenter->active())state->d3d11Presenter->fallbackToSoftware("map-complete-packet");
+                        state->repaintRequested=true;continue; // Repaint the complete original CPU scene in this same WM_PAINT.
+                    }
+                }else if(completedPixels.valid()){
                     using namespace concord::presentation;
                     const auto sequence=++state->softwareFrameSequence;
                     SoftwareFrameView frame{completedPixels,sequence,state->softwareSceneVersion,
@@ -116870,9 +116919,14 @@ LRESULT CALLBACK runtimeWindowProc(
             }
             if(submissionSucceeded&&loaded&&eligible)state->fpsDisplayMeter=prospectiveMeter;
             baselineVisibleSubmission=eligible&&submissionSucceeded;
-            if(state->frameProbeWin32)state->frameProbeWin32->observe(paintDc,
+            traceScenePaint("after-submit",eligible,submissionSucceeded);
+            if(state->mapFrameProbeWin32&&mapMode)state->mapFrameProbeWin32->observeMap(paintDc,clientWidth,clientHeight,reuseCachedFrame,submissionSucceeded,
+                {state->mapComposition.frame(),state->softwareFrameSequence,clientWidth,clientHeight,static_cast<std::uint64_t>(std::max(0,state->softwareSceneTick))});
+            else if(state->frameProbeWin32)state->frameProbeWin32->observe(paintDc,
                 clientWidth,clientHeight,reuseCachedFrame,submissionSucceeded,completedPixels);
         }
+        break;
+        } // bounded map attempt / same-paint full software recovery
         const double baselineSubmissionCpuMs=state!=nullptr&&state->liveBenchmark!=nullptr
             ?std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-baselineSubmissionStart).count():0.0;
         if (state != nullptr) {
@@ -124542,6 +124596,7 @@ int runRuntimeResultPresentationSmokeTest(const RuntimeConfig& config) {
 #include "runtime/performance/diagnostics/RuntimeFullscreenPerformanceSmoke.inl"
 #include "runtime/performance/diagnostics/RuntimeFpsDisplaySmoke.inl"
 #include "runtime/performance/diagnostics/RuntimeMainFrameContract.inl"
+#include "runtime/performance/diagnostics/RuntimeMapGpuTiming.inl"
 #include "ui/selection/diagnostics/RuntimeIdleOverlayContract.inl"
 #include "render/core/diagnostics/RuntimeCombinedCameraBoundsContract.inl"
 #include "render/geometry/diagnostics/RuntimeCameraGeometryMemoContract.inl"
@@ -124589,6 +124644,19 @@ int runRuntimeInteractionSmokeTest(const RuntimeConfig& config) {
         }
         return 0;
     }
+    if(const char* terrainDriver=std::getenv("CONCORD_S41_TERRAIN_GPU_CONTRACT")){
+        std::string terrainError;const auto before=runtimeStandaloneSimulationStateHash(state,terrainError);
+        RuntimeMapRenderContext assets;assets.rules=state.rulesLoaded?&state.rules:nullptr;assets.theater=state.theaterLoaded?&state.theater:nullptr;assets.art=state.artLoaded?&state.art:nullptr;
+        assets.assetRootPath=runtimeAssetRootPath(state.config);assets.tileRootPath=runtimeTileRootPath(state.config,state.report.map);assets.palettePath=runtimePalettePath(state.config,state.report.map);
+        assets.structureRootPath=runtimeStructureRootPath(state.config,state.report.map);assets.structurePalettePath=runtimeStructurePalettePath(state.config,state.report.map);
+        if(!before||!terrainError.empty()||(std::strcmp(terrainDriver,"hardware")!=0&&std::strcmp(terrainDriver,"warp")!=0)
+            ||!runRuntimeGpuTerrainContractCheck(assets,std::strcmp(terrainDriver,"warp")==0,terrainError)){std::cerr<<"S41 GPU terrain contract failed: "<<terrainError<<'\n';return 1;}
+        const auto after=runtimeStandaloneSimulationStateHash(state,terrainError);if(after!=before||!terrainError.empty()){std::cerr<<"S41 GPU terrain complete authority changed\n";return 1;}
+        std::cout<<"S41 GPU terrain complete authority="<<before<<" unchanged=1\n";return 0;
+    }
+    if(const char* driver=std::getenv("CONCORD_S41_MAP_VISION_CONTRACT")){std::string visionError;
+        if((std::strcmp(driver,"hardware")!=0&&std::strcmp(driver,"warp")!=0)||!runRuntimeGpuVisionOverlayContractCheck(runtimeAssetRootPath(state.config),std::strcmp(driver,"warp")==0,visionError)){std::cerr<<"S41 GPU vision contract failed: "<<visionError<<'\n';return 1;}return 0;}
+    if(std::getenv("CONCORD_S41_MAP_TIMING")){std::string timingError;if(!runRuntimeMapGpuTiming(state,timingError)){std::cerr<<"S41 normal map timing failed: "<<timingError<<'\n';return 1;}return 0;}
     if (std::getenv("CONCORD_MAIN_FRAME_CONTRACT_OUTPUT")) {
         std::string frameError;
         if (!runRuntimeMainFrameContract(state,frameError)) {std::cerr << "Main frame contract failed: " << frameError << '\n';return 1;}
@@ -127403,7 +127471,7 @@ int runRuntimeInteractionSmokeTest(const RuntimeConfig& config) {
         && state.radarTerrainBuffer.memoryDc != nullptr) {
         for (int y = 0; y < radarInteriorHeight; ++y) {
             for (int x = 0; x < radarInteriorWidth; ++x) {
-                const COLORREF pixel = GetPixel(
+                const COLORREF pixel = concord::ui::win32::MapNativeOverlayWin32::readPixel(
                     state.radarTerrainBuffer.memoryDc,
                     x,
                     y
