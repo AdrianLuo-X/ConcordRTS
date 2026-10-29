@@ -25,6 +25,12 @@ struct D3D11FrameReport {
     std::uint64_t gpuValid=0,gpuInvalid=0,gpuPending=0,gpuDropped=0,timingDropped=0;
     long failureCode=0,removedReason=0;
     bool softwareDevice=false;
+    std::uint64_t deviceGeneration=1,resourceGeneration=1,staleRejected=0;
+    std::uint64_t budgetBytes=0,gpuPayloadBytes=0,peakGpuPayloadBytes=0,cpuStagingBytes=0,peakCpuStagingBytes=0;
+    std::uint64_t osBudgetBytes=0,osUsageBytes=0,budgetQueries=0,budgetRejected=0;
+    std::uint64_t submitted=0,completed=0,inFlight=0,peakInFlight=0,waitSleeps=0,waitTimeouts=0;
+    unsigned recoveryAttempts=0,recovered=0;
+    bool memoryBudgetAvailable=false,recoveryPending=false;
     std::uint64_t menuDraws=0,menuRejected=0,mapDraws=0,mapRejected=0;
 };
 // Injection is only reachable from a native fixture, never from CLI/config.
@@ -32,7 +38,8 @@ struct D3D11FrameReport {
 struct D3D11FrameProbeWin32 {
     bool failDevice=false,failSwapChain=false,failResize=false,failResource=false;
     bool failUpload=false,failPresent=false,deviceRemoved=false,captureUpload=false;
-    bool failShader=false;
+    bool failShader=false,stallCompletion=false;
+    std::uint64_t budgetBytesOverride=0;
     std::vector<unsigned char> uploadedPixels;
     std::uint64_t readbacks=0;
 };
@@ -42,8 +49,10 @@ public:
         FrameBackendOptions,FramePresentStatistics&,D3D11FrameProbeWin32* = nullptr) noexcept;
     ~D3D11FramePresenterWin32() override;
     bool active() const noexcept;
-    bool presentMenu(const concord::ui::MenuDrawFrame&) noexcept;
-    bool presentMap(const concord::render::MapDrawFrame&) noexcept;
+    bool presentMenu(const concord::ui::MenuDrawFrame&,std::uint64_t expectedDeviceGeneration=0) noexcept;
+    bool presentMap(const concord::render::MapDrawFrame&,std::uint64_t expectedDeviceGeneration=0) noexcept;
+    bool tryRecoverDevice() noexcept;
+    bool resetResources() noexcept;
     void fallbackToSoftware(const char* reason,long code=0) noexcept;
     bool composeDeviceOverlay(const concord::ui::win32::MainBackBufferWin32& clean,
         concord::ui::win32::MainBackBufferWin32& completed,RuntimeInputPixelRect,

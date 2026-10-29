@@ -39,6 +39,8 @@
 | 软件窗口与事件 | 类型化窗口操作、像素事件与同步帧呈现 | [RuntimeSoftwareWindow.h](src/runtime/window/RuntimeSoftwareWindow.h) |
 | 菜单绘制命令 | 有序命令、自有资源字节与同步帧借用 | [MenuDrawCommands.h](src/ui/drawing/MenuDrawCommands.h) |
 | 呈现后端选项 | 本机完整帧呈现、菜单与地图绘制选择 | [FrameBackendOptions.h](src/runtime/presentation/FrameBackendOptions.h) |
+| 地图帧准备 | 自有矩形与身份快照、有界任务及稳定索引合并 | [MapTilePreparation.h](src/render/preparation/MapTilePreparation.h) |
+| 资源限额 | GPU 载荷、在途帧、等待和恢复次数上限 | [FrameResourceLimits.h](src/runtime/presentation/FrameResourceLimits.h) |
 | 地图绘制命令 | 自有资源、顺序命令与同步帧借用 | [MapDrawCommands.h](src/render/core/MapDrawCommands.h)、[MapSpriteMaterial.h](src/render/core/MapSpriteMaterial.h) |
 | 完整软件帧 | 同步像素借用、场景版本与提交结果 | [SoftwareFrame.h](src/runtime/presentation/SoftwareFrame.h) |
 | 地图地形帧 | 资源、光照与视野的短期只读输入 | [RuntimeMapTerrainFrame.h](src/render/core/RuntimeMapTerrainFrame.h)、[RuntimeMapTerrainFrameRenderer.h](src/render/core/RuntimeMapTerrainFrameRenderer.h) |
@@ -871,10 +873,10 @@ JSON 中 `productionRuntimeValidation` 为 `not-run`，`productionRuntimeValidat
 
 ## 本机后端选项与 D3D11 呈现
 
-[FrameBackendOptions.h](src/runtime/presentation/FrameBackendOptions.h) 在 `concord::presentation` 定义纯值类型，不依赖 Windows、D3D 或 SDL 头文件：
+[FrameBackendOptions.h](src/runtime/presentation/FrameBackendOptions.h) 在 `concord::presentation` 定义纯值类型，并引用 [FrameResourceLimits.h](src/runtime/presentation/FrameResourceLimits.h)，不依赖 Windows、D3D 或 SDL 头文件：
 
 ```cpp
-enum class FrameBackend { Software, D3D11 };
+enum class FrameBackend { Software, D3D11, Auto };
 enum class FrameDevice { Hardware, Warp };
 struct FrameBackendOptions {
     FrameBackend backend = FrameBackend::Software;
@@ -883,20 +885,32 @@ struct FrameBackendOptions {
     FrameDevice menuDevice = FrameDevice::Hardware;
     FrameBackend mapBackend = FrameBackend::Software;
     FrameDevice mapDevice = FrameDevice::Hardware;
+    std::uint64_t gpuBudgetBytes = FrameResourceLimits::maxBytes;
+    unsigned frameWorkers = 0;
 };
 ```
 
-选项只控制当前进程的显示路径，不写入 `RuntimeConfig`、存档、网络协议或哈希。`backend / device` 选择战局完整 CPU 帧呈现，`menuBackend / menuDevice` 选择 Win32 遭遇战菜单绘制，`mapBackend / mapDevice` 选择地图绘制，三者都默认使用软件路径。原 `runRuntimeWindow` 两种签名保持；新的四参数重载接收配置、加载后退出标记、联机桥接所有权与呈现选项。软件路径为默认，硬件请求不会自动改为 WARP；SDL3 菜单与任一 D3D11／WARP 选项组合由启动入口明确拒绝。完整帧呈现和地图绘制同时启用 D3D11 时，必须选择相同设备。
+选项只控制当前进程的显示路径，不写入 `RuntimeConfig`、存档、网络协议或哈希。`backend / device` 选择战局完整 CPU 帧呈现，`menuBackend / menuDevice` 选择 Win32 遭遇战菜单绘制，`mapBackend / mapDevice` 选择地图绘制，三者都默认使用软件路径，`Auto` 当前也选择软件。`gpuBudgetBytes` 控制应用 GPU 载荷上限，`frameWorkers` 控制地图屏幕块索引准备，默认分别为 `256 MiB` 和 `0`。原 `runRuntimeWindow` 两种签名保持；新的四参数重载接收配置、加载后退出标记、联机桥接所有权与呈现选项。软件路径为默认，硬件请求不会自动改为 WARP；SDL3 菜单与任一 D3D11／WARP 选项组合由启动入口明确拒绝。完整帧呈现和地图绘制同时启用 D3D11 时，必须选择相同设备。
 
 私有 [D3D11FramePresenterWin32](src/runtime/presentation/win32/D3D11FramePresenterWin32.h) 实现同一 `FramePresenter` 协议。其工厂接收原生窗口、选项、统计对象和可选原生测试探针；只有 Windows 组装层可使用此头文件。`create()` 返回的对象可能已经处于软件回退状态，调用方必须检查 `active()` 和 `report()`，不能仅凭指针非空判断 D3D11 可用；分配或异常路径也可能返回空值。
 
 设备、即时上下文、交换链、查询及 `Present` 均归单一 UI 线程。初始化请求最低功能级别 11_0，并检查 BGRA 格式与 timestamp/disjoint 查询资源。每帧使用调用方的真实行距上传到与客户区同尺寸的 BGRA8_UNORM 缓冲，再调用 `Present(1, 0)`；第四字节原样上传，显示时忽略。上述完整 CPU 帧上传路径不创建着色器、采样器或混合状态，不做 GPU 缩放、预乘或颜色空间转换；菜单和地图直接绘制分别通过 `presentMenu()`、`presentMap()` 使用各自的离线着色器。
 
-缩放先释放后台缓冲引用，再重建匹配尺寸；最小化时不提交，恢复后重新核对尺寸。设备、资源、上传或呈现失败会记录错误并释放全部 GPU 引用，宿主在当前窗口会话中转回原 GDI，不重新尝试 D3D11。`fallbackToSoftware()` 是这一单向清理入口；字体组成等原生互操作也留在此私有所有者内，公共帧与软件窗口接口不传递设备句柄。
+缩放、资源复用或换代先等待上一帧完成，再释放或重建匹配资源；最小化时不提交。设备、资源、上传或呈现失败会记录错误并释放 GPU 引用，由宿主转回原 GDI。`fallbackToSoftware()` 清理当前 GPU 状态；`tryRecoverDevice()` 仅在所属 UI 线程、窗口可见且未最小化、冷却期结束且未耗尽次数时尝试重建。`resetResources()` 等待完成后清空图形缓存并推进资源代际。字体组成等原生互操作仍留在此私有所有者内，公共帧与软件窗口接口不传递设备句柄。
 
 `report()` 返回请求／实际后端、设备能力、回退原因、成功呈现和上传字节统计。`timings() / timingCount()` 提供最多 4,096 条有界样本；通过 8 组异步 timestamp/disjoint 查询单独记录 GPU 上传时间，并保留有效、无效、未就绪及丢弃情况。`recordCpuWork()` 补充 CPU 绘制与组成时间，`enableTimingOutput()` 控制逐条输出。数据借用不应超过呈现器生命周期，Present 的 CPU 调用时间不等于 GPU 时间或实际屏幕帧率。
 
 `D3D11FrameProbeWin32` 仅用于原生合同的故障注入和上传读回，不通过用户配置或命令行公开；正常呈现不执行诊断 staging／Map 读回。构建入口见 [D3D11FramePresenter.cmake](cmake/D3D11FramePresenter.cmake)，测试源码见 [D3D11FramePresenterWin32Contract.cpp](tests/infrastructure/D3D11FramePresenterWin32Contract.cpp)。该测试使用自编像素，不需要游戏素材，但需要真实 Windows 窗口和图形设备环境。
+
+### 资源限额与设备代际
+
+`FrameResourceLimits` 保留 `maxBytes = 256 MiB`、`maxInFlight = 1`、`maxRecoveryAttempts = 2`、`frameWaitMs = 250`、`recoveryDelayMs = 1000`。GPU 载荷受配置上限和可用的操作系统进程预算约束，CPU 暂存单独受 `maxBytes` 约束，包含并行准备的快照、任务数据和输出。计数表示应用管理的载荷，驱动和操作系统开销另行观察。
+
+私有 [D3D11ResourceLifetimeWin32.inl](src/runtime/presentation/win32/D3D11ResourceLifetimeWin32.inl) 用 EVENT 查询跟踪单帧完成。每次等待只主动 Flush 一次，查询间休眠，最多等待 `250 ms`；不以无限排队绕过上限。设备恢复间隔至少 `1000 ms`，每个呈现器最多尝试两次，耗尽后保持软件路径。
+
+`presentMenu(frame, expectedDeviceGeneration) / presentMap(frame, expectedDeviceGeneration)` 在传入非零设备代际时校验当前设备身份；生产者在准备输入前捕获代际，过期结果拒绝提交。资源代际和修订号继续由各自的帧接口检查，工作线程不延长设备或来源像素的借用寿命。
+
+`report()` 增加 `deviceGeneration / resourceGeneration / staleRejected`，GPU 与 CPU 暂存及峰值、操作系统预算及使用量、`submitted / completed / inFlight / peakInFlight`、等待超时与恢复次数等字段。`memoryBudgetAvailable = false` 表示未取得操作系统预算，不能解释为零用量；硬上限仍生效。故障注入结果不等同于真实热拔出或长时设备运行验收。
 
 ## 菜单绘制命令与 GPU 提交
 
@@ -935,6 +949,18 @@ struct FrameBackendOptions {
 `report()` 的 `mapDraws / mapRejected` 区分成功绘制与拒绝，计时的 `mapRaster` 标记地图合成样本。GPU 查询包含融合合成过程，不能解释为单一图层耗时；CPU 准备、上传提交、Present 和窗口延迟分别记录，不能相加推定总耗时或屏幕帧率。
 
 地图着色器与菜单着色器共用已有 FXC 离线构建入口，生成头文件位于构建目录，源码包只提供 HLSL 和构建规则。启用方法见 [README](README.md#地图-gpu-绘制)；原生合同见 [MapRasterD3D11Contract.cpp](tests/infrastructure/MapRasterD3D11Contract.cpp) 与 [MapNativeOverlayD3D11Contract.cpp](tests/infrastructure/MapNativeOverlayD3D11Contract.cpp)。
+
+## 地图屏幕块索引准备
+
+[MapTilePreparation.h](src/render/preparation/MapTilePreparation.h) 提供 `snapshotMapTiles() / referenceMapTiles() / MapTilePreparer`。`MapTileSnapshot` 只拥有裁剪后的矩形、原命令序号和 `MapTileStamp`，不保存图像、资源 span、世界、可变缓存或原生图形对象。
+
+`MapTileStamp` 包含 `generation / resourceRevision / commandRevision / sequence / tick / deviceGeneration / width / height` 八项身份。`snapshotMapTiles(frame, deviceGeneration)` 在帧有效时复制需要的数值；`referenceMapTiles(snapshot)` 保留独立的原命令顺序与向量分桶参考算法。
+
+`MapTilePreparer(workers)` 接受 `0 / 1 / 2 / 4`。`start(snapshot)` 接收自有快照，最多接纳一帧、四个任务；`finish(currentStamp)` 等待这一组任务结束，核对身份并按屏幕块及原命令序号稳定合并。结果 `PreparedMapTiles` 自有索引、身份和指标，`accepted` 指示结果是否被接受。身份变化、取消或晚到结果只丢弃表现数据，不携带或取消业务事件。
+
+`cancel()` 和析构会等待活动任务实际返回，输入、输出及工作区由任务持有。非零线程使用同一预分配内核，不从工作线程访问图形设备、取得随机数或修改模拟。`stats()` 返回有界执行器统计，`MapTilePreparationMetrics` 分开记录快照、派发、等待、合并、总时间及自有数据峰值。
+
+`0` 保留原参考算法，不能将它与非零模式的全部差额归因于线程数；线程扩展效果应比较同一内核的 `1` 与 `2 / 4`。该功能只用于地图 GPU 路径，软件地图没有这项准备工作。显式帧准备诊断应从仓库根目录运行，输出限定为已创建的 `build/smoke/frame-preparation/` 下的子目录。用法见 [README](README.md#地图帧准备线程)，纯模块合同见 [MapTilePreparationContract.cpp](tests/rendering/MapTilePreparationContract.cpp)。
 
 ## CPU 性能采样与隔离设备诊断
 
@@ -1003,12 +1029,14 @@ struct FrameBackendOptions {
 | `--runtime-events <path>`                             | 指定运行时事件记录输出       |
 | `--skip-main-menu` / `--skip-skirmish-menu`           | 跳过对应菜单            |
 | `--skirmish-window <win32\|sdl3>` | 选择独立遭遇战菜单窗口，默认 Win32；战局窗口保持 Win32 |
-| `--frame-backend <software\|d3d11\|d3d11-warp>` | 选择主 Win32 窗口的完整 CPU 帧呈现方式，默认 software |
-| `--skirmish-drawing <software\|d3d11\|d3d11-warp>` | 独立选择 Win32 大厅与选图页的绘制方式，默认 software |
-| `--map-drawing <software\|d3d11\|d3d11-warp>` | 独立选择 Win32 地图绘制方式，默认 software；与 D3D11 完整帧呈现同时启用时必须选择相同设备 |
+| `--frame-backend <software\|auto\|d3d11\|d3d11-warp>` | 选择主 Win32 窗口的完整 CPU 帧呈现方式，默认 software |
+| `--skirmish-drawing <software\|auto\|d3d11\|d3d11-warp>` | 独立选择 Win32 大厅与选图页的绘制方式，默认 software |
+| `--map-drawing <software\|auto\|d3d11\|d3d11-warp>` | 独立选择 Win32 地图绘制方式，默认 software；与 D3D11 完整帧呈现同时启用时必须选择相同设备 |
+| `--gpu-budget-mib <32..256>` | 应用 GPU 载荷上限，严格接受整数，默认 256 MiB；操作系统预算可进一步限制 |
+| `--frame-workers <0\|1\|2\|4>` | 地图屏幕块命令索引准备线程数，默认 0；软件地图路径不启动这些任务 |
 | `--smoke-test`                                        | 加载启动数据并输出报告，不打开窗口 |
 
-`--frame-backend` 的硬件与 WARP 选项需要匹配的 Windows 图形能力；失败时记录原因并回退软件路径。`--skirmish-window sdl3` 与任一 D3D11／WARP 战局呈现、菜单绘制或地图绘制选项组合时直接报错。用法见 [README](README.md#主战局呈现后端)。
+`--frame-backend` 的硬件与 WARP 选项需要匹配的 Windows 图形能力；失败时记录原因并回退软件路径。`--skirmish-window sdl3` 与任一 D3D11／WARP 战局呈现、菜单绘制或地图绘制选项组合时直接报错。`auto` 当前选择软件并记录原因；GPU 预算和帧准备线程选项同样只影响本进程，不写入保存或联机协议。用法见 [README](README.md#主战局呈现后端)。
 
 `--smoke-test` 仍需要对应的私人数据，退出码 `0` 表示启动报告成功，`1` 表示失败。该结果只反映启动检查。参数处理见 [RuntimeMain.cpp](src/runtime/host/RuntimeMain.cpp)。
 

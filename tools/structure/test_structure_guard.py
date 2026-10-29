@@ -401,6 +401,31 @@ class GuardFixtures(unittest.TestCase):
         self.assertTrue(any(f["rule"]=="map-draw-dependency" for f in facts))
         self.assertTrue(any(f["rule"]=="map-draw-live-or-device" for f in facts))
 
+    def test_map_tile_pure_pixel_value_dependency_allowed(self):
+        self.put("src/render/preparation/MapTilePreparation.h", '#include "render/core/MapDrawCommands.h"\n')
+        self.put("src/render/core/MapDrawCommands.h", '#include "ui/input/RuntimeInputPixelValues.h"\n')
+        self.put("src/ui/input/RuntimeInputPixelValues.h", "struct Point { int x, y; };\n")
+        report=self.scan({"map-tile-preparation":["src/render/preparation/MapTilePreparation.h"]})
+        self.assertFalse(any(f["rule"].startswith("protected-") or f["rule"].startswith("map-tile-") for f in report["findings"]))
+
+    def test_map_tile_forward_live_state_rejected(self):
+        self.put("src/render/preparation/MapTilePreparation.h", "struct GameWorld; struct Input { GameWorld* world; };\n")
+        report=self.scan({"map-tile-preparation":["src/render/preparation/MapTilePreparation.h"]})
+        self.assertIn("map-tile-live-or-device", {f["rule"] for f in report["findings"]})
+
+    def test_map_tile_transitive_native_rejected(self):
+        self.put("src/render/preparation/MapTilePreparation.h", '#include "render/core/MapDrawCommands.h"\n')
+        self.put("src/render/core/MapDrawCommands.h", '#include <d3d11.h>\n')
+        report=self.scan({"map-tile-preparation":["src/render/preparation/MapTilePreparation.h"]})
+        self.assertIn("protected-platform", {f["rule"] for f in report["findings"]})
+
+    def test_map_tile_scratch_cache_rejected(self):
+        self.put("src/render/preparation/MapTilePreparation.cpp", '#include "render/BadCache.h"\n')
+        self.put("src/render/BadCache.h", "thread_local RuntimeMapRenderCache renderCache;\n")
+        report=self.scan({"map-tile-preparation":["src/render/preparation/MapTilePreparation.cpp"]})
+        self.assertIn("map-tile-dependency", {f["rule"] for f in report["findings"]})
+        self.assertIn("map-tile-live-or-device", {f["rule"] for f in report["findings"]})
+
     def test_exception_requires_owner_reason_followup(self):
         self.put("src/core/Pure.h", "HWND x;\n")
         report = self.scan()

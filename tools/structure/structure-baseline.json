@@ -2,6 +2,10 @@
   "schema": "ConcordStructureBaseline/v1",
   "scope": "Current ConcordRTS engine; exact entries only.",
   "protectedModules": {
+    "map-tile-preparation": [
+      "src/render/preparation/MapTilePreparation.h",
+      "src/render/preparation/MapTilePreparation.cpp"
+    ],
     "software-window": [
       "src/runtime/window/RuntimeSoftwareWindow.h"
     ],
@@ -48234,17 +48238,6 @@
       "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
     },
     {
-      "rule": "platform-header",
-      "path": "src/runtime/presentation/win32/D3D11FramePresenterWin32.cpp",
-      "detail": "dxgi1_2.h",
-      "maxOccurrences": 1,
-      "reason": "Private Windows complete-CPU-frame presentation, device font ROI or typed application factory assembly. No public native/SDL/World contract or worker access.",
-      "owner_step": "S39",
-      "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
-      "status": "backend-private",
-      "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
-    },
-    {
       "rule": "platform-link",
       "path": "target:concord_d3d11_frame_presenter_win32_contract",
       "detail": "d3d11",
@@ -51048,6 +51041,413 @@
       "follow_up": "Require actual39selectedVXLand117normalwindow completepixel/physicalvisibility/FPS2/authority/basicfallback acceptance. Not acceptance fromfactreview.",
       "status": "backend-private",
       "evidence": "S41/maps-20261027-r1/structure-direct-visible-frame-boundary-r1 actual1 exact6facts; g009-window-visibility-fixture-fix-r1.json source/basis"
+    },
+    {
+      "rule": "platform-edge",
+      "path": "src/runtime/presentation/win32/D3D11FramePresenterWin32.cpp",
+      "detail": "src/runtime/presentation/win32/D3D11ResourceLifetimeWin32.inl",
+      "maxOccurrences": 1,
+      "reason": "S42 private single UI-owner completion lease, bounded retry and optional DXGI process budget; no public native dependency or worker access.",
+      "owner_step": "S42",
+      "follow_up": "G010 closed only on actual S42 acceptance; S43 consumes owned input and validated epochs",
+      "status": "backend-private",
+      "evidence": "docs/development/refactoring/steps/S42.md; G010/20261029-r1-6f2c native-suite-r2, production recovery-r2 and structure-direct-r3 exact source review"
+    },
+    {
+      "rule": "platform-edge",
+      "path": "tests/infrastructure/D3D11FramePresenterWin32Contract.cpp",
+      "detail": "tests/infrastructure/FrameLifetimeD3D11Checks.inl",
+      "maxOccurrences": 1,
+      "reason": "Native-only lifetime fixture: actual complete-frame hardware/WARP and GDI fallback; no business/core consumer.",
+      "owner_step": "S42",
+      "follow_up": "G010 closed only on actual S42 acceptance; S43 consumes owned input and validated epochs",
+      "status": "backend-private",
+      "evidence": "docs/development/refactoring/steps/S42.md; G010/20261029-r1-6f2c native-suite-r2, production recovery-r2 and structure-direct-r3 exact source review"
+    },
+    {
+      "rule": "platform-header",
+      "path": "src/runtime/presentation/win32/D3D11FramePresenterWin32.cpp",
+      "detail": "dxgi1_4.h",
+      "maxOccurrences": 1,
+      "reason": "S42 private single UI-owner completion lease, bounded retry and optional DXGI process budget; no public native dependency or worker access.",
+      "owner_step": "S42",
+      "follow_up": "G010 closed only on actual S42 acceptance; S43 consumes owned input and validated epochs",
+      "status": "backend-private",
+      "evidence": "docs/development/refactoring/steps/S42.md; G010/20261029-r1-6f2c native-suite-r2, production recovery-r2 and structure-direct-r3 exact source review"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/D3D11ResourceLifetimeWin32.inl",
+      "detail": "HRESULT",
+      "maxOccurrences": 4,
+      "reason": "S42 private single UI-owner completion lease, bounded retry and optional DXGI process budget; no public native dependency or worker access.",
+      "owner_step": "S42",
+      "follow_up": "G010 closed only on actual S42 acceptance; S43 consumes owned input and validated epochs",
+      "status": "backend-private",
+      "evidence": "docs/development/refactoring/steps/S42.md; G010/20261029-r1-6f2c native-suite-r2, production recovery-r2 and structure-direct-r3 exact source review"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/D3D11ResourceLifetimeWin32.inl",
+      "detail": "ID3D11Query",
+      "maxOccurrences": 1,
+      "reason": "S42 private single UI-owner completion lease, bounded retry and optional DXGI process budget; no public native dependency or worker access.",
+      "owner_step": "S42",
+      "follow_up": "G010 closed only on actual S42 acceptance; S43 consumes owned input and validated epochs",
+      "status": "backend-private",
+      "evidence": "docs/development/refactoring/steps/S42.md; G010/20261029-r1-6f2c native-suite-r2, production recovery-r2 and structure-direct-r3 exact source review"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/D3D11ResourceLifetimeWin32.inl",
+      "detail": "IDXGIAdapter3",
+      "maxOccurrences": 1,
+      "reason": "S42 private single UI-owner completion lease, bounded retry and optional DXGI process budget; no public native dependency or worker access.",
+      "owner_step": "S42",
+      "follow_up": "G010 closed only on actual S42 acceptance; S43 consumes owned input and validated epochs",
+      "status": "backend-private",
+      "evidence": "docs/development/refactoring/steps/S42.md; G010/20261029-r1-6f2c native-suite-r2, production recovery-r2 and structure-direct-r3 exact source review"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/D3D11ResourceLifetimeWin32.inl",
+      "detail": "ULONGLONG",
+      "maxOccurrences": 1,
+      "reason": "S42 private single UI-owner completion lease, bounded retry and optional DXGI process budget; no public native dependency or worker access.",
+      "owner_step": "S42",
+      "follow_up": "G010 closed only on actual S42 acceptance; S43 consumes owned input and validated epochs",
+      "status": "backend-private",
+      "evidence": "docs/development/refactoring/steps/S42.md; G010/20261029-r1-6f2c native-suite-r2, production recovery-r2 and structure-direct-r3 exact source review"
+    },
+    {
+      "rule": "platform-type",
+      "path": "tests/infrastructure/FrameLifetimeD3D11Checks.inl",
+      "detail": "HDC",
+      "maxOccurrences": 1,
+      "reason": "Native-only lifetime fixture: actual complete-frame hardware/WARP and GDI fallback; no business/core consumer.",
+      "owner_step": "S42",
+      "follow_up": "G010 closed only on actual S42 acceptance; S43 consumes owned input and validated epochs",
+      "status": "backend-private",
+      "evidence": "docs/development/refactoring/steps/S42.md; G010/20261029-r1-6f2c native-suite-r2, production recovery-r2 and structure-direct-r3 exact source review"
+    },
+    {
+      "rule": "software-frame-dependency",
+      "path": "src/runtime/presentation/FrameBackendOptions.h",
+      "detail": "src/runtime/presentation/FrameResourceLimits.h",
+      "maxOccurrences": 1,
+      "reason": "Portable scalar resource limits; only cstdint/constants. No native/World or device types cross public contracts.",
+      "owner_step": "S42",
+      "follow_up": "G010 closed only on actual S42 acceptance; S43 consumes owned input and validated epochs",
+      "status": "pure-contract",
+      "evidence": "docs/development/refactoring/steps/S42.md; G010/20261029-r1-6f2c native-suite-r2, production recovery-r2 and structure-direct-r3 exact source review"
+    },
+    {
+      "rule": "platform-edge",
+      "path": "src/runtime/presentation/win32/MapRasterD3D11.inl",
+      "detail": "src/runtime/presentation/win32/MapTileDiagnosticWin32.inl",
+      "maxOccurrences": 1,
+      "reason": "S43 exact private Win32 diagnostic output/worker selector; requires explicit fixed-frame and trace outputs. No native type enters the owned numeric worker packet or public preparation interface.",
+      "owner_step": "S43",
+      "follow_up": "Keep native diagnostics private. Preserve pure MapTilePreparation protected boundaries; cross-system providers remain their original P/N owners.",
+      "status": "reviewed-scoped-private-native",
+      "evidence": "S43/G011/20261029-r1-s43/reports/structure-review-r1.json"
+    },
+    {
+      "rule": "platform-header",
+      "path": "tools/diagnostics/s43/visible_observer/VisibleObserver.cpp",
+      "detail": "d3d11.h",
+      "maxOccurrences": 1,
+      "reason": "S43 separate Windows diagnostic observer copied from the accepted S41 observer, with bounded WM_NULL response timing only. It is an independent executable, never linked into the game or pure frame preparation.",
+      "owner_step": "S43",
+      "follow_up": "Keep native diagnostics private. Preserve pure MapTilePreparation protected boundaries; cross-system providers remain their original P/N owners.",
+      "status": "reviewed-scoped-private-native",
+      "evidence": "S43/G011/20261029-r1-s43/reports/structure-review-r1.json"
+    },
+    {
+      "rule": "platform-header",
+      "path": "tools/diagnostics/s43/visible_observer/VisibleObserver.cpp",
+      "detail": "dxgi1_4.h",
+      "maxOccurrences": 1,
+      "reason": "S43 separate Windows diagnostic observer copied from the accepted S41 observer, with bounded WM_NULL response timing only. It is an independent executable, never linked into the game or pure frame preparation.",
+      "owner_step": "S43",
+      "follow_up": "Keep native diagnostics private. Preserve pure MapTilePreparation protected boundaries; cross-system providers remain their original P/N owners.",
+      "status": "reviewed-scoped-private-native",
+      "evidence": "S43/G011/20261029-r1-s43/reports/structure-review-r1.json"
+    },
+    {
+      "rule": "platform-header",
+      "path": "tools/diagnostics/s43/visible_observer/VisibleObserver.cpp",
+      "detail": "intrin.h",
+      "maxOccurrences": 1,
+      "reason": "S43 separate Windows diagnostic observer copied from the accepted S41 observer, with bounded WM_NULL response timing only. It is an independent executable, never linked into the game or pure frame preparation.",
+      "owner_step": "S43",
+      "follow_up": "Keep native diagnostics private. Preserve pure MapTilePreparation protected boundaries; cross-system providers remain their original P/N owners.",
+      "status": "reviewed-scoped-private-native",
+      "evidence": "S43/G011/20261029-r1-s43/reports/structure-review-r1.json"
+    },
+    {
+      "rule": "platform-header",
+      "path": "tools/diagnostics/s43/visible_observer/VisibleObserver.cpp",
+      "detail": "psapi.h",
+      "maxOccurrences": 1,
+      "reason": "S43 separate Windows diagnostic observer copied from the accepted S41 observer, with bounded WM_NULL response timing only. It is an independent executable, never linked into the game or pure frame preparation.",
+      "owner_step": "S43",
+      "follow_up": "Keep native diagnostics private. Preserve pure MapTilePreparation protected boundaries; cross-system providers remain their original P/N owners.",
+      "status": "reviewed-scoped-private-native",
+      "evidence": "S43/G011/20261029-r1-s43/reports/structure-review-r1.json"
+    },
+    {
+      "rule": "platform-header",
+      "path": "tools/diagnostics/s43/visible_observer/VisibleObserver.cpp",
+      "detail": "windows.h",
+      "maxOccurrences": 1,
+      "reason": "S43 separate Windows diagnostic observer copied from the accepted S41 observer, with bounded WM_NULL response timing only. It is an independent executable, never linked into the game or pure frame preparation.",
+      "owner_step": "S43",
+      "follow_up": "Keep native diagnostics private. Preserve pure MapTilePreparation protected boundaries; cross-system providers remain their original P/N owners.",
+      "status": "reviewed-scoped-private-native",
+      "evidence": "S43/G011/20261029-r1-s43/reports/structure-review-r1.json"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/MapRasterD3D11.inl",
+      "detail": "DWORD",
+      "maxOccurrences": 1,
+      "reason": "S43 exact private Win32 diagnostic output/worker selector; requires explicit fixed-frame and trace outputs. No native type enters the owned numeric worker packet or public preparation interface.",
+      "owner_step": "S43",
+      "follow_up": "Keep native diagnostics private. Preserve pure MapTilePreparation protected boundaries; cross-system providers remain their original P/N owners.",
+      "status": "reviewed-scoped-private-native",
+      "evidence": "S43/G011/20261029-r1-s43/reports/structure-review-r1.json"
+    },
+    {
+      "rule": "platform-type",
+      "path": "src/runtime/presentation/win32/MapTileDiagnosticWin32.inl",
+      "detail": "DWORD",
+      "maxOccurrences": 1,
+      "reason": "S43 exact private Win32 diagnostic output/worker selector; requires explicit fixed-frame and trace outputs. No native type enters the owned numeric worker packet or public preparation interface.",
+      "owner_step": "S43",
+      "follow_up": "Keep native diagnostics private. Preserve pure MapTilePreparation protected boundaries; cross-system providers remain their original P/N owners.",
+      "status": "reviewed-scoped-private-native",
+      "evidence": "S43/G011/20261029-r1-s43/reports/structure-review-r1.json"
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s43/visible_observer/VisibleObserver.cpp",
+      "detail": "DWORD",
+      "maxOccurrences": 9,
+      "reason": "S43 separate Windows diagnostic observer copied from the accepted S41 observer, with bounded WM_NULL response timing only. It is an independent executable, never linked into the game or pure frame preparation.",
+      "owner_step": "S43",
+      "follow_up": "Keep native diagnostics private. Preserve pure MapTilePreparation protected boundaries; cross-system providers remain their original P/N owners.",
+      "status": "reviewed-scoped-private-native",
+      "evidence": "S43/G011/20261029-r1-s43/reports/structure-review-r1.json"
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s43/visible_observer/VisibleObserver.cpp",
+      "detail": "DWORD_PTR",
+      "maxOccurrences": 1,
+      "reason": "S43 separate Windows diagnostic observer copied from the accepted S41 observer, with bounded WM_NULL response timing only. It is an independent executable, never linked into the game or pure frame preparation.",
+      "owner_step": "S43",
+      "follow_up": "Keep native diagnostics private. Preserve pure MapTilePreparation protected boundaries; cross-system providers remain their original P/N owners.",
+      "status": "reviewed-scoped-private-native",
+      "evidence": "S43/G011/20261029-r1-s43/reports/structure-review-r1.json"
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s43/visible_observer/VisibleObserver.cpp",
+      "detail": "HANDLE",
+      "maxOccurrences": 1,
+      "reason": "S43 separate Windows diagnostic observer copied from the accepted S41 observer, with bounded WM_NULL response timing only. It is an independent executable, never linked into the game or pure frame preparation.",
+      "owner_step": "S43",
+      "follow_up": "Keep native diagnostics private. Preserve pure MapTilePreparation protected boundaries; cross-system providers remain their original P/N owners.",
+      "status": "reviewed-scoped-private-native",
+      "evidence": "S43/G011/20261029-r1-s43/reports/structure-review-r1.json"
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s43/visible_observer/VisibleObserver.cpp",
+      "detail": "HRESULT",
+      "maxOccurrences": 23,
+      "reason": "S43 separate Windows diagnostic observer copied from the accepted S41 observer, with bounded WM_NULL response timing only. It is an independent executable, never linked into the game or pure frame preparation.",
+      "owner_step": "S43",
+      "follow_up": "Keep native diagnostics private. Preserve pure MapTilePreparation protected boundaries; cross-system providers remain their original P/N owners.",
+      "status": "reviewed-scoped-private-native",
+      "evidence": "S43/G011/20261029-r1-s43/reports/structure-review-r1.json"
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s43/visible_observer/VisibleObserver.cpp",
+      "detail": "HWND",
+      "maxOccurrences": 3,
+      "reason": "S43 separate Windows diagnostic observer copied from the accepted S41 observer, with bounded WM_NULL response timing only. It is an independent executable, never linked into the game or pure frame preparation.",
+      "owner_step": "S43",
+      "follow_up": "Keep native diagnostics private. Preserve pure MapTilePreparation protected boundaries; cross-system providers remain their original P/N owners.",
+      "status": "reviewed-scoped-private-native",
+      "evidence": "S43/G011/20261029-r1-s43/reports/structure-review-r1.json"
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s43/visible_observer/VisibleObserver.cpp",
+      "detail": "ID3D11Device",
+      "maxOccurrences": 3,
+      "reason": "S43 separate Windows diagnostic observer copied from the accepted S41 observer, with bounded WM_NULL response timing only. It is an independent executable, never linked into the game or pure frame preparation.",
+      "owner_step": "S43",
+      "follow_up": "Keep native diagnostics private. Preserve pure MapTilePreparation protected boundaries; cross-system providers remain their original P/N owners.",
+      "status": "reviewed-scoped-private-native",
+      "evidence": "S43/G011/20261029-r1-s43/reports/structure-review-r1.json"
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s43/visible_observer/VisibleObserver.cpp",
+      "detail": "ID3D11DeviceContext",
+      "maxOccurrences": 2,
+      "reason": "S43 separate Windows diagnostic observer copied from the accepted S41 observer, with bounded WM_NULL response timing only. It is an independent executable, never linked into the game or pure frame preparation.",
+      "owner_step": "S43",
+      "follow_up": "Keep native diagnostics private. Preserve pure MapTilePreparation protected boundaries; cross-system providers remain their original P/N owners.",
+      "status": "reviewed-scoped-private-native",
+      "evidence": "S43/G011/20261029-r1-s43/reports/structure-review-r1.json"
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s43/visible_observer/VisibleObserver.cpp",
+      "detail": "ID3D11Query",
+      "maxOccurrences": 1,
+      "reason": "S43 separate Windows diagnostic observer copied from the accepted S41 observer, with bounded WM_NULL response timing only. It is an independent executable, never linked into the game or pure frame preparation.",
+      "owner_step": "S43",
+      "follow_up": "Keep native diagnostics private. Preserve pure MapTilePreparation protected boundaries; cross-system providers remain their original P/N owners.",
+      "status": "reviewed-scoped-private-native",
+      "evidence": "S43/G011/20261029-r1-s43/reports/structure-review-r1.json"
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s43/visible_observer/VisibleObserver.cpp",
+      "detail": "ID3D11RenderTargetView",
+      "maxOccurrences": 2,
+      "reason": "S43 separate Windows diagnostic observer copied from the accepted S41 observer, with bounded WM_NULL response timing only. It is an independent executable, never linked into the game or pure frame preparation.",
+      "owner_step": "S43",
+      "follow_up": "Keep native diagnostics private. Preserve pure MapTilePreparation protected boundaries; cross-system providers remain their original P/N owners.",
+      "status": "reviewed-scoped-private-native",
+      "evidence": "S43/G011/20261029-r1-s43/reports/structure-review-r1.json"
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s43/visible_observer/VisibleObserver.cpp",
+      "detail": "ID3D11ShaderResourceView",
+      "maxOccurrences": 1,
+      "reason": "S43 separate Windows diagnostic observer copied from the accepted S41 observer, with bounded WM_NULL response timing only. It is an independent executable, never linked into the game or pure frame preparation.",
+      "owner_step": "S43",
+      "follow_up": "Keep native diagnostics private. Preserve pure MapTilePreparation protected boundaries; cross-system providers remain their original P/N owners.",
+      "status": "reviewed-scoped-private-native",
+      "evidence": "S43/G011/20261029-r1-s43/reports/structure-review-r1.json"
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s43/visible_observer/VisibleObserver.cpp",
+      "detail": "ID3D11Texture2D",
+      "maxOccurrences": 3,
+      "reason": "S43 separate Windows diagnostic observer copied from the accepted S41 observer, with bounded WM_NULL response timing only. It is an independent executable, never linked into the game or pure frame preparation.",
+      "owner_step": "S43",
+      "follow_up": "Keep native diagnostics private. Preserve pure MapTilePreparation protected boundaries; cross-system providers remain their original P/N owners.",
+      "status": "reviewed-scoped-private-native",
+      "evidence": "S43/G011/20261029-r1-s43/reports/structure-review-r1.json"
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s43/visible_observer/VisibleObserver.cpp",
+      "detail": "IDXGIAdapter",
+      "maxOccurrences": 1,
+      "reason": "S43 separate Windows diagnostic observer copied from the accepted S41 observer, with bounded WM_NULL response timing only. It is an independent executable, never linked into the game or pure frame preparation.",
+      "owner_step": "S43",
+      "follow_up": "Keep native diagnostics private. Preserve pure MapTilePreparation protected boundaries; cross-system providers remain their original P/N owners.",
+      "status": "reviewed-scoped-private-native",
+      "evidence": "S43/G011/20261029-r1-s43/reports/structure-review-r1.json"
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s43/visible_observer/VisibleObserver.cpp",
+      "detail": "IDXGIAdapter1",
+      "maxOccurrences": 3,
+      "reason": "S43 separate Windows diagnostic observer copied from the accepted S41 observer, with bounded WM_NULL response timing only. It is an independent executable, never linked into the game or pure frame preparation.",
+      "owner_step": "S43",
+      "follow_up": "Keep native diagnostics private. Preserve pure MapTilePreparation protected boundaries; cross-system providers remain their original P/N owners.",
+      "status": "reviewed-scoped-private-native",
+      "evidence": "S43/G011/20261029-r1-s43/reports/structure-review-r1.json"
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s43/visible_observer/VisibleObserver.cpp",
+      "detail": "IDXGIAdapter3",
+      "maxOccurrences": 1,
+      "reason": "S43 separate Windows diagnostic observer copied from the accepted S41 observer, with bounded WM_NULL response timing only. It is an independent executable, never linked into the game or pure frame preparation.",
+      "owner_step": "S43",
+      "follow_up": "Keep native diagnostics private. Preserve pure MapTilePreparation protected boundaries; cross-system providers remain their original P/N owners.",
+      "status": "reviewed-scoped-private-native",
+      "evidence": "S43/G011/20261029-r1-s43/reports/structure-review-r1.json"
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s43/visible_observer/VisibleObserver.cpp",
+      "detail": "IDXGIDevice",
+      "maxOccurrences": 2,
+      "reason": "S43 separate Windows diagnostic observer copied from the accepted S41 observer, with bounded WM_NULL response timing only. It is an independent executable, never linked into the game or pure frame preparation.",
+      "owner_step": "S43",
+      "follow_up": "Keep native diagnostics private. Preserve pure MapTilePreparation protected boundaries; cross-system providers remain their original P/N owners.",
+      "status": "reviewed-scoped-private-native",
+      "evidence": "S43/G011/20261029-r1-s43/reports/structure-review-r1.json"
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s43/visible_observer/VisibleObserver.cpp",
+      "detail": "IDXGIFactory1",
+      "maxOccurrences": 1,
+      "reason": "S43 separate Windows diagnostic observer copied from the accepted S41 observer, with bounded WM_NULL response timing only. It is an independent executable, never linked into the game or pure frame preparation.",
+      "owner_step": "S43",
+      "follow_up": "Keep native diagnostics private. Preserve pure MapTilePreparation protected boundaries; cross-system providers remain their original P/N owners.",
+      "status": "reviewed-scoped-private-native",
+      "evidence": "S43/G011/20261029-r1-s43/reports/structure-review-r1.json"
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s43/visible_observer/VisibleObserver.cpp",
+      "detail": "LARGE_INTEGER",
+      "maxOccurrences": 2,
+      "reason": "S43 separate Windows diagnostic observer copied from the accepted S41 observer, with bounded WM_NULL response timing only. It is an independent executable, never linked into the game or pure frame preparation.",
+      "owner_step": "S43",
+      "follow_up": "Keep native diagnostics private. Preserve pure MapTilePreparation protected boundaries; cross-system providers remain their original P/N owners.",
+      "status": "reviewed-scoped-private-native",
+      "evidence": "S43/G011/20261029-r1-s43/reports/structure-review-r1.json"
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s43/visible_observer/VisibleObserver.cpp",
+      "detail": "LPARAM",
+      "maxOccurrences": 2,
+      "reason": "S43 separate Windows diagnostic observer copied from the accepted S41 observer, with bounded WM_NULL response timing only. It is an independent executable, never linked into the game or pure frame preparation.",
+      "owner_step": "S43",
+      "follow_up": "Keep native diagnostics private. Preserve pure MapTilePreparation protected boundaries; cross-system providers remain their original P/N owners.",
+      "status": "reviewed-scoped-private-native",
+      "evidence": "S43/G011/20261029-r1-s43/reports/structure-review-r1.json"
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s43/visible_observer/VisibleObserver.cpp",
+      "detail": "POINT",
+      "maxOccurrences": 1,
+      "reason": "S43 separate Windows diagnostic observer copied from the accepted S41 observer, with bounded WM_NULL response timing only. It is an independent executable, never linked into the game or pure frame preparation.",
+      "owner_step": "S43",
+      "follow_up": "Keep native diagnostics private. Preserve pure MapTilePreparation protected boundaries; cross-system providers remain their original P/N owners.",
+      "status": "reviewed-scoped-private-native",
+      "evidence": "S43/G011/20261029-r1-s43/reports/structure-review-r1.json"
+    },
+    {
+      "rule": "platform-type",
+      "path": "tools/diagnostics/s43/visible_observer/VisibleObserver.cpp",
+      "detail": "RECT",
+      "maxOccurrences": 1,
+      "reason": "S43 separate Windows diagnostic observer copied from the accepted S41 observer, with bounded WM_NULL response timing only. It is an independent executable, never linked into the game or pure frame preparation.",
+      "owner_step": "S43",
+      "follow_up": "Keep native diagnostics private. Preserve pure MapTilePreparation protected boundaries; cross-system providers remain their original P/N owners.",
+      "status": "reviewed-scoped-private-native",
+      "evidence": "S43/G011/20261029-r1-s43/reports/structure-review-r1.json"
     }
   ],
   "reviewedUpdates": [
@@ -51341,6 +51741,83 @@
       "step": "S41/G009 strictactualwindowfixture",
       "reason": "Manualexact6privatefacts, original4473andRuntimeShell budgets no growth; allFPS/pixel/hit/authority assertions retained plusphysicalvisibility added.",
       "evidence": "development_records/refactoring/S41/maps-20261027-r1/visible-frame-boundary-native-facts-review-r1.json"
+    },
+    {
+      "date": "2026-10-29",
+      "owner_step": "S42",
+      "scope": "G010 exact private lease/budget dependencies and pure scalar limits; original CPP occurrence budgets preserved by grouping only new state/retirement in private include; no aliases or rule broadening.",
+      "added": [
+        [
+          "platform-edge",
+          "src/runtime/presentation/win32/D3D11FramePresenterWin32.cpp",
+          "src/runtime/presentation/win32/D3D11ResourceLifetimeWin32.inl",
+          1
+        ],
+        [
+          "platform-edge",
+          "tests/infrastructure/D3D11FramePresenterWin32Contract.cpp",
+          "tests/infrastructure/FrameLifetimeD3D11Checks.inl",
+          1
+        ],
+        [
+          "platform-header",
+          "src/runtime/presentation/win32/D3D11FramePresenterWin32.cpp",
+          "dxgi1_4.h",
+          1
+        ],
+        [
+          "platform-type",
+          "src/runtime/presentation/win32/D3D11ResourceLifetimeWin32.inl",
+          "HRESULT",
+          4
+        ],
+        [
+          "platform-type",
+          "src/runtime/presentation/win32/D3D11ResourceLifetimeWin32.inl",
+          "ID3D11Query",
+          1
+        ],
+        [
+          "platform-type",
+          "src/runtime/presentation/win32/D3D11ResourceLifetimeWin32.inl",
+          "IDXGIAdapter3",
+          1
+        ],
+        [
+          "platform-type",
+          "src/runtime/presentation/win32/D3D11ResourceLifetimeWin32.inl",
+          "ULONGLONG",
+          1
+        ],
+        [
+          "platform-type",
+          "tests/infrastructure/FrameLifetimeD3D11Checks.inl",
+          "HDC",
+          1
+        ],
+        [
+          "software-frame-dependency",
+          "src/runtime/presentation/FrameBackendOptions.h",
+          "src/runtime/presentation/FrameResourceLimits.h",
+          1
+        ]
+      ],
+      "retired": {
+        "rule": "platform-header",
+        "path": "src/runtime/presentation/win32/D3D11FramePresenterWin32.cpp",
+        "detail": "dxgi1_2.h",
+        "maxOccurrences": 1,
+        "reason": "Private Windows complete-CPU-frame presentation, device font ROI or typed application factory assembly. No public native/SDL/World contract or worker access.",
+        "owner_step": "S39",
+        "follow_up": "G001 private presentation owner; S40/S42 reuse this boundary without exporting native types",
+        "status": "backend-private",
+        "evidence": "S39/presentation-20261027-r1: native contract-r4, main-frame hardware/warp-r3, compare-frames-r3, visible-summary-r1; structure-r1 reviewed"
+      },
+      "oldExceptions": 4660,
+      "newExceptions": 4668,
+      "originalExistingBudgetsIncreased": 0,
+      "policyUnchanged": true,
+      "evidence": "S42/G010/20261029-r1-6f2c structure-direct-r3/result.json and source snapshots"
     }
   ]
 }

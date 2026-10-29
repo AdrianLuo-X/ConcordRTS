@@ -10,6 +10,7 @@
 #include "simulation/superweapons/SuperWeaponSystem.h"
 
 #include <iostream>
+#include <charconv>
 #include <string>
 
 #ifdef _WIN32
@@ -370,13 +371,25 @@ RuntimeCommandLine parseRuntimeCommandLine(int argc, char** argv) {
             if (!readRequiredValue(argc, argv, index, argument, value, commandLine.errorMessage)) return commandLine;
             using namespace concord::presentation;
             FrameBackend backend=FrameBackend::Software;FrameDevice device=FrameDevice::Hardware;
-            if(value=="d3d11")backend=FrameBackend::D3D11;
+            if(value=="auto")backend=FrameBackend::Auto;
+            else if(value=="d3d11")backend=FrameBackend::D3D11;
             else if(value=="d3d11-warp"){backend=FrameBackend::D3D11;device=FrameDevice::Warp;}
-            else if(value!="software"){commandLine.errorMessage=argument+" requires software, d3d11 or d3d11-warp";return commandLine;}
+            else if(value!="software"){commandLine.errorMessage=argument+" requires software, auto, d3d11 or d3d11-warp";return commandLine;}
             if(argument=="--frame-backend"){commandLine.presentation.backend=backend;commandLine.presentation.device=device;}
             else if(argument=="--map-drawing"){commandLine.presentation.mapBackend=backend;commandLine.presentation.mapDevice=device;}
             else {commandLine.presentation.menuBackend=backend;commandLine.presentation.menuDevice=device;}
             continue;
+        }
+        if(argument=="--frame-workers") {
+            std::string value;if(!readRequiredValue(argc,argv,index,argument,value,commandLine.errorMessage))return commandLine;
+            if(value!="0"&&value!="1"&&value!="2"&&value!="4"){commandLine.errorMessage="--frame-workers requires 0, 1, 2 or 4";return commandLine;}
+            commandLine.presentation.frameWorkers=static_cast<unsigned>(value[0]-'0');continue;
+        }
+        if(argument=="--gpu-budget-mib") {
+            std::string value;if(!readRequiredValue(argc,argv,index,argument,value,commandLine.errorMessage))return commandLine;
+            unsigned budget=0;const auto parsed=std::from_chars(value.data(),value.data()+value.size(),budget);
+            if(parsed.ec!=std::errc{}||parsed.ptr!=value.data()+value.size()||budget<32||budget>256){commandLine.errorMessage="--gpu-budget-mib requires an integer from 32 to 256";return commandLine;}
+            commandLine.presentation.gpuBudgetBytes=static_cast<std::uint64_t>(budget)*1024*1024;continue;
         }
         if (argument == "--skirmish-window") {
             if (!readRequiredValue(argc, argv, index, "--skirmish-window",
@@ -662,9 +675,11 @@ void printRuntimeHelp(const std::string& programName) {
     std::cout << "                         Validate and render the original WOL/observer/rank PCX skin.\n";
     std::cout << "  --skirmish-ui-smoke-test <bmp>\n";
     std::cout << "  --skirmish-window <win32|sdl3>  Select the standalone skirmish window (game window stays Win32).\n";
-    std::cout << "  --frame-backend <software|d3d11|d3d11-warp>  Main Win32 complete CPU-frame presentation; default software. WARP is a software device.\n";
-    std::cout << "  --skirmish-drawing <software|d3d11|d3d11-warp>  Win32 lobby/map menu raster; default software. Other menu pages fall back to software.\n";
-    std::cout << "  --map-drawing <software|d3d11|d3d11-warp> (default software)\n";
+    std::cout << "  --frame-backend <software|auto|d3d11|d3d11-warp>  Main Win32 complete CPU-frame presentation; default software. WARP is a software device.\n";
+    std::cout << "  --skirmish-drawing <software|auto|d3d11|d3d11-warp>  Win32 lobby/map menu raster; default software. Other menu pages fall back to software.\n";
+    std::cout << "  --gpu-budget-mib <32..256>  GPU payload cap; default 256 MiB, OS budget may reduce it.\n";
+    std::cout << "  --frame-workers <0|1|2|4>  Optional map tile preparation; default 0 (reference).\n";
+    std::cout << "  --map-drawing <software|auto|d3d11|d3d11-warp> (default software)\n";
     std::cout << "                         Render and validate the interactive skirmish setup screen offscreen.\n";
     std::cout << "  --main-menu-ui-smoke-test <bmp>\n";
     std::cout << "                         Render and validate the original 800x600 Yuri's Revenge shell.\n";
@@ -750,6 +765,22 @@ int runRuntimeApplication(int argc, char** argv) {
         &&commandLine.presentation.device!=commandLine.presentation.mapDevice){
         std::cerr<<"Frame and map drawing must use the same device on the single window presenter.\n";return 1;
     }
+    if(commandLine.presentation.backend==concord::presentation::FrameBackend::Auto
+        ||commandLine.presentation.menuBackend==concord::presentation::FrameBackend::Auto
+        ||commandLine.presentation.mapBackend==concord::presentation::FrameBackend::Auto)
+        std::cout<<"Frame backend requested=auto selected=software reason=reference-default-performance-gate gpuBudgetBytes="<<commandLine.presentation.gpuBudgetBytes<<"\n";
+#ifdef _WIN32
+    // The synchronous fixed-clock pixel fixture intentionally does not dispatch
+    // queued input/timers. Keep Windows from substituting a ghost HWND while
+    // its full-image oracles run; all actual visibility/pixel assertions remain.
+    const char* fixedFrameOutput=std::getenv("CONCORD_MAIN_FRAME_CONTRACT_OUTPUT");
+    const char* fixedFrameNoGhost=std::getenv("CONCORD_S42_DIAGNOSTIC_NO_GHOST");
+    if(commandLine.interactionSmokeTest&&fixedFrameOutput&&*fixedFrameOutput
+        &&fixedFrameNoGhost&&std::string(fixedFrameNoGhost)=="1") {
+        DisableProcessWindowsGhosting();
+        std::cout<<"S42 fixed-frame diagnostic ghosting=disabled process-only normal-startup=unchanged\n";
+    }
+#endif
     RuntimeConfig config = loadRuntimeConfig(commandLine.overrides);
     if (commandLine.skipMainMenu) {
         config.showMainMenu = false;

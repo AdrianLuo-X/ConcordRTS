@@ -8,13 +8,23 @@ ConcordRTS 是使用 C++20 开发的 RTS 引擎工程，面向《命令与征服
 
 ## 功能与开发状态
 
-源码包含遭遇战、AI、战役、局域网与互联网联机、观战、存档与联机恢复，以及规则分析、地图解析、资源读取和导出工具。遭遇战菜单可选择 Win32 或可选的 SDL3 软件窗口；Win32 大厅和选图页另可显式启用 GPU 绘制，开始战局后使用 Win32 游戏窗口。主战局默认使用软件绘制与呈现，也可显式选择 D3D11 完整帧呈现或地图 GPU 绘制。地图 GPU 路径覆盖地形、物体材质、阴影、光照与迷雾显示；资源解码、几何、地形查询、视野和模拟仍由 CPU 的原实现负责。硬件与 WARP 分别选择。
+源码包含遭遇战、AI、战役、局域网与互联网联机、观战、存档与联机恢复，以及规则分析、地图解析、资源读取和导出工具。遭遇战菜单可选择 Win32 或可选的 SDL3 软件窗口；Win32 大厅和选图页另可显式启用 GPU 绘制，开始战局后使用 Win32 游戏窗口。主战局默认使用软件绘制与呈现，也可显式选择 D3D11 完整帧呈现或地图 GPU 绘制。地图 GPU 路径覆盖地形、物体材质、阴影、光照与迷雾显示；资源解码、几何、地形查询、视野和模拟仍由 CPU 的原实现负责。硬件与 WARP 分别选择，`auto` 当前使用软件；地图命令索引准备可选工作线程，默认仍为同步参考算法。
 
 另提供独立核心构建，支持在不创建窗口、图形、音频和视频后端的情况下构建所选实际生产模块。已验证的核心环境为 Windows Clang；文件和 LAN 仍保留私有操作系统适配，不表示整个游戏已完成跨平台运行。
 
 项目仍在持续开发，不保证原版所有细节、全部战役或任意第三方 MOD 均已完整兼容。
 
 ## 更新记录
+
+### 2026-10-29
+
+- 完成 GPU 资源预算、代际、单帧在途和设备恢复处理。资源复用、缩放及换代先等待上一帧完成，等待有时限；设备失效时保留同帧软件回退，并在可见窗口中按冷却时间和次数上限尝试重建。
+- 增加 `auto` 后端选项和 `--gpu-budget-mib` 预算参数，明确记录请求后端与实际选择。`auto` 当前仍选择软件，硬件与 WARP 分开处理；GPU 载荷和 CPU 暂存分别限额，不把它们等同于整个进程或驱动的内存。
+- 将地图屏幕块的命令索引准备接入有界任务执行器，复制裁剪矩形与帧、资源和设备身份。每帧最多四个任务，各自持有输入、输出和工作区，按屏幕块与原命令序号稳定合并，由原 UI 线程提交图形操作。
+- 新增 `--frame-workers 0|1|2|4`。默认 `0` 保留原参考算法，`1 / 2 / 4` 使用同一预分配内核；取消、身份变化与退出均等待任务结束，过期结果只影响显示，不进入业务或音频事件队列。
+- 保持原 CPU 几何、地形、视野、模拟、随机数与保存格式，完成四种线程配置的索引、完整画面和保存／回放／网络恢复对照，以及实际窗口、动态场景和资源恢复检查。
+- 开发验收完成 1,438 项纯模块检查、1,287 项原生检查、27 项相关 CTest 和 66 个结构夹具检查；保留历史动画、场景深度问题及未运行范围，不表示全部注册测试或所有设备环境均已通过。
+- 分开记录快照、派发、等待、合并及总体准备成本，线程扩展收益以单线程与多线程的同一内核比较。测量只覆盖这一种准备工作，不能推定整局 GPU 提速、屏幕帧率或物理输入到显示延迟；软件和零工作线程默认值保持不变。
 
 ### 2026-10-28
 
@@ -173,7 +183,7 @@ ConcordRTS/
 │   │   ├── persistence/            保存、加载与恢复一致性诊断
 │   │   ├── replay/                 回放封包与宿主恢复内核
 │   │   ├── performance/            生产循环性能计时与诊断
-│   │   ├── presentation/           完整帧、后端选项与私有呈现适配
+│   │   ├── presentation/           完整帧、预算、设备恢复与私有呈现适配
 │   │   │   └── win32/              GDI、D3D11 完整帧、菜单与地图 GPU 绘制
 │   │   │       ├── MenuRaster.hlsl  自编菜单顶点／像素着色器源码
 │   │   │       └── MapRaster.hlsl   自编地图顶点／像素着色器源码
@@ -181,6 +191,7 @@ ConcordRTS/
 │   ├── render/                     地图、单位、效果与软件／GPU 绘图接入
 │   │   ├── core/                   地图绘图、短期帧输入与自有 GPU 命令资源
 │   │   ├── buildings/              建筑绘制与辅助动画帧选择
+│   │   ├── preparation/            地图屏幕块索引快照、有界任务与稳定合并
 │   │   ├── voxel/                  体素绘制、巨炮光栅任务与预热生命周期
 │   │   └── resources/              菜单资源接口的既有缓存实现
 │   ├── ui/                         菜单、输入、HUD 与偏好保存
@@ -451,18 +462,19 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-Game.ps1 -
 | 参数值 | 含义 |
 | --- | --- |
 | `software` | 默认软件／GDI 呈现 |
+| `auto` | 当前实际选择软件，并记录性能门槛原因 |
 | `d3d11` | 请求硬件 D3D11，最低功能级别 11_0，并检查格式与计时查询能力 |
 | `d3d11-warp` | 明确请求 WARP 软件设备，用于兼容性和对照，不代表硬件 GPU 性能 |
 
 这些选项只影响本机显示，不写入游戏配置、存档、协议或确定性哈希。D3D11 使用已完成的 BGRA8 CPU 帧，按当前客户区尺寸上传并以 `Present(1, 0)` 呈现；不改变原 CPU 缩放、输入坐标或世界绘制，也不进行着色器绘图、颜色转换或 alpha 混合。
 
-设备或呈现失败时会记录原因，释放 GPU 资源并转回原 GDI；同一窗口会话中不反复尝试切回 D3D11，也不会自动改用 WARP。`--skirmish-window sdl3` 只能与 `software` 组合，选择 D3D11 或 WARP 时明确拒绝。
+设备或呈现失败时会记录原因，释放 GPU 资源并转回原 GDI。可见且未最小化的窗口会按冷却时间和次数上限尝试重建，耗尽后继续使用软件，不会自动改用 WARP。`--skirmish-window sdl3` 可使用 `software` 或当前选择软件的 `auto`；选择 D3D11 或 WARP 时明确拒绝。
 
 性能记录分别反映 CPU、GPU 上传及提交等待，不能据此声称整体加速或屏幕实际输出帧率。主战局字体组成仍有 Windows 私有实现，当前选项不表示整个游戏已跨平台。
 
 ### 遭遇战菜单 GPU 绘制
 
-`--skirmish-drawing` 独立控制 Win32 遭遇战大厅和选图页的绘制方式，默认 `software`。完成构建并准备本地资源后，可显式选择：
+`--skirmish-drawing` 独立控制 Win32 遭遇战大厅和选图页的绘制方式，接受 `software / auto / d3d11 / d3d11-warp`，默认 `software`，当前 `auto` 也选择软件。完成构建并准备本地资源后，可显式选择：
 
 ```powershell
 .\bin\concord_runtime.exe --skirmish-drawing d3d11
@@ -478,7 +490,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-Game.ps1 -
 
 ### 地图 GPU 绘制
 
-`--map-drawing` 独立选择 Win32 战局地图的绘制方式，默认 `software`。完成构建并准备本地游戏资源后，从仓库根目录运行：
+`--map-drawing` 独立选择 Win32 战局地图的绘制方式，接受 `software / auto / d3d11 / d3d11-warp`，默认 `software`，当前 `auto` 也选择软件。完成构建并准备本地游戏资源后，从仓库根目录运行：
 
 ```powershell
 .\bin\concord_runtime.exe --map-drawing software
@@ -493,6 +505,33 @@ GPU 从自有 TMP／SHP／VXL 索引、调色板与原光照表执行颜色计�
 `--frame-backend` 控制完整 CPU 帧的呈现，`--skirmish-drawing` 控制菜单绘制，`--map-drawing` 控制地图绘制。显式同时启用 D3D11 完整帧呈现与地图绘制时，两者必须选择相同设备；硬件与 WARP 混用会报错。SDL3 菜单与任一 D3D11／WARP 选项组合也会被拒绝。
 
 硬件和 WARP 的测量结果分别记录；GPU 时间包含融合地图合成过程，不能逐层归因，也不能从 Present 调用或窗口提交间隔推定屏幕帧率。当前对照未证明整体加速，软件默认保持不变。
+
+### GPU 资源预算与恢复
+
+`--gpu-budget-mib` 接受 `32—256` 的整数，默认 `256 MiB`，约束应用管理的 GPU 载荷；操作系统提供进程预算时还会进一步限制分配。每个呈现器的 CPU 暂存另有 `256 MiB` 上限，包含帧准备快照和任务数据，既有单项容量保持不变。这些数值不代表整个进程或驱动的总内存。
+
+```powershell
+.\bin\concord_runtime.exe --map-drawing d3d11 --gpu-budget-mib 128
+.\bin\concord_runtime.exe --map-drawing auto
+```
+
+呈现器保持最多一帧在途，资源复用或缩放前等待完成；等待最长 `250 ms`，超时转回软件。设备恢复只在可见、未最小化的 UI 边界尝试，间隔至少 `1000 ms`，每个呈现器最多两次重建。旧资源或旧设备代际的结果会被拒绝，恢复失败仍保留 CPU 权威状态与可用的软件显示。
+
+代表性验收覆盖明确的失败注入和恢复流程，不能据此推定真实设备热拔出、长时运行或所有显示环境均已通过。`auto` 当前仍选择软件。
+
+### 地图帧准备线程
+
+`--frame-workers` 严格接受 `0 / 1 / 2 / 4`，默认 `0`。它只控制地图 GPU 路径的屏幕块命令索引准备，不改变模拟、寻路或巨炮预热的线程选项；软件地图路径不需要这项准备，实际使用零个帧准备工作线程。
+
+```powershell
+.\bin\concord_runtime.exe --map-drawing d3d11 --frame-workers 0
+.\bin\concord_runtime.exe --map-drawing d3d11 --frame-workers 2
+.\bin\concord_runtime.exe --map-drawing d3d11-warp --frame-workers 4
+```
+
+每帧最多四个任务，输入只含自有矩形和身份数值，工作线程不接触世界状态、图形设备或可变图像。结果按原命令顺序合并，取消、资源变化与退出会等待任务结束；快照和任务数据仍计入原 CPU 暂存上限。
+
+`0` 使用原向量分桶参考算法，`1 / 2 / 4` 共用预分配内核。因此零线程与非零线程的差异包含算法整理成本，线程扩展效果应比较 `1` 与 `2 / 4`。所选准备工作的局部耗时下降不代表整局提速，默认选择保持不变。
 
 ## 联机与 MOD
 
@@ -562,7 +601,7 @@ pwsh -NoProfile -File .\tools\testing\Run-LocalTests.ps1 -Compiler Clang -BuildD
 
 `-StructureOnly` 单独执行结构检查，不追加执行 12＋4 测试集合。入口校验缓存、刷新 CMake 元数据、冻结目标清单并运行合成夹具，然后检查依赖与精确例外；它不会构建游戏目标。结果默认写入已忽略的 `build/local-tests/structure-*/`，其中可能包含本机路径和环境信息，应留在本机。
 
-[结构基线](tools/structure/structure-baseline.json) 保留 4,660 条逐项审核的精确例外。新增违规、出现次数增加或已经消失而尚未收紧的例外都会导致失败；工具不会自动扩大豁免范围。它提供所选构建配置的静态结构证据，不表示完整游戏、其他平台或性能已经验收。
+[结构基线](tools/structure/structure-baseline.json) 保留 4,696 条逐项审核的精确例外。新增违规、出现次数增加或已经消失而尚未收紧的例外都会导致失败；工具不会自动扩大豁免范围。它提供所选构建配置的静态结构证据，不表示完整游戏、其他平台或性能已经验收。
 
 已记录的验证覆盖所选标准合同、Windows 适配、资源查询、命令桥接及经济保存恢复对照。旧回归中已知的月球剧场深度、部分交互和几何绘制，以及 Yuri 采矿收入、完整 AI 经济、部分编队紧凑度与矿石动画检查失败仍保留；完整物理输入、IME、双端运行游戏，以及未覆盖的窗口、平台和性能场景不据此视为通过。
 
@@ -627,7 +666,22 @@ if ($LASTEXITCODE -ne 0) { throw '地图 GPU 合同检查失败。' }
 
 实际地图、物体、阴影、光照、迷雾与 VXL 的集成诊断源码保留在各绘图模块的 `diagnostics/` 下；[地图计时入口](src/runtime/performance/diagnostics/RuntimeMapGpuTiming.inl) 也随源码提供。正式场景诊断需要自行准备的游戏资源；本机验收脚本、截图、原始计时和交接记录不随源码发布。
 
-另保留独立的 [可见窗口诊断源码](tools/diagnostics/s41/visible_observer/VisibleObserver.cpp) 及其构建工程，用于观察指定进程的窗口可见性和呈现环境；它不属于游戏日常构建，也不附带本机采样数据。
+另保留独立的 [可见窗口诊断源码](tools/diagnostics/s41/visible_observer/VisibleObserver.cpp) 与 [带输入服务代理的窗口诊断](tools/diagnostics/s43/visible_observer/VisibleObserver.cpp) 及各自构建工程，用于观察指定进程的窗口可见性和呈现环境；它们不属于游戏日常构建，也不附带本机采样数据。
+
+### 地图帧准备合同
+
+[MapTilePreparationContract.cpp](tests/rendering/MapTilePreparationContract.cpp) 使用自编命令矩形和身份数据，对照独立的原算法，覆盖四种线程配置、输入所有权、顺序合并、身份变化、单帧接纳、取消、退出与预算拒绝，不需要官方素材。
+
+```powershell
+$gameBuild = 'build/clang-cl-x64-release'
+$ctestExe = Join-Path (Split-Path -Parent $cmakeExe) 'ctest.exe'
+& $cmakeExe --build $gameBuild --target concord_map_tile_preparation_contract --parallel 1
+if ($LASTEXITCODE -ne 0) { throw '地图帧准备合同构建失败。' }
+& $ctestExe --test-dir $gameBuild --no-tests=error --output-on-failure -j 1 -R '^map_tile_preparation_contract_test$'
+if ($LASTEXITCODE -ne 0) { throw '地图帧准备合同检查失败。' }
+```
+
+原生呈现合同另包含 [资源寿命检查](tests/infrastructure/FrameLifetimeD3D11Checks.inl)，覆盖预算、在途帧、代际失效、恢复次数与软件回退；真实地图的 [恢复诊断](src/runtime/performance/diagnostics/RuntimeFrameDeviceRecoveryContract.inl) 保留源码，需要自行准备的游戏资源与交互桌面。
 
 ### 并行预热与性能工具
 

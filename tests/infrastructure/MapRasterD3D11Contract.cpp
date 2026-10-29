@@ -102,12 +102,13 @@ int main() {
     HWND window=CreateWindowExW(WS_EX_TOOLWINDOW|WS_EX_NOACTIVATE,L"STATIC",L"Concord S41 integer map kernel",
         WS_POPUP,20,20,384,224,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
     check(window!=nullptr,"owned real window");if(!window)return 1;
-    for(auto driver:{FrameDevice::Hardware,FrameDevice::Warp}) {
+    for(unsigned frameWorkers:{0U,1U,2U,4U})for(auto driver:{FrameDevice::Hardware,FrameDevice::Warp}) {
         SetWindowPos(window,HWND_TOPMOST,0,0,384,224,SWP_NOMOVE|SWP_NOACTIVATE|SWP_SHOWWINDOW);
         runPackedReceiverGpuContract(window,driver,check);
         Fixture f;f.prepare();check(f.list.valid(),"bounded pure command values");
         FramePresentStatistics counters;D3D11FrameProbeWin32 probe;probe.captureUpload=true;
-        auto gpu=D3D11FramePresenterWin32::create(window,{FrameBackend::D3D11,driver},counters,&probe);
+        FrameBackendOptions options{FrameBackend::D3D11,driver};options.frameWorkers=frameWorkers;
+        auto gpu=D3D11FramePresenterWin32::create(window,options,counters,&probe);
         check(gpu&&gpu->active(),"requested real device exists");if(!gpu||!gpu->active())continue;
         check(gpu->report().softwareDevice==(driver==FrameDevice::Warp),"hardware and WARP separate");
         const auto before=f.expected;MapDrawFrame frame{f.list,1,f.width,f.height,19};

@@ -11,8 +11,22 @@ struct MapRasterD3D11 {
     const concord::render::MapDrawList* owner=nullptr;
     std::vector<std::uint32_t> resourceSnapshot;
     std::uint64_t generation=0,revision=0;
+    concord::render::MapTilePreparer tilePreparer;
+    // The fixed-frame fixture constructs its own backend options. Select its
+    // explicit worker matrix only when BOTH private diagnostic outputs exist.
+    // Ordinary startup and the live CLI always use FrameBackendOptions.
+    static unsigned diagnosticWorkers(unsigned requested) {
+        if(!GetEnvironmentVariableW(L"CONCORD_MAIN_FRAME_CONTRACT_OUTPUT",nullptr,0)
+            ||!GetEnvironmentVariableW(L"CONCORD_S43_TILE_TRACE",nullptr,0))return requested;
+        std::array<wchar_t,8> value{};
+        const auto length=GetEnvironmentVariableW(L"CONCORD_S43_FRAME_WORKERS",value.data(),static_cast<DWORD>(value.size()));
+        if(!length)return requested;
+        if(length!=1||(value[0]!=L'0'&&value[0]!=L'1'&&value[0]!=L'2'&&value[0]!=L'4'))throw std::invalid_argument("diagnostic frame workers");
+        return static_cast<unsigned>(value[0]-L'0');
+    }
+    explicit MapRasterD3D11(unsigned workers):tilePreparer(diagnosticWorkers(workers)){}
     HRESULT draw(ID3D11Device* d,ID3D11DeviceContext* c,ID3D11Texture2D* back,
-        const concord::render::MapDrawFrame& f,std::uint64_t& uploaded,ID3D11Query* start) {
+        const concord::render::MapDrawFrame& f,std::uint64_t& uploaded,ID3D11Query* start,std::uint64_t deviceGeneration) {
         using concord::render::MapDrawList;
         if(!vertex) {
             HRESULT hr=d->CreateVertexShader(s41_vs,sizeof(s41_vs),nullptr,&vertex);
@@ -34,27 +48,16 @@ struct MapRasterD3D11 {
             if(FAILED(hr))return hr;
             resourceSnapshot=list.resources();owner=&list;generation=list.generation();revision=list.resourceRevision();
         }
-        const int columns=(f.width+31)/32,rows=(f.height+31)/32,total=columns*rows;
-        std::vector<std::vector<std::uint32_t>> bins(static_cast<std::size_t>(total));
-        const std::size_t headers=static_cast<std::size_t>(total)*2;
-        std::size_t entries=headers;
-        for(std::size_t i=0;i<list.commands().size();++i) {
-            const auto& op=list.commands()[i];
-            if(op.kind==concord::render::MapDrawKind::NoOp||op.kind==concord::render::MapDrawKind::Shift)continue;
-            const int left=std::clamp(op.left,0,f.width),right=std::clamp(op.right,0,f.width);
-            const int top=std::clamp(op.top,0,f.height),bottom=std::clamp(op.bottom,0,f.height);
-            if(left>=right||top>=bottom)continue;
-            for(int y=top/32;y<=(bottom-1)/32;++y)for(int x=left/32;x<=(right-1)/32;++x) {
-                if(entries++>=MapDrawList::maxBytes/4)return E_OUTOFMEMORY;
-                bins[static_cast<std::size_t>(y*columns+x)].push_back(static_cast<std::uint32_t>(i));
-            }
-        }
-        std::vector<std::uint32_t> indices(headers);indices.reserve(entries);
-        for(int i=0;i<total;++i) {
-            indices[static_cast<std::size_t>(i)*2]=static_cast<std::uint32_t>(indices.size());
-            indices.insert(indices.end(),bins[i].begin(),bins[i].end());
-            indices[static_cast<std::size_t>(i)*2+1]=static_cast<std::uint32_t>(indices.size());
-        }
+        const int columns=(f.width+31)/32;
+        const auto snapshotStart=Clock::now();
+        auto snapshot=concord::render::snapshotMapTiles(f,deviceGeneration);
+        const auto stamp=snapshot.stamp;const double snapshotMs=elapsed(snapshotStart);
+        tilePreparer.start(std::move(snapshot));
+        auto prepared=tilePreparer.finish(stamp);
+        if(!prepared.accepted)return E_ABORT;
+        prepared.metrics.snapshotMs=snapshotMs;prepared.metrics.totalMs+=snapshotMs;
+        const auto& indices=prepared.indices;
+        #include "runtime/presentation/win32/MapTileDiagnosticWin32.inl"
         hr=uploadRasterBufferD3D11(d,c,indices.data(),indices.size()*4,4,tiles,tileView,tileBytes,uploaded,MapDrawList::maxBytes);
         if(FAILED(hr))return hr;
         const auto count=static_cast<std::uint32_t>(list.commands().size());

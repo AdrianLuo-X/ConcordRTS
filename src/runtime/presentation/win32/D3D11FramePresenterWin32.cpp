@@ -1,6 +1,6 @@
 #include "runtime/presentation/win32/D3D11FramePresenterWin32.h"
 #include <d3d11.h>
-#include <dxgi1_2.h>
+#include <dxgi1_4.h>
 #include <dwmapi.h>
 #include <wrl/client.h>
 #include <algorithm>
@@ -9,6 +9,10 @@
 #include <cstring>
 #include <iostream>
 #include <limits>
+#include "render/preparation/MapTilePreparation.h"
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 namespace concord::presentation::win32 {
 using Microsoft::WRL::ComPtr;
 using Clock=std::chrono::steady_clock;
@@ -16,7 +20,7 @@ namespace {
 double elapsed(Clock::time_point start) noexcept {
     return std::chrono::duration<double,std::milli>(Clock::now()-start).count();
 }
-const char* backendName(FrameBackend b) noexcept {return b==FrameBackend::D3D11?"d3d11":"software";}
+const char* backendName(FrameBackend b) noexcept {return b==FrameBackend::D3D11?"d3d11":b==FrameBackend::Auto?"auto":"software";}
 }
 #include "runtime/presentation/win32/RasterBufferD3D11.inl"
 #include "runtime/presentation/win32/MenuRasterD3D11.inl"
@@ -29,6 +33,7 @@ struct D3D11FramePresenterWin32::Impl {
     ComPtr<ID3D11Device> device;
     ComPtr<ID3D11DeviceContext> context;
     ComPtr<IDXGISwapChain> chain;
+    #include "runtime/presentation/win32/D3D11ResourceLifetimeWin32.inl"
     ComPtr<ID3D11Texture2D> back;
     std::unique_ptr<MenuRasterD3D11> menu;
     std::unique_ptr<MapRasterD3D11> map;
@@ -61,12 +66,18 @@ struct D3D11FramePresenterWin32::Impl {
         }
     }
     void release() noexcept {
+        // Normal retirement waits before any resource reuse/reclamation. On a
+        // removed device or bounded wait failure, the D3D runtime retains queued
+        // command references while the whole context/device is torn down.
+        if(inFlight&&device&&SUCCEEDED(device->GetDeviceRemovedReason()))waitForFrame();
+        inFlight=false;report.inFlight=0;
         collect();
         for(auto& q:queries){if(q.pending){++report.gpuPending;q.pending=false;}q.disjoint.Reset();q.start.Reset();q.end.Reset();}
         // One-way transition: release ALL GPU references before any GDI fallback.
         map.reset();menu.reset();back.Reset();
         if(context){context->ClearState();context->Flush();}
-        chain.Reset();context.Reset();device.Reset();width=height=0;
+        completion.Reset();memoryAdapter.Reset();chain.Reset();context.Reset();device.Reset();width=height=0;
+        report.gpuPayloadBytes=report.cpuStagingBytes=0;rasterKind=0;
         if(fontWindow&&IsWindow(fontWindow))DestroyWindow(fontWindow);
         fontWindow=nullptr;fontWidth=fontHeight=0;
     }
@@ -75,11 +86,18 @@ struct D3D11FramePresenterWin32::Impl {
         std::snprintf(report.fallbackReason.data(),report.fallbackReason.size(),"%s",reason);
         report.failureCode=hr;
         if(device)report.removedReason=device->GetDeviceRemovedReason();
+        report.recoveryPending=report.recoveryAttempts<FrameResourceLimits::maxRecoveryAttempts
+            &&(hr==DXGI_ERROR_DEVICE_REMOVED||hr==DXGI_ERROR_DEVICE_RESET||hr==DXGI_ERROR_DEVICE_HUNG||FAILED(report.removedReason));
+        recoverAfter=GetTickCount64()+FrameResourceLimits::recoveryDelayMs;
         release();report.selected=FrameBackend::Software;
         if(transition)std::printf("Frame backend transition requested=d3d11 selected=software fallback=%s failureCode=%ld removedReason=%ld\n",report.fallbackReason.data(),report.failureCode,report.removedReason);
     }
     bool initialize() noexcept {
-        if(report.requested.backend==FrameBackend::Software)return true;
+        if(report.requested.backend!=FrameBackend::D3D11){
+            if(report.requested.backend==FrameBackend::Auto)std::snprintf(report.fallbackReason.data(),report.fallbackReason.size(),"auto-policy-software-reference");
+            return true;
+        }
+        if(!report.requested.gpuBudgetBytes||report.requested.gpuBudgetBytes>FrameResourceLimits::maxBytes){fail("invalid-resource-budget",E_INVALIDARG);return false;}
         if(!window||GetWindowThreadProcessId(window,nullptr)!=thread){fail("window-owner",E_INVALIDARG);return false;}
         constexpr D3D_FEATURE_LEVEL levels[]={D3D_FEATURE_LEVEL_12_1,D3D_FEATURE_LEVEL_12_0,D3D_FEATURE_LEVEL_11_1,D3D_FEATURE_LEVEL_11_0};
         D3D_FEATURE_LEVEL chosen{};
@@ -103,6 +121,7 @@ struct D3D11FramePresenterWin32::Impl {
         if(SUCCEEDED(hr))hr=adapter->GetDesc1(&desc);
         if(SUCCEEDED(hr))hr=adapter->GetParent(IID_PPV_ARGS(&factory));
         if(FAILED(hr)){fail("adapter-query",hr);return false;}
+        baseAdapter.As(&memoryAdapter); // Optional on older runtimes; hard payload cap still applies.
         report.adapterFlags=desc.Flags;report.softwareDevice=(desc.Flags&DXGI_ADAPTER_FLAG_SOFTWARE)!=0;
         if(report.requested.device==FrameDevice::Hardware&&report.softwareDevice){fail("hardware-request-selected-software",E_FAIL);return false;}
         LARGE_INTEGER version{};if(SUCCEEDED(adapter->CheckInterfaceSupport(__uuidof(IDXGIDevice),&version)))report.driverVersion=static_cast<std::uint64_t>(version.QuadPart);
@@ -131,7 +150,9 @@ struct D3D11FramePresenterWin32::Impl {
             if(SUCCEEDED(hr))hr=device->CreateQuery(&d,&q.end);
             if(FAILED(hr)){fail("timing-resource-create",hr);return false;}
         }
-        report.selected=FrameBackend::D3D11;return true;
+        D3D11_QUERY_DESC completionDesc{D3D11_QUERY_EVENT,0};
+        hr=device->CreateQuery(&completionDesc,&completion);if(FAILED(hr)){fail("completion-resource-create",hr);return false;}
+        report.selected=FrameBackend::D3D11;report.recoveryPending=false;return true;
     }
     bool ensureSize(int w,int h) noexcept {
         if(w==width&&h==height&&back)return true;
@@ -182,6 +203,22 @@ std::unique_ptr<D3D11FramePresenterWin32> D3D11FramePresenterWin32::create(HWND 
 D3D11FramePresenterWin32::~D3D11FramePresenterWin32(){impl_->release();printReport();}
 bool D3D11FramePresenterWin32::onOwningThread() const noexcept {return GetCurrentThreadId()==impl_->thread;}
 bool D3D11FramePresenterWin32::active() const noexcept {return impl_->report.selected==FrameBackend::D3D11;}
+bool D3D11FramePresenterWin32::resetResources() noexcept {
+    return onOwningThread()&&active()&&impl_->resetRasters();
+}
+bool D3D11FramePresenterWin32::tryRecoverDevice() noexcept {
+    auto& p=*impl_;if(!onOwningThread())return false;if(active())return true;
+    if(!p.report.recoveryPending||p.report.recoveryAttempts>=FrameResourceLimits::maxRecoveryAttempts
+        ||GetTickCount64()<p.recoverAfter||!IsWindow(p.window)||IsIconic(p.window)||!IsWindowVisible(p.window))return false;
+    ++p.report.recoveryAttempts;
+    if(p.report.deviceGeneration==UINT64_MAX){p.report.recoveryPending=false;return false;}
+    ++p.report.deviceGeneration;++p.report.resourceGeneration;
+    p.report.removedReason=0;
+    if(!p.initialize())return false;
+    ++p.report.recovered;p.report.fallbackReason[0]=0;p.report.failureCode=0;
+    std::printf("Frame backend recovery selected=d3d11 deviceGeneration=%llu attempt=%u driver=%s\n",
+        static_cast<unsigned long long>(p.report.deviceGeneration),p.report.recoveryAttempts,p.report.softwareDevice?"warp":"hardware");return true;
+}
 void D3D11FramePresenterWin32::fallbackToSoftware(const char* reason,long code) noexcept {
     if(onOwningThread())impl_->fail(reason,code);
 }
@@ -201,7 +238,7 @@ bool D3D11FramePresenterWin32::submitCompleteFrame(const SoftwareFrameView& f) n
     if(IsIconic(p.window)||!IsWindowVisible(p.window))return false;
     RECT client{};if(!GetClientRect(p.window,&client)||client.right!=f.pixels.width||client.bottom!=f.pixels.height
         ||f.pixels.rowStride>std::numeric_limits<UINT>::max())return false;
-    if(!p.ensureSize(f.pixels.width,f.pixels.height))return false;
+    if(!p.beginFrame(f.pixels.width,f.pixels.height,0))return false;
     p.collect();
     if(p.probe&&p.probe->deviceRemoved){p.report.removedReason=DXGI_ERROR_DEVICE_REMOVED;p.fail("device-removed-injected",DXGI_ERROR_DEVICE_REMOVED);p.report.removedReason=DXGI_ERROR_DEVICE_REMOVED;return false;}
     if(p.probe&&p.probe->failUpload){p.fail("upload-injected",E_FAIL);return false;}
@@ -221,6 +258,7 @@ bool D3D11FramePresenterWin32::submitCompleteFrame(const SoftwareFrameView& f) n
     if(sample)sample->uploadCpuMs=elapsed(uploadStart);
     if(query){p.context->End(query->end.Get());p.context->End(query->disjoint.Get());query->pending=true;}
     p.report.uploadedBytes+=static_cast<std::uint64_t>(f.pixels.width)*static_cast<std::uint64_t>(f.pixels.height)*4;
+    p.finishSubmission();
     if(!p.capture())return false;
     const auto presentStart=Clock::now();
     const HRESULT hr=p.chain->Present(p.probe&&p.probe->failPresent?5u:1u,0);
@@ -270,8 +308,12 @@ void D3D11FramePresenterWin32::printReport() noexcept {
     try{
         const auto& r=p.report;
         std::cout<<"D3D11 presentation summary requested="<<backendName(r.requested.backend)<<" selected="<<backendName(r.selected)
-            <<" hardware="<<(r.featureLevel>=0xB000&&!r.softwareDevice)<<" featureLevel="<<r.featureLevel<<" driverVersion="<<r.driverVersion
+            <<" hardware="<<(r.selected==FrameBackend::D3D11&&r.featureLevel>=0xB000&&!r.softwareDevice)<<" featureLevel="<<r.featureLevel<<" driverVersion="<<r.driverVersion
             <<" mapTerrainCommands="<<p.mapKinds[11]<<" mapShadowCommands="<<p.mapKinds[13]<<" mapReceiverLightCommands="<<p.mapKinds[14]<<" mapLocalLightCommands="<<p.mapKinds[15]<<" mapDepthChainCommands="<<p.mapKinds[18]<<" mapSpriteMaterialCommands="<<p.mapKinds[19]<<" mapMaskedRestoreCommands="<<p.mapKinds[20]
+            <<" deviceGeneration="<<r.deviceGeneration<<" resourceGeneration="<<r.resourceGeneration<<" staleRejected="<<r.staleRejected
+            <<" gpuPayloadPeak="<<r.peakGpuPayloadBytes<<" cpuStagingPeak="<<r.peakCpuStagingBytes<<" budgetBytes="<<r.budgetBytes
+            <<" osBudgetBytes="<<r.osBudgetBytes<<" osUsageBytes="<<r.osUsageBytes<<" budgetRejected="<<r.budgetRejected
+            <<" inFlightPeak="<<r.peakInFlight<<" waitTimeouts="<<r.waitTimeouts<<" recoveryAttempts="<<r.recoveryAttempts<<" recovered="<<r.recovered
             <<" frames="<<r.presented<<" mapIndexedCommands="<<p.mapIndexedCommands<<" mapVisionCommands="<<p.mapVisionCommands
             <<" diagnosticReadbacks="<<p.diagnosticReadbacks<<" mapDraws="<<r.mapDraws<<" menuDraws="<<r.menuDraws<<" uploadBytes="<<r.uploadedBytes<<" gpuValid="<<r.gpuValid<<" gpuInvalid="<<r.gpuInvalid
             <<" gpuPending="<<r.gpuPending<<" gpuDropped="<<r.gpuDropped<<" timingDropped="<<r.timingDropped

@@ -9,9 +9,9 @@ param(
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
-function LocalPath([string]$Value){
+function LocalPath([string]$Value,[switch]$Evidence){
  $path=[IO.Path]::GetFullPath($(if([IO.Path]::IsPathRooted($Value)){$Value}else{Join-Path $root $Value}))
- if(-not $path.StartsWith($root+'\',[StringComparison]::OrdinalIgnoreCase)){throw 'Path must be inside this project.'}
+ if(-not $path.StartsWith($root+'\',[StringComparison]::OrdinalIgnoreCase)){throw 'Build and output paths must be project-local.'}
  $probe=$path
  while($probe -and $probe.Length -ge $root.Length){
   if((Test-Path -LiteralPath $probe) -and ((Get-Item -LiteralPath $probe -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Linked paths are not allowed.'}
@@ -26,7 +26,7 @@ $cache=@{}
 foreach($line in [IO.File]::ReadLines((Join-Path $build 'CMakeCache.txt'))){if($line -match '^([^#/:][^:]*):[^=]*=(.*)$'){$cache[$Matches[1]]=$Matches[2]}}
 if($cache.CMAKE_BUILD_TYPE -cne 'Release' -or $cache.CMAKE_GENERATOR -cne 'Ninja' -or [IO.Path]::GetFullPath($cache.CMAKE_HOME_DIRECTORY) -ine $root){throw 'Select this project''s verified Ninja Release cache.'}
 if(-not $OutputDirectory){$OutputDirectory='build/local-tests/structure-'+[DateTimeOffset]::UtcNow.ToString('yyyyMMdd-HHmmss')+'-'+[Guid]::NewGuid().ToString('N').Substring(0,8)}
-$output=LocalPath $OutputDirectory
+$output=LocalPath $OutputDirectory -Evidence
 if(Test-Path -LiteralPath $output){throw 'OutputDirectory already exists; choose a new directory.'}
 [IO.Directory]::CreateDirectory($output)|Out-Null
 $temp=Join-Path $output 'temp';[IO.Directory]::CreateDirectory($temp)|Out-Null

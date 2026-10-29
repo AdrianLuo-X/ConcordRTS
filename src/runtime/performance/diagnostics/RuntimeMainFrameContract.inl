@@ -64,8 +64,10 @@ bool runRuntimeMainFrameContract(RuntimeWindowState& state,std::string& error)tr
     concord::presentation::win32::D3D11FrameProbeWin32 gpuProbe;
     if(s39Matrix)require(std::strcmp(backend,"software")==0||std::strcmp(backend,"hardware")==0||std::strcmp(backend,"warp")==0,"invalid diagnostic backend");
     if(gpuRequested){
+        const auto frameWorkers=state.frameBackendRequest.frameWorkers;
         state.frameBackendRequest={concord::presentation::FrameBackend::D3D11,
             std::strcmp(backend,"warp")==0?concord::presentation::FrameDevice::Warp:concord::presentation::FrameDevice::Hardware};
+        state.frameBackendRequest.frameWorkers=frameWorkers;
         if(s41Map){state.frameBackendRequest.mapBackend=concord::presentation::FrameBackend::D3D11;
             state.frameBackendRequest.mapDevice=state.frameBackendRequest.device;}
         gpuProbe.captureUpload=true;probe.gpu=&gpuProbe;
@@ -131,6 +133,7 @@ bool runRuntimeMainFrameContract(RuntimeWindowState& state,std::string& error)tr
         if(gpuRequested){require(!state.d3d11Presenter->active()&&state.d3d11Presenter->report().removedReason==DXGI_ERROR_DEVICE_REMOVED,"device removal retires GPU before actual GDI fallback");
             require(state.d3d11Presenter->timingCount()==0,"diagnostic readbacks excluded from normal timings");}
     }
+    #include "runtime/performance/diagnostics/RuntimeFrameDeviceRecoveryContract.inl"
     releaseRuntimeBackBuffer(state.completedFrameBuffer);(void)state.fpsDeviceOverlay.release();
     probe.failCompletedAllocation=true;paint("completed-allocation-fallback",true,false);probe.failCompletedAllocation=false;
     releaseRuntimeBackBuffer(state.backBuffer);probe.failSceneAllocation=true;paint("scene-allocation-fallback",true,false);probe.failSceneAllocation=false;

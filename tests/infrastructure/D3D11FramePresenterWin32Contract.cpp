@@ -131,6 +131,7 @@ void fontCase(){
     }
     ReleaseDC(oracle.handle,native);
 }
+#include "FrameLifetimeD3D11Checks.inl"
 void fallbackCases(){
     for(int failure=0;failure<8;++failure){
         Window w(97,61);FramePresentStatistics stats;D3D11FrameProbeWin32 probe;
@@ -161,7 +162,7 @@ int main(int argc,char** argv){
     }
     deviceCase(FrameDevice::Hardware);deviceCase(FrameDevice::Warp);fontCase();
     const DWORD gdiBefore=GetGuiResources(GetCurrentProcess(),GR_GDIOBJECTS),userBefore=GetGuiResources(GetCurrentProcess(),GR_USEROBJECTS);
-    fallbackCases();fontCase();
+    fallbackCases();fontCase();lifetimeCase(FrameDevice::Hardware);lifetimeCase(FrameDevice::Warp);
     check(GetGuiResources(GetCurrentProcess(),GR_GDIOBJECTS)==gdiBefore,"all fallback/font GDI resources balanced");
     check(GetGuiResources(GetCurrentProcess(),GR_USEROBJECTS)==userBefore,"all fallback/font USER resources balanced");
     std::cout<<"D3D11 complete frame contract checks="<<checks<<" failures="<<failures

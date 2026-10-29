@@ -3950,7 +3950,9 @@ bool renderShellClient(MenuState& state, HDC target, int width, int height) {
         auto request=state.menuRequest;request.backend=request.menuBackend;request.device=request.menuDevice;
         state.menuGpu=concord::presentation::win32::D3D11FramePresenterWin32::create(state.hwnd,request,state.menuStatistics,state.menuProbe);
     }
+    if(state.menuGpu)state.menuGpu->tryRecoverDevice();
     if(state.menuGpu&&state.menuGpu->active()) {
+        const auto deviceGeneration=state.menuGpu->report().deviceGeneration;
         const auto start=std::chrono::steady_clock::now();
         if(state.page!=SkirmishPage::Lobby&&state.page!=SkirmishPage::MapSelection)
             state.menuGpu->fallbackToSoftware("menu-page-outside-S40");
@@ -3960,7 +3962,7 @@ bool renderShellClient(MenuState& state, HDC target, int width, int height) {
             if(!composeShellPixels(state,commands))throw std::runtime_error("menu command preparation");
             const double prepare=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();
             if(state.menuGpu->presentMenu({state.menuCommands,++state.menuSequence,width,height,
-                {state.viewLeft,state.viewTop,state.viewLeft+state.viewWidth,state.viewTop+state.viewHeight}})) {
+                {state.viewLeft,state.viewTop,state.viewLeft+state.viewWidth,state.viewTop+state.viewHeight}},deviceGeneration)) {
                 state.menuGpu->recordCpuWork(prepare,0);state.lastMenuPrepareMs=prepare;
                 const auto count=state.menuGpu->timingCount();
                 if(count){const auto& s=state.menuGpu->timings()[count-1];state.lastMenuSubmitMs=s.uploadCpuMs;state.lastMenuPresentMs=s.presentCpuMs;}

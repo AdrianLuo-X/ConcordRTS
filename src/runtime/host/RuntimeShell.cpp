@@ -116557,10 +116557,13 @@ LRESULT CALLBACK runtimeWindowProc(
                 if(!state->d3d11Presenter)std::cerr<<"Frame backend requested=d3d11 selected=software fallback=owner-allocation\n";
             }
         }
+        if(state&&state->d3d11Presenter&&!state->d3d11Presenter->active()
+            &&state->d3d11Presenter->tryRecoverDevice())state->repaintRequested=true;
         bool reuseCachedFrame=false,backBufferReady=false,submissionSucceeded=false,baselineVisibleSubmission=false;
         std::chrono::steady_clock::time_point baselineSubmissionStart{};
         concord::ui::ConstMenuPixelSurfaceView completedPixels;
         for(int mapAttempt=0;mapAttempt<2;++mapAttempt) {
+        const auto deviceGeneration=state&&state->d3d11Presenter?state->d3d11Presenter->report().deviceGeneration:0;
         const bool mapMode=state&&state->world.getSummary().loaded
             &&state->frameBackendRequest.mapBackend==concord::presentation::FrameBackend::D3D11
             &&state->d3d11Presenter&&state->d3d11Presenter->active();
@@ -116865,7 +116868,7 @@ LRESULT CALLBACK runtimeWindowProc(
                             static_cast<const std::uint32_t*>(state->completedFrameBuffer.pixels),clientWidth);
                     completedPixels={}; // The world DIB is a partial producer in map mode, never a complete CPU publication.
                     if(packetReady)submissionSucceeded=state->d3d11Presenter->presentMap({state->mapComposition.frame(),
-                        ++state->softwareFrameSequence,clientWidth,clientHeight,static_cast<std::uint64_t>(std::max(0,state->softwareSceneTick))});
+                        ++state->softwareFrameSequence,clientWidth,clientHeight,static_cast<std::uint64_t>(std::max(0,state->softwareSceneTick))},deviceGeneration);
                     state->d3d11Presenter->recordCpuWork(std::chrono::duration<double,std::milli>(baselineSubmissionStart-paintStart).count(),
                         std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-baselineSubmissionStart).count());
                     if(!submissionSucceeded) {

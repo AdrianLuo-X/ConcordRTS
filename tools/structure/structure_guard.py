@@ -55,6 +55,7 @@ MAP_DRAW_VALUES = {"src/render/core/MapDrawCommands.h", "src/render/core/Runtime
                    "src/render/core/MapSpriteMaterial.h",
                    "src/ui/input/RuntimeInputPixelValues.h", "src/ui/values/RuntimeColorValues.h"}
 DEFAULT_MODULES = {
+    "map-tile-preparation": ["src/render/preparation/MapTilePreparation.h", "src/render/preparation/MapTilePreparation.cpp"],
     "map-draw": ["src/render/core/MapDrawCommands.h", "src/render/core/RuntimeMapPixelRules.h"],
     "menu-draw": ["src/ui/drawing/MenuDrawCommands.h"],
     "software-window": ["src/runtime/window/RuntimeSoftwareWindow.h"],
@@ -252,6 +253,12 @@ def scan(root, build, inventory, trace, modules=None):
                 add("protected-module-missing", start, module)
                 continue
             for target, witness in closure(graph, start).items():
+                if module == "map-tile-preparation":
+                    allowed = set(DEFAULT_MODULES["map-tile-preparation"]) | MAP_DRAW_VALUES | {"src/core/tasks/BoundedTaskExecutor.h"}
+                    if target not in allowed:
+                        add("map-tile-dependency", start, target, witness=witness)
+                    if re.search(r'\b(?:GameWorld|WorldObjectInstance|RuntimeMapRenderCache|renderCache|thread_local|SDL_Window|SDL_Event|SDL_Surface)\b', code_views.get(target, "")):
+                        add("map-tile-live-or-device", start, target, witness=witness)
                 if module == "map-draw":
                     if target not in MAP_DRAW_VALUES:
                         add("map-draw-dependency", start, target, witness=witness)
@@ -292,7 +299,7 @@ def scan(root, build, inventory, trace, modules=None):
                 if target.startswith(FORBIDDEN_PREFIXES) and not (
                         (module in ("software-frame", "software-window") and target in SOFTWARE_FRAME_VALUES)
                         or (module == "menu-draw" and target in MENU_DRAW_VALUES)
-                        or (module == "map-draw" and target in MAP_DRAW_VALUES)):
+                        or (module in ("map-draw", "map-tile-preparation") and target in MAP_DRAW_VALUES)):
                     add("protected-dependency", start, module + ":" + target, witness=witness)
                 for detail in platform.get(target, ()):
                     add("protected-platform", start, module + ":" + target + ":" + detail, witness=witness)

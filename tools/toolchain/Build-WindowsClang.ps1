@@ -104,7 +104,7 @@ try {
     $manifest.commands = @($script:clangCommands.ToArray())
     $manifest | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath (Join-Path $runRoot 'build-provenance.json') -Encoding UTF8
     if (!$StageOnly) { Publish-ClangStage $runRoot $manifest }
-    Write-Host "Clang complete; stage/manifest: $runRoot; deployed=$(!$StageOnly)."
+    Write-Host "Clang complete; stage/manifest: $runRoot; deployed=$(!$StageOnly). Selected toolchain: clang-cl."
     exit 0
 } catch {
     [ordered]@{status='failed';error=$_.Exception.Message;commands=@($script:clangCommands.ToArray());stage=$runRoot} | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $runRoot 'failure.json') -Encoding UTF8
