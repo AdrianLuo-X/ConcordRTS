@@ -236,6 +236,10 @@ add_test(NAME production_core_hash_smoke_test COMMAND concord_production_core_ha
 set_tests_properties(production_core_hash_smoke_test PROPERTIES TIMEOUT 30 LABELS "no-assets;logic;production-core")
 
 # S34: root testing is enabled after DevelopmentTargets creates the new scope.
+if(TARGET concord_map_tile_preparation_contract)
+    add_test(NAME map_tile_preparation_contract_test COMMAND concord_map_tile_preparation_contract)
+    set_tests_properties(map_tile_preparation_contract_test PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE LABELS "no-assets;frame-preparation;bounded-tasks")
+endif()
 if(TARGET concord_bounded_task_executor_contract)
     add_test(NAME bounded_task_executor_contract_test COMMAND concord_bounded_task_executor_contract)
     set_tests_properties(bounded_task_executor_contract_test PROPERTIES

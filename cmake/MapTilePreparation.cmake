@@ -1,0 +1,3 @@
+include_guard(GLOBAL)
+add_subdirectory(tests/rendering/map_tile_preparation)
+target_link_libraries(concord_d3d11_frame_presenter_win32 PRIVATE concord_map_tile_preparation)

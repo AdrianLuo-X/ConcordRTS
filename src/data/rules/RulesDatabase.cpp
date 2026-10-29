@@ -17,7 +17,7 @@
 namespace {
 
 constexpr double maximumProductionCoefficient = 100.0;
-constexpr double maximumProductionRatio = 1.0;
+[[maybe_unused]] constexpr double maximumProductionRatio = 1.0;
 
 constexpr std::array<const char*, 17> ifvModePrefixes{
     "Normal",
