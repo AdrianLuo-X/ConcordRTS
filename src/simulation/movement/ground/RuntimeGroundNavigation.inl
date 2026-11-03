@@ -214,6 +214,28 @@ inline thread_local const RuntimeGroundDepartureQueryBatch* runtimeActiveGroundD
 // Only the current mover's read-only neighbor-candidate loop may own this scope.
 // Destroy/invalidate before facing, damage, reservations or commits mutate any
 // world/behavior state. No snapshot survives the loop, unit or fixed tick.
+// A diagnostic reference switch retains the full scan for trajectory comparisons.
+std::vector<int> runtimeDepartureCandidateIds(const RuntimeWindowState& state,
+    const RuntimeCellPoint& origin, int radius) {
+    const char* reference = std::getenv("CONCORD_DEPARTURE_INDEX_REFERENCE");
+    const auto& proof = state.movementEmptyCellProof;
+    std::vector<int> ids;
+    if (!(reference && reference[0]=='1') && runtimeGroundPoseSpatialIndexIsCurrent(state)
+        && proof.departureBehaviorCount == state.behaviors.size()
+        && origin.x-radius>=0 && origin.y-radius>=0
+        && origin.x+radius<512 && origin.y+radius<512) {
+        for(int y=origin.y-radius;y<=origin.y+radius;++y)
+            for(int x=origin.x-radius;x<=origin.x+radius;++x) {
+                const auto found=proof.departureBehaviorIdsByCell.find(runtimeCellKey(x,y));
+                if(found!=proof.departureBehaviorIdsByCell.end()) ids.insert(ids.end(),found->second.begin(),found->second.end());
+            }
+        std::sort(ids.begin(),ids.end());ids.erase(std::unique(ids.begin(),ids.end()),ids.end());
+    } else {
+        ids.reserve(state.behaviors.size());
+        for(const auto& [id,move]:state.behaviors) ids.push_back(id);
+    }
+    return ids;
+}
 class RuntimeGroundDepartureQueryBatch {
     const RuntimeGroundDepartureQueryBatch* previous_;
     const RuntimeWindowState* state_;
@@ -249,7 +271,10 @@ public:
             air_ = runtimeObjectMovementMode(state, mover) == PathMovementMode::Air;
             moverInfantry_ = mover.kind == WorldObjectKind::Infantry;
             if (!air_) {
-                for (const auto& [id, behavior] : state.behaviors) {
+                for (int id : runtimeDepartureCandidateIds(state, origin, 1)) {
+                    const auto found = state.behaviors.find(id);
+                    if (found == state.behaviors.end()) continue;
+                    const auto& behavior = found->second;
                     ++behaviorVisits_;
                     if (id == mover.instanceId) continue;
                     const auto* object = findObjectById(state, id);
@@ -340,7 +365,10 @@ bool runtimeGroundDepartureHoldsCell(const RuntimeWindowState& state,
     }
     if (runtimeObjectMovementMode(state, mover) == PathMovementMode::Air) return false;
     int departingInfantry=0;
-    for (const auto& [id, behavior] : state.behaviors) {
+    for (int id : runtimeDepartureCandidateIds(state, cell, 0)) {
+        const auto found = state.behaviors.find(id);
+        if (found == state.behaviors.end()) continue;
+        const auto& behavior = found->second;
         if (id == mover.instanceId) continue;
         const auto* object = findObjectById(state, id);
         if (object == nullptr || !object->alive || object->health <= 0

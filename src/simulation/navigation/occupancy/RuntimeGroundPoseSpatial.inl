@@ -119,7 +119,22 @@ void forEachRuntimeAllGroundBodyCandidateAtCell(const RuntimeWindowState& state,
     }
 }
 
+// Conservative departure candidates. Read authoritative behavior at query time;
+// completed/dead segments can remain in a bucket until the next tick rebuild.
+void appendRuntimeDepartureSpatialBehavior(RuntimeWindowState& state, int id,
+    const RuntimeObjectBehavior& move) {
+    const RuntimeCellPoint cells[] = {move.moveSegmentFrom, move.renderFrom, move.renderTo,
+        {move.renderFrom.x, move.renderTo.y}, {move.renderTo.x, move.renderFrom.y}};
+    for (const auto& cell : cells) {
+        if (cell.x < 0 || cell.y < 0 || cell.x >= 512 || cell.y >= 512) continue;
+        auto& ids = state.movementEmptyCellProof.departureBehaviorIdsByCell[runtimeCellKey(cell.x,cell.y)];
+        if (std::find(ids.begin(), ids.end(), id) == ids.end()) ids.push_back(id);
+    }
+}
 bool buildRuntimeGroundPoseSpatialIndex(RuntimeWindowState& state) {
+    state.movementEmptyCellProof.departureBehaviorIdsByCell.clear();
+    state.movementEmptyCellProof.departureBehaviorCount = state.behaviors.size();
+    for (const auto& [id, move] : state.behaviors) appendRuntimeDepartureSpatialBehavior(state, id, move);
     auto& proof=state.movementEmptyCellProof;proof.additionalGroundPoseIndexReady=false;
     auto& buckets=proof.additionalGroundPoseIndicesByCell;buckets.clear();
     const auto& objects=state.world.getObjects();
@@ -140,6 +155,8 @@ bool buildRuntimeGroundPoseSpatialIndex(RuntimeWindowState& state) {
 // conservative candidates; membership flags avoid rescanning the full inventory.
 bool runtimeTrackGroundPoseSpatialMove(RuntimeWindowState& state,
     const WorldObjectInstance& object) {
+    const auto departure = state.behaviors.find(object.instanceId);
+    if (departure != state.behaviors.end()) appendRuntimeDepartureSpatialBehavior(state, object.instanceId, departure->second);
     if(runtimeAllGroundBodyIsSpatialCandidate(state,object)) {
         if(!runtimeAllGroundBodySpatialIndexIsCurrent(state)) return false;
         const auto& objects=state.world.getObjects();

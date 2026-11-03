@@ -59,17 +59,35 @@ void prioritizeRuntimePlayerFactory(const RuntimeWindowState& state,
 
 void queueRuntimePlayerFactoryRally(RuntimeWindowState& state, int factoryId, int producedId) {
     const auto* object = findObjectById(state, producedId);
+    if (!object) return;
+    const auto owner = runtimeCanonicalHumanHouseOwner(object->owner);
     const auto rally = state.playerCommands.rallyPoints.find(factoryId);
-    if (!object || rally == state.playerCommands.rallyPoints.end()
-        || runtimeCanonicalHumanHouseOwner(object->owner) != rally->second.owner) return;
+    RuntimeMultiplayerGameplayCell target;
+    if (rally != state.playerCommands.rallyPoints.end() && rally->second.owner == owner) {
+        target = rally->second.cell;
+    } else {
+        const auto* factory = findObjectById(state, factoryId);
+        const auto* type = factory ? findRuntimeBuildingTypeById(state.rules, factory->type) : nullptr;
+        if (!factory || runtimeCanonicalHumanHouseOwner(factory->owner) != owner
+            || !type || !type->weaponsFactory || object->kind != WorldObjectKind::Unit
+            || object->airborne || runtimeObjectMovementMode(state, *object) == PathMovementMode::Air
+            || runtimeObjectMovementMode(state, *object) == PathMovementMode::Naval) return;
+        const auto footprint = runtimeStructureFootprintForObject(state, *factory);
+        target = {factory->x + std::max(1, footprint.width) + 1,
+            factory->y + std::max(1, footprint.height) / 2};
+        if (!findRuntimeTerrainCellAt(state, {target.x, target.y})) return;
+        const auto exit = state.behaviors.find(producedId);
+        if (exit != state.behaviors.end()
+            && exit->second.moveTarget == RuntimeCellPoint{target.x, target.y}) return;
+    }
     RuntimeMultiplayerGameplayTargetOrderCommand order;
     order.order = RuntimeMultiplayerGameplayTargetOrderKind::Move;
     order.objectIds = {producedId};
-    order.target = RuntimeMultiplayerGameplayCellTarget{rally->second.cell};
-    // The factory's exit lease still owns the first move. Execute the player's
-    // rally only after clearing it, so a far rally cannot hold the factory door.
+    order.target = RuntimeMultiplayerGameplayCellTarget{target};
+    // Finish the short physical exit before seeking the player's rally or the
+    // default front apron. A blocked rally must not retain the delivery lease.
     const bool freshQueue = !state.playerCommands.queues.contains(producedId);
-    if (state.playerCommands.append(rally->second.owner, order) && freshQueue) {
+    if (state.playerCommands.append(owner, order) && freshQueue) {
         state.playerCommands.queues.at(producedId).factoryRallyOrderIndex = 0;
     }
 }
