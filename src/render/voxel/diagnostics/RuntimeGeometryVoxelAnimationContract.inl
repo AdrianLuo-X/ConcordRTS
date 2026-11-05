@@ -77,7 +77,7 @@ bool runRuntimeGeometryVoxelAnimationContractCheck(std::string& error) {
         for (const auto& object : objects)
             for (const auto& image : images)
                 expected.push_back(runtimeVoxelAnimationFrameReference(object, image, context, cache));
-        RuntimeGeometryQueryScope batch(world, viewport, context, camera, cache);
+        RuntimeGeometryQueryScope batch(world, runtimeRenderPlacementPixelRect(viewport), context, camera, cache);
         std::size_t resultIndex = 0;
         for (const auto& object : objects) {
             for (const auto& image : images) {
@@ -117,7 +117,7 @@ bool runRuntimeGeometryVoxelAnimationContractCheck(std::string& error) {
     // Mutating/reloading a source between scopes must affect the next batch.
     seed(cache, context, 17);
     {
-        RuntimeGeometryQueryScope batch(world, viewport, context, camera, cache);
+        RuntimeGeometryQueryScope batch(world, runtimeRenderPlacementPixelRect(viewport), context, camera, cache);
         if (runtimeGeometryVoxelAnimationFrameCount(images[1], context, cache) != 17)
             return fail("source metadata leaked from the previous batch");
     }

@@ -51,7 +51,7 @@ bool runRuntimeTemporalFrozenUiSmoke(const RuntimeConfig& config, std::string& e
         const auto projected=buildProjectedObjects(s,viewport);
         const auto view=std::find_if(projected.begin(),projected.end(),[&](const auto& v){return v.object&&v.object->instanceId==target;});
         if(view==projected.end())return fail("frozen target lost interaction geometry");
-        const RECT bounds=view->bounds;std::optional<POINT> hit;
+        const RECT bounds=runtimeRenderPlacementNativeRect(view->bounds);std::optional<POINT> hit;
         for(int y=std::max(viewport.top,bounds.top);y<std::min(viewport.bottom,bounds.bottom)&&!hit;++y)
             for(int x=std::max(viewport.left,bounds.left);x<std::min(viewport.right,bounds.right);++x){
                 const auto* v=findProjectedObjectAtPoint(projected,{x,y});

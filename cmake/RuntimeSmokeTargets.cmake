@@ -163,8 +163,8 @@ target_include_directories(concord_building_economy_smoke PRIVATE src)
 target_compile_features(concord_building_economy_smoke PRIVATE cxx_std_20)
 
 add_executable(concord_superweapon_smoke tests/gameplay/SuperWeaponSmoke.cpp
-    src/simulation/superweapons/SuperWeaponSystem.cpp src/simulation/superweapons/RuntimeChronosphereRelocation.cpp src/data/rules/RulesDatabase.cpp src/core/io/IniFile.cpp
-    src/simulation/production/RuntimeFactoryDeliveryState.cpp)
+      
+    )
 target_include_directories(concord_superweapon_smoke PRIVATE src)
 target_compile_features(concord_superweapon_smoke PRIVATE cxx_std_20)
 if(CONCORD_MSVC_FRONTEND)
@@ -244,7 +244,6 @@ foreach(s23_production_rules_owner IN ITEMS
     concord_simulation_query_reuse_smoke
     concord_random_map_smoke
     concord_building_economy_smoke
-    concord_superweapon_smoke
 )
     target_sources(${s23_production_rules_owner} PRIVATE src/data/rules/ProductionRulesLoader.cpp)
 endforeach()

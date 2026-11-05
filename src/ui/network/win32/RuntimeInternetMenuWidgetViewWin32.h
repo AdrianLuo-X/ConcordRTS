@@ -1,0 +1,91 @@
+#pragma once
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+
+// Original UI-thread widget borrows only; no destruction or window ownership.
+struct RuntimeInternetMenuWidgetViewWin32 {
+    HWND hostWindow = nullptr;
+    HWND window = nullptr;
+    HWND playerNameLabel = nullptr;
+    HWND playerNameEdit = nullptr;
+    HWND roomNameLabel = nullptr;
+    HWND roomNameEdit = nullptr;
+    HWND passwordLabel = nullptr;
+    HWND passwordEdit = nullptr;
+    HWND refreshButton = nullptr;
+    HWND hostButton = nullptr;
+    HWND resumeHostButton = nullptr;
+    HWND resumeSwapButton = nullptr;
+    HWND joinButton = nullptr;
+    HWND spectatorCheck = nullptr;
+    HWND quickMatchButton = nullptr;
+    HWND roomList = nullptr;
+    HWND rosterList = nullptr;
+    HWND countryLabel = nullptr;
+    HWND countryEdit = nullptr;
+    HWND colorLabel = nullptr;
+    HWND colorEdit = nullptr;
+    HWND teamLabel = nullptr;
+    HWND teamEdit = nullptr;
+    HWND difficultyLabel = nullptr;
+    HWND difficultyEdit = nullptr;
+    HWND startPositionLabel = nullptr;
+    HWND startPositionEdit = nullptr;
+    HWND applySlotButton = nullptr;
+    HWND readyButton = nullptr;
+    HWND startButton = nullptr;
+    HWND kickButton = nullptr;
+    HWND leaveButton = nullptr;
+    HWND statusText = nullptr;
+    HWND connectionText = nullptr;
+    HWND navCommunityButton = nullptr;
+    HWND navGamesButton = nullptr;
+    HWND navLadderButton = nullptr;
+    HWND navNewsButton = nullptr;
+    HWND profileSummaryText = nullptr;
+    HWND accountTitleText = nullptr;
+    HWND accountDescriptionText = nullptr;
+    HWND accountHandleLabel = nullptr;
+    HWND accountHandleEdit = nullptr;
+    HWND accountRegisterButton = nullptr;
+    HWND channelLabel = nullptr;
+    HWND channelList = nullptr;
+    HWND channelJoinButton = nullptr;
+    HWND chatLabel = nullptr;
+    HWND chatList = nullptr;
+    HWND chatEdit = nullptr;
+    HWND chatSendButton = nullptr;
+    HWND participantLabel = nullptr;
+    HWND participantList = nullptr;
+    HWND friendLabel = nullptr;
+    HWND friendList = nullptr;
+    HWND friendEdit = nullptr;
+    HWND friendAddButton = nullptr;
+    HWND friendRemoveButton = nullptr;
+    HWND ladderTitleText = nullptr;
+    HWND ladderList = nullptr;
+    HWND clanSummaryText = nullptr;
+    HWND clanMemberList = nullptr;
+    HWND clanInvitationList = nullptr;
+    HWND clanNameEdit = nullptr;
+    HWND clanTagEdit = nullptr;
+    HWND clanCreateButton = nullptr;
+    HWND clanTargetEdit = nullptr;
+    HWND clanInviteButton = nullptr;
+    HWND clanAcceptButton = nullptr;
+    HWND clanRemoveButton = nullptr;
+    HWND clanTransferButton = nullptr;
+    HWND clanLeaveButton = nullptr;
+    HWND clanLadderTitleText = nullptr;
+    HWND clanLadderList = nullptr;
+    HWND communityRefreshButton = nullptr;
+    HWND newsTitleText = nullptr;
+    HWND newsList = nullptr;
+    HWND newsDetail = nullptr;
+    HWND matchHistoryButton = nullptr;
+    HWND matchHistoryBackButton = nullptr;
+    HWND matchHistoryList = nullptr;
+    HWND matchHistoryDetail = nullptr;
+};

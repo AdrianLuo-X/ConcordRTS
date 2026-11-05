@@ -9,10 +9,7 @@
 #include <unordered_map>
 #include <vector>
 
-#if defined(_WIN32)
-#define NOMINMAX
-#include <windows.h>
-#endif
+#include "ui/input/RuntimeInputPixelValues.h"
 
 enum class RuntimeInternetMenuSkinFaction : std::uint8_t {
     Allied,
@@ -89,27 +86,38 @@ std::string runtimeInternetMenuSkinScrollAsset(
 
 std::string runtimeInternetMenuSkinRankAsset(std::uint32_t ladderRank);
 
-#if defined(_WIN32)
-bool drawRuntimeInternetMenuSkinSurface(
-    HDC dc,
-    const RECT& bounds,
-    const RuntimeInternetMenuSkin& skin,
-    RuntimeInternetMenuSkinPage page,
-    RuntimeInternetMenuSkinFaction faction,
-    std::uint32_t ladderRank
-);
-
-bool drawRuntimeInternetMenuSkinButton(
-    HDC dc,
-    const RECT& bounds,
-    const RuntimeInternetMenuSkin& skin,
-    std::string_view releasedAsset,
-    std::string_view pressedAsset,
-    std::wstring_view text,
-    bool pressed,
-    bool disabled
-);
-#endif
+// Synchronous drawing capability only. Skin/strings/rectangle are borrowed
+// for this call; resource lookup, raster, DC effects and failure policy remain
+// in the selected backend. This is not the final frame Presenter.
+enum class RuntimeInternetSkinDrawingCapability : std::uint32_t { Unavailable, Available };
+class RuntimeInternetSkinDrawTarget {
+public:
+    virtual ~RuntimeInternetSkinDrawTarget() = default;
+    RuntimeInternetSkinDrawTarget(const RuntimeInternetSkinDrawTarget&) = delete;
+    RuntimeInternetSkinDrawTarget& operator=(const RuntimeInternetSkinDrawTarget&) = delete;
+    virtual RuntimeInternetSkinDrawingCapability capability() const noexcept = 0;
+    virtual bool drawSurface(const RuntimeInputPixelRect& bounds,
+        const RuntimeInternetMenuSkin& skin, RuntimeInternetMenuSkinPage page,
+        RuntimeInternetMenuSkinFaction faction, std::uint32_t ladderRank) = 0;
+    virtual bool drawButton(const RuntimeInputPixelRect& bounds,
+        const RuntimeInternetMenuSkin& skin, std::string_view releasedAsset,
+        std::string_view pressedAsset, std::wstring_view text, bool pressed,
+        bool disabled) = 0;
+protected:
+    RuntimeInternetSkinDrawTarget() = default;
+};
+inline bool drawRuntimeInternetMenuSkinSurface(RuntimeInternetSkinDrawTarget& target,
+    const RuntimeInputPixelRect& bounds, const RuntimeInternetMenuSkin& skin,
+    RuntimeInternetMenuSkinPage page, RuntimeInternetMenuSkinFaction faction,
+    std::uint32_t ladderRank) {
+    return target.drawSurface(bounds,skin,page,faction,ladderRank);
+}
+inline bool drawRuntimeInternetMenuSkinButton(RuntimeInternetSkinDrawTarget& target,
+    const RuntimeInputPixelRect& bounds, const RuntimeInternetMenuSkin& skin,
+    std::string_view releasedAsset, std::string_view pressedAsset,
+    std::wstring_view text, bool pressed, bool disabled) {
+    return target.drawButton(bounds,skin,releasedAsset,pressedAsset,text,pressed,disabled);
+}
 
 int runRuntimeInternetMenuSkinSmokeTest(
     const RuntimeConfig& config,

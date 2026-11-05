@@ -1,0 +1,3 @@
+include_guard(GLOBAL)
+concord_add_profiled_leaf(concord_internet_skin_standard_runtime_probe tools/diagnostics/p12/native/InternetSkinStandardProbe.cpp concord_runtime Runtime)
+concord_add_profiled_leaf(concord_internet_skin_standard_contract_probe tools/diagnostics/p12/native/InternetSkinStandardProbe.cpp concord_runtime_match_score_contract Contract)

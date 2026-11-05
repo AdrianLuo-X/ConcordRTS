@@ -40,3 +40,7 @@ concord_register_snapshot_transfer_libraries(concord_production_core_hash_smoke)
 concord_register_fingerprint_libraries(concord_production_core_hash_smoke)
 concord_register_lan_transport_libraries("")
 concord_register_production_core(concord_production_core_hash_smoke)
+
+# W025 system source keeps its own formal profile providers.
+include("${CMAKE_CURRENT_LIST_DIR}/SystemSecureBytesProviders.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/ProductionSessionLibraries.cmake")

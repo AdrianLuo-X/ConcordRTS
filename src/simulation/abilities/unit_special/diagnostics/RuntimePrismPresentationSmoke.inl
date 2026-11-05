@@ -131,9 +131,9 @@ bool runRuntimePrismPresentationSmokeProbe(RuntimeWindowState& live, std::string
                 // This independent arithmetic checks the actual emitted link.
                 for (int zoom:{48,60,72}) {
                     RuntimeMapCamera camera;camera.tileWidth=zoom;camera.tileHeight=zoom/2;
-                    const auto center=runtimeObjectWorldRenderPlacement(*supporter,s.world,viewport,view,camera,s.renderCache).center;
+                    const auto center=runtimeRenderPlacementNative(runtimeObjectWorldRenderPlacementWin32(*supporter,s.world,viewport,view,camera,s.renderCache)).center;
                     const POINT expected{center.x,center.y+static_cast<LONG>(std::lround(-4.0-378.0*std::sqrt(6.0)*15.0/256.0))};
-                    const auto actual=runtimeProjectileActorScreenPoint(makeRuntimeProjectileRenderActor(link),viewport,camera);
+                    const auto actual=runtimeProjectileActorScreenPointWin32(makeRuntimeProjectileRenderActor(link),viewport,camera);
                     if (std::abs(actual.x-expected.x)>1 || std::abs(actual.y-expected.y)>1) {
                         error="prism support missed native core at zoom="+std::to_string(zoom);return false;
                     }

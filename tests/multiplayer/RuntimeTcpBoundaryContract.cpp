@@ -1,9 +1,5 @@
-// Native Windows fixture: only owned loopback endpoints and sockets.
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <winsock2.h>
-#include <ws2tcpip.h>
+// Native fixture: only owned loopback endpoints and sockets.
+#include "RuntimeLoopbackTestSocket.h"
 #include "network/session/RuntimeLanTransport.h"
 #include <algorithm>
 #include <array>
@@ -13,38 +9,35 @@
 #include <utility>
 #include <vector>
 namespace {
+using namespace concord::test::loopback;
+
 int checks=0,failures=0;
 bool expect(bool value,const char* text){++checks;if(!value){++failures;std::cerr<<text<<'\n';}return value;}
-struct Sockets {
-    bool ready=false;
-    Sockets(){WSADATA data{};ready=WSAStartup(MAKEWORD(2,2),&data)==0;}
-    ~Sockets(){if(ready)WSACleanup();}
-};
 struct Socket {
-    SOCKET value=INVALID_SOCKET;
+    NativeSocket value=invalidSocket;
     Socket()=default;
-    ~Socket(){if(value!=INVALID_SOCKET)closesocket(value);}
+    ~Socket(){close();}
     Socket(const Socket&)=delete;Socket& operator=(const Socket&)=delete;
-    void close(){if(value!=INVALID_SOCKET)closesocket(value);value=INVALID_SOCKET;}
+    void close(){if(value!=invalidSocket)closeSocket(value);value=invalidSocket;}
     bool connect(std::uint16_t port){
-        value=socket(AF_INET,SOCK_STREAM,IPPROTO_TCP);if(value==INVALID_SOCKET)return false;
+        value=socket(AF_INET,SOCK_STREAM,IPPROTO_TCP);if(value==invalidSocket)return false;
         sockaddr_in address{};address.sin_family=AF_INET;address.sin_port=htons(port);address.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
-        const DWORD timeout=1000;setsockopt(value,SOL_SOCKET,SO_RCVTIMEO,reinterpret_cast<const char*>(&timeout),sizeof(timeout));
+        (void)setReceiveTimeout(value);
         return ::connect(value,reinterpret_cast<const sockaddr*>(&address),sizeof(address))==0;
     }
 };
-bool sendBytes(SOCKET socket,std::span<const std::uint8_t> bytes){
+bool sendBytes(NativeSocket socket,std::span<const std::uint8_t> bytes){
     std::size_t sent=0;
     while(sent<bytes.size()){
-        const int n=send(socket,reinterpret_cast<const char*>(bytes.data()+sent),static_cast<int>(bytes.size()-sent),0);
+        const auto n=send(socket,reinterpret_cast<const char*>(bytes.data()+sent),static_cast<int>(bytes.size()-sent),sendFlags);
         if(n<=0)return false;sent+=static_cast<std::size_t>(n);
     }
     return true;
 }
-bool receiveBytes(SOCKET socket,std::vector<std::uint8_t>& bytes,std::size_t count){
+bool receiveBytes(NativeSocket socket,std::vector<std::uint8_t>& bytes,std::size_t count){
     bytes.clear();while(bytes.size()<count){
         std::array<std::uint8_t,32> buffer{};const auto amount=std::min(count-bytes.size(),buffer.size());
-        const int n=recv(socket,reinterpret_cast<char*>(buffer.data()),static_cast<int>(amount),0);
+        const auto n=recv(socket,reinterpret_cast<char*>(buffer.data()),static_cast<int>(amount),0);
         if(n<=0)return false;bytes.insert(bytes.end(),buffer.begin(),buffer.begin()+n);
     }
     return true;
@@ -91,7 +84,7 @@ bool fragmentedAndBadPeer(){
     raw.close();Socket truncated;if(!expect(truncated.connect(server.port()),"partial EOF peer connect"))return false;
     const auto partialId=peer(server.poll(1000,error));
     expect(partialId!=0,"partial EOF peer accepted");expect(sendBytes(truncated.value,std::span<const std::uint8_t>(frame).first(6)),"partial EOF bytes");
-    shutdown(truncated.value,SD_SEND);events=collect(server,RuntimeTcpEventKind::Disconnected,partialId);
+    shutdown(truncated.value,shutdownWrite);events=collect(server,RuntimeTcpEventKind::Disconnected,partialId);
     expect(has(events,RuntimeTcpEventKind::Disconnected,partialId)&&!has(events,RuntimeTcpEventKind::Packet,partialId)&&server.clientCount()==1,"partial EOF never publishes candidate and isolates peer");
     expect(server.send(healthyId,value,error),"healthy return packet queues");value.payload.assign(20,0xee);
     server.poll(1000,error);const auto response=healthy.poll(1000,error);
@@ -102,15 +95,15 @@ bool fragmentedAndBadPeer(){
 }
 bool exactOutgoing(){
     Socket listener;listener.value=socket(AF_INET,SOCK_STREAM,IPPROTO_TCP);
-    if(!expect(listener.value!=INVALID_SOCKET,"raw owned listener socket"))return false;
+    if(!expect(listener.value!=invalidSocket,"raw owned listener socket"))return false;
     sockaddr_in address{};address.sin_family=AF_INET;address.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
     if(!expect(bind(listener.value,reinterpret_cast<const sockaddr*>(&address),sizeof(address))==0&&listen(listener.value,1)==0,"raw loopback bind/listen"))return false;
-    int size=sizeof(address);getsockname(listener.value,reinterpret_cast<sockaddr*>(&address),&size);
+    NativeSocketLength size=sizeof(address);getsockname(listener.value,reinterpret_cast<sockaddr*>(&address),&size);
     RuntimeTcpClient client;std::string error;
     if(!expect(client.connect("127.0.0.1",ntohs(address.sin_port),1000,error),"production client to raw listener"))return false;
     Socket accepted;accepted.value=accept(listener.value,nullptr,nullptr);
-    if(!expect(accepted.value!=INVALID_SOCKET,"accept own production client"))return false;
-    const DWORD timeout=1000;setsockopt(accepted.value,SOL_SOCKET,SO_RCVTIMEO,reinterpret_cast<const char*>(&timeout),sizeof(timeout));
+    if(!expect(accepted.value!=invalidSocket,"accept own production client"))return false;
+    (void)setReceiveTimeout(accepted.value);
     RuntimeNetworkPacket original;original.type=42;original.payload={0,1,2,3,0xff};
     expect(client.send(original,error),"queue original caller packet");original.type=99;original.payload.assign(20,0xee);
     client.poll(1000,error);std::vector<std::uint8_t> wire;
@@ -154,7 +147,7 @@ bool lifetimeAndFailure(){
 }
 }
 int main(){
-    Sockets sockets;if(!expect(sockets.ready,"native socket startup"))return 1;
+    SocketSystem sockets;if(!expect(sockets.ready,"native socket startup"))return 1;
     fragmentedAndBadPeer();exactOutgoing();lifetimeAndFailure();
     std::cout<<"TCP native boundary: checks="<<checks<<" failures="<<failures<<" partialHeaderBody=exact outgoingWire=exact callerOwnedCopy=yes badPeer=isolated partialEOF=noPublish moveClose=owned refusalCancelReconnect=yes loopbackOnly=yes\n";
     return failures?1:0;

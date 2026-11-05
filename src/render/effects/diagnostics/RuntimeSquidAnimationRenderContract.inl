@@ -8,7 +8,7 @@ bool runRuntimeSquidAnimationRenderContractCheck(const RuntimeMapRenderContext& 
     auto cache=std::make_unique<RuntimeMapRenderCache>();
     auto probe=context;probe.vision=nullptr;probe.surfacePixels=pixels.data();
     probe.surfaceWidth=width;probe.surfaceHeight=height;
-    std::unordered_map<std::string,COLORREF> colors{{"russians",RGB(210,25,35)}};
+    RuntimeOwnerRemapColorTable colors{{"russians",RGB(210,25,35)}};
     probe.ownerRemapColors=&colors;
     RuntimeMapCamera camera;camera.initialized=true;
     camera.worldOffsetX=-width/2;camera.worldOffsetY=-height/2;

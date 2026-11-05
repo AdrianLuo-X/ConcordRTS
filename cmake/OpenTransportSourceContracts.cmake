@@ -1,0 +1,13 @@
+# R011: original physical host/FLH query, same Runtime/Contract producer.
+include_guard(GLOBAL)
+include("${CMAKE_CURRENT_LIST_DIR}/ProfiledLeaf.cmake")
+concord_add_profiled_leaf(concord_open_transport_source_runtime_leaf
+    src/simulation/combat/targeting/RuntimeOpenTransportMuzzle.cpp concord_runtime Runtime)
+concord_add_profiled_leaf(concord_open_transport_source_contract_leaf
+    src/simulation/combat/targeting/RuntimeOpenTransportMuzzle.cpp concord_radar_cell_values_value_contract Contract)
+target_link_libraries(concord_runtime PRIVATE concord_open_transport_source_runtime_leaf)
+add_subdirectory(tests/infrastructure/open_transport_source)
+add_test(NAME open_transport_source_runtime_contract_test COMMAND concord_open_transport_source_runtime_contract)
+add_test(NAME open_transport_source_contract_contract_test COMMAND concord_open_transport_source_contract_contract)
+set_tests_properties(open_transport_source_runtime_contract_test open_transport_source_contract_contract_test
+    PROPERTIES TIMEOUT 120 LABELS "open-transport-source;standard-contract;no-assets")

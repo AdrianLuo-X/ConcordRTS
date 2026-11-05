@@ -3,7 +3,7 @@
 void runResumeLobby(SmokeContext& context) {
     const auto path = std::filesystem::temp_directory_path() / ("concord_resume_lobby_"
         + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".map");
-    struct RemoveFixture { std::filesystem::path path;~RemoveFixture() { std::error_code e;std::filesystem::remove(path, e); } } cleanup{path};
+    struct RemoveFixture { std::filesystem::path path;~RemoveFixture() { if (runtimeMultiplayerSmokeRetainArtifacts()) return; std::error_code e;std::filesystem::remove(path, e); } } cleanup{path};
     { std::ofstream out(path, std::ios::binary);out << "[Map]\nTheater=TEMPERATE\nResume=1\n"; }
     auto options = lobbyOptions(mapFingerprint(path, "multimd/lobby-flow.map", context));
     RuntimeMultiplayerMatchSetup original;
@@ -11,7 +11,7 @@ void runResumeLobby(SmokeContext& context) {
     original.map = options.map;original.rules = options.rules;
     original.members = {{"old-host", "Host", RuntimeMultiplayerMatchMemberIdentity::Combatant},
         {"old-client", "Client", RuntimeMultiplayerMatchMemberIdentity::Combatant}};
-    original.slots = {{0}, {1, RuntimeMultiplayerMatchSlotController::Computer, "", "germans", "green", "none", "medium", 3},
+    original.slots = {RuntimeMultiplayerMatchSlot{}, {1, RuntimeMultiplayerMatchSlotController::Computer, "", "germans", "green", "none", "medium", 3},
         {2, RuntimeMultiplayerMatchSlotController::Human, "old-host", "americans", "gold", "1", "medium", 1},
         {3, RuntimeMultiplayerMatchSlotController::Human, "old-client", "russians", "red", "2", "medium", 2}};
     std::string error;

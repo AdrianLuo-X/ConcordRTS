@@ -255,7 +255,7 @@ static bool runRuntimePaintSpecialObjectIdMemoContractCheck(
                 // public paint lease used by real WM_PAINT. Neither scope may
                 // leak cached object pointers into the following paint.
                 std::optional<RuntimeGeometryQueryScope> outer;
-                if (pass != 0) outer.emplace(world, viewport, context, drawCamera, cache, false);
+                if (pass != 0) outer.emplace(world, runtimeRenderPlacementPixelRect(viewport), context, drawCamera, cache, false);
                 GdiFlush(); std::fill_n(pixels, pixelCount, 0xA53B7091U);
                 const auto stats = drawRuntimeMap(dc, viewport, world, context, drawCamera, cache);
                 GdiFlush();

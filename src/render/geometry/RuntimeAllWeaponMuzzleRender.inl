@@ -58,14 +58,14 @@ bool runRuntimeAllWeaponMuzzleRenderContract(
         std::fill(pixels.begin(), pixels.end(), background);
         camera.worldOffsetX = camera.worldOffsetY = 0;
         GameWorld scene; scene.accessObjects().push_back(object);
-        const auto anchor = runtimeObjectWorldRenderPlacement(object, scene, viewport, probe, camera, *cache).center;
+        const auto anchor = runtimeRenderPlacementNative(runtimeObjectWorldRenderPlacementWin32(object, scene, viewport, probe, camera, *cache)).center;
         camera.worldOffsetX = anchor.x - tileWidth / 2;
         camera.worldOffsetY = anchor.y - 110;
-        const auto preliminaryMuzzle = runtimeProjectileActorScreenPoint(actors[i], viewport, camera);
+        const auto preliminaryMuzzle = runtimeProjectileActorScreenPointWin32(actors[i], viewport, camera);
         if (preliminaryMuzzle.y < 24) camera.worldOffsetY -= 24 - preliminaryMuzzle.y;
         if (preliminaryMuzzle.x < 16) camera.worldOffsetX -= 16 - preliminaryMuzzle.x;
         else if (preliminaryMuzzle.x >= tileWidth - 16) camera.worldOffsetX += preliminaryMuzzle.x - tileWidth + 17;
-        const POINT center = runtimeObjectWorldRenderPlacement(object, scene, viewport, probe, camera, *cache).center;
+        const POINT center = runtimeRenderPlacementNative(runtimeObjectWorldRenderPlacementWin32(object, scene, viewport, probe, camera, *cache)).center;
         bool drawn = false;
         RECT bounds{};
         if (object.kind == WorldObjectKind::Structure)
@@ -98,7 +98,7 @@ bool runRuntimeAllWeaponMuzzleRenderContract(
                         sprite->frameIndex, width, height, authored)) {
                     const POINT expected{center.x-width/2+authored.x,
                         center.y+camera.tileHeight/2-height+authored.y};
-                    const auto actual = runtimeProjectileActorScreenPoint(actors[i], viewport, camera);
+                    const auto actual = runtimeProjectileActorScreenPointWin32(actors[i], viewport, camera);
                     if (std::abs(actual.x-expected.x)>1 || std::abs(actual.y-expected.y)>1)
                         failures.push_back(labels[i] + ": discharge differs from reviewed native canvas gun point");
                 }
@@ -121,12 +121,12 @@ bool runRuntimeAllWeaponMuzzleRenderContract(
                     width, height, annotation);
             if (infantry || marine) for (int zoom : {48, 60, 72}) {
                 auto zoomCamera = camera; zoomCamera.tileWidth = zoom; zoomCamera.tileHeight = zoom / 2;
-                const auto placement = runtimeObjectWorldRenderPlacement(object, scene, viewport,
-                    probe, zoomCamera, *cache);
+                const auto placement = runtimeRenderPlacementNative(runtimeObjectWorldRenderPlacementWin32(object, scene, viewport,
+                    probe, zoomCamera, *cache));
                 POINT expected{placement.center.x - width / 2 + annotation.x,
                     placement.center.y + zoomCamera.tileHeight / 2 - height + annotation.y};
                 if (marine) expected.y += runtimeUnderwaterShpAlignmentOffsetY(object, probe, zoomCamera, frame);
-                const auto actual = runtimeProjectileActorScreenPoint(actors[i], viewport, zoomCamera);
+                const auto actual = runtimeProjectileActorScreenPointWin32(actors[i], viewport, zoomCamera);
                 if (std::abs(actual.x - expected.x) > 1 || std::abs(actual.y - expected.y) > 1)
                     failures.push_back(labels[i] + ": native bitmap muzzle zoom=" + std::to_string(zoom)
                         + " delta=" + std::to_string(actual.x - expected.x) + "," + std::to_string(actual.y - expected.y));
@@ -156,11 +156,11 @@ bool runRuntimeAllWeaponMuzzleRenderContract(
                 int forward=0,lateral=0,height=0;std::istringstream fields(tuple);fields>>forward>>lateral>>height;
                 for (int zoom : {48,60,72}) {
                     auto zoomCamera=camera;zoomCamera.tileWidth=zoom;zoomCamera.tileHeight=zoom/2;
-                    const auto placement=runtimeObjectWorldRenderPlacement(object,scene,viewport,probe,zoomCamera,*cache);
+                    const auto placement=runtimeRenderPlacementNative(runtimeObjectWorldRenderPlacementWin32(object,scene,viewport,probe,zoomCamera,*cache));
                     POINT physical{};
-                    const bool resolved=resolveRuntimeStructureWeaponMuzzlePoint(object,placement.center,probe,
+                    const bool resolved=resolveRuntimeStructureWeaponMuzzlePointWin32(object,placement.center,probe,
                         zoomCamera,*cache,forward,lateral,height,actors[i].facing,secondary,physical);
-                    const auto actual=runtimeProjectileActorScreenPoint(actors[i],viewport,zoomCamera);
+                    const auto actual=runtimeProjectileActorScreenPointWin32(actors[i],viewport,zoomCamera);
                     if (!resolved || std::abs(actual.x-physical.x)>1 || std::abs(actual.y-physical.y)>1)
                         failures.push_back(labels[i]+": structure native muzzle zoom="+std::to_string(zoom)
                             +" delta="+std::to_string(actual.x-physical.x)+","+std::to_string(actual.y-physical.y));
@@ -168,7 +168,7 @@ bool runRuntimeAllWeaponMuzzleRenderContract(
                 }
             } else failures.push_back(labels[i]+": structure muzzle art missing");
         }
-        const POINT muzzle = runtimeProjectileActorScreenPoint(actors[i], viewport, camera);
+        const POINT muzzle = runtimeProjectileActorScreenPointWin32(actors[i], viewport, camera);
         std::vector<RuntimeProjectileRenderActor> one{actors[i]};
         probe.projectileActors = &one;
         RuntimeMapRenderStats stats;

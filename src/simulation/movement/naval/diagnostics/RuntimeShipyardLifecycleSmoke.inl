@@ -28,12 +28,12 @@ bool runRuntimeShipyardLifecycleSmoke(RuntimeWindowState& assets, std::string& e
     std::cout << "Shipyard lifecycle terrain: visualWater=" << firstVisualWaterTile
         << " movementWater=" << waterTile << " WaterSet=" << waterSet
         << " resource=" << assets.theater.resolveTileIndex(waterTile).expectedFileName << '\n';
-    const auto position = [](const RuntimeWindowState& s) {
+    const auto position = [](const RuntimeProductionHostState& s) {
         const auto* unit = findObjectById(s, shipId);
         return std::array<double, 2>{runtimeObjectRenderX(*unit), runtimeObjectRenderY(*unit)};
     };
     const auto distance = [](const auto& a, const auto& b) { return std::hypot(a[0]-b[0], a[1]-b[1]); };
-    const auto diagnostic = [&](const RuntimeWindowState& s) {
+    const auto diagnostic = [&](const RuntimeProductionHostState& s) {
         std::ostringstream out;
         out << "tick=" << s.tick << " finished=" << s.skirmishMatchFinished
             << " result=" << s.skirmishResult << " owner=" << s.economy.owner
@@ -128,7 +128,7 @@ bool runRuntimeShipyardLifecycleSmoke(RuntimeWindowState& assets, std::string& e
         return storage;
     };
     int cases = 0, saves = 0, snapshots = 0, rejections = 0, pairedTicks = 0;
-    const auto compare = [&](const RuntimeWindowState& a, const RuntimeWindowState& b) {
+    const auto compare = [&](const RuntimeProductionHostState& a, const RuntimeProductionHostState& b) {
         const auto* left = findObjectById(a,shipId); const auto* right = findObjectById(b,shipId);
         if (!left || !right || distance(position(a),position(b)) > 1e-8
             || left->x != right->x || left->y != right->y || left->facing != right->facing

@@ -4,8 +4,8 @@ bool runRuntimeGeneticMutationPositionSmoke(RuntimeWindowState&, std::string&);
 bool runRuntimeSuperWeaponActivationAudioSmoke(RuntimeWindowState& live, std::string& error) {
     std::cout << std::unitbuf;
     IniFile stock, originalArt; RulesDatabase original; ArtDatabase stockArt;
-    if (!stock.loadFromFile(live.report.rulesPath) || !original.loadFromIni(stock)
-        || !originalArt.loadFromFile(live.report.artPath) || !stockArt.loadFromIni(originalArt)) {
+    if (!loadRuntimeIniSource(live.config,RuntimeCampaignIniKind::Rules,stock) || !original.loadFromIni(stock)
+        || !loadRuntimeIniSource(live.config,RuntimeCampaignIniKind::Art,originalArt) || !stockArt.loadFromIni(originalArt)) {
         error = "SW activation audio: original rules/art unavailable"; return false;
     }
     const std::set<std::string> buttons{"NukeSpecial", "IronCurtainSpecial", "LightningStormSpecial",

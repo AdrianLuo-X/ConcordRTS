@@ -33,7 +33,7 @@ bool runRuntimeArcticArtRenderContractCheck(
         WorldObjectInstance object;object.instanceId=1;object.kind=WorldObjectKind::Infantry;
         object.type="GHOST";object.owner="ArcticProbe";object.health=125;object.alive=true;
         object.hasRenderPosition=true;object.renderX=object.renderY=0;
-        std::unordered_map<std::string,COLORREF> colors{{"arcticprobe",RGB(255,210,25)}};
+        RuntimeOwnerRemapColorTable colors{{"arcticprobe",RGB(255,210,25)}};
         context.ownerRemapColors=&colors;
         int row=0;
         for(const auto& pose:poses) {

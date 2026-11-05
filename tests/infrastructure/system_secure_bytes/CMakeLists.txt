@@ -1,0 +1,27 @@
+# Only these OS-entropy fixtures suppress CMake Windows GUI defaults.
+if(CONCORD_MSVC_ABI)
+    set(CMAKE_CXX_STANDARD_LIBRARIES "kernel32.lib")
+endif()
+
+foreach(_secure_profile IN LISTS _concord_secure_profiles)
+    if(_secure_profile STREQUAL "runtime")
+        set(_secure_owner concord_runtime)
+        set(_secure_crt "MultiThreadedDLL")
+    else()
+        set(_secure_owner concord_lan_transport_smoke)
+        set(_secure_crt "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+    endif()
+    set(_secure_target concord_secure_bytes_${_secure_profile})
+    add_executable(${_secure_target} "${PROJECT_SOURCE_DIR}/tests/infrastructure/RuntimeSecureBytesContract.cpp")
+    set_property(TARGET ${_secure_target} PROPERTY RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+    target_include_directories(${_secure_target} PRIVATE "${PROJECT_SOURCE_DIR}/src")
+    target_compile_features(${_secure_target} PRIVATE cxx_std_20)
+    target_compile_options(${_secure_target} PRIVATE
+        "$<TARGET_GENEX_EVAL:${_secure_owner},$<TARGET_PROPERTY:${_secure_owner},COMPILE_OPTIONS>>")
+    target_compile_definitions(${_secure_target} PRIVATE
+        "$<TARGET_GENEX_EVAL:${_secure_owner},$<TARGET_PROPERTY:${_secure_owner},COMPILE_DEFINITIONS>>")
+    if(CONCORD_MSVC_ABI)
+        set_property(TARGET ${_secure_target} PROPERTY MSVC_RUNTIME_LIBRARY "${_secure_crt}")
+    endif()
+    target_link_libraries(${_secure_target} PRIVATE concord_secure_bytes_${_secure_profile}_leaf)
+endforeach()

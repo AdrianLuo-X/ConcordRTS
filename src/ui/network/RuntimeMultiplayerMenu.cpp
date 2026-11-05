@@ -1,3 +1,4 @@
+#include "ui/network/private/RuntimeLanMenuSecureSource.h"
 #include "ui/network/RuntimeMultiplayerMenu.h"
 #include "network/maps/RuntimeMultiplayerMapCache.h"
 
@@ -19,7 +20,6 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
-#include <random>
 #include <set>
 #include <span>
 #include <sstream>
@@ -31,10 +31,11 @@
 #if defined(_WIN32)
 #define NOMINMAX
 #include "runtime/window/win32/RuntimeWindowParentWin32.h"
+#include "ui/skirmish/RuntimeSkirmishMenu.h"
+#include "ui/network/win32/RuntimeLanMenuWidgetViewWin32.h"
+#include "runtime/menu/RuntimeLanMenuController.h"
 #include <windows.h>
-#include <bcrypt.h>
 #include <commdlg.h>
-#pragma comment(lib, "bcrypt.lib")
 #pragma comment(lib, "comdlg32.lib")
 #endif
 
@@ -263,51 +264,41 @@ std::string fingerprintText(std::uint64_t value) {
     return text;
 }
 
+class RuntimeLanSystemSecureSource final : public runtime_lan_menu_secure_detail::Source {
+public:
+    RuntimeSecureBytesResult fill(std::span<std::uint8_t> output) noexcept override {
+        return fillRuntimeSecureBytes(output);
+    }
+};
+
 bool fillSecureRandom(
     std::span<std::uint8_t> bytes,
-    std::string& errorMessage
+    std::string& errorMessage,
+    runtime_lan_menu_secure_detail::Source& source
 ) {
     if (bytes.empty()) return fail(errorMessage, "secure random request is empty");
 #if defined(_WIN32)
-    if (bytes.size() > static_cast<std::size_t>(
-            std::numeric_limits<ULONG>::max())) {
+    if (bytes.size() > runtimeSecureBytesMaximumRequest) {
         return fail(errorMessage, "secure random request is too large");
     }
-    const NTSTATUS status = BCryptGenRandom(
-        nullptr,
-        reinterpret_cast<PUCHAR>(bytes.data()),
-        static_cast<ULONG>(bytes.size()),
-        BCRYPT_USE_SYSTEM_PREFERRED_RNG
-    );
-    if (status < 0) {
-        return fail(errorMessage, "Windows secure random generation failed");
-    }
-#else
-    std::random_device random;
-    for (std::uint8_t& byte : bytes) {
-        byte = static_cast<std::uint8_t>(random() & 0xffU);
-    }
 #endif
+    const RuntimeSecureBytesResult result = source.fill(bytes);
+    if (!result.succeeded() || result.generated != bytes.size()) {
+        std::fill(bytes.begin(), bytes.end(), static_cast<std::uint8_t>(0U));
+#if defined(_WIN32)
+        return fail(errorMessage, "Windows secure random generation failed");
+#else
+        return fail(errorMessage, "system secure random generation failed");
+#endif
+    }
     errorMessage.clear();
     return true;
 }
 
 #if !defined(RUNTIME_MULTIPLAYER_MENU_PURE_HELPERS_ONLY)
 bool secureRandomU64(std::uint64_t& value, std::string& errorMessage) {
-    std::array<std::uint8_t, 8> bytes{};
-    for (int attempt = 0; attempt < 4; ++attempt) {
-        if (!fillSecureRandom(bytes, errorMessage)) return false;
-        std::uint64_t candidate = 0U;
-        for (std::uint8_t byte : bytes) {
-            candidate = (candidate << 8U) | static_cast<std::uint64_t>(byte);
-        }
-        if (candidate != 0U) {
-            value = candidate;
-            errorMessage.clear();
-            return true;
-        }
-    }
-    return fail(errorMessage, "secure random generator returned only zero");
+    RuntimeLanSystemSecureSource source;
+    return runtime_lan_menu_secure_detail::generateU64(value, errorMessage, source);
 }
 #endif
 
@@ -449,17 +440,39 @@ bool parseRuntimeMultiplayerDirectEndpoint(
     return true;
 }
 
-bool generateRuntimeMultiplayerSecureId(
+bool runtime_lan_menu_secure_detail::generateU64(std::uint64_t& value, std::string& errorMessage, Source& source) {
+    std::array<std::uint8_t, 8> bytes{};
+    for (int attempt = 0; attempt < 4; ++attempt) {
+        if (!fillSecureRandom(bytes, errorMessage, source)) return false;
+        std::uint64_t candidate = 0U;
+        for (std::uint8_t byte : bytes) {
+            candidate = (candidate << 8U) | static_cast<std::uint64_t>(byte);
+        }
+        if (candidate != 0U) {
+            value = candidate;
+            errorMessage.clear();
+            return true;
+        }
+    }
+    return fail(errorMessage, "secure random generator returned only zero");
+}
+
+bool runtime_lan_menu_secure_detail::fill(std::span<std::uint8_t> bytes, std::string& error, Source& source) {
+    return fillSecureRandom(bytes, error, source);
+}
+
+bool runtime_lan_menu_secure_detail::generateId(
     std::string_view prefix,
     std::string& identifier,
-    std::string& errorMessage
+    std::string& errorMessage,
+    Source& source
 ) {
     if (!validProtocolIdentifier(prefix, 31U)
         || prefix.size() + 32U > runtimeMultiplayerMaximumPeerIdBytes) {
         return fail(errorMessage, "secure identifier prefix is invalid");
     }
     std::array<std::uint8_t, 16> bytes{};
-    if (!fillSecureRandom(bytes, errorMessage)) return false;
+    if (!fillSecureRandom(bytes, errorMessage, source)) return false;
 
     constexpr char digits[] = "0123456789abcdef";
     std::string candidate(prefix);
@@ -471,6 +484,15 @@ bool generateRuntimeMultiplayerSecureId(
     identifier = std::move(candidate);
     errorMessage.clear();
     return true;
+}
+
+bool generateRuntimeMultiplayerSecureId(
+    std::string_view prefix,
+    std::string& identifier,
+    std::string& errorMessage
+) {
+    RuntimeLanSystemSecureSource source;
+    return runtime_lan_menu_secure_detail::generateId(prefix, identifier, errorMessage, source);
 }
 
 bool makeRuntimeMultiplayerMenuCompatibility(
@@ -923,12 +945,14 @@ bool projectRuntimeMultiplayerResumeSelection(const RuntimeConfig& config,
 #if defined(_WIN32) && !defined(RUNTIME_MULTIPLAYER_MENU_PURE_HELPERS_ONLY)
 bool selectRuntimeMultiplayerResumeSave(const RuntimeConfig& config,
     const RuntimeMultiplayerCompatibility& compatibility, std::string playerName,
-    std::string peerId, void* owner, RuntimeMultiplayerResumeSave& save,
+    std::string peerId, RuntimeWindowId owner, RuntimeMultiplayerResumeSave& save,
     RuntimeMultiplayerHostSelectionProjection& projection, std::string& errorMessage) {
     std::array<wchar_t, 32768> path{};
     OPENFILENAMEW dialog{};
     dialog.lStructSize = sizeof(dialog);
-    dialog.hwndOwner = static_cast<HWND>(owner);
+    const auto resolvedOwner = resolveRuntimeWindowParentWin32(owner);
+    if (!resolvedOwner.supported) return fail(errorMessage, "unsupported multiplayer resume parent identity");
+    dialog.hwndOwner = resolvedOwner.window;
     dialog.lpstrTitle = L"选择联机存档，重建房间续局";
     dialog.lpstrFilter = L"联机存档\0*.ini;*.sav;*.csav\0所有文件\0*.*\0\0";
     dialog.lpstrFile = path.data();dialog.nMaxFile = static_cast<DWORD>(path.size());
@@ -945,103 +969,87 @@ bool selectRuntimeMultiplayerResumeSave(const RuntimeConfig& config,
 }
 
 namespace {
+using namespace concord::lan_menu;
 
-enum class MultiplayerMenuPage {
-    Browser,
-    Lobby
-};
 
-enum MultiplayerMenuControlId : int {
-    PlayerNameEdit = 4101,
-    HostPortEdit = 4102,
-    DirectAddressEdit = 4103,
-    HostButton = 4104,
-    RefreshButton = 4105,
-    JoinButton = 4106,
-    SpectatorCheck = 4107,
-    BackButton = 4108,
-    RoomList = 4109,
-    RosterList = 4110,
-    ReadyButton = 4111,
-    StartButton = 4112,
-    LeaveButton = 4113,
-    StatusText = 4114,
-    NetworkHint = 4115,
-    CountryEdit = 4116,
-    ColorEdit = 4117,
-    TeamEdit = 4118,
-    DifficultyEdit = 4119,
-    StartPositionEdit = 4120,
-    ApplySlotButton = 4121,
-    KickButton = 4122,
-    PasswordEdit = 4123,
-    ResumeHostButton = 4124,
-    ResumeSwapButton = 4125
-};
+
+
 
 constexpr UINT_PTR multiplayerMenuPollTimer = 1U;
 constexpr UINT multiplayerMenuPollMilliseconds = 50U;
 constexpr ULONGLONG directDiscoveryTimeoutMilliseconds = 5000U;
 
-struct RuntimeMultiplayerMenuUiState {
-    RuntimeConfig baseConfig;
-    RuntimeMultiplayerMenuNetwork network =
-        RuntimeMultiplayerMenuNetwork::Lan;
-    HWND hostWindow = nullptr;
-    HWND window = nullptr;
-    HWND playerNameLabel = nullptr;
-    HWND playerNameEdit = nullptr;
-    HWND hostPortLabel = nullptr;
-    HWND hostPortEdit = nullptr;
-    HWND directAddressLabel = nullptr;
-    HWND directAddressEdit = nullptr;
-    HWND passwordLabel = nullptr;
-    HWND passwordEdit = nullptr;
-    HWND hostButton = nullptr;
-    HWND resumeHostButton = nullptr;
-    HWND resumeSwapButton = nullptr;
-    HWND refreshButton = nullptr;
-    HWND joinButton = nullptr;
-    HWND spectatorCheck = nullptr;
-    HWND backButton = nullptr;
-    HWND roomList = nullptr;
-    HWND rosterList = nullptr;
-    HWND countryLabel = nullptr;
-    HWND countryEdit = nullptr;
-    HWND colorLabel = nullptr;
-    HWND colorEdit = nullptr;
-    HWND teamLabel = nullptr;
-    HWND teamEdit = nullptr;
-    HWND difficultyLabel = nullptr;
-    HWND difficultyEdit = nullptr;
-    HWND startPositionLabel = nullptr;
-    HWND startPositionEdit = nullptr;
-    HWND applySlotButton = nullptr;
-    HWND kickButton = nullptr;
-    HWND readyButton = nullptr;
-    HWND startButton = nullptr;
-    HWND leaveButton = nullptr;
-    HWND statusText = nullptr;
-    HWND networkHint = nullptr;
-    RuntimeMultiplayerLobbyFlow flow;
-    RuntimeMultiplayerCompatibility compatibility;
-    bool compatibilityReady = false;
-    std::string peerId;
-    MultiplayerMenuPage page = MultiplayerMenuPage::Browser;
-    std::vector<RuntimeLanRoomAdvertisement> rooms;
-    std::vector<std::string> rosterPeerIds;
-    std::string selectedRosterPeerId;
-    std::uint64_t displayedSetupRevision = 0U;
-    fs::path localMapPath;
-    bool hosting = false;
-    bool directDiscoveryPending = false;
+struct RuntimeMultiplayerMenuUiState : RuntimeLanMenuFlow, RuntimeLanMenuView, RuntimeLanMenuController, RuntimeLanMenuWidgetViewWin32 {
+    RuntimeMultiplayerMenuUiState() : RuntimeLanMenuController(static_cast<RuntimeLanMenuFlow&>(*this), static_cast<RuntimeLanMenuView&>(*this)) {}
+    HWND widgetHandle(RuntimeLanMenuWidget) const;
+    bool startHost(RuntimeMultiplayerLanHostOptions&& options, const RuntimeMultiplayerLobbyHostCreateOptions& lobby, std::string& error, const RuntimeMultiplayerResumeSave* resume)  override;
+    bool startBrowsing(std::uint16_t port, std::string& error)  override;
+    bool join(RuntimeMultiplayerLanJoinOptions&& options, std::string& error)  override;
+    bool sendDiscoveryProbe(const std::string& address, std::string& error)  override;
+    std::vector<RuntimeLanRoomAdvertisement> discoveredRooms(std::uint64_t age) const override;
+    RuntimeMultiplayerLobbyFlowPollResult poll(int timeout)  override;
+    RuntimeMultiplayerLobbyEditResult setSlot(std::size_t index, const RuntimeMultiplayerMatchSlot& slot, std::string& error)  override;
+    RuntimeMultiplayerLobbyEditResult setSlotController(std::size_t index, RuntimeMultiplayerMatchSlotController kind, std::string_view peer, std::string& error)  override;
+    RuntimeMultiplayerLobbyEditResult setSlotOptions(std::size_t index, std::string&& country, std::string&& color, std::string&& team, std::string&& difficulty, std::uint8_t position, std::string& error)  override;
+    RuntimeMultiplayerLanOperationResult requestLocalSlotOptions(std::string&& country, std::string&& color, std::string&& team, std::string&& difficulty, std::uint8_t position)  override;
+    RuntimeMultiplayerLanOperationResult kickPeer(const std::string& peer, std::string reason)  override;
+    bool verifyLocalMap(const std::filesystem::path& path, std::string& error)  override;
+    bool localMapVerified() const override;
+    bool downloadMissingMap(const std::filesystem::path& root, std::filesystem::path& output, std::string& error)  override;
+    bool hostAuthoritative() const override;
+    bool canonicalSetupPublished() const override;
+    bool resuming() const override;
+    bool resumeReady(std::string& error) const override;
+    bool canStart(std::string& error) const override;
+    bool initialized() const override;
+    RuntimeMultiplayerLanOperationResult setReady(bool value)  override;
+    RuntimeMultiplayerLanOperationResult startMatch(int tick)  override;
+    void close()  override;
+    const RuntimeMultiplayerLobbyModel& lobby() const override;
+    bool bridgePresent() const override;
+    bool sessionActive() const override;
+    const std::string& localPeerId() const override;
+    const std::vector<RuntimeMultiplayerRoomMember>& members() const override;
+    RuntimeMultiplayerLanRole lanRole() const override;
+    RuntimeMultiplayerLanPhase lanPhase() const override;
+    void leave() override;
+    void showWidget(RuntimeLanMenuWidget, bool) override;
+    void enableWidget(RuntimeLanMenuWidget, bool) override;
+    std::string text(RuntimeLanMenuWidget) const override;
+    void setText(RuntimeLanMenuWidget, const std::string&) override;
+    void listClear(RuntimeLanMenuWidget) override;
+    void listAdd(RuntimeLanMenuWidget, const std::string&) override;
+    std::int64_t listSelected(RuntimeLanMenuWidget) const override;
+    void listSelect(RuntimeLanMenuWidget, std::int64_t) override;
+    bool checked(RuntimeLanMenuWidget) const override;
+    bool hasWidget(RuntimeLanMenuWidget) const override;
+    bool parseEndpoint(std::string_view, RuntimeMultiplayerDirectEndpoint&, std::string&) override;
+    bool makeJoinOptions(const RuntimeLanRoomAdvertisement&, std::string&&, const std::string&, bool, std::string&&, const RuntimeMultiplayerCompatibility&, RuntimeMultiplayerLanJoinOptions&, std::string&) override;
+    void clearPassword() override;
+    void readyLabel(bool) override;
+    bool runHostSetup(const RuntimeConfig&, RuntimeSkirmishSelection&, std::string&) override;
+    bool selectResume(const RuntimeConfig&, const RuntimeMultiplayerCompatibility&, const std::string&, const std::string&, RuntimeMultiplayerResumeSave&, RuntimeMultiplayerHostSelectionProjection&, std::string&) override;
+    bool normalizeName(std::string&, std::size_t, std::string&) override;
+    std::string trim(const std::string&) const override;
+    bool secureU64(std::uint64_t&, std::string&) override;
+    bool secureId(std::string_view, std::string&, std::string&) override;
+    bool projectHost(const RuntimeConfig&, const RuntimeSkirmishSelection&, const std::string&, const std::string&, std::uint64_t, RuntimeMultiplayerHostSelectionProjection&, std::string&) override;
+    bool resolveMap(const RuntimeConfig&, const RuntimeMultiplayerMatchMap&, std::filesystem::path&, std::string&) override;
+    bool makeCompatibility(const RuntimeConfig&, RuntimeMultiplayerCompatibility&, std::string&) override;
+    bool accepted() const override;
+    std::string& resultError() override;
+    void showKickedMessage(const std::string&) override;
+    void destroyWindow() override;
+    void finishStartedMatch() override;
+    void beginDirectDiscovery() override;
+    void pollDirectDiscovery() override;
+
+    RuntimeMultiplayerLobbyFlow flowBackend;
     RuntimeMultiplayerDirectEndpoint directEndpoint;
     std::string pendingPlayerName;
-    std::string pendingPassword;
     bool pendingSpectator = false;
     ULONGLONG directDeadline = 0U;
     ULONGLONG nextDirectProbe = 0U;
-    bool done = false;
     RuntimeMultiplayerMenuResult result;
 };
 
@@ -1134,12 +1142,7 @@ void setControlText(HWND control, const std::string& text) {
     SetWindowTextW(control, wide.c_str());
 }
 
-void setStatus(
-    RuntimeMultiplayerMenuUiState& state,
-    const std::string& text
-) {
-    setControlText(state.statusText, text);
-}
+
 
 HWND createControl(
     HWND parent,
@@ -1172,51 +1175,7 @@ void showControl(HWND control, bool visible) {
     if (control != nullptr) ShowWindow(control, visible ? SW_SHOW : SW_HIDE);
 }
 
-void showPage(
-    RuntimeMultiplayerMenuUiState& state,
-    MultiplayerMenuPage page
-) {
-    state.page = page;
-    const bool browser = page == MultiplayerMenuPage::Browser;
-    const bool lan = state.network == RuntimeMultiplayerMenuNetwork::Lan;
-    showControl(state.playerNameLabel, browser);
-    showControl(state.playerNameEdit, browser);
-    showControl(state.hostPortLabel, browser && !lan);
-    showControl(state.hostPortEdit, browser && !lan);
-    showControl(state.directAddressLabel, browser && !lan);
-    showControl(state.directAddressEdit, browser && !lan);
-    showControl(state.passwordLabel, browser);
-    showControl(state.passwordEdit, browser);
-    showControl(state.hostButton, browser);
-    showControl(state.resumeHostButton, browser);
-    showControl(state.resumeSwapButton, !browser && state.hosting && state.flow.resuming());
-    showControl(state.refreshButton, browser && lan);
-    showControl(state.joinButton, browser);
-    showControl(state.spectatorCheck, browser);
-    showControl(state.backButton, browser);
-    showControl(state.roomList, browser && lan);
-    showControl(state.rosterList, !browser);
-    showControl(state.countryLabel, !browser);
-    showControl(state.countryEdit, !browser);
-    showControl(state.colorLabel, !browser);
-    showControl(state.colorEdit, !browser);
-    showControl(state.teamLabel, !browser);
-    showControl(state.teamEdit, !browser);
-    showControl(state.difficultyLabel, !browser);
-    showControl(state.difficultyEdit, !browser);
-    showControl(state.startPositionLabel, !browser);
-    showControl(state.startPositionEdit, !browser);
-    showControl(state.applySlotButton, !browser);
-    showControl(state.kickButton, !browser && state.hosting);
-    showControl(state.readyButton, !browser);
-    showControl(state.startButton, !browser && state.hosting);
-    showControl(state.leaveButton, !browser);
-    showControl(state.networkHint, browser);
-    if (!browser) {
-        state.displayedSetupRevision = 0U;
-        setStatus(state, "Lobby connected; verifying local map...");
-    }
-}
+
 
 void createMenuControls(RuntimeMultiplayerMenuUiState& state) {
     HWND window = state.window;
@@ -1481,418 +1440,25 @@ void createMenuControls(RuntimeMultiplayerMenuUiState& state) {
     showPage(state, MultiplayerMenuPage::Browser);
 }
 
-void updateRoomList(RuntimeMultiplayerMenuUiState& state) {
-    state.rooms = state.flow.discoveredRooms();
-    SendMessageW(state.roomList, LB_RESETCONTENT, 0U, 0);
-    for (const RuntimeLanRoomAdvertisement& room : state.rooms) {
-        std::ostringstream line;
-        line << room.roomName << "  ["
-             << static_cast<unsigned int>(room.playerCount) << '/'
-             << static_cast<unsigned int>(room.maximumPlayers) << "]  "
-             << room.hostName << "  " << room.hostAddress << ':'
-             << room.sessionPort;
-        if (room.passwordProtected) line << "  [Password]";
-        const std::wstring wide = wideFromUtf8(line.str());
-        SendMessageW(
-            state.roomList,
-            LB_ADDSTRING,
-            0U,
-            reinterpret_cast<LPARAM>(wide.c_str())
-        );
-    }
-}
 
-bool localMemberReady(const RuntimeMultiplayerMenuUiState& state) {
-    if (state.flow.bridge() == nullptr
-        || !state.flow.bridge()->lan().session().active()) {
-        return false;
-    }
-    const std::string& localPeerId =
-        state.flow.bridge()->lan().localPeerId();
-    for (const RuntimeMultiplayerRoomMember& member
-         : state.flow.bridge()->lan().session().members()) {
-        if (member.peerId == localPeerId) return member.ready;
-    }
-    return false;
-}
 
-const RuntimeMultiplayerMatchSlot* humanSlotForPeer(
-    const RuntimeMultiplayerMenuUiState& state,
-    std::string_view peerId
-) {
-    if (!state.flow.lobby().initialized()) return nullptr;
-    const auto& slots = state.flow.lobby().setup().slots;
-    const auto found = std::find_if(
-        slots.begin(),
-        slots.end(),
-        [peerId](const RuntimeMultiplayerMatchSlot& slot) {
-            return slot.controller
-                    == RuntimeMultiplayerMatchSlotController::Human
-                && slot.peerId == peerId;
-        }
-    );
-    return found == slots.end() ? nullptr : &*found;
-}
 
-void populateLocalSlotControls(RuntimeMultiplayerMenuUiState& state) {
-    if (state.flow.bridge() == nullptr
-        || !state.flow.lobby().initialized()) {
-        return;
-    }
-    const RuntimeMultiplayerMatchSlot* slot = humanSlotForPeer(
-        state,
-        state.flow.bridge()->lan().localPeerId()
-    );
-    const bool editable = slot != nullptr && !state.flow.resuming();
-    for (HWND control : {
-            state.countryEdit,
-            state.colorEdit,
-            state.teamEdit,
-            state.difficultyEdit,
-            state.startPositionEdit,
-            state.applySlotButton
-        }) {
-        EnableWindow(control, editable ? TRUE : FALSE);
-    }
-    if (!slot) return;
-    if (state.flow.lobby().setup().rules.gameMode == "cooperative") {
-        EnableWindow(state.teamEdit, FALSE);
-        EnableWindow(state.startPositionEdit, FALSE);
-    }
-    setControlText(state.countryEdit, slot->countryId);
-    setControlText(state.colorEdit, slot->colorId);
-    setControlText(state.teamEdit, slot->teamId);
-    setControlText(state.difficultyEdit, slot->difficultyId);
-    setControlText(
-        state.startPositionEdit,
-        std::to_string(static_cast<unsigned int>(slot->startPosition))
-    );
-}
 
-void updateRoster(RuntimeMultiplayerMenuUiState& state) {
-    SendMessageW(state.rosterList, LB_RESETCONTENT, 0U, 0);
-    state.rosterPeerIds.clear();
-    if (state.flow.bridge() == nullptr
-        || !state.flow.bridge()->lan().session().active()) {
-        return;
-    }
-    for (const RuntimeMultiplayerRoomMember& member
-         : state.flow.bridge()->lan().session().members()) {
-        std::string line = member.displayName;
-        line += member.role == RuntimeMultiplayerRoomMemberRole::Host
-            ? "  [Host]"
-            : "  [Client]";
-        line += member.participation
-                == RuntimeMultiplayerParticipationRole::Spectator
-            ? " [Spectator]"
-            : " [Combatant]";
-        line += member.ready ? " [Ready]" : " [Not Ready]";
-        if (const RuntimeMultiplayerMatchSlot* slot = humanSlotForPeer(
-                state,
-                member.peerId
-            )) {
-            line += "  [" + slot->countryId + " / " + slot->colorId
-                + " / Team " + slot->teamId + " / "
-                + slot->difficultyId + " / Start "
-                + std::to_string(
-                    static_cast<unsigned int>(slot->startPosition)
-                ) + "]";
-        }
-        const std::wstring wide = wideFromUtf8(line);
-        SendMessageW(
-            state.rosterList,
-            LB_ADDSTRING,
-            0U,
-            reinterpret_cast<LPARAM>(wide.c_str())
-        );
-        state.rosterPeerIds.push_back(member.peerId);
-    }
-    const auto selected = std::find(
-        state.rosterPeerIds.begin(),
-        state.rosterPeerIds.end(),
-        state.selectedRosterPeerId
-    );
-    if (selected != state.rosterPeerIds.end()) {
-        SendMessageW(
-            state.rosterList,
-            LB_SETCURSEL,
-            static_cast<WPARAM>(std::distance(
-                state.rosterPeerIds.begin(),
-                selected
-            )),
-            0
-        );
-    }
-    if (state.flow.lobby().initialized()
-        && state.displayedSetupRevision
-            != state.flow.lobby().setup().revision) {
-        state.displayedSetupRevision = state.flow.lobby().setup().revision;
-        populateLocalSlotControls(state);
-    }
-    SetWindowTextW(
-        state.readyButton,
-        localMemberReady(state) ? L"Unready" : L"Ready"
-    );
-    std::string resumeError;
-    const bool resumeReady = state.flow.resumeReady(resumeError);
-    if (state.flow.resuming()) populateLocalSlotControls(state);
-    EnableWindow(
-        state.readyButton,
-        state.flow.localMapVerified() && resumeReady ? TRUE : FALSE
-    );
-    if (state.hosting) {
-        std::string startError;
-        EnableWindow(
-            state.startButton,
-            state.flow.canStart(startError) ? TRUE : FALSE
-        );
-    }
-    const std::string& localPeerId =
-        state.flow.bridge()->lan().localPeerId();
-    EnableWindow(
-        state.kickButton,
-        state.hosting && !state.selectedRosterPeerId.empty()
-                && state.selectedRosterPeerId != localPeerId
-                && std::find(
-                    state.rosterPeerIds.begin(),
-                    state.rosterPeerIds.end(),
-                    state.selectedRosterPeerId
-                ) != state.rosterPeerIds.end()
-            ? TRUE
-            : FALSE
-    );
-}
 
-bool ensureLocalMapVerified(
-    RuntimeMultiplayerMenuUiState& state,
-    std::string& errorMessage
-) {
-    if (state.flow.localMapVerified()) return true;
-    if (!state.flow.canonicalSetupPublished()) {
-        return fail(
-            errorMessage,
-            "waiting for the canonical room setup before map verification"
-        );
-    }
-    if (!state.localMapPath.empty() && !state.flow.verifyLocalMap(state.localMapPath, errorMessage)) state.localMapPath.clear();
-    if (state.localMapPath.empty()) {
-        if (!resolveRuntimeMultiplayerMenuMap(
-                state.baseConfig,
-                state.flow.lobby().setup().map,
-                state.localMapPath,
-                errorMessage
-            )) {
-            if (!state.flow.hostAuthoritative())
-                return state.flow.downloadMissingMap(state.baseConfig.localDataRootPath, state.localMapPath, errorMessage);
-            return false;
-        }
-    }
-    if (!state.flow.verifyLocalMap(state.localMapPath, errorMessage)) {
-        state.localMapPath.clear();
-        return false;
-    }
-    return true;
-}
 
-void closeMenu(RuntimeMultiplayerMenuUiState& state) {
-    state.directDiscoveryPending = false;
-    runtimeRoomPasswordSecureClear(state.pendingPassword);
-    if (state.passwordEdit != nullptr) SetWindowTextW(state.passwordEdit, L"");
-    if (!state.result.accepted) state.flow.close();
-    state.done = true;
-    if (state.window != nullptr && IsWindow(state.window)) {
-        DestroyWindow(state.window);
-    }
-}
 
-bool beginLanBrowsing(
-    RuntimeMultiplayerMenuUiState& state,
-    std::string& errorMessage
-) {
-    if (state.flow.bridge() == nullptr
-        || state.flow.bridge()->lan().phase()
-            != RuntimeMultiplayerLanPhase::Browsing) {
-        if (!state.flow.startBrowsing(
-                runtimeLanDefaultDiscoveryPort,
-                errorMessage
-            )) {
-            return false;
-        }
-    }
-    std::string loopbackError;
-    const bool broadcast = state.flow.sendDiscoveryProbe(
-        "255.255.255.255",
-        errorMessage
-    );
-    const bool loopback = state.flow.sendDiscoveryProbe(
-        "127.0.0.1",
-        loopbackError
-    );
-    if (!broadcast && !loopback) {
-        if (errorMessage.empty()) errorMessage = std::move(loopbackError);
-        return false;
-    }
-    errorMessage.clear();
-    return true;
-}
 
-bool enterLobbyWithRoom(
-    RuntimeMultiplayerMenuUiState& state,
-    const RuntimeLanRoomAdvertisement& room,
-    std::string playerName,
-    bool spectator,
-    std::string password,
-    std::string& errorMessage
-) {
-    RuntimeMultiplayerLanJoinOptions join;
-    if (!makeRuntimeMultiplayerMenuJoinOptions(
-            room,
-            std::move(playerName),
-            state.peerId,
-            spectator,
-            std::move(password),
-            state.compatibility,
-            join,
-            errorMessage
-        )
-        || !state.flow.join(std::move(join), errorMessage)) {
-        return false;
-    }
-    state.hosting = false;
-    SetWindowTextW(state.passwordEdit, L"");
-    state.localMapPath.clear();
-    state.directDiscoveryPending = false;
-    showPage(state, MultiplayerMenuPage::Lobby);
-    setStatus(state, "Connecting and waiting for canonical room setup...");
-    return true;
-}
 
-bool startHosting(
-    RuntimeMultiplayerMenuUiState& state,
-    std::string& errorMessage,
-    bool fromSave = false
-) {
-    if (!state.compatibilityReady) {
-        return fail(errorMessage, "local compatibility files are not verified");
-    }
-    std::string playerName = controlText(state.playerNameEdit);
-    if (!normalizeDisplayName(playerName, 64U, errorMessage)) return false;
 
-    std::uint16_t hostPort = runtimeLanDefaultSessionPort;
-    if (state.network == RuntimeMultiplayerMenuNetwork::Internet) {
-        RuntimeMultiplayerDirectEndpoint endpoint;
-        if (!parseRuntimeMultiplayerDirectEndpoint(
-                "host:" + controlText(state.hostPortEdit),
-                endpoint,
-                errorMessage
-            )) {
-            return false;
-        }
-        hostPort = endpoint.port;
-    }
 
-    RuntimeMultiplayerResumeSave resumeSave;
-    RuntimeMultiplayerHostSelectionProjection projection;
-    RuntimeSkirmishSelection selection;
-    if (fromSave) {
-        if (!selectRuntimeMultiplayerResumeSave(state.baseConfig, state.compatibility, playerName, state.peerId,
-            state.window, resumeSave, projection, errorMessage)) return false;
-    } else {
-        ShowWindow(state.window, SW_HIDE);
-        auto hostConfig = state.baseConfig;
-        hostConfig.multiplayerActive = true;
-        hostConfig.noCooldown = false;
-        RuntimeWindowParentWin32 skirmishParent(state.hostWindow);
-        selection = runRuntimeSkirmishMenu(hostConfig, skirmishParent.id());
-        if (state.window != nullptr && IsWindow(state.window)) {
-            ShowWindow(state.window, SW_SHOW);SetForegroundWindow(state.window);
-        }
-        if (!selection.accepted) return fail(errorMessage, "host setup selection was cancelled");
-    }
 
-    std::uint64_t randomSeed = 0U;
-    std::uint64_t roomGeneration = 0U;
-    std::string roomId;
-    if (!secureRandomU64(randomSeed, errorMessage)
-        || !secureRandomU64(roomGeneration, errorMessage)
-        || !generateRuntimeMultiplayerSecureId(
-            "room-",
-            roomId,
-            errorMessage
-        )) {
-        return false;
-    }
 
-    if (!fromSave && !projectRuntimeMultiplayerHostSelection(
-            state.baseConfig,
-            selection,
-            playerName,
-            state.peerId,
-            randomSeed,
-            projection,
-            errorMessage
-        )) {
-        return false;
-    }
 
-    RuntimeMultiplayerLanHostOptions network;
-    network.session.roomId = std::move(roomId);
-    network.session.hostPeerId = state.peerId;
-    network.session.hostDisplayName = playerName;
-    network.session.hostParticipation = projection.lobby.hostMember.participation;
-    network.session.compatibility = state.compatibility;
-    network.roomName = playerName + (fromSave ? " · 恢复存档" : " Room");
-    network.discoveryPort =
-        state.network == RuntimeMultiplayerMenuNetwork::Internet
-        ? hostPort
-        : runtimeLanDefaultDiscoveryPort;
-    network.sessionPort = hostPort;
-    network.roomGeneration = roomGeneration;
-    network.password = controlText(state.passwordEdit);
-    network.passwordProtected = !network.password.empty();
-    if (!state.flow.startHost(
-            std::move(network),
-            projection.lobby,
-            errorMessage,
-            fromSave ? &resumeSave : nullptr
-        )) {
-        return false;
-    }
-    for (std::size_t index = 0U; !fromSave && index < projection.slots.size(); ++index) {
-        std::string publishError;
-        const RuntimeMultiplayerLobbyEditResult edit = state.flow.setSlot(
-            index,
-            projection.slots[index],
-            publishError
-        );
-        if (!edit.accepted || !publishError.empty()) {
-            state.flow.close();
-            return fail(
-                errorMessage,
-                !publishError.empty() ? publishError : edit.reason
-            );
-        }
-    }
 
-    state.hosting = true;
-    SetWindowTextW(state.passwordEdit, L"");
-    state.localMapPath = projection.localMapPath;
-    showPage(state, MultiplayerMenuPage::Lobby);
-    std::string verificationError;
-    if (ensureLocalMapVerified(state, verificationError)) {
-        setStatus(
-            state,
-            state.network == RuntimeMultiplayerMenuNetwork::Internet
-                ? "Direct room ready. Forward the displayed port for both UDP and TCP."
-                : "LAN room ready. Waiting for players."
-        );
-    } else {
-        setStatus(state, verificationError);
-    }
-    updateRoster(state);
-    if (fromSave) setStatus(state, "恢复房间已建立。等待原有席位到齐并接收存档；选中玩家后可交换席位。");
-    return true;
-}
+
+
+
+
 
 void beginDirectDiscovery(RuntimeMultiplayerMenuUiState& state) {
     std::string errorMessage;
@@ -1937,123 +1503,11 @@ void beginDirectDiscovery(RuntimeMultiplayerMenuUiState& state) {
     );
 }
 
-void joinSelectedLanRoom(RuntimeMultiplayerMenuUiState& state) {
-    const LRESULT selection = SendMessageW(
-        state.roomList,
-        LB_GETCURSEL,
-        0U,
-        0
-    );
-    if (selection == LB_ERR
-        || static_cast<std::size_t>(selection) >= state.rooms.size()) {
-        setStatus(state, "Select a discovered LAN room first.");
-        return;
-    }
-    const bool spectator = SendMessageW(
-        state.spectatorCheck,
-        BM_GETCHECK,
-        0U,
-        0
-    ) == BST_CHECKED;
-    std::string errorMessage;
-    if (!enterLobbyWithRoom(
-            state,
-            state.rooms[static_cast<std::size_t>(selection)],
-            controlText(state.playerNameEdit),
-            spectator,
-            controlText(state.passwordEdit),
-            errorMessage
-        )) {
-        setStatus(state, errorMessage);
-    }
-}
 
-void applyLocalSlotOptions(RuntimeMultiplayerMenuUiState& state) {
-    if (state.flow.bridge() == nullptr
-        || !state.flow.lobby().initialized()) {
-        setStatus(state, "Canonical lobby setup is not available yet.");
-        return;
-    }
-    const RuntimeMultiplayerMatchSlot* localSlot = humanSlotForPeer(
-        state,
-        state.flow.bridge()->lan().localPeerId()
-    );
-    if (!localSlot) {
-        setStatus(state, "Spectators do not own a player setup slot.");
-        return;
-    }
-    std::string country = trimAscii(controlText(state.countryEdit));
-    std::string color = trimAscii(controlText(state.colorEdit));
-    std::string team = trimAscii(controlText(state.teamEdit));
-    std::string difficulty = trimAscii(
-        controlText(state.difficultyEdit)
-    );
-    const std::string startText = trimAscii(
-        controlText(state.startPositionEdit)
-    );
-    if (startText.size() != 1U || startText.front() < '0'
-        || startText.front() > '8') {
-        setStatus(state, "Start position must be one digit from 0 to 8.");
-        return;
-    }
-    const auto startPosition = static_cast<std::uint8_t>(
-        startText.front() - '0'
-    );
-    if (state.hosting) {
-        std::string publishError;
-        const RuntimeMultiplayerLobbyEditResult edit =
-            state.flow.setSlotOptions(
-                localSlot->slotIndex,
-                std::move(country),
-                std::move(color),
-                std::move(team),
-                std::move(difficulty),
-                startPosition,
-                publishError
-            );
-        if (!edit.accepted || !publishError.empty()) {
-            setStatus(
-                state,
-                !publishError.empty() ? publishError : edit.reason
-            );
-            return;
-        }
-        setStatus(state, "Player setup updated for the whole lobby.");
-    } else {
-        const RuntimeMultiplayerLanOperationResult result =
-            state.flow.requestLocalSlotOptions(
-                std::move(country),
-                std::move(color),
-                std::move(team),
-                std::move(difficulty),
-                startPosition
-            );
-        if (!result.succeeded) {
-            setStatus(state, result.reason);
-            return;
-        }
-        setStatus(state, "Player setup request sent to the host...");
-    }
-    updateRoster(state);
-}
 
-void kickSelectedPeer(RuntimeMultiplayerMenuUiState& state) {
-    if (!state.hosting || state.selectedRosterPeerId.empty()) {
-        setStatus(state, "Select a remote player or spectator first.");
-        return;
-    }
-    const RuntimeMultiplayerLanOperationResult result = state.flow.kickPeer(
-        state.selectedRosterPeerId,
-        "removed by the host"
-    );
-    if (!result.succeeded) {
-        setStatus(state, result.reason);
-        return;
-    }
-    state.selectedRosterPeerId.clear();
-    setStatus(state, "Selected lobby member was removed.");
-    updateRoster(state);
-}
+
+
+
 
 void pollDirectDiscovery(RuntimeMultiplayerMenuUiState& state) {
     if (!state.directDiscoveryPending) return;
@@ -2101,7 +1555,7 @@ void pollDirectDiscovery(RuntimeMultiplayerMenuUiState& state) {
 void finishStartedMatch(RuntimeMultiplayerMenuUiState& state) {
     RuntimeMultiplayerLaunchConfigResult launch;
     std::string errorMessage;
-    if (!state.flow.makeLaunchConfig(
+    if (!state.flowBackend.makeLaunchConfig(
             state.baseConfig,
             launch,
             errorMessage
@@ -2110,7 +1564,7 @@ void finishStartedMatch(RuntimeMultiplayerMenuUiState& state) {
         return;
     }
     std::unique_ptr<RuntimeMultiplayerRuntimeBridge> bridge =
-        state.flow.takeRunningBridge(errorMessage);
+        state.flowBackend.takeRunningBridge(errorMessage);
     if (!bridge) {
         setStatus(state, errorMessage);
         return;
@@ -2126,100 +1580,132 @@ void finishStartedMatch(RuntimeMultiplayerMenuUiState& state) {
     closeMenu(state);
 }
 
-void pollMenu(RuntimeMultiplayerMenuUiState& state) {
-    if (!state.flow.initialized()) return;
-    const RuntimeMultiplayerLobbyFlowPollResult polled = state.flow.poll();
-    if (!polled.succeeded) {
-        state.directDiscoveryPending = false;
-        setStatus(state, polled.error);
-        return;
-    }
-    for (const RuntimeMultiplayerLanEvent& event : polled.events) {
-        if (event.kind == RuntimeMultiplayerLanEventKind::Kicked) {
-            const std::wstring message = wideFromUtf8(
-                event.reason.empty()
-                    ? "You were removed from the lobby by the host."
-                    : event.reason
-            );
-            MessageBoxW(
-                state.window,
-                message.c_str(),
-                L"Removed from lobby",
-                MB_OK | MB_ICONINFORMATION
-            );
-            closeMenu(state);
-            return;
-        }
-        if (event.kind
-                == RuntimeMultiplayerLanEventKind::LobbySlotOptionsResult
-            && event.lobbySlotOptionsResult.has_value()) {
-            const auto& response = *event.lobbySlotOptionsResult;
-            setStatus(
-                state,
-                response.accepted
-                    ? "Host accepted the player setup."
-                    : (response.reason.empty()
-                        ? "Host rejected the player setup."
-                        : response.reason)
-            );
-        }
-    }
-    if (state.page == MultiplayerMenuPage::Browser) {
-        if (state.network == RuntimeMultiplayerMenuNetwork::Lan) {
-            updateRoomList(state);
-        } else {
-            pollDirectDiscovery(state);
-        }
-        return;
-    }
 
-    std::string verificationError;
-    if (!state.flow.localMapVerified()
-        && state.flow.canonicalSetupPublished()) {
-        if (ensureLocalMapVerified(state, verificationError)) {
-            setStatus(state, "Local map verified. Ready is now available.");
-        } else {
-            setStatus(state, verificationError);
+
+
+
+
+
+
+
+bool RuntimeMultiplayerMenuUiState::startHost(RuntimeMultiplayerLanHostOptions&& options, const RuntimeMultiplayerLobbyHostCreateOptions& lobby, std::string& error, const RuntimeMultiplayerResumeSave* resume)  { return flowBackend.startHost(std::move(options), lobby, error, resume); }
+bool RuntimeMultiplayerMenuUiState::startBrowsing(std::uint16_t port, std::string& error)  { return flowBackend.startBrowsing(port, error); }
+bool RuntimeMultiplayerMenuUiState::join(RuntimeMultiplayerLanJoinOptions&& options, std::string& error)  { return flowBackend.join(std::move(options), error); }
+bool RuntimeMultiplayerMenuUiState::sendDiscoveryProbe(const std::string& address, std::string& error)  { return flowBackend.sendDiscoveryProbe(address, error); }
+std::vector<RuntimeLanRoomAdvertisement> RuntimeMultiplayerMenuUiState::discoveredRooms(std::uint64_t age) const { return flowBackend.discoveredRooms(age); }
+RuntimeMultiplayerLobbyFlowPollResult RuntimeMultiplayerMenuUiState::poll(int timeout)  { return flowBackend.poll(timeout); }
+RuntimeMultiplayerLobbyEditResult RuntimeMultiplayerMenuUiState::setSlot(std::size_t index, const RuntimeMultiplayerMatchSlot& slot, std::string& error)  { return flowBackend.setSlot(index, slot, error); }
+RuntimeMultiplayerLobbyEditResult RuntimeMultiplayerMenuUiState::setSlotController(std::size_t index, RuntimeMultiplayerMatchSlotController kind, std::string_view peer, std::string& error)  { return flowBackend.setSlotController(index, kind, peer, error); }
+RuntimeMultiplayerLobbyEditResult RuntimeMultiplayerMenuUiState::setSlotOptions(std::size_t index, std::string&& country, std::string&& color, std::string&& team, std::string&& difficulty, std::uint8_t position, std::string& error)  { return flowBackend.setSlotOptions(index, std::move(country), std::move(color), std::move(team), std::move(difficulty), position, error); }
+RuntimeMultiplayerLanOperationResult RuntimeMultiplayerMenuUiState::requestLocalSlotOptions(std::string&& country, std::string&& color, std::string&& team, std::string&& difficulty, std::uint8_t position)  { return flowBackend.requestLocalSlotOptions(std::move(country), std::move(color), std::move(team), std::move(difficulty), position); }
+RuntimeMultiplayerLanOperationResult RuntimeMultiplayerMenuUiState::kickPeer(const std::string& peer, std::string reason)  { return flowBackend.kickPeer(peer, std::move(reason)); }
+bool RuntimeMultiplayerMenuUiState::verifyLocalMap(const std::filesystem::path& path, std::string& error)  { return flowBackend.verifyLocalMap(path, error); }
+bool RuntimeMultiplayerMenuUiState::localMapVerified() const { return flowBackend.localMapVerified(); }
+bool RuntimeMultiplayerMenuUiState::downloadMissingMap(const std::filesystem::path& root, std::filesystem::path& output, std::string& error)  { return flowBackend.downloadMissingMap(root, output, error); }
+bool RuntimeMultiplayerMenuUiState::hostAuthoritative() const { return flowBackend.hostAuthoritative(); }
+bool RuntimeMultiplayerMenuUiState::canonicalSetupPublished() const { return flowBackend.canonicalSetupPublished(); }
+bool RuntimeMultiplayerMenuUiState::resuming() const { return flowBackend.resuming(); }
+bool RuntimeMultiplayerMenuUiState::resumeReady(std::string& error) const { return flowBackend.resumeReady(error); }
+bool RuntimeMultiplayerMenuUiState::canStart(std::string& error) const { return flowBackend.canStart(error); }
+bool RuntimeMultiplayerMenuUiState::initialized() const { return flowBackend.initialized(); }
+RuntimeMultiplayerLanOperationResult RuntimeMultiplayerMenuUiState::setReady(bool value)  { return flowBackend.setReady(value); }
+RuntimeMultiplayerLanOperationResult RuntimeMultiplayerMenuUiState::startMatch(int tick)  { return flowBackend.startMatch(tick); }
+void RuntimeMultiplayerMenuUiState::close()  { flowBackend.close(); }
+const RuntimeMultiplayerLobbyModel& RuntimeMultiplayerMenuUiState::lobby() const { return flowBackend.lobby(); }
+bool RuntimeMultiplayerMenuUiState::bridgePresent() const { return flowBackend.bridge() != nullptr; }
+bool RuntimeMultiplayerMenuUiState::sessionActive() const { return flowBackend.bridge()->lan().session().active(); }
+const std::string& RuntimeMultiplayerMenuUiState::localPeerId() const { return flowBackend.bridge()->lan().localPeerId(); }
+const std::vector<RuntimeMultiplayerRoomMember>& RuntimeMultiplayerMenuUiState::members() const { return flowBackend.bridge()->lan().session().members(); }
+RuntimeMultiplayerLanRole RuntimeMultiplayerMenuUiState::lanRole() const { return flowBackend.bridge()->lan().role(); }
+RuntimeMultiplayerLanPhase RuntimeMultiplayerMenuUiState::lanPhase() const { return flowBackend.bridge()->lan().phase(); }
+void RuntimeMultiplayerMenuUiState::leave() { flowBackend.bridge()->lan().leave(); }
+
+HWND RuntimeMultiplayerMenuUiState::widgetHandle(RuntimeLanMenuWidget widget) const {
+    switch (widget) {
+    case RuntimeLanMenuWidget::hostWindow: return hostWindow;
+    case RuntimeLanMenuWidget::window: return window;
+    case RuntimeLanMenuWidget::playerNameLabel: return playerNameLabel;
+    case RuntimeLanMenuWidget::playerNameEdit: return playerNameEdit;
+    case RuntimeLanMenuWidget::hostPortLabel: return hostPortLabel;
+    case RuntimeLanMenuWidget::hostPortEdit: return hostPortEdit;
+    case RuntimeLanMenuWidget::directAddressLabel: return directAddressLabel;
+    case RuntimeLanMenuWidget::directAddressEdit: return directAddressEdit;
+    case RuntimeLanMenuWidget::passwordLabel: return passwordLabel;
+    case RuntimeLanMenuWidget::passwordEdit: return passwordEdit;
+    case RuntimeLanMenuWidget::hostButton: return hostButton;
+    case RuntimeLanMenuWidget::resumeHostButton: return resumeHostButton;
+    case RuntimeLanMenuWidget::resumeSwapButton: return resumeSwapButton;
+    case RuntimeLanMenuWidget::refreshButton: return refreshButton;
+    case RuntimeLanMenuWidget::joinButton: return joinButton;
+    case RuntimeLanMenuWidget::spectatorCheck: return spectatorCheck;
+    case RuntimeLanMenuWidget::backButton: return backButton;
+    case RuntimeLanMenuWidget::roomList: return roomList;
+    case RuntimeLanMenuWidget::rosterList: return rosterList;
+    case RuntimeLanMenuWidget::countryLabel: return countryLabel;
+    case RuntimeLanMenuWidget::countryEdit: return countryEdit;
+    case RuntimeLanMenuWidget::colorLabel: return colorLabel;
+    case RuntimeLanMenuWidget::colorEdit: return colorEdit;
+    case RuntimeLanMenuWidget::teamLabel: return teamLabel;
+    case RuntimeLanMenuWidget::teamEdit: return teamEdit;
+    case RuntimeLanMenuWidget::difficultyLabel: return difficultyLabel;
+    case RuntimeLanMenuWidget::difficultyEdit: return difficultyEdit;
+    case RuntimeLanMenuWidget::startPositionLabel: return startPositionLabel;
+    case RuntimeLanMenuWidget::startPositionEdit: return startPositionEdit;
+    case RuntimeLanMenuWidget::applySlotButton: return applySlotButton;
+    case RuntimeLanMenuWidget::kickButton: return kickButton;
+    case RuntimeLanMenuWidget::readyButton: return readyButton;
+    case RuntimeLanMenuWidget::startButton: return startButton;
+    case RuntimeLanMenuWidget::leaveButton: return leaveButton;
+    case RuntimeLanMenuWidget::statusText: return statusText;
+    case RuntimeLanMenuWidget::networkHint: return networkHint;
+    }
+    return nullptr;
+}
+void RuntimeMultiplayerMenuUiState::showWidget(RuntimeLanMenuWidget widget,bool visible) { showControl(widgetHandle(widget),visible); }
+void RuntimeMultiplayerMenuUiState::enableWidget(RuntimeLanMenuWidget widget,bool enabled) { EnableWindow(widgetHandle(widget),enabled?TRUE:FALSE); }
+std::string RuntimeMultiplayerMenuUiState::text(RuntimeLanMenuWidget widget) const { return controlText(widgetHandle(widget)); }
+void RuntimeMultiplayerMenuUiState::setText(RuntimeLanMenuWidget widget,const std::string& value) { setControlText(widgetHandle(widget),value); }
+void RuntimeMultiplayerMenuUiState::listClear(RuntimeLanMenuWidget widget) { SendMessageW(widgetHandle(widget),LB_RESETCONTENT,0U,0); }
+void RuntimeMultiplayerMenuUiState::listAdd(RuntimeLanMenuWidget widget,const std::string& value) { const std::wstring wide=wideFromUtf8(value);SendMessageW(widgetHandle(widget),LB_ADDSTRING,0U,reinterpret_cast<LPARAM>(wide.c_str())); }
+std::int64_t RuntimeMultiplayerMenuUiState::listSelected(RuntimeLanMenuWidget widget) const { return static_cast<std::int64_t>(SendMessageW(widgetHandle(widget),LB_GETCURSEL,0U,0)); }
+void RuntimeMultiplayerMenuUiState::listSelect(RuntimeLanMenuWidget widget,std::int64_t index) { SendMessageW(widgetHandle(widget),LB_SETCURSEL,static_cast<WPARAM>(index),0); }
+bool RuntimeMultiplayerMenuUiState::checked(RuntimeLanMenuWidget widget) const { return SendMessageW(widgetHandle(widget),BM_GETCHECK,0U,0)==BST_CHECKED; }
+bool RuntimeMultiplayerMenuUiState::hasWidget(RuntimeLanMenuWidget widget) const { return widgetHandle(widget) != nullptr; }
+bool RuntimeMultiplayerMenuUiState::parseEndpoint(std::string_view value,RuntimeMultiplayerDirectEndpoint& endpoint,std::string& error) { return parseRuntimeMultiplayerDirectEndpoint(value,endpoint,error); }
+bool RuntimeMultiplayerMenuUiState::makeJoinOptions(const RuntimeLanRoomAdvertisement& room,std::string&& player,const std::string& peer,bool spectator,std::string&& password,const RuntimeMultiplayerCompatibility& compatibility,RuntimeMultiplayerLanJoinOptions& options,std::string& error) { return makeRuntimeMultiplayerMenuJoinOptions(room,std::move(player),peer,spectator,std::move(password),compatibility,options,error); }
+void RuntimeMultiplayerMenuUiState::clearPassword() { SetWindowTextW(passwordEdit,L""); }
+void RuntimeMultiplayerMenuUiState::readyLabel(bool ready) { SetWindowTextW(readyButton,ready?L"Unready":L"Ready"); }
+bool RuntimeMultiplayerMenuUiState::runHostSetup(const RuntimeConfig& config,RuntimeSkirmishSelection& selection,std::string& errorMessage) {
+    auto& state=*this;
+
+        ShowWindow(state.window, SW_HIDE);
+        auto hostConfig = config;
+        hostConfig.multiplayerActive = true;
+        hostConfig.noCooldown = false;
+        RuntimeWindowParentWin32 skirmishParent(state.hostWindow);
+        selection = runRuntimeSkirmishMenu(hostConfig, skirmishParent.id());
+        if (state.window != nullptr && IsWindow(state.window)) {
+            ShowWindow(state.window, SW_SHOW);SetForegroundWindow(state.window);
         }
-    }
-    updateRoster(state);
-    if (polled.matchStarted) finishStartedMatch(state);
+        if (!selection.accepted) return fail(errorMessage, "host setup selection was cancelled");
+    
+    return true;
 }
-
-void toggleReady(RuntimeMultiplayerMenuUiState& state) {
-    const RuntimeMultiplayerLanOperationResult result = state.flow.setReady(
-        !localMemberReady(state)
-    );
-    if (!result.succeeded) {
-        setStatus(state, result.reason);
-        return;
-    }
-    setStatus(
-        state,
-        result.queued ? "Ready change sent to host..." : "Ready state updated."
-    );
-    updateRoster(state);
-}
-
-void startMatch(RuntimeMultiplayerMenuUiState& state) {
-    const RuntimeMultiplayerLanOperationResult result = state.flow.startMatch();
-    if (!result.succeeded) {
-        setStatus(state, result.reason);
-        return;
-    }
-    setStatus(state, "Starting the verified room...");
-}
-
-void leaveLobby(RuntimeMultiplayerMenuUiState& state) {
-    if (state.flow.bridge() != nullptr
-        && state.flow.bridge()->lan().role()
-            == RuntimeMultiplayerLanRole::Client
-        && state.flow.bridge()->lan().phase()
-            == RuntimeMultiplayerLanPhase::Lobby) {
-        state.flow.bridge()->lan().leave();
-    }
-    closeMenu(state);
-}
+bool RuntimeMultiplayerMenuUiState::selectResume(const RuntimeConfig& config,const RuntimeMultiplayerCompatibility& compatibility,const std::string& player,const std::string& peer,RuntimeMultiplayerResumeSave& save,RuntimeMultiplayerHostSelectionProjection& projection,std::string& error) { RuntimeWindowParentWin32 resumeParent(window); return selectRuntimeMultiplayerResumeSave(config,compatibility,player,peer,resumeParent.id(),save,projection,error); }
+bool RuntimeMultiplayerMenuUiState::normalizeName(std::string& value,std::size_t maximum,std::string& error) { return normalizeDisplayName(value,maximum,error); }
+std::string RuntimeMultiplayerMenuUiState::trim(const std::string& value) const { return trimAscii(value); }
+bool RuntimeMultiplayerMenuUiState::secureU64(std::uint64_t& value,std::string& error) { return secureRandomU64(value,error); }
+bool RuntimeMultiplayerMenuUiState::secureId(std::string_view prefix,std::string& value,std::string& error) { return generateRuntimeMultiplayerSecureId(prefix,value,error); }
+bool RuntimeMultiplayerMenuUiState::projectHost(const RuntimeConfig& config,const RuntimeSkirmishSelection& selection,const std::string& player,const std::string& peer,std::uint64_t seed,RuntimeMultiplayerHostSelectionProjection& projection,std::string& error) { return projectRuntimeMultiplayerHostSelection(config,selection,player,peer,seed,projection,error); }
+bool RuntimeMultiplayerMenuUiState::resolveMap(const RuntimeConfig& config,const RuntimeMultiplayerMatchMap& map,std::filesystem::path& path,std::string& error) { return resolveRuntimeMultiplayerMenuMap(config,map,path,error); }
+bool RuntimeMultiplayerMenuUiState::makeCompatibility(const RuntimeConfig& config,RuntimeMultiplayerCompatibility& compatibility,std::string& error) { return makeRuntimeMultiplayerMenuCompatibility(config,compatibility,error); }
+bool RuntimeMultiplayerMenuUiState::accepted() const { return result.accepted; }
+std::string& RuntimeMultiplayerMenuUiState::resultError() { return result.error; }
+void RuntimeMultiplayerMenuUiState::showKickedMessage(const std::string& reason) { const std::wstring message=wideFromUtf8(reason);MessageBoxW(window,message.c_str(),L"Removed from lobby",MB_OK|MB_ICONINFORMATION); }
+void RuntimeMultiplayerMenuUiState::destroyWindow() { if(window!=nullptr&&IsWindow(window))DestroyWindow(window); }
+void RuntimeMultiplayerMenuUiState::finishStartedMatch() { ::finishStartedMatch(*this); }
+void RuntimeMultiplayerMenuUiState::beginDirectDiscovery() { ::beginDirectDiscovery(*this); }
+void RuntimeMultiplayerMenuUiState::pollDirectDiscovery() { ::pollDirectDiscovery(*this); }
 
 LRESULT CALLBACK multiplayerMenuWindowProc(
     HWND window,
@@ -2248,78 +1734,11 @@ LRESULT CALLBACK multiplayerMenuWindowProc(
     case WM_COMMAND:
         if (LOWORD(wParam) == RosterList
             && HIWORD(wParam) == LBN_SELCHANGE) {
-            const LRESULT selected = SendMessageW(
-                state->rosterList,
-                LB_GETCURSEL,
-                0U,
-                0
-            );
-            state->selectedRosterPeerId =
-                selected != LB_ERR
-                    && static_cast<std::size_t>(selected)
-                        < state->rosterPeerIds.size()
-                ? state->rosterPeerIds[static_cast<std::size_t>(selected)]
-                : std::string{};
-            updateRoster(*state);
+            rosterSelectionChanged(*state);
             return 0;
         }
         if (HIWORD(wParam) != BN_CLICKED) break;
-        switch (LOWORD(wParam)) {
-        case HostButton: {
-            std::string errorMessage;
-            if (!startHosting(*state, errorMessage)) {
-                setStatus(*state, errorMessage);
-            }
-            return 0;
-        }
-        case RefreshButton: {
-            std::string errorMessage;
-            if (!beginLanBrowsing(*state, errorMessage)) {
-                setStatus(*state, errorMessage);
-            } else {
-                setStatus(*state, "LAN discovery probe sent.");
-            }
-            return 0;
-        }
-        case JoinButton:
-            if (state->network == RuntimeMultiplayerMenuNetwork::Lan) {
-                joinSelectedLanRoom(*state);
-            } else {
-                beginDirectDiscovery(*state);
-            }
-            return 0;
-        case ReadyButton:
-            toggleReady(*state);
-            return 0;
-        case ResumeHostButton: {
-            std::string error;
-            if (!startHosting(*state, error, true)) setStatus(*state, error);
-            return 0;
-        }
-        case ResumeSwapButton: {
-            const auto* slot = humanSlotForPeer(*state, state->selectedRosterPeerId);
-            std::string error;
-            if (!slot) { setStatus(*state, "请先选中一位占有席位的玩家。");return 0; }
-            const auto edit = state->flow.setSlotController(slot->slotIndex, RuntimeMultiplayerMatchSlotController::Human, state->peerId, error);
-            setStatus(*state, edit.accepted && error.empty() ? "席位已交换，请重新准备。" : error);
-            updateRoster(*state);return 0;
-        }
-        case StartButton:
-            startMatch(*state);
-            return 0;
-        case ApplySlotButton:
-            applyLocalSlotOptions(*state);
-            return 0;
-        case KickButton:
-            kickSelectedPeer(*state);
-            return 0;
-        case LeaveButton:
-        case BackButton:
-            leaveLobby(*state);
-            return 0;
-        default:
-            break;
-        }
+        if (handleControlClick(*state, LOWORD(wParam))) return 0;
         break;
     case WM_TIMER:
         if (wParam == multiplayerMenuPollTimer) pollMenu(*state);
@@ -2422,10 +1841,20 @@ HWND createMultiplayerMenuWindow(
 RuntimeMultiplayerMenuResult runRuntimeMultiplayerMenu(
     const RuntimeConfig& baseConfig,
     RuntimeMultiplayerMenuNetwork network,
-    void* hostWindow
+    RuntimeWindowId hostWindow
 ) {
     if (network == RuntimeMultiplayerMenuNetwork::Internet) {
+#if defined(_WIN32)
+        const auto internetParent = resolveRuntimeWindowParentWin32(hostWindow);
+        if (!internetParent.supported) {
+            RuntimeMultiplayerMenuResult rejected;
+            rejected.error = "unsupported multiplayer menu parent identity";
+            return rejected;
+        }
         return runRuntimeInternetMultiplayerMenu(baseConfig, hostWindow);
+#else
+        return runRuntimeInternetMultiplayerMenu(baseConfig, hostWindow);
+#endif
     }
 #if !defined(_WIN32)
     RuntimeMultiplayerMenuResult unavailable;
@@ -2437,40 +1866,18 @@ RuntimeMultiplayerMenuResult runRuntimeMultiplayerMenu(
     RuntimeMultiplayerMenuUiState state;
     state.baseConfig = baseConfig;
     state.network = network;
-    state.hostWindow = static_cast<HWND>(hostWindow);
-    std::string initializationError;
-    state.compatibilityReady = makeRuntimeMultiplayerMenuCompatibility(
-        baseConfig,
-        state.compatibility,
-        initializationError
-    );
-    if (!generateRuntimeMultiplayerSecureId(
-            "peer-",
-            state.peerId,
-            state.result.error
-        )) {
+    const auto resolvedParent = resolveRuntimeWindowParentWin32(hostWindow);
+    if (!resolvedParent.supported) {
+        state.result.error = "unsupported multiplayer menu parent identity";
         return std::move(state.result);
     }
+    state.hostWindow = resolvedParent.window;
+    std::string initializationError;
+    if (!initializeLanMenuData(state, initializationError)) return std::move(state.result);
     state.window = createMultiplayerMenuWindow(state, state.result.error);
     if (state.window == nullptr) return std::move(state.result);
     createMenuControls(state);
-    if (state.compatibilityReady) {
-        if (network == RuntimeMultiplayerMenuNetwork::Lan) {
-            std::string browseError;
-            if (!beginLanBrowsing(state, browseError)) {
-                setStatus(state, browseError);
-            } else {
-                setStatus(state, "LAN browser ready. Refresh to discover rooms.");
-            }
-        } else {
-            setStatus(
-                state,
-                "Enter a forwarded address:port for a direct UDP probe and TCP connection."
-            );
-        }
-    } else {
-        setStatus(state, initializationError);
-    }
+    initializeLanBrowser(state, initializationError);
     SetTimer(
         state.window,
         multiplayerMenuPollTimer,
@@ -2494,6 +1901,10 @@ RuntimeMultiplayerMenuResult runRuntimeMultiplayerMenu(
         DispatchMessageW(&message);
     }
     if (!state.result.accepted) state.flow.close();
+    // GetMessage can leave through WM_QUIT/error without WM_CLOSE. Retire the
+    // owned page while its stack state is still alive; keep the original flow
+    // close, result transfer and WM_QUIT code/repost unchanged.
+    if (state.window != nullptr && IsWindow(state.window)) DestroyWindow(state.window);
     return std::move(state.result);
 #endif
 }
@@ -2501,7 +1912,7 @@ RuntimeMultiplayerMenuResult runRuntimeMultiplayerMenu(
 int runRuntimeMultiplayerMenuUiSmoke(
     const RuntimeConfig& baseConfig,
     RuntimeMultiplayerMenuNetwork network,
-    void* hostWindow
+    RuntimeWindowId hostWindow
 ) {
     RuntimeMultiplayerMenuResult result = runRuntimeMultiplayerMenu(
         baseConfig,
@@ -2528,4 +1939,8 @@ int runRuntimeMultiplayerResumeMenuWindowSmoke(const std::string& outputPath) {
     return valid ? 0 : 1;
 }
 #endif
+#endif
+
+#if defined(_WIN32) && !defined(RUNTIME_MULTIPLAYER_MENU_PURE_HELPERS_ONLY)
+#include "ui/network/diagnostics/RuntimeLanMenuHostLifecycleSmoke.inl"
 #endif

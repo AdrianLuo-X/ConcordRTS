@@ -3,6 +3,7 @@
 #include "network/maps/RuntimeMultiplayerMapCache.h"
 #include "RuntimeMultiplayerResumeFixture.h"
 
+#include "RuntimeMultiplayerSmokeRetention.h"
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
@@ -214,7 +215,7 @@ void runLobbyFlow(SmokeContext& context) {
         )) {
         host.close();
         client.close();
-        std::filesystem::remove(mapPath);
+        if (!runtimeMultiplayerSmokeRetainArtifacts()) std::filesystem::remove(mapPath);
         return;
     }
 
@@ -317,7 +318,7 @@ void runLobbyFlow(SmokeContext& context) {
     );
     if (hostBridge) hostBridge->lan().close();
     if (clientBridge) clientBridge->lan().close();
-    std::filesystem::remove(mapPath);
+    if (!runtimeMultiplayerSmokeRetainArtifacts()) std::filesystem::remove(mapPath);
 }
 
 RuntimeMultiplayerLobbyHostCreateOptions multiClientLobbyOptions(
@@ -514,7 +515,7 @@ void runFormalLobbyControls(SmokeContext& context) {
         host.close();
         clientA.close();
         clientB.close();
-        std::filesystem::remove(mapPath);
+        if (!runtimeMultiplayerSmokeRetainArtifacts()) std::filesystem::remove(mapPath);
         return;
     }
 
@@ -767,7 +768,7 @@ void runFormalLobbyControls(SmokeContext& context) {
     host.close();
     clientA.close();
     clientB.close();
-    std::filesystem::remove(mapPath);
+    if (!runtimeMultiplayerSmokeRetainArtifacts()) std::filesystem::remove(mapPath);
 }
 
 void runAdmissionCapacityCase(

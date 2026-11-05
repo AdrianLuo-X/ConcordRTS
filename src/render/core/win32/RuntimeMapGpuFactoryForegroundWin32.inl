@@ -13,7 +13,7 @@ public:
                 (void)drawRuntimeFactoryAirExitForeground(nullptr,bounds,host,center,context,camera,cache);}
             const int width=bounds.right-bounds.left,height=bounds.bottom-bounds.top;std::vector<unsigned char> mask(static_cast<std::size_t>(width)*height);
             for(const auto& span:spans){if(span.y<bounds.top||span.y>=bounds.bottom)continue;
-                for(int x=std::max(span.left,bounds.left);x<std::min(span.right,bounds.right);++x)mask[static_cast<std::size_t>(span.y-bounds.top)*width+x-bounds.left]=1;}
+                for(int x=std::max<LONG>(span.left,bounds.left);x<std::min<LONG>(span.right,bounds.right);++x)mask[static_cast<std::size_t>(span.y-bounds.top)*width+x-bounds.left]=1;}
             if(std::none_of(mask.begin(),mask.end(),[](unsigned char value){return value!=0;}))return;
             auto* list=owner_->drawList();if(!list)throw std::runtime_error("factory foreground packet");
             restore_=runtimeGpuWorldRegion(bounds,concord::render::MapDrawKind::RestoreMask);restore_.width=width;restore_.height=height;restore_.stride=width;restore_.offset=list->intern(mask);

@@ -206,10 +206,15 @@ int main(int argc, char** argv) {
             ok = false;
             continue;
         }
+        // The materializer returns generic_u8string bytes. Decode its output
+        // explicitly when validating an isolated cache in a Unicode directory;
+        // the original size/signature/cache-identity assertions remain intact.
+        const fs::path nativeMaterializedPath(std::u8string_view(
+            reinterpret_cast<const char8_t*>(materializedPath.data()), materializedPath.size()));
         std::error_code sizeError;
-        const std::uintmax_t size = fs::file_size(materializedPath, sizeError);
+        const std::uintmax_t size = fs::file_size(nativeMaterializedPath, sizeError);
         std::array<char, 3> signature{};
-        std::ifstream input(materializedPath, std::ios::binary);
+        std::ifstream input(nativeMaterializedPath, std::ios::binary);
         input.read(signature.data(), static_cast<std::streamsize>(signature.size()));
         if (sizeError || size != resolution.byteSize
             || input.gcount() != static_cast<std::streamsize>(signature.size())

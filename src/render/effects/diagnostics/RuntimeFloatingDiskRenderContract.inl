@@ -76,7 +76,7 @@ bool runRuntimeFloatingDiskRenderContractCheck(const RuntimeMapRenderContext& co
         camera.worldOffsetX = static_cast<int>(std::lround(origin.x)) - 75;
         camera.worldOffsetY = static_cast<int>(std::lround(origin.y)) - 72
             - runtimeAircraftSpriteLiftPixels(disk, runtimeObjectLooksAircraftForRender(disk, probe));
-        const POINT center = runtimeObjectBodyAnchorForRender(disk, viewport, probe, camera);
+        const POINT center = runtimeObjectBodyAnchorForRenderWin32(disk, viewport, probe, camera);
         if (!tryDrawVoxelSprite(nullptr, viewport, disk, center, probe, camera, *cache))
             return fail("original floating disk body could not be drawn");
         if (row == 0) {
@@ -102,7 +102,7 @@ bool runRuntimeFloatingDiskRenderContractCheck(const RuntimeMapRenderContext& co
             target.level = static_cast<int>(std::lround(actor.toLevel));
             target.facing = target.turretFacing = 160;
             if (!tryDrawVoxelSprite(nullptr, viewport, target,
-                    runtimeObjectBodyAnchorForRender(target, viewport, probe, camera), probe, camera, *cache))
+                    runtimeObjectBodyAnchorForRenderWin32(target, viewport, probe, camera), probe, camera, *cache))
                 return fail("original target model missing");
             const auto before = pixels;
             std::vector<RuntimeProjectileRenderActor> shots{actors[column]};

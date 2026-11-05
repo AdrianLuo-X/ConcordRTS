@@ -4,6 +4,7 @@ param(
     [string]$CMakeExecutable, [string]$NinjaExecutable, [string]$LLVMRoot,
     [string]$MSVCRoot, [string]$WindowsSDKRoot, [string]$WindowsSDKVersion,
     [string]$MSVCCompatibilityVersion, [string]$CRTRoot,
+    [string]$EvidenceDirectory,
     [switch]$StageOnly, [switch]$ValidateOnly
 )
 $ErrorActionPreference = 'Stop'
@@ -68,6 +69,13 @@ $runRoot = Join-Path $buildRoot ('deployment-stage/' + [DateTime]::UtcNow.ToStri
 [void][IO.Directory]::CreateDirectory($runRoot)
 $script:clangCommands = New-Object 'Collections.Generic.List[object]'
 $script:clangRecordRoot = $runRoot
+if ($EvidenceDirectory) {
+    $evidencePath = Get-ClangLocalPath $EvidenceDirectory
+    if (!$evidencePath.StartsWith((Join-Path $projectRoot 'build\'),[StringComparison]::OrdinalIgnoreCase)) { throw 'EvidenceDirectory must be inside the project build directory.' }
+    if (Test-Path -LiteralPath $evidencePath) { throw 'Retain the previous evidence round; choose a new EvidenceDirectory.' }
+    [void][IO.Directory]::CreateDirectory($evidencePath)
+    $script:clangRecordRoot = $evidencePath
+}
 $lock = $null
 try {
     $lock = [IO.File]::Open((Join-Path $projectRoot 'build/clang-build.lock'),[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)

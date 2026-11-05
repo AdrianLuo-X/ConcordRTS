@@ -94,8 +94,8 @@ bool loadRuntimeInternetServiceHostConfig(
     std::string& errorMessage
 );
 
-// RAII wrapper for the unique Windows certificate selected by SHA-1
-// thumbprint. The native context remains owned by this object.
+// RAII owner for the unique service certificate selected by SHA-1
+// thumbprint. Borrowed server identities remain tied to this owner.
 class RuntimeInternetServiceCertificateContext {
 public:
     RuntimeInternetServiceCertificateContext();
@@ -113,13 +113,15 @@ public:
         const RuntimeInternetServiceCertificateContext&
     ) = delete;
 
-    const void* nativeCertificateContext() const noexcept;
+    RuntimeInternetTlsServerCertificate serverCertificate() const noexcept;
     bool valid() const noexcept;
     void reset();
 
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
+
+    friend class RuntimeInternetServiceCertificateFactory;
 
     friend bool loadRuntimeInternetServiceCertificate(
         const RuntimeInternetServiceCertificateSelection&,

@@ -807,7 +807,13 @@ bool launchChild(
     if (!AssignProcessToJobObject(job, child.info.hProcess)) {
         errorMessage = "AssignProcessToJobObject failed: "
             + std::to_string(GetLastError());
-        TerminateProcess(child.info.hProcess, 3);
+        (void)TerminateProcess(child.info.hProcess, 3);
+        if (WaitForSingleObject(child.info.hProcess, 5000U) != WAIT_OBJECT_0) {
+            errorMessage += "; terminated child join failed";
+            // Keep these owned handles for the parent's cleanup retry.
+            return false;
+        }
+        errorMessage += "; terminated child joined";
         CloseHandle(child.info.hThread);
         CloseHandle(child.info.hProcess);
         child.info = {};
@@ -859,6 +865,137 @@ DWORD remainingTimeout(ULONGLONG deadline, DWORD maximum) {
     const ULONGLONG now = GetTickCount64();
     if (now >= deadline) return 0;
     return static_cast<DWORD>(std::min<ULONGLONG>(deadline - now, maximum));
+}
+
+struct ChildJoinResult {
+    bool joined = true;
+    bool clean = true;
+};
+
+ChildJoinResult stopAndJoinChildren(
+    NamedHandles& handles,
+    const std::array<ChildProcess*, 3>& children,
+    HANDLE job,
+    ULONGLONG deadline,
+    std::string& error
+) {
+    if (handles.shutdown != nullptr) SetEvent(handles.shutdown);
+    std::vector<HANDLE> started;
+    for (const auto* child : children) {
+        if (child->info.hProcess != nullptr) started.push_back(child->info.hProcess);
+    }
+    if (started.empty()) return {};
+    ChildJoinResult result;
+    const auto stopped = WaitForMultipleObjects(
+        static_cast<DWORD>(started.size()), started.data(), TRUE,
+        remainingTimeout(deadline, shutdownTimeoutMilliseconds)
+    );
+    if (stopped != WAIT_OBJECT_0) {
+        result.clean = false;
+        if (job != nullptr) (void)TerminateJobObject(job, 4U);
+        for (auto process : started) {
+            if (WaitForSingleObject(process, 0U) != WAIT_OBJECT_0) {
+                // Also covers a child whose assignment to this job failed.
+                (void)TerminateProcess(process, 4U);
+            }
+        }
+        result.joined = WaitForMultipleObjects(
+            static_cast<DWORD>(started.size()), started.data(), TRUE, 5000U
+        ) == WAIT_OBJECT_0;
+        if (error.empty()) error = result.joined
+            ? "children required forced shutdown and were joined"
+            : "owned children did not join after forced shutdown";
+    }
+    if (result.joined) {
+        for (auto process : started) {
+            DWORD exitCode = 1U;
+            if (!GetExitCodeProcess(process, &exitCode) || exitCode != 0U) {
+                result.clean = false;
+                if (error.empty()) error = "one or more child exits were nonzero";
+            }
+        }
+    }
+    return result;
+}
+
+int lifecycleChildMain(bool ignoreStop, std::string_view token) {
+    NamedHandles handles;
+    if (!openChildHandles(token, handles)) {
+        closeNamedHandles(handles);
+        return 8;
+    }
+    SetEvent(handles.listening);
+    if (ignoreStop) Sleep(10000U);
+    else (void)WaitForSingleObject(handles.shutdown, 10000U);
+    closeNamedHandles(handles);
+    return 0;
+}
+
+bool childJoinContractCases() {
+    int checks = 0;
+    int failures = 0;
+    const auto expect = [&](bool ok, const char* message) {
+        ++checks;
+        if (!ok) { ++failures; std::cerr << "Child join contract: " << message << '\n'; }
+    };
+    const std::wstring executable = executablePath();
+    const std::string prefix = std::to_string(GetCurrentProcessId()) + "_join_"
+        + std::to_string(GetTickCount64());
+    for (int mode = 0; mode < 5; ++mode) {
+        const std::string token = prefix + "_" + std::to_string(mode);
+        NamedHandles handles;
+        ChildProcess one;
+        ChildProcess two;
+        ChildProcess three;
+        auto job = CreateJobObjectW(nullptr, nullptr);
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        expect(job != nullptr && SetInformationJobObject(job,
+            JobObjectExtendedLimitInformation, &limits, sizeof(limits)), "owned job setup");
+        expect(createParentHandles(token, handles), "unique owned mapping/events setup");
+        std::string error;
+        if (mode == 0) {
+            const auto result = stopAndJoinChildren(handles, {&one, &two, &three},
+                job, GetTickCount64() + 1000U, error);
+            expect(result.joined && result.clean && error.empty(), "empty startup cleanup");
+        } else if (mode == 1) {
+            expect(!launchChild(executable + L".missing", token, L"lifecycle-stop",
+                job, one, error), "actual CreateProcess failure");
+            expect(one.info.hProcess == nullptr && !error.empty(), "launch failure owns no child");
+        } else if (mode == 2) {
+            expect(!launchChild(executable, token, L"lifecycle-stop", nullptr, one, error),
+                "actual job assignment failure");
+            expect(error.find("terminated child joined") != std::string::npos,
+                "failed assignment terminates and actually waits for its own child");
+            expect(one.info.hProcess == nullptr && one.info.hThread == nullptr,
+                "joined assignment failure releases owned handles");
+        } else {
+            const bool forced = mode == 4;
+            expect(launchChild(executable, token,
+                forced ? L"lifecycle-ignore-stop" : L"lifecycle-stop", job, one, error),
+                "one real child for partial launch");
+            expect(WaitForSingleObject(handles.listening, 5000U) == WAIT_OBJECT_0,
+                "real partial child published readiness");
+            const auto result = stopAndJoinChildren(handles, {&one, &two, &three}, job,
+                GetTickCount64() + (forced ? 25U : 2000U), error);
+            expect(result.joined && result.clean == !forced,
+                "partial/forced cleanup waits before releasing shared owners");
+            DWORD code = STILL_ACTIVE;
+            expect(one.info.hProcess != nullptr
+                && WaitForSingleObject(one.info.hProcess, 0U) == WAIT_OBJECT_0
+                && GetExitCodeProcess(one.info.hProcess, &code)
+                && code == (forced ? 4U : 0U), "real exited child code observed before close");
+        }
+        const auto joined = stopAndJoinChildren(handles, {&one, &two, &three},
+            job, GetTickCount64() + 1000U, error);
+        expect(joined.joined, "idempotent join before closing owned handles/mapping");
+        if (!joined.joined) return false;
+        closeChild(three); closeChild(two); closeChild(one);
+        closeNamedHandles(handles); closeHandle(job);
+    }
+    std::cout << "Child join lifecycle: checks=" << checks << " failures=" << failures
+              << " cases=empty,create-fail,assign-fail,partial,forced\n";
+    return failures == 0;
 }
 
 int parentMain(int iteration) {
@@ -985,40 +1122,17 @@ int parentMain(int iteration) {
         }
     }
 
-    if (handles.shutdown != nullptr) SetEvent(handles.shutdown);
-    std::array<HANDLE, 3> processes{
-        host.info.hProcess,
-        client.info.hProcess,
-        spectator.info.hProcess
-    };
-    const bool allLaunched = std::all_of(
-        processes.begin(),
-        processes.end(),
-        [](HANDLE process) { return process != nullptr; }
+    const ChildJoinResult joined = stopAndJoinChildren(
+        handles, {&host, &client, &spectator}, job, overallDeadline, error
     );
-    if (allLaunched) {
-        const DWORD stopped = WaitForMultipleObjects(
-            static_cast<DWORD>(processes.size()),
-            processes.data(),
-            TRUE,
-            remainingTimeout(overallDeadline, shutdownTimeoutMilliseconds)
-        );
-        if (stopped != WAIT_OBJECT_0) {
-            TerminateJobObject(job, 4);
-            passed = false;
-            if (error.empty()) error = "children did not shut down cleanly";
-        } else {
-            for (HANDLE process : processes) {
-                DWORD exitCode = 1;
-                if (!GetExitCodeProcess(process, &exitCode) || exitCode != 0) {
-                    passed = false;
-                    if (error.empty()) error = "one or more child exits were nonzero";
-                }
-            }
-        }
-    } else if (job != nullptr) {
-        TerminateJobObject(job, 4);
+    if (!joined.joined) {
+        // Do not release the shared owner while an owned child can still use it.
+        // Returning failure exits this test process; its kill-on-close job is
+        // the final OS fallback. This path can never be reported as passed.
+        std::cerr << "Runtime multiplayer two-process join failed: " << error << '\n';
+        return 1;
     }
+    if (!joined.clean) passed = false;
 
     closeChild(spectator);
     closeChild(client);
@@ -1043,6 +1157,8 @@ int parentMain(int iteration) {
 int main(int argc, char** argv) {
     if (argc == 4 && std::string_view(argv[1]) == "--child") {
         const std::string_view role(argv[2]);
+        if (role == "lifecycle-stop") return lifecycleChildMain(false, argv[3]);
+        if (role == "lifecycle-ignore-stop") return lifecycleChildMain(true, argv[3]);
         if (role == "host") return childMain(ProcessRole::Host, argv[3]);
         if (role == "client") return childMain(ProcessRole::Client, argv[3]);
         if (role == "spectator") return childMain(ProcessRole::Spectator, argv[3]);
@@ -1073,5 +1189,6 @@ int main(int argc, char** argv) {
         std::cerr << "unexpected two-process smoke arguments\n";
         return 2;
     }
+    if (!childJoinContractCases()) return 1;
     return parentMain(1);
 }

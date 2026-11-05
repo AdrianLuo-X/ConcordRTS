@@ -96,7 +96,7 @@ bool runRuntimeHarvesterManualUnloadIssue25Smoke(RuntimeWindowState& live, std::
         const auto& projected = runtimeProjectedObjectsForViewport(s, viewport);
         for (const auto& item : projected) {
             if (!item.object || item.object->instanceId != f.targetId) continue;
-            const RECT bounds = item.bounds;
+            const RECT bounds = runtimeRenderPlacementNativeRect(item.bounds);
             // Nine bounded points within the original target geometry; no hit-test override.
             for (int iy = 1; iy <= 3; ++iy) for (int ix = 1; ix <= 3; ++ix) {
                 const POINT probe{bounds.left + (bounds.right - bounds.left) * ix / 4,

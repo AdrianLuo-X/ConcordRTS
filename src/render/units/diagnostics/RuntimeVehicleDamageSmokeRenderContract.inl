@@ -21,7 +21,7 @@ bool runRuntimeVehicleDamageSmokeRenderContractCheck(
         const auto origin = runtimeObjectDrawPoint(vehicle, {}, camera);
         camera.worldOffsetX = static_cast<int>(std::lround(origin.x)) - width / 2;
         camera.worldOffsetY = static_cast<int>(std::lround(origin.y)) - 145;
-        const POINT center = runtimeObjectBodyAnchorForRender(vehicle, viewport, probe, camera);
+        const POINT center = runtimeObjectBodyAnchorForRenderWin32(vehicle, viewport, probe, camera);
         if (!tryDrawVoxelSprite(nullptr, viewport, vehicle, center, probe, camera, *cache))
             return fail("original voxel could not be drawn: " + vehicle.type);
         const auto body = pixels;

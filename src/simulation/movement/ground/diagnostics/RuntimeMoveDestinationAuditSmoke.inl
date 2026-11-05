@@ -197,13 +197,13 @@ bool runRuntimeMoveDestinationAuditSmoke(const RuntimeConfig& config, std::strin
                     expected.y-=current.aircraftDockFlightProgress>=0.0?
                         int(std::lround(34.0*std::clamp(current.aircraftDockFlightProgress,0.0,1.0))):34;
                 context.animationTick=s.tick;
-                anchor=runtimeObjectWorldRenderPlacement(current,s.world,viewport,context,s.camera,s.renderCache).center;
+                anchor=runtimeRenderPlacementNative(runtimeObjectWorldRenderPlacementWin32(current,s.world,viewport,context,s.camera,s.renderCache)).center;
                 const auto& visible=runtimeProjectedObjectsForViewport(s,viewport);
                 const auto found=std::find_if(visible.begin(),visible.end(),[&](const auto& p) {
                     return p.object&&p.object->instanceId==id;
                 });
                 if (found==visible.end()) continuityProblem("visible_mover_missing_from_projection");
-                else { projected=found->renderCenter; anchorChecked=true; ++renderAnchors; }
+                else { projected=runtimeRenderPlacementNativePoint(found->renderCenter); anchorChecked=true; ++renderAnchors; }
                 if (anchor.x!=expected.x||anchor.y!=expected.y||(anchorChecked
                     &&(projected.x!=expected.x||projected.y!=expected.y)))
                     continuityProblem("same_tick_renderer_projection_body_mismatch");

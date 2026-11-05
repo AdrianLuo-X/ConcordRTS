@@ -1,4 +1,6 @@
 #include "runtime/window/win32/RuntimeWindowHostWin32.h"
+#include <chrono>
+#include <thread>
 
 namespace {
 constexpr wchar_t hostProperty[] = L"ConcordRTS.RuntimeWindowHost.W013";
@@ -43,6 +45,9 @@ bool RuntimeWindowHostWin32::drainMessages() {
         DispatchMessageW(&message);
     }
     return true;
+}
+void RuntimeWindowHostWin32::sleepForIdleSlice() {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
 }
 LRESULT CALLBACK RuntimeWindowHostWin32::procedure(HWND window, UINT message,
     WPARAM wParam, LPARAM lParam) {

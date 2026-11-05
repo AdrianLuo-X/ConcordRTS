@@ -48,7 +48,9 @@ struct RuntimeSpriteGeometryCapture {
     void appendSpans(const RECT& imageRect, const std::vector<RuntimeSpriteHitSpan>& spans, int opacity = 255) {
         if (!hitSpans || opacity <= 0) return;
         for (const auto& span : spans)
-            hitSpans->push_back({imageRect.top + span.y, imageRect.left + span.left, imageRect.left + span.right});
+            hitSpans->push_back({static_cast<std::int32_t>(imageRect.top + span.y),
+                static_cast<std::int32_t>(imageRect.left + span.left),
+                static_cast<std::int32_t>(imageRect.left + span.right)});
     }
 
     void recordPixels(const RECT& imageRect, int width, int height,
@@ -69,10 +71,14 @@ struct RuntimeSpriteGeometryCapture {
 
     void record(const RECT& imageRect, const RuntimeShpFrameImage& image, int opacity) {
         if (!image.spriteOpaqueBoundsValid) {
-            image.spriteOpaqueBounds = opaqueCrop(image.width, image.height, image.pixels);
+            const auto crop = opaqueCrop(image.width, image.height, image.pixels);
+            image.spriteOpaqueBounds = {static_cast<std::int32_t>(crop.left),
+                static_cast<std::int32_t>(crop.top), static_cast<std::int32_t>(crop.right),
+                static_cast<std::int32_t>(crop.bottom)};
             image.spriteOpaqueBoundsValid = true;
         }
-        record(imageRect, image.spriteOpaqueBounds, opacity);
+        record(imageRect, RECT{image.spriteOpaqueBounds.left, image.spriteOpaqueBounds.top,
+            image.spriteOpaqueBounds.right, image.spriteOpaqueBounds.bottom}, opacity);
         if (hitSpans && opacity > 0) {
             if (!image.spriteOpaqueSpansValid) {
                 image.spriteOpaqueSpans = opaqueSpans(image.width, image.height, image.pixels);

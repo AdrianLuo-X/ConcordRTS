@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include "network/internet/RuntimeInternetLobbyFlow.h"
 #include "network/internet/RuntimeInternetServiceHost.h"
 #include "network/transport/RuntimeInternetServiceTransport.h"
@@ -34,6 +35,7 @@
 #include <windows.h>
 #include <bcrypt.h>
 #include <wincrypt.h>
+#include "network/transport/private/RuntimeInternetTlsCertificateWin32.h"
 #pragma comment(lib, "ws2_32.lib")
 #pragma comment(lib, "crypt32.lib")
 #pragma comment(lib, "advapi32.lib")
@@ -262,6 +264,12 @@ public:
 
     PCCERT_CONTEXT certificate() const noexcept { return certificate_; }
     HCERTCHAINENGINE chainEngine() const noexcept { return chainEngine_; }
+    RuntimeInternetTlsServerCertificate serverCertificate() const noexcept {
+        return tlsBinding_.serverCertificate();
+    }
+    RuntimeInternetTlsPeerTrust peerTrust() const noexcept {
+        return tlsBinding_.peerTrust();
+    }
 
 private:
     void reset() noexcept {
@@ -304,6 +312,7 @@ private:
     PCCERT_CONTEXT certificate_ = nullptr;
     HCERTSTORE rootStore_ = nullptr;
     HCERTCHAINENGINE chainEngine_ = nullptr;
+    RuntimeInternetTlsCertificateInterop tlsBinding_{certificate_, chainEngine_};
 };
 
 std::vector<std::uint8_t> credentialFor(std::string_view peerId) {
@@ -314,13 +323,13 @@ std::vector<std::uint8_t> credentialFor(std::string_view peerId) {
 
 RuntimeInternetTlsClientConfig tlsClientConfig(
     std::uint16_t port,
-    HCERTCHAINENGINE chainEngine
+    RuntimeInternetTlsPeerTrust chainEngine
 ) {
     RuntimeInternetTlsClientConfig config;
     config.endpoint = {"127.0.0.1", port};
     config.serverName = "localhost";
     config.checkCertificateRevocation = false;
-    config.nativeCertificateChainEngine = chainEngine;
+    config.peerTrust = chainEngine;
     config.limits.connectTimeoutMilliseconds = 5000U;
     config.limits.handshakeTimeoutMilliseconds = 10000U;
     return config;
@@ -331,7 +340,7 @@ RuntimeInternetTlsClientConfig tlsClientConfig(
 std::unique_ptr<RuntimeInternetServiceAdapter> serviceAdapter(
     const std::string& peerId,
     std::uint16_t port,
-    HCERTCHAINENGINE chainEngine,
+    RuntimeInternetTlsPeerTrust chainEngine,
     std::string& errorMessage
 ) {
     auto transport = std::make_unique<RuntimeInternetServiceTransport>();
@@ -751,6 +760,7 @@ bool runFullStack(
     std::string error;
     TestCertificate certificate;
     context.stage = "certificate";
+    std::cerr << "STAGE " << context.stage << "\n";
     context.expect(certificate.create(error), error);
     if (context.failures != 0) return false;
 
@@ -762,7 +772,7 @@ bool runFullStack(
     serviceConfig.tls.port = 0U;
     serviceConfig.tls.bindScope = RuntimeInternetTlsBindScope::LoopbackIpv4;
     serviceConfig.tls.maximumConnections = 32U;
-    serviceConfig.tls.nativeCertificateContext = certificate.certificate();
+    serviceConfig.tls.serverCertificate = certificate.serverCertificate();
     serviceConfig.tls.limits.handshakeTimeoutMilliseconds = 10000U;
     serviceConfig.coordinator.serviceId = std::string(serviceId);
     serviceConfig.coordinator.udpRelayEndpoint = {"127.0.0.1", 9U};
@@ -831,6 +841,7 @@ bool runFullStack(
 
     RuntimeInternetServiceHost serviceHost;
     context.stage = "service open";
+    std::cerr << "STAGE " << context.stage << "\n";
     context.expect(serviceHost.open(std::move(serviceConfig), error), error);
     context.expect(serviceHost.port() != 0U, "service did not bind port 0");
     if (!serviceHost.isOpen() || context.failures != 0) return false;
@@ -843,7 +854,7 @@ bool runFullStack(
             serviceAdapter(
                 peerId,
                 serviceHost.port(),
-                certificate.chainEngine(),
+                certificate.peerTrust(),
                 error
             );
         context.expect(adapter != nullptr, peerId + " transport: " + error);
@@ -861,6 +872,7 @@ bool runFullStack(
 
     const RuntimeInternetRoomRecord room = roomRecord();
     context.stage = "host and browse";
+    std::cerr << "STAGE " << context.stage << "\n";
     error.clear();
     const bool hostStarted = host.startHost(
         hostOptions(room, mapContentFingerprint),
@@ -924,6 +936,7 @@ bool runFullStack(
     );
 
     context.stage = "client and spectator join";
+    std::cerr << "STAGE " << context.stage << "\n";
     error.clear();
     context.expect(
         client.join(
@@ -978,6 +991,7 @@ bool runFullStack(
     }
 
     context.stage = "ready and seal gate";
+    std::cerr << "STAGE " << context.stage << "\n";
     error.clear();
     context.expect(
         host.lobbyFlow()->verifyLocalMap(mapPath, error),
@@ -1160,6 +1174,7 @@ bool runFullStack(
     );
 
     context.stage = "runtime handoff";
+    std::cerr << "STAGE " << context.stage << "\n";
     error.clear();
     std::unique_ptr<RuntimeMultiplayerRuntimeBridge> hostBridge =
         host.takeRunningBridge(error);
@@ -1342,6 +1357,7 @@ bool runFullStack(
     );
 
     context.stage = "spectator departure";
+    std::cerr << "STAGE " << context.stage << "\n";
     const int hostTickBeforeSpectatorDeparture = hostWorld.tick;
     const int clientTickBeforeSpectatorDeparture = clientWorld.tick;
     const int continuationTicks = lockstepConfig.inputDelayTicks + 3;
@@ -1477,6 +1493,7 @@ bool runFullStack(
         || !reconnectScenario("host coordinator reconnect", "host-peer", true)) return false;
 
     context.stage = "combatant departure";
+    std::cerr << "STAGE " << context.stage << "\n";
     clientBridge.reset();
     const auto departureStarted = nowMilliseconds();
     bool combatantFatal = false;
@@ -1522,6 +1539,7 @@ bool runFullStack(
     );
 
     context.stage = "clean shutdown";
+    std::cerr << "STAGE " << context.stage << "\n";
     hostBridge.reset();
     const std::uint64_t cleanupDeadline = nowMilliseconds() + 35000U;
     while (nowMilliseconds() < cleanupDeadline) {
@@ -1554,6 +1572,7 @@ bool runFullStack(
     );
 
     context.stage = "stalled loader deadline";
+    std::cerr << "STAGE " << context.stage << "\n";
     RuntimeInternetLobbyFlow stalledHost(
         makeFlow("host-peer"),
         lockstepConfig
@@ -1816,6 +1835,7 @@ bool runFullStack(
     );
 
     context.stage = "spectator pre-attach deadline";
+    std::cerr << "STAGE " << context.stage << "\n";
     RuntimeInternetLobbyFlow spectatorDeadlineHost(
         makeFlow("host-peer"),
         lockstepConfig
@@ -2230,6 +2250,8 @@ bool runFullStack(
 } // namespace
 
 int main() {
+    std::cout << std::unitbuf;
+    std::cerr << std::unitbuf;
     SmokeContext context;
     const std::filesystem::path mapPath =
         std::filesystem::temp_directory_path()
@@ -2246,7 +2268,15 @@ int main() {
     const std::uint64_t fingerprint = mapFingerprint(mapPath, context);
     (void)runFullStack(context, mapPath, fingerprint);
     std::error_code ignored;
-    std::filesystem::remove(mapPath, ignored);
+    char* retain = nullptr;
+    std::size_t retainBytes = 0;
+    const bool keepMap = _dupenv_s(&retain, &retainBytes,
+        "CONCORD_INTERNET_SERVICE_LOBBY_RETAIN") == 0
+        && retain && std::string_view(retain) == "1";
+    std::free(retain);
+    if (!keepMap) {
+        std::filesystem::remove(mapPath, ignored);
+    }
     if (context.failures != 0) {
         std::cerr << context.failures
                   << " full-stack Internet service lobby checks failed\n";

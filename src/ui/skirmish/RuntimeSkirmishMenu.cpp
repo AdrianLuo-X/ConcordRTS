@@ -7,6 +7,7 @@
 #include "runtime/menu/RuntimeSkirmishController.h"
 #include "runtime/window/RuntimeSoftwareWindow.h"
 #include <cstdlib>
+#include <stdexcept>
 #include "runtime/host/RuntimeUiClockWin32.h"
 #include "ui/audio/RuntimeSkirmishMusicPolicy.h"
 #include "audio/menu/win32/RuntimeSkirmishMusicWin32.h"
@@ -14,6 +15,7 @@
 #include "assets/text/WestwoodFontCodec.h"
 #include "ui/values/RuntimeColorValues.h"
 #include "ui/text/RuntimeSkirmishBitmapText.h"
+#include "ui/text/win32/RuntimeSkirmishSystemFontWin32.h"
 #include "ui/surface/RuntimeMenuPixelSurface.h"
 #include "ui/drawing/MenuDrawCommands.h"
 #include "runtime/presentation/win32/D3D11FramePresenterWin32.h"
@@ -30,7 +32,9 @@
 #include "assets/menu/MenuImageResources.h"
 #include "assets/archive/MixArchive.h"
 #include "ui/resources/RuntimeMenuResourceWatch.h"
+#include "runtime/config/RuntimeConfigPaths.h"
 #include "audio/events/RuntimeMenuSoundPool.h"
+#include "audio/events/win32/RuntimeMenuSoundWin32.h"
 #include "runtime/performance/RuntimePerfTrace.h"
 
 #include <windows.h>
@@ -61,7 +65,11 @@
 
 #pragma comment(lib, "winmm.lib")
 
+#include "runtime/menu/detail/RuntimeSkirmishMapResources.h"
+
 namespace {
+using namespace concord::skirmish::map_detail;
+
 
 namespace fs = std::filesystem;
 using namespace concord::skirmish;
@@ -97,32 +105,9 @@ constexpr COLORREF kPanelEdgeDark = RGB(2, 4, 4);
 
 
 
-std::vector<std::string> splitCsv(const std::string& value) {
-    std::vector<std::string> result;
-    std::istringstream stream(value);
-    std::string token;
-    while (std::getline(stream, token, ',')) {
-        token = trimAscii(token);
-        if (!token.empty()) {
-            result.push_back(token);
-        }
-    }
-    return result;
-}
 
-int parseIntOr(const std::string& value, int fallback) {
-    const std::string trimmed = trimAscii(value);
-    if (trimmed.empty()) {
-        return fallback;
-    }
-    try {
-        std::size_t used = 0;
-        const int result = std::stoi(trimmed, &used);
-        return used == trimmed.size() ? result : fallback;
-    } catch (...) {
-        return fallback;
-    }
-}
+
+
 
 bool parseBoolOr(const std::string& value, bool fallback) {
     const std::string lower = lowerAscii(trimAscii(value));
@@ -178,86 +163,15 @@ std::wstring utf8ToWide(const std::string& text) {
 
 
 
-bool regularFile(const fs::path& path) {
-    std::error_code error;
-    return fs::is_regular_file(path, error);
-}
-
-fs::path firstExisting(std::initializer_list<fs::path> paths) {
-    for (const fs::path& path : paths) {
-        if (!path.empty() && regularFile(path)) {
-            return path;
-        }
-    }
-    return {};
-}
-
-std::string iniValueNoCase(
-    const IniFile& ini,
-    const std::string& wantedSection,
-    const std::string& wantedKey,
-    const std::string& fallback = ""
-) {
-    for (const std::string& sectionName : ini.getSectionNames()) {
-        if (!equalsAsciiNoCase(sectionName, wantedSection)) {
-            continue;
-        }
-        const IniFile::Section* section = ini.getSection(sectionName);
-        if (section == nullptr) {
-            return fallback;
-        }
-        for (auto it = section->rbegin(); it != section->rend(); ++it) {
-            if (equalsAsciiNoCase(it->first, wantedKey)) {
-                return it->second;
-            }
-        }
-        return fallback;
-    }
-    return fallback;
-}
 
 
 
-struct CsfCatalog {
-    std::unordered_map<std::string, std::wstring> values;
 
-    bool load(const fs::path& path) {
-        values.clear();
-        std::ifstream input(path, std::ios::binary);
-        if (!input) return false;
-        const std::vector<unsigned char> bytes(
-            (std::istreambuf_iterator<char>(input)),
-            std::istreambuf_iterator<char>()
-        );
-        for (auto& entry : concord::csf::decodeEntries(bytes)) {
-            const auto value = concord::csf::projectCarriageReturns(
-                std::move(entry.firstValue), concord::csf::CarriageReturnPolicy::Space);
-            values[lowerAscii(entry.label)] = std::wstring(value.begin(), value.end());
-        }
-        return !values.empty();
-    }
 
-    std::wstring get(const std::string& key, const std::wstring& fallback) const {
-        const auto found = values.find(lowerAscii(trimAscii(key)));
-        if (found == values.end() || found->second.empty()) {
-            return fallback;
-        }
-        return found->second;
-    }
 
-    std::wstring getAny(
-        std::initializer_list<std::string> keys,
-        const std::wstring& fallback
-    ) const {
-        for (const std::string& key : keys) {
-            const auto found = values.find(lowerAscii(key));
-            if (found != values.end() && !found->second.empty()) {
-                return found->second;
-            }
-        }
-        return fallback;
-    }
-};
+
+
+
 
 #include "ui/skirmish/diagnostics/RuntimeSkirmishBitmapTextTrace.inl"
 
@@ -320,13 +234,7 @@ struct WestwoodBitFont {
     }
 };
 
-struct MapPacketEntry {
-    std::string id;
-    std::string descriptionKey;
-    int minPlayers = 2;
-    int maxPlayers = 8;
-    std::vector<std::string> filters;
-};
+
 
 
 
@@ -352,161 +260,13 @@ std::string flagNameForCountry(const std::string& id) {
     return "";
 }
 
-bool parsePair(const std::string& value, int& left, int& right) {
-    const std::vector<std::string> parts = splitCsv(value);
-    if (parts.size() < 2) {
-        return false;
-    }
-    left = parseIntOr(parts[0], std::numeric_limits<int>::min());
-    right = parseIntOr(parts[1], std::numeric_limits<int>::min());
-    return left != std::numeric_limits<int>::min()
-        && right != std::numeric_limits<int>::min();
-}
+
 
 bool readMapMetadata(const fs::path& path, MapInfo& map) {
-    std::ifstream input(path);
-    if (!input) {
-        return false;
-    }
-    bool hasMap = false;
-    bool hasPreview = false;
-    std::string section;
-    std::string basicName;
-    std::vector<std::optional<POINT>> headerPoints(kPlayerSlots);
-    std::vector<std::optional<POINT>> waypointPoints(kPlayerSlots);
-    std::string line;
-    while (std::getline(input, line)) {
-        const std::size_t semicolon = line.find(';');
-        if (semicolon != std::string::npos) {
-            line.erase(semicolon);
-        }
-        line = trimAscii(line);
-        if (line.empty()) {
-            continue;
-        }
-        if (line.front() == '[' && line.back() == ']') {
-            section = lowerAscii(trimAscii(line.substr(1, line.size() - 2)));
-            hasMap = hasMap || section == "map";
-            hasPreview = hasPreview || section == "preview";
-            continue;
-        }
-        const std::size_t equals = line.find('=');
-        if (equals == std::string::npos) {
-            continue;
-        }
-        const std::string key = lowerAscii(trimAscii(line.substr(0, equals)));
-        const std::string value = trimAscii(line.substr(equals + 1));
-        if (section == "header") {
-            if (key == "startx") map.headerX = parseIntOr(value, map.headerX);
-            else if (key == "starty") map.headerY = parseIntOr(value, map.headerY);
-            else if (key == "width") map.headerWidth = parseIntOr(value, map.headerWidth);
-            else if (key == "height") map.headerHeight = parseIntOr(value, map.headerHeight);
-            else if (key == "numberstartingpoints") {
-                map.maxPlayers = std::clamp(parseIntOr(value, map.maxPlayers), 1, 8);
-            } else if (key.rfind("waypoint", 0) == 0) {
-                const int number = parseIntOr(key.substr(8), 0);
-                POINT point{};
-                int pointX = 0;
-                int pointY = 0;
-                if (number >= 1 && number <= kPlayerSlots
-                    && parsePair(value, pointX, pointY)
-                    && (pointX != 0 || pointY != 0)) {
-                    point.x = pointX;
-                    point.y = pointY;
-                    headerPoints[static_cast<std::size_t>(number - 1)] = point;
-                }
-            }
-        } else if (section == "map") {
-            if (key == "theater") {
-                map.theater = value;
-            } else if (key == "size") {
-                map.size = value;
-            }
-        } else if (section == "preview" && key == "size") {
-            const std::vector<std::string> values = splitCsv(value);
-            if (values.size() >= 4) {
-                map.previewWidth = parseIntOr(values[2], 0);
-                map.previewHeight = parseIntOr(values[3], 0);
-            }
-        } else if (section == "basic") {
-            if (key == "name") {
-                basicName = value;
-            } else if (key == "gamemode") {
-                map.filters = splitCsv(value);
-            }
-        } else if (section == "waypoints") {
-            const int index = parseIntOr(key, -1);
-            const int packed = parseIntOr(value, -1);
-            if (index >= 0 && index < kPlayerSlots && packed > 0) {
-                POINT point{packed % 1000, packed / 1000};
-                waypointPoints[static_cast<std::size_t>(index)] = point;
-            }
-        }
-    }
-    // RA2 MMX maps predate the optional [Header] lobby metadata. Their
-    // starting locations are still available through [Waypoints], and map
-    // bounds/preview data remain sufficient for selection and rendering.
-    if (!hasMap || !hasPreview
-        || map.previewWidth <= 0 || map.previewHeight <= 0) {
-        return false;
-    }
-    map.id = path.stem().string();
-    if (map.id.empty()) {
-        map.id = path.filename().string();
-    }
-    map.displayName = utf8ToWide(basicName.empty() ? map.id : basicName);
-    for (int i = 0; i < map.maxPlayers && i < kPlayerSlots; ++i) {
-        if (headerPoints[static_cast<std::size_t>(i)]) {
-            const auto point = *headerPoints[static_cast<std::size_t>(i)];
-            map.startPoints.push_back({point.x, point.y});
-        } else if (waypointPoints[static_cast<std::size_t>(i)]) {
-            const auto point = *waypointPoints[static_cast<std::size_t>(i)];
-            map.startPoints.push_back({point.x, point.y});
-        }
-    }
-    if (map.filters.empty()) {
-        map.filters.push_back("standard");
-    }
-    map.metadataLoaded = true;
-    return true;
+    return concord::skirmish::map_detail::readMapMetadata(path, map, utf8ToWide);
 }
 
-std::unordered_map<std::string, MapPacketEntry> loadMapPacket(
-    const fs::path& path
-) {
-    std::unordered_map<std::string, MapPacketEntry> result;
-    IniFile packet;
-    if (path.empty() || !packet.loadFromFile(pathString(path))) {
-        return result;
-    }
-    for (const std::string& sectionName : packet.getSectionNames()) {
-        if (equalsAsciiNoCase(sectionName, "MultiMaps")) {
-            continue;
-        }
-        const std::string description =
-            iniValueNoCase(packet, sectionName, "Description");
-        const std::string modes = iniValueNoCase(packet, sectionName, "GameMode");
-        if (description.empty() && modes.empty()) {
-            continue;
-        }
-        MapPacketEntry entry;
-        entry.id = sectionName;
-        entry.descriptionKey = description;
-        entry.minPlayers = std::clamp(
-            parseIntOr(iniValueNoCase(packet, sectionName, "MinPlayers"), 2),
-            1,
-            8
-        );
-        entry.maxPlayers = std::clamp(
-            parseIntOr(iniValueNoCase(packet, sectionName, "MaxPlayers"), 8),
-            entry.minPlayers,
-            8
-        );
-        entry.filters = splitCsv(modes);
-        result[lowerAscii(sectionName)] = std::move(entry);
-    }
-    return result;
-}
+
 
 std::vector<ModeInfo> loadModes(
     const fs::path& path,
@@ -515,7 +275,7 @@ std::vector<ModeInfo> loadModes(
 ) {
     std::vector<ModeInfo> modes;
     IniFile ini;
-    if (!path.empty() && ini.loadFromFile(pathString(path))) {
+    if (!path.empty() && ini.loadFromPath(path)) {
         for (const std::string& sectionName : ini.getSectionNames()) {
             const IniFile::Section* section = ini.getSection(sectionName);
             if (section == nullptr) {
@@ -609,7 +369,7 @@ std::vector<CountryInfo> loadCountries(
         flagNameForCountry("Random")
     });
     IniFile rules;
-    if (!rulesPath.empty() && rules.loadFromFile(pathString(rulesPath))) {
+    if (!rulesPath.empty() && rules.loadFromPath(rulesPath)) {
         std::string countriesSection;
         for (const std::string& name : rules.getSectionNames()) {
             if (equalsAsciiNoCase(name, "Countries")) {
@@ -757,12 +517,16 @@ bool loadPcxImage(
 
 
 
+std::unique_ptr<concord::audio::MenuSoundDevice> makeRuntimeMenuSoundDevice() {
+    return concord::audio::createMenuSoundDeviceWin32();
+}
+
 #include "audio/events/RuntimeMenuSoundMci.inl"
 
 struct MenuAudio {
     explicit MenuAudio(const RuntimeUiClock& clock = runtimeWin32UiClock())
         : musicDevice(concord::audio::createSkirmishMusicDeviceWin32(
-            +[](const fs::path& path) { return utf8ToWide(pathString(path)); })),
+            +[](const fs::path& path) { return path.native(); })),
           music(clock,regularFile) {}
     bool enabled = true;
     std::vector<std::string>* eventTrace = nullptr;
@@ -783,7 +547,7 @@ struct MenuAudio {
             {"MenuSlideOut", "uslide2"}
         };
         IniFile sound;
-        if (!soundIniPath.empty() && sound.loadFromFile(pathString(soundIniPath))) {
+        if (!soundIniPath.empty() && sound.loadFromPath(soundIniPath)) {
             for (auto& [eventName, sample] : samples) {
                 const std::vector<std::string> choices = splitCsv(
                     iniValueNoCase(sound, eventName, "Sounds")
@@ -811,14 +575,13 @@ struct MenuAudio {
         }
         auto cached = wavePaths.find(eventName);
         if (cached == wavePaths.end()) {
-            const AudioSampleResolveResult result = resolveAudioSampleToWave(
-                pathString(assetRoot),
-                pathString(cacheRoot),
+            const AudioSampleResolveResult result = resolveAudioSampleToWaveFromPaths(
+                {assetRoot, cacheRoot},
                 sampleIt->second
             );
             std::optional<std::wstring> resolved;
-            if (result.success && !result.wavPath.empty()) {
-                resolved = utf8ToWide(result.wavPath);
+            if (result.success && !result.wavFilePath.empty()) {
+                resolved = result.wavFilePath.wstring();
             }
             cached = wavePaths.emplace(eventName, std::move(resolved)).first;
         }
@@ -984,10 +747,7 @@ struct MenuState : RuntimeSkirmishServices, RuntimeSkirmishController {
 
     std::unordered_map<std::string, AssetImage> flagImages;
     std::set<std::string> flagLoadAttempts;
-    HFONT titleFont = nullptr;
-    HFONT captionFont = nullptr;
-    HFONT normalFont = nullptr;
-    HFONT smallFont = nullptr;
+    concord::ui::win32::SkirmishSystemFontsWin32 systemFonts;
     MenuAudio audio;
 
     SkirmishGdiReleaseTrace* gdiReleaseTrace = nullptr;
@@ -1040,7 +800,7 @@ void loadOriginalSkirmishDefaults(
         fs::path(config.localDataRootPath) / "RA2MD.INI"
     });
     IniFile ini;
-    if (iniPath.empty() || !ini.loadFromFile(pathString(iniPath))) {
+    if (iniPath.empty() || !ini.loadFromPath(iniPath)) {
         return;
     }
     selection.unitCount = std::clamp(
@@ -1093,81 +853,10 @@ void loadSkirmishDefaults(
 
 
 
-std::vector<MapInfo> scanMaps(
-    const fs::path& directory,
+std::vector<MapInfo> scanMaps(const fs::path& directory,
     const std::unordered_map<std::string, MapPacketEntry>& packet,
-    const CsfCatalog& csf
-) {
-    std::map<std::string, MapInfo> unique;
-    std::error_code error;
-    fs::directory_iterator iterator(directory, error);
-    fs::directory_iterator end;
-    for (; !error && iterator != end; iterator.increment(error)) {
-        const fs::directory_entry& entry = *iterator;
-        if (!entry.is_regular_file(error)) {
-            continue;
-        }
-        const fs::path path = entry.path();
-        const std::string extension = lowerAscii(path.extension().string());
-        if (!extension.empty()
-            && extension != ".map"
-            && extension != ".mpr"
-            && extension != ".yrm") {
-            continue;
-        }
-        MapInfo map;
-        map.path = path;
-        map.id = path.stem().string();
-        if (map.id.empty()) map.id = path.filename().string();
-        map.displayName = utf8ToWide(map.id);
-        const auto packetEntry = packet.find(lowerAscii(map.id));
-        // This directory is an extraction of MULTI*.MIX, which also contains
-        // maps Westwood deliberately commented out of missionsmd.pkt.  The
-        // original skirmish browser only exposes active packet entries.
-        if (!packet.empty() && packetEntry == packet.end()) {
-            continue;
-        }
-        if (packet.empty() && !readMapMetadata(path, map)) {
-            continue;
-        }
-        if (packetEntry != packet.end()) {
-            map.minPlayers = packetEntry->second.minPlayers;
-            map.maxPlayers = packetEntry->second.maxPlayers;
-            if (!packetEntry->second.filters.empty()) {
-                map.filters = packetEntry->second.filters;
-            }
-            if (!packetEntry->second.descriptionKey.empty()) {
-                map.displayName = csf.get(
-                    packetEntry->second.descriptionKey,
-                    map.displayName
-                );
-            }
-        }
-        if (map.filters.empty()) map.filters.push_back("standard");
-        const std::string key = lowerAscii(map.id);
-        auto found = unique.find(key);
-        if (found == unique.end()
-            || (found->second.path.extension().empty() && !path.extension().empty())) {
-            unique[key] = std::move(map);
-        }
-    }
-    std::vector<MapInfo> maps;
-    maps.reserve(unique.size());
-    for (auto& [key, map] : unique) {
-        (void)key;
-        maps.push_back(std::move(map));
-    }
-    std::sort(
-        maps.begin(),
-        maps.end(),
-        [](const MapInfo& left, const MapInfo& right) {
-            if (left.maxPlayers != right.maxPlayers) {
-                return left.maxPlayers < right.maxPlayers;
-            }
-            return lowerAscii(left.id) < lowerAscii(right.id);
-        }
-    );
-    return maps;
+    const CsfCatalog& csf) {
+    return concord::skirmish::map_detail::scanMaps(directory, packet, csf, utf8ToWide);
 }
 
 void appendPackagedMaps(
@@ -1264,7 +953,7 @@ void prepareCooperativeData(MenuState& state) {
     });
     IniFile scenarioIni;
     if (scenarioPath.empty()
-        || !scenarioIni.loadFromFile(pathString(scenarioPath))
+        || !scenarioIni.loadFromPath(scenarioPath)
         || !state.cooperativeScenarios.loadFromIni(scenarioIni)) {
         quarantineCooperativeMaps();
         return;
@@ -1310,7 +999,7 @@ void prepareCooperativeData(MenuState& state) {
         IniFile mapIni;
         MapDatabase mapDatabase;
         if (scenario == nullptr
-            || !mapIni.loadFromFile(pathString(map.path))
+            || !mapIni.loadFromPath(map.path)
             || !mapDatabase.loadFromIni(mapIni)) {
             *cooperativeFilter = "cooperative-invalid";
             advertisedMapsValid = false;
@@ -1389,7 +1078,7 @@ bool ensurePreview(MenuState& state, int mapIndex) {
         map.metadataLoaded = true;
     }
     IniFile ini;
-    if (!ini.loadFromFile(pathString(map.path))) {
+    if (!ini.loadFromPath(map.path)) {
         map.previewError = "map INI load failed";
         return false;
     }
@@ -1403,26 +1092,7 @@ bool ensurePreview(MenuState& state, int mapIndex) {
 
 
 void initializeFonts(MenuState& state) {
-    state.titleFont = CreateFontW(
-        -26, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, FF_DONTCARE, L"Microsoft YaHei UI"
-    );
-    state.captionFont = CreateFontW(
-        -14, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, FF_DONTCARE, L"Microsoft YaHei UI"
-    );
-    state.normalFont = CreateFontW(
-        -13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, FF_DONTCARE, L"Microsoft YaHei UI"
-    );
-    state.smallFont = CreateFontW(
-        -11, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, FF_DONTCARE, L"Microsoft YaHei UI"
-    );
+    state.systemFonts.initialize();
 }
 
 void resetMenuForEntry(MenuState& state, const RuntimeConfig& config) {
@@ -1521,8 +1191,8 @@ bool initializeState(MenuState& state, const RuntimeConfig& config, bool smoke, 
         state.localUiRoot / "mpyscrn.pal"
     });
     concord::assets::MapPreviewResourceContext shellRoots;
-    shellRoots.assetRootPath = state.exportRoot.string();
-    shellRoots.tileRootPath = state.exportRoot.string();
+    shellRoots.assetRootPath = runtimeConfigLegacyPathString(state.exportRoot);
+    shellRoots.tileRootPath = runtimeConfigLegacyPathString(state.exportRoot);
     state.shellResources.configureRoots(std::move(shellRoots));
     std::string paletteSource;
     std::string paletteError;
@@ -1869,8 +1539,8 @@ AssetImage* flagFor(MenuState& state, const std::string& countryId) {
     }
     if (!state.flagPcxArchiveAttempted) {
         state.flagPcxArchiveAttempted = true;
-        state.flagPcxArchiveLoaded = state.flagPcxArchive.loadFromFile(
-            pathString(state.exportRoot / "ra2" / "local.mix")
+        state.flagPcxArchiveLoaded = state.flagPcxArchive.loadFromPath(
+            state.exportRoot / "ra2" / "local.mix"
         ) && state.flagPcxArchive.isIndexReadable();
     }
     if (state.flagPcxArchiveLoaded) {
@@ -1932,7 +1602,7 @@ void drawModeList(MenuState& state, HDC dc) {
         dc,
         panel,
         label(state, {"GUI:GameType", "GUI:GameMode"}, L"GAME TYPE"),
-        state.captionFont
+        state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Caption)
     );
     const int rowTop = 66;
     const int rowHeight = 17;
@@ -1954,7 +1624,7 @@ void drawModeList(MenuState& state, HDC dc) {
             dc,
             state.modes[i].displayName,
             textRect,
-            state.normalFont,
+            state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Normal),
             selected || hot ? kPaleGold : kText
         );
         addHit(state, row, HitKind::Mode, static_cast<int>(i));
@@ -2003,7 +1673,7 @@ void drawMapList(MenuState& state, HDC dc) {
         dc,
         panel,
         label(state, {"GUI:Map", "GUI:ChooseMap"}, L"MAPS"),
-        state.captionFont
+        state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Caption)
     );
     const int rowTop = 66;
     const int rowHeight = 17;
@@ -2037,7 +1707,7 @@ void drawMapList(MenuState& state, HDC dc) {
             dc,
             map.displayName,
             textRect,
-            state.normalFont,
+            state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Normal),
             selected || hot ? kPaleGold : kText
         );
         addHit(state, row, HitKind::Map, filteredIndex);
@@ -2136,7 +1806,7 @@ void drawPreviewImage(MenuState& state, HDC dc, const RECT& rect, MapInfo& map) 
             dc,
             L"Preview unavailable",
             destination,
-            state.normalFont,
+            state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Normal),
             kDimText,
             DT_CENTER | DT_VCENTER | DT_SINGLELINE
         );
@@ -2177,7 +1847,7 @@ void drawPreviewImage(MenuState& state, HDC dc, const RECT& rect, MapInfo& map) 
             dc,
             std::to_wstring(i + 1),
             marker,
-            state.smallFont,
+            state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Small),
             RGB(255, 255, 255),
             DT_CENTER | DT_VCENTER | DT_SINGLELINE
         );
@@ -2190,7 +1860,7 @@ void drawPreviewPanel(MenuState& state, HDC dc) {
         dc,
         panel,
         label(state, {"GUI:PreviewMap", "GUI:Map"}, L"MAP PREVIEW"),
-        state.captionFont
+        state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Caption)
     );
     if (state.selectedMap < 0
         || state.selectedMap >= static_cast<int>(state.maps.size())) {
@@ -2199,7 +1869,7 @@ void drawPreviewPanel(MenuState& state, HDC dc) {
             dc,
             L"No map selected",
             message,
-            state.normalFont,
+            state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Normal),
             kDimText,
             DT_CENTER | DT_VCENTER | DT_SINGLELINE
         );
@@ -2212,7 +1882,7 @@ void drawPreviewPanel(MenuState& state, HDC dc) {
         dc,
         map.displayName,
         nameRect,
-        state.normalFont,
+        state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Normal),
         kPaleGold,
         DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS
     );
@@ -2235,7 +1905,7 @@ void drawPreviewPanel(MenuState& state, HDC dc) {
         dc,
         info,
         rectOf(404, 209, 609, 225),
-        state.smallFont,
+        state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Small),
         RGB(157, 161, 145),
         DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS
     );
@@ -2296,7 +1966,7 @@ void drawPlayerSlots(MenuState& state, HDC dc) {
         dc,
         panel,
         label(state, {"GUI:Players", "GUI:PlayerList"}, L"PLAYERS"),
-        state.captionFont
+        state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Caption)
     );
     const int headerTop = 255;
     const int rowTop = 274;
@@ -2319,7 +1989,7 @@ void drawPlayerSlots(MenuState& state, HDC dc) {
             dc,
             column.name,
             rectOf(column.left, headerTop, column.right, rowTop - 1),
-            state.smallFont,
+            state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Small),
             RGB(171, 163, 125),
             DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS
         );
@@ -2352,7 +2022,7 @@ void drawPlayerSlots(MenuState& state, HDC dc) {
             dc,
             available ? slotName(state, slot, index) : L"---",
             nameRect,
-            state.smallFont,
+            state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Small),
             rowText,
             DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS
         );
@@ -2382,7 +2052,7 @@ void drawPlayerSlots(MenuState& state, HDC dc) {
                 dc,
                 display,
                 rectOf(textLeft, countryRect.top, countryRect.right - 3, countryRect.bottom),
-                state.smallFont,
+                state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Small),
                 rowText,
                 DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS
             );
@@ -2405,7 +2075,7 @@ void drawPlayerSlots(MenuState& state, HDC dc) {
                 dc,
                 colorDisplayName(state, slot.color),
                 rectOf(swatch.right + 3, colorRect.top, colorRect.right - 2, colorRect.bottom),
-                state.smallFont,
+                state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Small),
                 rowText
             );
             addHit(state, colorRect, HitKind::SlotColor, index);
@@ -2419,7 +2089,7 @@ void drawPlayerSlots(MenuState& state, HDC dc) {
                 dc,
                 utf8ToWide(slot.team),
                 teamRect,
-                state.smallFont,
+                state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Small),
                 rowText,
                 DT_CENTER | DT_VCENTER | DT_SINGLELINE
             );
@@ -2441,7 +2111,7 @@ void drawPlayerSlots(MenuState& state, HDC dc) {
                 ? label(state, {"STT:PlayerHuman", "GUI:Player"}, L"Human")
                 : (active ? difficultyDisplayName(state, slot.difficulty) : L"---"),
             difficultyRect,
-            state.smallFont,
+            state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Small),
             rowText,
             DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS
         );
@@ -2467,7 +2137,7 @@ void drawStepper(
         dc,
         caption,
         rectOf(x, y, x + labelWidth, y + 22),
-        state.normalFont,
+        state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Normal),
         kText,
         DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS
     );
@@ -2494,7 +2164,7 @@ void drawStepper(
         dc,
         L"-",
         minus,
-        state.captionFont,
+        state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Caption),
         kPaleGold,
         DT_CENTER | DT_VCENTER | DT_SINGLELINE
     );
@@ -2502,7 +2172,7 @@ void drawStepper(
         dc,
         value,
         valueRect,
-        state.smallFont,
+        state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Small),
         kPaleGold,
         DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS
     );
@@ -2510,7 +2180,7 @@ void drawStepper(
         dc,
         L"+",
         plus,
-        state.captionFont,
+        state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Caption),
         kPaleGold,
         DT_CENTER | DT_VCENTER | DT_SINGLELINE
     );
@@ -2542,7 +2212,7 @@ void drawOptionCheck(
         dc,
         caption,
         rectOf(box.right + 4, y, area.right, y + 20),
-        state.smallFont,
+        state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Small),
         state.hover == target ? kPaleGold : kText
     );
     addHit(state, area, kind);
@@ -2554,7 +2224,7 @@ void drawOptions(MenuState& state, HDC dc) {
         dc,
         panel,
         label(state, {"GUI:GameOptions", "GUI:Options"}, L"GAME OPTIONS"),
-        state.captionFont
+        state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Caption)
     );
     drawStepper(
         state, dc, 23, 438, 183,
@@ -2615,7 +2285,7 @@ void drawOptions(MenuState& state, HDC dc) {
         dc,
         state.status,
         rectOf(25, 494, 495, 518),
-        state.smallFont,
+        state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Small),
         state.status == L"Ready" ? RGB(145, 171, 123) : RGB(199, 174, 98),
         DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS
     );
@@ -2648,7 +2318,7 @@ void drawMainButton(
         dc,
         text,
         textRect,
-        state.captionFont,
+        state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Caption),
         hover ? RGB(255, 238, 155) : kPaleGold,
         DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS
     );
@@ -2669,7 +2339,7 @@ void drawBase(MenuState& state, HDC dc) {
         dc,
         label(state, {"GUI:SkirmishGame", "GUI:Skirmish"}, L"SKIRMISH GAME"),
         rectOf(15, 7, kBaseWidth - 15, 39),
-        state.titleFont,
+        state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Title),
         kPaleGold,
         DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS
     );
@@ -4029,9 +3699,9 @@ void synchronizeShellMouse(MenuState& state, HWND window) {
 void MenuState::requestRepaint() { invalidate(*this); }
 void MenuState::playSound(const std::string& event, bool beep) { audio.play(event, beep); }
 void MenuState::stopMusic() { audio.stopMusic(); }
-std::uint64_t MenuState::nowMs() const { return softwareWindow ? softwareWindow->nowMs() : GetTickCount64(); }
+std::uint64_t MenuState::nowMs() const { return softwareWindow ? softwareWindow->nowMs() : runtimeWin32UiClock().nowMs(); }
 void MenuState::destroyWindow() { if(softwareWindow) softwareWindow->close(); else if(hwnd != nullptr && IsWindow(hwnd)) DestroyWindow(hwnd); }
-void MenuState::prewarmMainMenu() { if(!softwareWindow) prewarmRuntimeMainMenu(config, hwnd == nullptr ? nullptr : GetParent(hwnd)); }
+void MenuState::prewarmMainMenu() { if(!softwareWindow) { RuntimeWindowParentWin32 parent(hwnd == nullptr ? nullptr : GetParent(hwnd)); prewarmRuntimeMainMenu(config, parent.id()); } }
 bool MenuState::saveCratePreference(const RuntimeConfig& c, bool value, std::string& error) { return saveRuntimeSkirmishCratePreference(c,value,error); }
 bool MenuState::saveNoCooldownPreference(const RuntimeConfig& c, bool value, std::string& error) { return saveRuntimeSkirmishNoCooldownPreference(c,value,error); }
 bool MenuState::ensurePreview(int index) { return ::ensurePreview(*this,index); }
@@ -4118,7 +3788,7 @@ LRESULT CALLBACK shellSkirmishWindowProc(
             if (pollRandomMap(*state)) InvalidateRect(window, nullptr, FALSE);
             updateRandomMapNameWindow(*state);
             state->audio.ensureMusicPlaying();
-            if (updateMenuTransition(*state, GetTickCount64())
+            if (updateMenuTransition(*state, state->nowMs())
                 && IsWindow(window)) {
                 state->backDirty = true;
                 InvalidateRect(window, nullptr, FALSE);
@@ -4282,65 +3952,7 @@ HWND createShellSkirmishWindow(
 } // namespace
 
 int resolveRuntimeMapStartingPointLimit(const RuntimeConfig& config) {
-    if (config.mapStartingPointLimit > 0) {
-        return std::min(config.mapStartingPointLimit, kPlayerSlots);
-    }
-    const fs::path actualPath(config.defaultMapPath);
-    IniFile actualMap;
-    if (!actualMap.loadFromFile(pathString(actualPath))) return 0;
-    const int headerCount = parseIntOr(
-        iniValueNoCase(actualMap, "Header", "NumberStartingPoints"), 0
-    );
-    if (headerCount > 0) return std::min(headerCount, kPlayerSlots);
-
-    const fs::path exportRoot = fs::path(config.localDataRootPath)
-        / "resources" / "mix_exports";
-    const auto packet = loadMapPacket(firstExisting({
-        exportRoot / "langmd" / "missionsmd.pkt",
-        exportRoot / "lang" / "missions.pkt",
-        exportRoot / "ra2md" / "localmd" / "missionsmd.pkt"
-    }));
-    const std::string actualStem = lowerAscii(actualPath.stem().string());
-    const std::string canonicalStem = lowerAscii(
-        fs::path(config.multiplayerCanonicalMapId).filename().stem().string()
-    );
-    // A filename or canonical id only locates a candidate. Its original bytes
-    // must also match; a custom map with the same name inherits no packet limit.
-    const auto sameFileBytes = [](const fs::path& a, const fs::path& b) {
-        std::error_code error;
-        const auto size = fs::file_size(a, error);
-        if (error) return false;
-        const auto otherSize = fs::file_size(b, error);
-        if (error || size != otherSize) return false;
-        std::ifstream left(a, std::ios::binary), right(b, std::ios::binary);
-        if (!left || !right) return false;
-        std::array<char, 64U * 1024U> x{}, y{};
-        std::uintmax_t remaining = size;
-        while (remaining > 0) {
-            const auto count = static_cast<std::streamsize>(
-                std::min<std::uintmax_t>(remaining, x.size())
-            );
-            left.read(x.data(), count);
-            right.read(y.data(), count);
-            if (left.gcount() != count || right.gcount() != count
-                || !std::equal(x.begin(), x.begin() + count, y.begin())) return false;
-            remaining -= static_cast<std::uintmax_t>(count);
-        }
-        return true;
-    };
-    if (!packet.empty()) {
-        const CsfCatalog unusedLabels;
-        for (const MapInfo& map : scanMaps(exportRoot / "multimd", packet, unusedLabels)) {
-            const std::string id = lowerAscii(map.id);
-            if ((id == actualStem || id == canonicalStem)
-                && sameFileBytes(actualPath, map.path)) return map.maxPlayers;
-        }
-    }
-    const fs::path resources(config.resourceRootPath);
-    return resolveRuntimeMapPackageStartingPointLimit(
-        {resources / "GameMD", resources / "Game", resources},
-        actualPath, config.multiplayerCanonicalMapId
-    );
+    return concord::skirmish::map_detail::resolveMapStartingPointLimit(config, utf8ToWide);
 }
 
 std::string runtimeLoadingScreenAssetForCountry(
@@ -4569,7 +4181,7 @@ RuntimeSkirmishSelection runRuntimeSkirmishMenu(const RuntimeConfig& config,Runt
     }
     state.closing = false;
     state.phase = ShellMenuPhase::SlideIn;
-    state.phaseStarted = GetTickCount64();
+    state.phaseStarted = state.nowMs();
     state.phaseTick = 0;
     state.backDirty = true;
     ShowWindow(window, SW_SHOW);
@@ -4614,11 +4226,20 @@ RuntimeSkirmishSelection runRuntimeSkirmishMenu(const RuntimeConfig& config,Runt
 #include "ui/skirmish/diagnostics/RuntimeSecondWindowContract.inl"
 #include "ui/skirmish/diagnostics/RuntimeGpuMenuContract.inl"
 #include "ui/skirmish/diagnostics/RuntimeGpuMenuTiming.inl"
+#include "ui/skirmish/diagnostics/skirmish_clock_original/Timer.original.inl"
+#include "ui/skirmish/diagnostics/RuntimeSkirmishPresentationClockSmoke.inl"
 
 int runRuntimeSkirmishMenuSmokeTest(
     const RuntimeConfig& config,
     const std::string& bmpPath
 ) {
+    if (const auto only=skirmishPresentationEnvironment("CONCORD_SKIRMISH_PRESENTATION_CLOCK_ONLY")) {
+        const auto output=skirmishPresentationEnvironment("CONCORD_SKIRMISH_PRESENTATION_CLOCK_OUTPUT");
+        if(*only!="1" || !output || output->empty()) {
+            std::cerr<<"Skirmish clock requires ONLY=1 and explicit OUTPUT\n";return 1;
+        }
+        return runSkirmishPresentationClockSmoke(config,fs::path(*output));
+    }
     if(const char* output=std::getenv("CONCORD_GPU_MENU_CONTRACT_OUTPUT"))return runGpuMenuContract(config,fs::path(output));
     if(const char* output=std::getenv("CONCORD_GPU_MENU_TIMING_OUTPUT"))return runGpuMenuTiming(config,fs::path(output));
     if (const char* output = std::getenv("CONCORD_SECOND_WINDOW_CONTRACT_OUTPUT"))

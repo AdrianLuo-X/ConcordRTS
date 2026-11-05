@@ -81,7 +81,7 @@ bool runtimeSupportAircraftSmokeAnchors(RuntimeWindowState& s,std::string& error
         const WorldObjectInstance object=*current;
         const POINT expected{viewport.left+int(std::llround((p.x-p.y)*s.camera.tileWidth/2.0))-s.camera.worldOffsetX,
             viewport.top+int(std::llround((p.x+p.y)*s.camera.tileHeight/2.0-p.z*s.camera.tileHeight/2.0))-s.camera.worldOffsetY};
-        const auto renderer=runtimeObjectWorldRenderPlacement(object,s.world,viewport,context,s.camera,s.renderCache);
+        const auto renderer=runtimeRenderPlacementNative(runtimeObjectWorldRenderPlacementWin32(object,s.world,viewport,context,s.camera,s.renderCache));
         const auto& projected=runtimeProjectedObjectsForViewport(s,viewport);
         const auto found=std::find_if(projected.begin(),projected.end(),[&](const auto& q){return q.object&&q.object->instanceId==id;});
         // Raw isometric center is independent. Body-center agreement deliberately

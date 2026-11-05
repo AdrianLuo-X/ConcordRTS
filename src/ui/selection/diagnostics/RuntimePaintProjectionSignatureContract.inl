@@ -370,7 +370,7 @@ static bool runRuntimePaintProjectionSignatureContract(RuntimeWindowState& sourc
                         || s.projectedObjectsCacheCameraX != s.camera.worldOffsetX || s.projectedObjectsCacheCameraY != s.camera.worldOffsetY
                         || s.projectedObjectsCacheTileWidth != s.camera.tileWidth || s.projectedObjectsCacheTileHeight != s.camera.tileHeight
                         || s.projectedObjectsCacheSignature != runtimeProjectedObjectsSignatureForPaintCapture(s));
-                RuntimeGeometryQueryScope geometry(s.world, viewport, context, s.camera, s.renderCache, false);
+                RuntimeGeometryQueryScope geometry(s.world, runtimeRenderPlacementPixelRect(viewport), context, s.camera, s.renderCache, false);
                 stats[route] = drawRuntimeMap(s.backBuffer.memoryDc, viewport, s.world, context, s.camera, s.renderCache);
                 drawRuntimeInteractionOverlay(s.backBuffer.memoryDc, clientRect, s, context);
                 signatureScope.reset();

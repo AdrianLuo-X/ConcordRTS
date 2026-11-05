@@ -21,7 +21,7 @@ POINT runtimeMindControlRingAnchor(
             hasBounds = runtimeRectIsValid(bodyBounds);
         }
     } else {
-        hasBounds = resolveRuntimeObjectShpSpriteBounds(
+        hasBounds = resolveRuntimeObjectShpSpriteBoundsWin32(
             object, point, context, camera, cache, bodyBounds);
     }
     if (hasBounds) {

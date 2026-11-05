@@ -53,11 +53,11 @@ bool runRuntimeMarineSurfaceSmoke(RuntimeWindowState& live, std::string& error) 
             std::array<POINT,2> centers{},muzzles{};
             for(int state=0;state<2;++state) {
                 body.submerged=body.cloaked=state==0;s.world.accessObjects().front()=body;
-                centers[state]=runtimeObjectWorldRenderPlacement(body,s.world,viewport,context,camera,s.renderCache).center;
+                centers[state]=runtimeRenderPlacementNative(runtimeObjectWorldRenderPlacementWin32(body,s.world,viewport,context,camera,s.renderCache)).center;
                 if(!verifyRuntimeMobileObjectSpriteBounds(body,centers[state],context,camera,s.renderCache,probes[state]))
                     return fail(type+" geometry/pixel agreement: "+probes[state].diagnostic);
                 ++pixelChecks;
-                if(type=="DLPH"&&!resolveRuntimeMarineWeaponMuzzlePoint(body,centers[state],context,camera,s.renderCache,muzzles[state]))
+                if(type=="DLPH"&&!resolveRuntimeMarineWeaponMuzzlePointWin32(body,centers[state],context,camera,s.renderCache,muzzles[state]))
                     return fail("original dolphin sonar attachment missing");
             }
             const auto& hidden=probes[0].renderedBounds;const auto& visible=probes[1].renderedBounds;

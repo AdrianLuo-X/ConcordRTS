@@ -1,6 +1,6 @@
 #include "data/rules/RuntimeDetailRulesHash.h"
 
-bool configureRuntimeMultiplayerSnapshotSmokeState(RuntimeWindowState&, bool, bool, bool, double);
+bool configureRuntimeMultiplayerSnapshotSmokeState(RuntimeProductionHostState&, bool, bool, bool, double);
 
 bool runRuntimeFireRevealSmoke(const RuntimeConfig& config, std::string& error) {
     std::cout << std::unitbuf;

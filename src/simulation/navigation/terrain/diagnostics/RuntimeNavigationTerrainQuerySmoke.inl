@@ -139,7 +139,7 @@ bool runRuntimeNavigationTerrainQuerySmokeProbe(RuntimeWindowState& stock,std::o
  for(const auto& terrain:cells)if(!pair(terrain,"warm-outside",oldContext,directContext))return false;
  constexpr RECT client{0,0,1024,768};const RECT viewport=runtimeMapViewport(client);
  oldContext.stableRenderConfiguration=directContext.stableRenderConfiguration=true;
- {RuntimeGeometryQueryScope a(old.world,viewport,oldContext,old.camera,old.renderCache);RuntimeGeometryQueryScope b(direct.world,viewport,directContext,direct.camera,direct.renderCache);
+ {RuntimeGeometryQueryScope a(old.world,runtimeRenderPlacementPixelRect(viewport),oldContext,old.camera,old.renderCache);RuntimeGeometryQueryScope b(direct.world,runtimeRenderPlacementPixelRect(viewport),directContext,direct.camera,direct.renderCache);
   // Each separate world's scope is entered only around its own query below; simultaneous frames cannot be cross-borrowed.
   if(!pair(cells.front(),"foreign-active-scope",oldContext,directContext))return false;
  }
@@ -160,8 +160,8 @@ bool runRuntimeNavigationTerrainQuerySmokeProbe(RuntimeWindowState& stock,std::o
   if(mode==2){a.theater=nullptr;b.theater=nullptr;}
   for(std::size_t index=0;index<std::min<std::size_t>(cells.size(),32);++index){
    std::vector<std::string> oq,dq;RuntimeNavigationTerrainInfo expected,actual;
-   {RuntimeSnapshotActiveStateScope active(old);RuntimeGeometryQueryScope outer(old.world,viewport,a,old.camera,old.renderCache);RuntimeGeometryQueryScope nested(old.world,viewport,a,old.camera,old.renderCache);ObservationBinding observing(oq);expected=runtimeOwnedNavigationTerrainInfo(Old::runtimeNavigationTerrainInfoForCell(old,cells[index],a));}
-   {RuntimeSnapshotActiveStateScope active(direct);RuntimeGeometryQueryScope outer(direct.world,viewport,b,direct.camera,direct.renderCache);RuntimeGeometryQueryScope nested(direct.world,viewport,b,direct.camera,direct.renderCache);ObservationBinding observing(dq);Port port(direct,b);actual=queryRuntimeNavigationTerrainInfo(port,cells[index]);}
+   {RuntimeSnapshotActiveStateScope active(old);RuntimeGeometryQueryScope outer(old.world,runtimeRenderPlacementPixelRect(viewport),a,old.camera,old.renderCache);RuntimeGeometryQueryScope nested(old.world,runtimeRenderPlacementPixelRect(viewport),a,old.camera,old.renderCache);ObservationBinding observing(oq);expected=runtimeOwnedNavigationTerrainInfo(Old::runtimeNavigationTerrainInfoForCell(old,cells[index],a));}
+   {RuntimeSnapshotActiveStateScope active(direct);RuntimeGeometryQueryScope outer(direct.world,runtimeRenderPlacementPixelRect(viewport),b,direct.camera,direct.renderCache);RuntimeGeometryQueryScope nested(direct.world,runtimeRenderPlacementPixelRect(viewport),b,direct.camera,direct.renderCache);ObservationBinding observing(dq);Port port(direct,b);actual=queryRuntimeNavigationTerrainInfo(port,cells[index]);}
    if(!expect(info(expected)==info(actual)&&oq==dq,"nested/missing/null context fields and ordered calls")||!expect(cacheValue(old.renderCache)==cacheValue(direct.renderCache),"nested/missing/null cache and errors"))return false;
    trace<<"nested mode="<<mode<<" cell="<<cell(cells[index])<<" value="<<info(actual)<<" calls="<<dq.size()<<'\n';queryRows+=dq.size();++nestedCases;
   }

@@ -217,9 +217,8 @@ void drawRuntimeDiplomacyPage(HDC dc,const RECT& client,RuntimeWindowState& stat
         return drawn;
     };
     const auto& font=runtimeResultBitFont(state);
-    HFONT fallback=font.bytes.empty()?CreateFontW(-16,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,
-        DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,NONANTIALIASED_QUALITY,
-        DEFAULT_PITCH,L"Microsoft YaHei UI"):nullptr;
+    concord::ui::HudSystemFontWin32 fallback;
+    if(font.bytes.empty()) fallback.initialize(concord::ui::HudSystemFontRole::DiplomacyFallback);
     const auto text=[&](int id,const std::wstring& value,COLORREF color,bool center=false) {
         RECT base=runtimeDiplomacyControlBase(id);
         // Some template STATICs are only eight DU high. Keep all installed
@@ -234,9 +233,8 @@ void drawRuntimeDiplomacyPage(HDC dc,const RECT& client,RuntimeWindowState& stat
             if (scale>0) base.left=std::max(base.left,base.right-static_cast<LONG>(std::floor((runtimeSidebarWidth-6)/scale)));
         }
         if (!font.bytes.empty()) font.draw(dc,textClient,base,value,color,center);
-        else {RECT rect=runtimeMatchScoreScaledRect(textClient,base);auto old=SelectObject(dc,fallback);
-            SetTextColor(dc,color);DrawTextW(dc,value.c_str(),static_cast<int>(value.size()),&rect,
-                DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX|DT_END_ELLIPSIS|(center?DT_CENTER:DT_LEFT));SelectObject(dc,old);}
+        else {RECT rect=runtimeMatchScoreScaledRect(textClient,base);auto old=SelectObject(dc,fallback.nativeFont());
+            SetTextColor(dc,color);fallback.drawText(dc,concord::ui::HudSystemWideTextRequest{value.c_str(),static_cast<int>(value.size()),{rect.left,rect.top,rect.right,rect.bottom},static_cast<std::uint32_t>(DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX|DT_END_ELLIPSIS|(center?DT_CENTER:DT_LEFT))});SelectObject(dc,old);}
     };
     const COLORREF gold=RGB(255,216,102);
     for (const auto& item:std::array<std::pair<int,const char*>,5>{{{1684,"GUI:DiplomacyMenu"},
@@ -267,8 +265,8 @@ void drawRuntimeDiplomacyPage(HDC dc,const RECT& client,RuntimeWindowState& stat
     pcx(ui.tauntsEnabled?"cce_i":"cue_i",runtimeMatchScoreScaledRect(client,tauntBoxBase));
     const RECT tauntText=runtimeDiplomacyBaseRect(83,232,213,15);
     if (!font.bytes.empty()) font.draw(dc,client,tauntText,runtimeMenuLabel(state,"GUI:TauntsOn",L"叫嚣开启"),gold,false);
-    else {taunt.left+=24;auto old=SelectObject(dc,fallback);SetTextColor(dc,gold);
-        const auto label=runtimeMenuLabel(state,"GUI:TauntsOn",L"叫嚣开启");DrawTextW(dc,label.c_str(),-1,&taunt,DT_SINGLELINE|DT_VCENTER);SelectObject(dc,old);}
+    else {taunt.left+=24;auto old=SelectObject(dc,fallback.nativeFont());SetTextColor(dc,gold);
+        const auto label=runtimeMenuLabel(state,"GUI:TauntsOn",L"叫嚣开启");fallback.drawText(dc,concord::ui::HudSystemWideTextRequest{label.c_str(),-1,{taunt.left,taunt.top,taunt.right,taunt.bottom},DT_SINGLELINE|DT_VCENTER});SelectObject(dc,old);}
     const RECT button=runtimeDiplomacyControlRect(client,1059);
     const std::string prefix=ui.diplomacyPressedControl==1059?"bde_":"bue_";
     const LONG cap=std::max(1L,(button.right-button.left)*8/108);
@@ -281,6 +279,6 @@ void drawRuntimeDiplomacyPage(HDC dc,const RECT& client,RuntimeWindowState& stat
         text(1062,runtimeMenuLabel(state,"STT:DiplomacyCBoxListeners",L"让您的讯息能传送给这名玩家。"),gold);
     // More than the native eight participants is a mod extension: disclose omitted rows.
     if (rows.size()>8) text(1685,L"8 / "+std::to_wstring(rows.size()),gold);
-    if (fallback) DeleteObject(fallback);
+    fallback.reset();
     RestoreDC(dc,saved);
 }

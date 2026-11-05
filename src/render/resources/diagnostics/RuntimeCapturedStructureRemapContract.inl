@@ -26,7 +26,7 @@ bool runRuntimeCapturedStructureRemapContractCheck(std::string& errorMessage) {
         errorMessage = "could not load captured structure remap fixtures";
         return false;
     }
-    std::unordered_map<std::string, COLORREF> colors{
+    RuntimeOwnerRemapColorTable colors{
         {"playera", RGB(10, 210, 30)}, {"playerb", RGB(210, 20, 170)}
     };
     RuntimeMapRenderContext context;

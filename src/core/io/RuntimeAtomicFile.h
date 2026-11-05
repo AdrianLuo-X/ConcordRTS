@@ -23,6 +23,9 @@ using RuntimeAtomicFileWriter =
 // text, exceptions, stream failures, and all platform errors are converted to
 // a bounded diagnostic in error. The function never opens targetPath for
 // truncation.
+// POSIX currently fsyncs the file and renames it, without fsyncing its parent
+// directory. Successful publication is atomic; crash/power-loss persistence of
+// the directory entry is not promised to match Windows WRITE_THROUGH.
 bool runtimeWriteFileAtomically(
     const std::filesystem::path& targetPath,
     const RuntimeAtomicFileWriter& writer,

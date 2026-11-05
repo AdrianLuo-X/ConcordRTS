@@ -255,7 +255,7 @@ public:
     std::vector<RuntimeMapLeftBoxItem> boxProjectionItems() override {
         std::vector<RuntimeMapLeftBoxItem> result; result.reserve(projection_.size());
         for (std::size_t i = 0; i < projection_.size(); ++i)
-            result.push_back({projectionIds_[i], runtimeRightPointerInputRect(projection_[i].bounds)});
+            result.push_back({projectionIds_[i], projection_[i].bounds});
         return result;
     }
     bool objectCanBeBoxSelected(std::int32_t id) override {

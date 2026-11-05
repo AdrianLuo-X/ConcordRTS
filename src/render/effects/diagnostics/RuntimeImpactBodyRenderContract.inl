@@ -37,7 +37,7 @@ bool runRuntimeImpactBodyRenderContractCheck(
         camera.worldOffsetX = -width / 2;
         camera.worldOffsetY = -140 - unit.level * camera.tileHeight / 2;
         camera.initialized = true;
-        const POINT bodyOrigin = runtimeObjectBodyAnchorForRender(unit, viewport, probe, camera);
+        const POINT bodyOrigin = runtimeObjectBodyAnchorForRenderWin32(unit, viewport, probe, camera);
         std::fill(pixels.begin(), pixels.end(), background);
         const bool bodyDrawn = column < 2
             ? tryDrawVoxelSprite(nullptr, viewport, unit, bodyOrigin, probe, camera, cache)

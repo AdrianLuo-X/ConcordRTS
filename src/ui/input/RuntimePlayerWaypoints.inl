@@ -1,5 +1,5 @@
 // Included after executeRuntimePlayerTargetOrder, before the public dispatcher.
-bool validateRuntimePlayerWaypointCommand(const RuntimeWindowState& state,
+bool validateRuntimePlayerWaypointCommand(const RuntimeProductionHostState& state,
     const std::string& owner, const RuntimeMultiplayerGameplayWaypointCommand& body,
     std::string& error
 ) {
@@ -13,7 +13,7 @@ bool validateRuntimePlayerWaypointCommand(const RuntimeWindowState& state,
     return true;
 }
 
-void pauseRuntimePlayerWaypointActor(RuntimeWindowState& state, const std::string& owner, int id) {
+void pauseRuntimePlayerWaypointActor(RuntimeProductionHostState& state, const std::string& owner, int id) {
     const auto* actor = findObjectById(state, id);
     if (!actor || !actor->alive || runtimeObjectIsEnslavedSlaveWorker(state, *actor)
         || runtimeCanonicalHumanHouseOwner(actor->owner) != owner) return;
@@ -30,7 +30,7 @@ void pauseRuntimePlayerWaypointActor(RuntimeWindowState& state, const std::strin
     }
 }
 
-bool applyRuntimePlayerWaypointCommand(RuntimeWindowState& state,
+bool applyRuntimePlayerWaypointCommand(RuntimeProductionHostState& state,
     const std::string& owner, const RuntimeMultiplayerGameplayWaypointCommand& body
 ) {
     std::string error;
@@ -72,7 +72,7 @@ bool applyRuntimePlayerWaypointCommand(RuntimeWindowState& state,
     return changed;
 }
 
-bool appendRuntimePlayerWaypointOrder(RuntimeWindowState& state, const std::string& owner,
+bool appendRuntimePlayerWaypointOrder(RuntimeProductionHostState& state, const std::string& owner,
     const RuntimeMultiplayerGameplayTargetOrderCommand& body
 ) {
     auto accepted = body;
@@ -95,72 +95,4 @@ bool appendRuntimePlayerWaypointOrder(RuntimeWindowState& state, const std::stri
     return true;
 }
 
-bool advanceRuntimePlayerWaypointOrders(RuntimeWindowState& state) {
-    std::vector<int> actors;
-    for (const auto& [id, route] : state.playerCommands.waypoints.routes) actors.push_back(id);
-    bool changed = false;
-    for (int id : actors) {
-        auto found = state.playerCommands.waypoints.routes.find(id);
-        if (found == state.playerCommands.waypoints.routes.end()) continue;
-        const auto* actor = findObjectById(state, id);
-        if (!actor || !actor->alive || runtimeObjectIsEnslavedSlaveWorker(state, *actor)
-            || runtimeCanonicalHumanHouseOwner(actor->owner) != found->second.owner) {
-            state.playerCommands.waypoints.routes.erase(id); changed = true; continue;
-        }
-        if (state.playerCommands.waypoints.planningOwners.contains(found->second.owner)
-            || runtimePlayerActorTemporarilyCommandLocked(state, *actor)
-            || runtimeFactoryDeliveryOwnsEgress(state, id)
-            || state.combatDetails.hasPendingBurst(id)
-            || state.pendingEngineerCaptures.contains(id) || state.pendingEngineerActions.contains(id)
-            || state.pendingOccupyTargets.contains(id) || state.pendingTransportTargets.contains(id)
-            || state.pendingTimedBombIntents.contains(id)) continue;
-        const auto travel = state.playerCommands.travelling.find(id);
-        if ((travel != state.playerCommands.travelling.end() && !travel->second.guarding)
-            || state.playerCommands.following.contains(id)) continue;
-        const auto behavior = state.behaviors.find(id);
-        const bool idle = behavior == state.behaviors.end()
-            || behavior->second.kind == RuntimeBehaviorKind::None
-            || behavior->second.state == RuntimeBehaviorState::Complete
-            || behavior->second.state == RuntimeBehaviorState::Idle
-            || (behavior->second.autoAcquired && behavior->second.kind == RuntimeBehaviorKind::Attack);
-        if (!idle) continue;
-        auto& route = found->second;
-        if (route.active) { route.finishPoint(); changed = true; }
-        if (route.points.empty()) { state.playerCommands.waypoints.routes.erase(id); continue; }
-        if (state.tick < route.nextAttemptTick) continue;
-        auto next = route.points[route.cursor].order;
-        if (const auto* targetId = std::get_if<RuntimeMultiplayerGameplayObjectTarget>(&next.target)) {
-            const auto* target = findObjectById(state, targetId->objectId);
-            if (!target || !runtimeGameplayObjectVisibleToOwner(state, route.owner, *target)) {
-                route.finishPoint();
-                if (route.points.empty()) state.playerCommands.waypoints.routes.erase(id);
-                changed = true; continue;
-            }
-        }
-        // Patrol legs use the attack-move executor, which resumes the leg after combat.
-        if (route.loopStart && std::holds_alternative<RuntimeMultiplayerGameplayCellTarget>(next.target)
-            && (next.order == RuntimeMultiplayerGameplayTargetOrderKind::Move
-                || next.order == RuntimeMultiplayerGameplayTargetOrderKind::Primary))
-            next.order = RuntimeMultiplayerGameplayTargetOrderKind::AttackMove;
-        const auto pointId = route.points[route.cursor].id;
-        const auto owner = route.owner;
-        struct QuietWaypoint {
-            RuntimeWindowState& state; bool previous;
-            explicit QuietWaypoint(RuntimeWindowState& value)
-                : state(value), previous(value.runtimeSuppressPlayerAudioFeedback) {
-                state.runtimeSuppressPlayerAudioFeedback = true;
-            }
-            ~QuietWaypoint() { state.runtimeSuppressPlayerAudioFeedback = previous; }
-        } quiet(state);
-        const bool accepted = executeRuntimePlayerTargetOrder(state, owner, next);
-        // Contextual orders may replace command state or remove the acting unit.
-        found = state.playerCommands.waypoints.routes.find(id);
-        if (found != state.playerCommands.waypoints.routes.end()
-            && found->second.owner == owner && found->second.points[found->second.cursor].id == pointId) {
-            found->second.active = accepted;
-            found->second.nextAttemptTick = accepted ? 0 : state.tick + std::max(1, state.config.fixedTickHz);
-        }
-        changed = accepted || changed;
-    }
-    return changed;
-}
+

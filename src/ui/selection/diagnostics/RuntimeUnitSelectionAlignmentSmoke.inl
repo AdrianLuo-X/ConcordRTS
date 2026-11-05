@@ -74,7 +74,9 @@ bool runRuntimeUnitSelectionAlignmentSmoke(const RuntimeConfig& config, std::str
                 const auto cell = runtimeProjectCellXY(object.x,object.y,object.level,s.camera);
                 s.camera.worldOffsetX = cell.x - 320; s.camera.worldOffsetY = cell.y - 240;
                 ensureRuntimeCameraForViewport(s,viewport);
-                const POINT center = runtimeObjectBodyAnchorForRender(object,viewport,context,s.camera);
+                const POINT center = runtimeObjectBodyAnchorForRenderWin32(object,viewport,context,s.camera);
+                // Supply the real world used by the original terrain body compositor.
+                RuntimeGeometryQueryScope originalWorldGeometry(s.world,runtimeRenderPlacementPixelRect(viewport),context,s.camera,s.renderCache);
                 RuntimeMobileSpriteBoundsProbe probe;
                 const bool valid = verifyRuntimeMobileObjectSpriteBounds(object,center,context,s.camera,s.renderCache,probe);
                 if (!valid) {
@@ -91,10 +93,10 @@ bool runRuntimeUnitSelectionAlignmentSmoke(const RuntimeConfig& config, std::str
                 const auto& projectedObject = projected.front();
                 // Raw spawned missile entries need their flight snapshot. Their
                 // real launch/hover/selection is covered by the missile smoke.
-                if (!type.missileSpawn && !runtimeRectEquals(projectedObject.spriteBounds,probe.renderedBounds))
+                if (!type.missileSpawn && !runtimeRectEquals(projectedObject.spriteBounds,runtimeRenderPlacementNativeRect(probe.renderedBounds)))
                     return fail(type.id + " " + pose + " shell/body geometry differs");
                 if (!type.missileSpawn) {
-                    const auto& frame = projectedObject.selectionBounds; const auto& body = probe.renderedBounds;
+                    const auto& frame = projectedObject.selectionBounds; const RECT body = runtimeRenderPlacementNativeRect(probe.renderedBounds);
                     if (frame.left>body.left || frame.top>body.top || frame.right<body.right || frame.bottom<body.bottom)
                         return fail(type.id + " " + pose + " blue frame excludes artwork");
                     int perCaseClicks = 0;
@@ -114,8 +116,8 @@ bool runRuntimeUnitSelectionAlignmentSmoke(const RuntimeConfig& config, std::str
                 }
                 if (!pictured && pose=="Guard" && facing==2 && !probe.pixels.empty()) {
                     const int tileX=(atlasSlot%8)*160, tileY=(atlasSlot/8)*160;
-                    const auto& body=probe.renderedBounds;
-                    const auto& shownFrame = type.missileSpawn ? body : projectedObject.selectionBounds;
+                    const RECT body=runtimeRenderPlacementNativeRect(probe.renderedBounds);
+                    const auto& shownFrame = type.missileSpawn ? body : runtimeRenderPlacementNativeRect(projectedObject.selectionBounds);
                     const double scale=std::min(1.0,150.0/std::max(shownFrame.right-shownFrame.left,shownFrame.bottom-shownFrame.top));
                     const double cx=(shownFrame.left+shownFrame.right)*0.5,cy=(shownFrame.top+shownFrame.bottom)*0.5;
                     for(int y=0;y<160;++y)for(int x=0;x<160;++x) {

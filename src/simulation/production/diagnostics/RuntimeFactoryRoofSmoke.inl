@@ -162,8 +162,8 @@ bool runRuntimeFactoryRoofSmokeProbe(RuntimeWindowState& live, std::string& erro
             poseContext.fixedTickHz = hz;
             const RECT poseViewport{0, 0, 800, 600};
             poseContext.animationTick = s.tick;
-            POINT previousPose = runtimeObjectWorldRenderPlacement(*unit, s.world, poseViewport,
-                poseContext, s.camera, s.renderCache).center;
+            POINT previousPose = runtimeRenderPlacementNative(runtimeObjectWorldRenderPlacementWin32(*unit, s.world, poseViewport,
+                poseContext, s.camera, s.renderCache)).center;
             double previousHeight = unit->renderLevel;
             bool released = false;
             bool capturedRise = false;
@@ -186,8 +186,8 @@ bool runRuntimeFactoryRoofSmokeProbe(RuntimeWindowState& live, std::string& erro
                     if (std::abs(runtimeObjectRenderLevel(*unit) - unit->renderLevel) > 0.000001)
                         return fail("climb height snapped to a whole cell");
                     poseContext.animationTick = s.tick;
-                    const POINT pose = runtimeObjectWorldRenderPlacement(*unit, s.world, poseViewport,
-                        poseContext, s.camera, s.renderCache).center;
+                    const POINT pose = runtimeRenderPlacementNative(runtimeObjectWorldRenderPlacementWin32(*unit, s.world, poseViewport,
+                        poseContext, s.camera, s.renderCache)).center;
                     const int allowedPixels = static_cast<int>(std::ceil(std::abs(unit->renderLevel - previousHeight)
                         * (s.camera.tileHeight / 2.0 + 34.0 * 256.0 / profile->jumpJetHeight))) + 1;
                     if (pose.x != previousPose.x || pose.y > previousPose.y || previousPose.y - pose.y > allowedPixels)

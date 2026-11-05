@@ -144,7 +144,7 @@ bool runRuntimeElectricTargetRenderContractCheck(
             std::fill_n(surface.pixels, width * height, background);
             probe.projectileActors = nullptr;
             probe.specialMechanismSnapshots = nullptr;
-            const POINT origin = runtimeObjectBodyAnchorForRender(pose, viewport, probe, camera);
+            const POINT origin = runtimeObjectBodyAnchorForRenderWin32(pose, viewport, probe, camera);
             RECT bounds{};
             bool drawn = false;
             if (objectUsesVoxelArt(pose, probe)) {
@@ -154,7 +154,7 @@ bool runRuntimeElectricTargetRenderContractCheck(
                         camera, sprite->image);
             } else {
                 drawn = tryDrawObjectShpSprite(surface.dc, viewport, pose, origin, probe, camera, cache);
-                if (!resolveRuntimeObjectShpSpriteBounds(pose, origin, probe, camera, cache, bounds))
+                if (!resolveRuntimeObjectShpSpriteBoundsWin32(pose, origin, probe, camera, cache, bounds))
                     return false;
             }
             GdiFlush();

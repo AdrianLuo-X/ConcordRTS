@@ -1,8 +1,16 @@
+#include "runtime/menu/RuntimeCampaignMenuController.h"
+#include "runtime/window/win32/RuntimeWindowParentWin32.h"
+#include "runtime/window/win32/RuntimeMenuEventWindowWin32.h"
+#include "ui/campaign/win32/RuntimeCampaignMenuPixelAdaptersWin32.h"
+#include "ui/campaign/win32/RuntimeCampaignDeviceBitmapWin32.h"
+#include "ui/text/win32/RuntimeCampaignSystemFontWin32.h"
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
 
 #include "ui/campaign/RuntimeCampaignMenu.h"
+#include "audio/menu/win32/RuntimeCampaignMapAudioWin32.h"
+#include "runtime/host/RuntimeUiClockWin32.h"
 #include "assets/codecs/PalDecoder.h"
 #include "assets/text/CsfCodec.h"
 
@@ -23,12 +31,15 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
+#include <stdexcept>
 #include <filesystem>
 #include <fstream>
 #include <functional>
 #include <iomanip>
 #include <iostream>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <set>
@@ -43,6 +54,7 @@
 namespace {
 
 namespace fs = std::filesystem;
+using namespace concord::campaign_menu;
 
 // MapSel media uses its authored 640x480 coordinate space.
 // The RA2/YR menu shell is rendered separately at its native 800x600 size.
@@ -51,26 +63,9 @@ constexpr int kBaseHeight = 480;
 constexpr COLORREF kBrightGold = RGB(255, 229, 150);
 constexpr COLORREF kText = RGB(221, 224, 205);
 
-std::string lowerAscii(std::string value) {
-    std::transform(
-        value.begin(),
-        value.end(),
-        value.begin(),
-        [](unsigned char character) {
-            return static_cast<char>(std::tolower(character));
-        }
-    );
-    return value;
-}
 
-std::string trimAscii(const std::string& value) {
-    const std::size_t first = value.find_first_not_of(" \t\r\n");
-    if (first == std::string::npos) {
-        return {};
-    }
-    const std::size_t last = value.find_last_not_of(" \t\r\n");
-    return value.substr(first, last - first + 1);
-}
+
+
 
 std::wstring widen(const std::string& value) {
     if (value.empty()) {
@@ -176,18 +171,7 @@ struct CampaignCsfCatalog {
     }
 };
 
-struct CampaignImage {
-    int width = 0;
-    int height = 0;
-    std::vector<unsigned char> bgra;
-    std::string source;
 
-    bool valid() const {
-        return width > 0 && height > 0
-            && bgra.size()
-                == static_cast<std::size_t>(width * height * 4);
-    }
-};
 
 bool makeCampaignImage(
     const RuntimeShpFrameImage& frame,
@@ -757,15 +741,14 @@ resolveCampaignPresentationAudio(
     };
     for (const std::string& root : roots) {
         if (trimAscii(root).empty()) continue;
-        AudioSampleResolveResult resolved = resolveAudioSampleToWave(
-            root,
-            generalCache.string(),
+        AudioSampleResolveResult resolved = resolveAudioSampleToWaveFromPaths(
+            {fs::path(root), generalCache},
             sampleName,
             sourceId
         );
-        if (resolved.success && !resolved.wavPath.empty()) {
+        if (resolved.success && !resolved.wavFilePath.empty()) {
             CampaignPresentationAudioRecord audio;
-            audio.wavePath = fs::path(resolved.wavPath);
+            audio.wavePath = resolved.wavFilePath;
             audio.source = resolved.sourcePath;
             resolvedCache[key] = audio;
             return audio;
@@ -775,63 +758,30 @@ resolveCampaignPresentationAudio(
     return std::nullopt;
 }
 
-void closeCampaignMciAlias(const wchar_t* alias) {
-    std::wstring stop = L"stop ";
-    stop += alias;
-    mciSendStringW(stop.c_str(), nullptr, 0, nullptr);
-    std::wstring close = L"close ";
-    close += alias;
-    mciSendStringW(close.c_str(), nullptr, 0, nullptr);
+concord::audio::CampaignMapAudioDevice& campaignVoiceDevice() {
+    static auto device = concord::audio::createCampaignMapAudioDeviceWin32(concord::audio::CampaignMapAudioChannel::Voice);
+    return *device;
+}
+
+concord::audio::CampaignMapAudioDevice& campaignEffectDevice() {
+    static auto device = concord::audio::createCampaignMapAudioDeviceWin32(concord::audio::CampaignMapAudioChannel::Effect);
+    return *device;
 }
 
 bool playCampaignVoiceWave(const fs::path& path, int volume) {
-    constexpr const wchar_t* kVoiceAlias = L"concord_campaign_map_voice";
-    closeCampaignMciAlias(kVoiceAlias);
-    const std::wstring command = L"open \"" + path.wstring()
-        + L"\" type waveaudio alias " + kVoiceAlias;
-    if (mciSendStringW(command.c_str(), nullptr, 0, nullptr) != 0) {
-        return false;
-    }
-    const int mciVolume = std::clamp(volume, 0, 100) * 10;
-    const std::wstring volumeCommand = L"setaudio "
-        + std::wstring(kVoiceAlias) + L" volume to "
-        + std::to_wstring(mciVolume);
-    mciSendStringW(volumeCommand.c_str(), nullptr, 0, nullptr);
-    const std::wstring play = L"play " + std::wstring(kVoiceAlias);
-    if (mciSendStringW(play.c_str(), nullptr, 0, nullptr) != 0) {
-        closeCampaignMciAlias(kVoiceAlias);
-        return false;
-    }
-    return true;
+    return campaignVoiceDevice().play(path, volume);
 }
 
 bool playCampaignEffectWave(const fs::path& path, int volume) {
-    constexpr const wchar_t* kEffectAlias = L"concord_campaign_map_effect";
-    closeCampaignMciAlias(kEffectAlias);
-    const std::wstring command = L"open \"" + path.wstring()
-        + L"\" type waveaudio alias " + kEffectAlias;
-    if (mciSendStringW(command.c_str(), nullptr, 0, nullptr) != 0) {
-        return false;
-    }
-    const int mciVolume = std::clamp(volume, 0, 100) * 10;
-    const std::wstring volumeCommand = L"setaudio "
-        + std::wstring(kEffectAlias) + L" volume to "
-        + std::to_wstring(mciVolume);
-    mciSendStringW(volumeCommand.c_str(), nullptr, 0, nullptr);
-    const std::wstring play = L"play " + std::wstring(kEffectAlias);
-    if (mciSendStringW(play.c_str(), nullptr, 0, nullptr) != 0) {
-        closeCampaignMciAlias(kEffectAlias);
-        return false;
-    }
-    return true;
+    return campaignEffectDevice().play(path, volume);
 }
 
 void stopCampaignVoice() {
-    closeCampaignMciAlias(L"concord_campaign_map_voice");
+    campaignVoiceDevice().stopAndClose();
 }
 
 void stopCampaignMapEffect() {
-    closeCampaignMciAlias(L"concord_campaign_map_effect");
+    campaignEffectDevice().stopAndClose();
 }
 
 
@@ -850,91 +800,46 @@ std::wstring missionLabel(
     return result;
 }
 
-enum class CampaignPage {
-    Campaigns,
-    Missions,
-    Difficulty,
-    Briefing,
-    Saves
-};
+struct CampaignMenuState : RuntimeCampaignMenuServices, RuntimeCampaignMenuController {
+    CampaignMenuState() : RuntimeCampaignMenuController(static_cast<RuntimeCampaignMenuServices&>(*this), runtimeWin32UiClock()) {}
+    std::wstring text(const std::string&, const std::wstring&) const override;
+    std::wstring widen(const std::string&) const override;
+    std::wstring missionLabel(const CampaignMissionDefinition&) const override;
+    std::wstring editionSuffix(const CampaignDefinition*) const override;
+    std::string loadingScreenAsset(const std::string&) const override;
+    std::string savePath(const std::string&,const std::string&,const std::string&) const override;
+    const CampaignMapSelectionStage* findMapStage(const CampaignDefinition&,const std::string&) const override;
+    const CampaignMissionDefinition* findMission(const std::string&,const std::string&) const override;
+    bool saveProgress(const std::string&,const CampaignProgressData&,std::string&) override;
+    bool validateSavePaths(const RuntimeConfig&,const SkirmishSaveInfo&,std::string&) const override;
+    void refreshBackground() override;
+    void refreshPresentation() override;
+    void releaseMapCapture() override;
+    void stopVoice() override;
+    void stopMapEffect() override;
+    void playMapSound(const CampaignMapSelectionSound&) override;
+    void repaintValidWindow() override;
+    void destroyWindow() override;
+    int mapColorAt(int,int) const override;
+    std::wstring saveTitle(const LoadSaveEntry&) const override;
+    void updatePresentation() override;
+    RuntimeInputPixelRect eventClientRect() const override;
+    bool shiftPressed() const override;
+    void repaintEvent(bool requireValid) override;
+    void trackMouseLeave() override;
+    void setHandCursor(bool) override;
+    void focusEvent() override;
+    void captureEvent() override;
+    void releaseEventCapture() override;
+    CampaignDatabase loadDatabase(const CampaignDatabaseOptions&) override;
+    bool loadProgress(const std::string&, CampaignProgressData&, std::string&) override;
+    std::vector<CampaignSaveInfo> campaignSaves(const std::string&) override;
+    std::vector<SkirmishSaveInfo> skirmishSaves(const std::string&) override;
+    std::wstring incompatibleSaveWarning(const std::string&) const override;
+    RuntimeMenuEventWindowWin32 eventWindow;
 
-enum class LoadSaveKind {
-    Skirmish,
-    Campaign
-};
 
-struct LoadSaveEntry {
-    LoadSaveKind kind = LoadSaveKind::Campaign;
-    CampaignSaveInfo campaign;
-    SkirmishSaveInfo skirmish;
-};
-
-enum class CampaignMapPresentationPhase {
-    Unavailable,
-    VqaIntro,
-    OverlayFade,
-    Interactive,
-    FallbackList
-};
-
-struct CampaignMapAnimationVisual {
-    std::string assetId;
-    int x = 0;
-    int y = 0;
-    int frameRate = 1;
-    std::vector<CampaignImage> frames;
-};
-
-struct CampaignMapPresentationState {
-    std::string key;
-    std::string stageSection;
-    CampaignMapPresentationPhase phase =
-        CampaignMapPresentationPhase::Unavailable;
-    ULONGLONG phaseStartedAt = 0;
-    ULONGLONG lastFrameAt = 0;
-    CampaignPresentationDecoder vqa;
-    CampaignImage vqaFrame;
-    RuntimeShpFrameImage clickMap;
-    std::string clickMapSource;
-    std::vector<CampaignImage> overlays;
-    std::vector<CampaignMapAnimationVisual> animations;
-    std::vector<RuntimePaletteColor> palette;
-    std::string paletteSource;
-    std::string voiceSource;
-    bool paletteFallback = false;
-    // Some retail installations omit the CD-era MapVQ/ClickMap media while
-    // still shipping the authoritative MapSel graph.  In that case the menu
-    // reconstructs a hit-test surface from the authored Targets entries and
-    // remains in the classic map flow instead of dropping to the list UI.
-    bool authoredReconstruction = false;
-    bool voiceStarted = false;
-    bool overlaySoundPlayed = false;
-    bool targetSoundPlayed = false;
-    int hoverColor = 0;
-    int pressedColor = 0;
-    int keyboardColor = 0;
-    std::string diagnostic;
-
-    bool hasClickMap() const {
-        return clickMap.width > 0 && clickMap.height > 0
-            && clickMap.pixels.size() >= static_cast<std::size_t>(
-                clickMap.width * clickMap.height
-            );
-    }
-
-    bool usesClassicSurface() const {
-        return phase == CampaignMapPresentationPhase::VqaIntro
-            || phase == CampaignMapPresentationPhase::OverlayFade
-            || phase == CampaignMapPresentationPhase::Interactive;
-    }
-};
-
-struct CampaignMenuState {
-    RuntimeConfig config;
-    CampaignDatabase database;
-    CampaignProgressData progress;
-    std::vector<LoadSaveEntry> saves;
-    std::wstring skirmishSaveWarning;
+    // Presentation-only borrowed time; never saved or part of campaign progress.
     fs::path exportRoot;
     RuntimeMapRenderContext assetContext;
     RuntimeMapRenderCache assetCache;
@@ -945,43 +850,19 @@ struct CampaignMenuState {
     CampaignCsfCatalog csf;
     CampaignImage campaignShell;
     std::unordered_map<std::string, CampaignImage> shellImages;
-    int hoveredControl = -1;
-    int pressedControl = -1;
-    int focusedControl = -1;
-    int briefingScroll = 0;
     std::vector<RuntimePaletteColor> campaignPalette;
     std::vector<CampaignImage> campaignLogoFrames;
     CampaignImage missionBackground;
     std::string missionBackgroundKey;
     std::string missionBackgroundError;
-    CampaignMapPresentationState mapPresentation;
     bool officialCampaignShellLoaded = false;
     bool suppressPresentationAudio = false;
-    CampaignPage page = CampaignPage::Campaigns;
-    bool loadGame = false;
-    bool closing = false;
-    bool accepted = false;
-    int campaignIndex = 0;
-    int missionIndex = 0;
-    int difficultyIndex = 1;
-    int saveIndex = 0;
     HWND window = nullptr;
-    std::wstring status;
-    RuntimeCampaignSelection selection;
 };
 
-std::wstring resolvedCampaignName(
-    const CampaignMenuState& state,
-    const CampaignDefinition* campaign
-);
 
-const LoadSaveEntry* selectedSave(const CampaignMenuState& state) {
-    if (state.saveIndex < 0
-        || state.saveIndex >= static_cast<int>(state.saves.size())) {
-        return nullptr;
-    }
-    return &state.saves[static_cast<std::size_t>(state.saveIndex)];
-}
+
+
 
 std::wstring loadSaveTitle(const LoadSaveEntry& entry) {
     if (entry.kind == LoadSaveKind::Skirmish) {
@@ -1102,115 +983,21 @@ bool validateSkirmishSaveStartupPaths(
     return false;
 }
 
-const std::vector<std::string>& difficultyNames() {
-    static const std::vector<std::string> names{
-        "Easy",
-        "Normal",
-        "Hard",
-        "Brutal"
-    };
-    return names;
-}
 
-const CampaignDefinition* selectedCampaign(const CampaignMenuState& state) {
-    if (state.campaignIndex < 0
-        || state.campaignIndex >= static_cast<int>(state.database.campaigns.size())) {
-        return nullptr;
-    }
-    return &state.database.campaigns[static_cast<std::size_t>(state.campaignIndex)];
-}
 
-bool missionUnlocked(
-    const CampaignMenuState& state,
-    const CampaignDefinition& campaign,
-    const CampaignMissionDefinition& mission
-) {
-    if (!mission.available) {
-        return false;
-    }
-    if (lowerAscii(state.progress.campaignId) != lowerAscii(campaign.id)) {
-        return mission.ordinal == 1;
-    }
-    if (std::any_of(
-            state.progress.completedMissionIds.begin(),
-            state.progress.completedMissionIds.end(),
-            [&mission](const std::string& completed) {
-                return lowerAscii(completed) == lowerAscii(mission.id);
-            }
-        )) {
-        return true;
-    }
-    if (!state.progress.currentMissionId.empty()) {
-        return lowerAscii(state.progress.currentMissionId)
-            == lowerAscii(mission.id);
-    }
-    return mission.ordinal == 1;
-}
 
-const CampaignMissionDefinition* selectedMission(const CampaignMenuState& state) {
-    const CampaignDefinition* campaign = selectedCampaign(state);
-    if (campaign == nullptr
-        || state.missionIndex < 0
-        || state.missionIndex >= static_cast<int>(campaign->missions.size())) {
-        return nullptr;
-    }
-    return &campaign->missions[static_cast<std::size_t>(state.missionIndex)];
-}
 
-const CampaignMapSelectionStage* selectedMapSelectionStage(
-    const CampaignMenuState& state
-) {
-    const CampaignDefinition* campaign = selectedCampaign(state);
-    const CampaignMissionDefinition* mission = selectedMission(state);
-    if (campaign == nullptr || mission == nullptr
-        || !missionUnlocked(state, *campaign, *mission)) {
-        return nullptr;
-    }
-    for (const std::string& stageId : mission->incomingMapSelectionStages) {
-        const CampaignMapSelectionStage* stage =
-            campaign->findMapSelectionStage(stageId);
-        if (stage != nullptr) return stage;
-    }
-    return nullptr;
-}
 
-const CampaignMapSelectionStage* currentMapSelectionStage(
-    const CampaignMenuState& state
-) {
-    const CampaignDefinition* campaign = selectedCampaign(state);
-    if (campaign == nullptr || state.mapPresentation.stageSection.empty()) {
-        return nullptr;
-    }
-    return campaign->findMapSelectionStage(
-        state.mapPresentation.stageSection
-    );
-}
 
-int missionIndexById(
-    const CampaignDefinition& campaign,
-    const std::string& missionId
-) {
-    for (std::size_t index = 0; index < campaign.missions.size(); ++index) {
-        if (lowerAscii(campaign.missions[index].id)
-            == lowerAscii(trimAscii(missionId))) {
-            return static_cast<int>(index);
-        }
-    }
-    return -1;
-}
 
-const CampaignMapSelectionChoice* mapChoiceByColor(
-    const CampaignMapSelectionStage* stage,
-    int colorIndex
-) {
-    if (stage == nullptr || colorIndex <= 0 || colorIndex > 255) {
-        return nullptr;
-    }
-    for (const CampaignMapSelectionChoice& choice : stage->choices) {
-        if (choice.colorIndex == colorIndex) return &choice;
-    }
-    return nullptr;
-}
+
+
+
+
+
+
+
+
 
 RECT campaignMapMediaRect(const CampaignMapPresentationState& presentation) {
     int sourceWidth = presentation.vqaFrame.width;
@@ -1285,51 +1072,11 @@ int campaignMapColorAtBasePoint(
     return mapChoiceByColor(stage, color) == nullptr ? 0 : color;
 }
 
-bool isSovietCampaign(const CampaignDefinition* campaign) {
-    if (campaign == nullptr) return false;
-    const std::string identity = lowerAscii(
-        campaign->id + " " + campaign->side + " " + campaign->sourceSection
-    );
-    return identity.find("nod") != std::string::npos
-        || identity.find("sov") != std::string::npos;
-}
 
-bool isTutorialCampaign(const CampaignDefinition* campaign) {
-    if (campaign == nullptr) return false;
-    const std::string identity = lowerAscii(
-        campaign->battleSection + " " + campaign->id + " "
-            + campaign->sourceSection
-    );
-    return identity.find("tut") != std::string::npos
-        || identity.find("trn") != std::string::npos;
-}
 
-bool campaignSourceIs(
-    const CampaignDefinition* campaign,
-    const std::string& sourceId
-) {
-    if (campaign == nullptr) return false;
-    const std::string wanted = lowerAscii(trimAscii(sourceId));
-    const std::string actual = lowerAscii(trimAscii(campaign->sourceId));
-    if (!actual.empty()) return actual == wanted;
 
-    // Keep custom/older campaign fixtures usable while sourceId is absent.
-    const std::string identity = lowerAscii(
-        campaign->id + " " + campaign->edition + " "
-            + campaign->textCatalogPath
-    );
-    if (wanted == "ra2") {
-        return identity.rfind("ra2-", 0) == 0
-            || identity.find("red alert 2") != std::string::npos
-            || (identity.find("ra2.csf") != std::string::npos
-                && identity.find("ra2md.csf") == std::string::npos);
-    }
-    if (wanted == "yr") {
-        return identity.find("yuri") != std::string::npos
-            || identity.find("ra2md.csf") != std::string::npos;
-    }
-    return false;
-}
+
+
 
 std::wstring campaignEditionSuffix(const CampaignDefinition* campaign) {
     if (campaignSourceIs(campaign, "ra2")) {
@@ -1601,64 +1348,9 @@ bool initializeCampaignAssets(CampaignMenuState& state) {
     return state.officialCampaignShellLoaded;
 }
 
-void chooseFirstUnlockedMission(CampaignMenuState& state) {
-    const CampaignDefinition* campaign = selectedCampaign(state);
-    if (campaign == nullptr) {
-        state.missionIndex = 0;
-        return;
-    }
-    state.missionIndex = 0;
-    const bool sameCampaign = lowerAscii(state.progress.campaignId)
-        == lowerAscii(campaign->id);
-    if (sameCampaign && !state.progress.currentMissionId.empty()) {
-        const int current = missionIndexById(
-            *campaign,
-            state.progress.currentMissionId
-        );
-        if (current >= 0
-            && missionUnlocked(
-                state,
-                *campaign,
-                campaign->missions[static_cast<std::size_t>(current)]
-            )) {
-            state.missionIndex = current;
-            return;
-        }
-    }
-    if (sameCampaign) {
-        for (std::size_t reverse = campaign->missions.size(); reverse > 0;
-            --reverse) {
-            const CampaignMissionDefinition& mission =
-                campaign->missions[reverse - 1];
-            const bool completed = std::any_of(
-                state.progress.completedMissionIds.begin(),
-                state.progress.completedMissionIds.end(),
-                [&mission](const std::string& completedId) {
-                    return lowerAscii(completedId) == lowerAscii(mission.id);
-                }
-            );
-            if (completed && mission.available) {
-                state.missionIndex = static_cast<int>(reverse - 1);
-                return;
-            }
-        }
-    }
-    for (std::size_t index = 0; index < campaign->missions.size(); ++index) {
-        if (missionUnlocked(state, *campaign, campaign->missions[index])) {
-            state.missionIndex = static_cast<int>(index);
-            return;
-        }
-    }
-}
 
-void appendMapPresentationDiagnostic(
-    CampaignMapPresentationState& presentation,
-    const std::string& message
-) {
-    if (trimAscii(message).empty()) return;
-    if (!presentation.diagnostic.empty()) presentation.diagnostic += "; ";
-    presentation.diagnostic += message;
-}
+
+
 
 bool loadCampaignPresentationShpFrame(
     CampaignMenuState& state,
@@ -1896,26 +1588,7 @@ void updateCampaignVqaImage(
     presentation.vqaFrame.source = source;
 }
 
-int firstUsableMapChoiceColor(
-    const CampaignMenuState& state,
-    const CampaignMapSelectionStage& stage
-) {
-    const CampaignDefinition* campaign = selectedCampaign(state);
-    if (campaign == nullptr) return 0;
-    for (const CampaignMapSelectionChoice& choice : stage.choices) {
-        const int missionIndex = missionIndexById(
-            *campaign,
-            choice.targetMissionId
-        );
-        if (choice.colorIndex > 0 && choice.colorIndex <= 255
-            && missionIndex >= 0
-            && campaign->missions[static_cast<std::size_t>(missionIndex)]
-                .available) {
-            return choice.colorIndex;
-        }
-    }
-    return 0;
-}
+
 
 bool reconstructCampaignClickMapFromAuthoredTargets(
     CampaignMenuState& state,
@@ -2007,7 +1680,7 @@ void enterCampaignMapOverlayFade(CampaignMenuState& state) {
         }
         presentation.overlaySoundPlayed = true;
     }
-    presentation.phaseStartedAt = GetTickCount64();
+    presentation.phaseStartedAt = state.presentationClock->nowMs();
 }
 
 void releaseCampaignMapMouseCapture(CampaignMenuState& state) {
@@ -2045,7 +1718,7 @@ void refreshCampaignMapPresentation(CampaignMenuState& state) {
     presentation.key = key;
     if (campaign == nullptr || mission == nullptr || stage == nullptr) {
         presentation.phase = CampaignMapPresentationPhase::FallbackList;
-        presentation.phaseStartedAt = GetTickCount64();
+        presentation.phaseStartedAt = state.presentationClock->nowMs();
         presentation.diagnostic =
             "no incoming authored map-selection stage for this mission";
         return;
@@ -2116,7 +1789,7 @@ void refreshCampaignMapPresentation(CampaignMenuState& state) {
     // shared presentation clock only after frame zero and the voice channel
     // are ready, keeping the opening image and narration aligned.
     startCampaignMapVoice(state, *stage);
-    presentation.phaseStartedAt = GetTickCount64();
+    presentation.phaseStartedAt = state.presentationClock->nowMs();
     presentation.lastFrameAt = presentation.phaseStartedAt;
     if (vqaReady) {
         presentation.phase = CampaignMapPresentationPhase::VqaIntro;
@@ -2136,7 +1809,7 @@ void refreshCampaignMapPresentation(CampaignMenuState& state) {
                 );
                 presentation.targetSoundPlayed = true;
             }
-            presentation.phaseStartedAt = GetTickCount64();
+            presentation.phaseStartedAt = state.presentationClock->nowMs();
         } else {
             presentation.phase = CampaignMapPresentationPhase::FallbackList;
             appendMapPresentationDiagnostic(
@@ -2152,15 +1825,15 @@ void refreshCampaignMapPresentation(CampaignMenuState& state) {
 void updateCampaignMapPresentation(CampaignMenuState& state) {
     refreshCampaignMapPresentation(state);
     CampaignMapPresentationState& presentation = state.mapPresentation;
-    const ULONGLONG now = GetTickCount64();
+    const std::uint64_t now = state.presentationClock->nowMs();
     if (presentation.phase == CampaignMapPresentationPhase::VqaIntro) {
-        const ULONGLONG interval = 1000ULL
+        const std::uint64_t interval = 1000ULL
             / std::max<std::uint32_t>(1U, presentation.vqa.frameRate());
         int advancedFrames = 0;
         while (presentation.vqa.hasNextFrame()
-            && now >= presentation.lastFrameAt + std::max<ULONGLONG>(1, interval)
+            && now >= presentation.lastFrameAt + std::max<std::uint64_t>(1, interval)
             && advancedFrames < 4) {
-            presentation.lastFrameAt += std::max<ULONGLONG>(1, interval);
+            presentation.lastFrameAt += std::max<std::uint64_t>(1, interval);
             ++advancedFrames;
             if (!presentation.vqa.advance()) {
                 if (!presentation.vqa.errorMessage().empty()) {
@@ -2207,7 +1880,7 @@ void updateCampaignMapPresentation(CampaignMenuState& state) {
                 );
                 presentation.targetSoundPlayed = true;
             }
-            presentation.phaseStartedAt = GetTickCount64();
+            presentation.phaseStartedAt = state.presentationClock->nowMs();
         } else {
             presentation.phase = CampaignMapPresentationPhase::FallbackList;
             presentation.phaseStartedAt = now;
@@ -2215,20 +1888,9 @@ void updateCampaignMapPresentation(CampaignMenuState& state) {
     }
 }
 
-void drawText(
-    HDC dc,
-    HFONT font,
-    const std::wstring& text,
-    RECT rect,
-    COLORREF color,
-    UINT format = DT_LEFT | DT_TOP | DT_NOPREFIX
-) {
-    HGDIOBJ oldFont = SelectObject(dc, font);
-    SetBkMode(dc, TRANSPARENT);
-    SetTextColor(dc, color);
-    DrawTextW(dc, text.c_str(), static_cast<int>(text.size()), &rect, format);
-    SelectObject(dc, oldFont);
-}
+#include "ui/campaign/diagnostics/RuntimeCampaignSystemFontTrace.inl"
+
+// System text drawing is owned by the private Campaign font provider.
 
 void blitCampaignImageScaled(
     std::vector<unsigned char>& canvas,
@@ -2316,12 +1978,12 @@ void blitCampaignImageScaled(
 
 std::size_t campaignMapAnimationFrameIndex(
     const CampaignMapAnimationVisual& animation,
-    ULONGLONG timestamp
+    std::uint64_t timestamp
 ) {
     if (animation.frames.empty()) return 0U;
-    const ULONGLONG frameDuration = std::max<ULONGLONG>(
+    const std::uint64_t frameDuration = std::max<std::uint64_t>(
         1ULL,
-        static_cast<ULONGLONG>(animation.frameRate) * 1000ULL / 60ULL
+        static_cast<std::uint64_t>(animation.frameRate) * 1000ULL / 60ULL
     );
     return static_cast<std::size_t>(
         (timestamp / frameDuration) % animation.frames.size()
@@ -2333,11 +1995,11 @@ std::vector<unsigned char> composeCampaignSurface(const CampaignMenuState& state
     const auto& presentation = state.mapPresentation;
     const RECT media = campaignMapMediaRect(presentation);
     blitCampaignImageScaled(canvas, presentation.vqaFrame, media, false);
-    const ULONGLONG elapsed = GetTickCount64() - presentation.phaseStartedAt;
+    const std::uint64_t elapsed = state.presentationClock->nowMs() - presentation.phaseStartedAt;
     const auto opacity = static_cast<unsigned char>(
         presentation.phase == CampaignMapPresentationPhase::VqaIntro ? 0
         : presentation.phase == CampaignMapPresentationPhase::OverlayFade
-            ? std::min<ULONGLONG>(255, elapsed * 255 / 750) : 255);
+            ? std::min<std::uint64_t>(255, elapsed * 255 / 750) : 255);
     if (!presentation.paletteFallback) {
         for (const auto& overlay : presentation.overlays) {
             blitCampaignImageScaled(canvas, overlay, media, false, opacity);
@@ -2345,7 +2007,7 @@ std::vector<unsigned char> composeCampaignSurface(const CampaignMenuState& state
         for (const auto& animation : presentation.animations) {
             if (animation.frames.empty()) continue;
             const auto& image = animation.frames[
-                campaignMapAnimationFrameIndex(animation, GetTickCount64())];
+                campaignMapAnimationFrameIndex(animation, state.presentationClock->nowMs())];
             blitCampaignImageScaled(canvas, image,
                 RECT{animation.x, animation.y, animation.x + image.width,
                      animation.y + image.height}, false);
@@ -2354,69 +2016,11 @@ std::vector<unsigned char> composeCampaignSurface(const CampaignMenuState& state
     return canvas;
 }
 
-std::wstring resolvedCampaignName(
-    const CampaignMenuState& state,
-    const CampaignDefinition* campaign
-) {
-    if (campaign == nullptr) return L"";
-    std::wstring name = state.csf.get(campaign->displayNameKey);
-    if (name.empty()) {
-        name = state.csf.get(
-            isTutorialCampaign(campaign)
-                ? "DESC:TUT1"
-                : (isSovietCampaign(campaign) ? "DESC:SOV1" : "DESC:ALL1")
-        );
-    }
-    if (name.empty()) {
-        if (!campaign->displayName.empty()) {
-            name = widen(campaign->displayName);
-        } else {
-            if (isTutorialCampaign(campaign)) {
-                name = L"训练战役";
-            } else {
-                name = isSovietCampaign(campaign) ? L"苏军战役" : L"盟军战役";
-            }
-        }
-    }
-    const std::wstring edition = campaignEditionSuffix(campaign);
-    if (!edition.empty() && name.find(edition) == std::wstring::npos) {
-        name += edition;
-    }
-    return name;
-}
 
-std::wstring campaignPageTitle(const CampaignMenuState& state) {
-    switch (state.page) {
-    case CampaignPage::Campaigns:
-        return state.csf.get("GUI:NewCampaign", L"新战役");
-    case CampaignPage::Missions:
-        return state.csf.get("GUI:SelectMission", L"选择任务");
-    case CampaignPage::Difficulty:
-        return state.csf.get("GUI:GameDifficulty", L"难度");
-    case CampaignPage::Briefing:
-        return state.csf.get("GUI:Briefing", L"任务简报");
-    case CampaignPage::Saves:
-        return state.csf.get("GUI:LoadSavedGame", L"载入游戏");
-    }
-    return L"战役";
-}
 
-std::wstring difficultyDisplayName(
-    const CampaignMenuState& state,
-    int index
-) {
-    static const std::vector<std::pair<const char*, const wchar_t*>> labels{
-        {"GUI:Easy", L"简单"},
-        {"GUI:Normal", L"普通"},
-        {"GUI:Hard", L"困难"},
-        {"GUI:Brutal", L"残酷"}
-    };
-    index = std::clamp(index, 0, static_cast<int>(labels.size()) - 1);
-    return state.csf.get(
-        labels[static_cast<std::size_t>(index)].first,
-        labels[static_cast<std::size_t>(index)].second
-    );
-}
+
+
+
 
 void drawCampaignMapTargets(
     const CampaignMenuState& state,
@@ -2445,7 +2049,7 @@ void drawCampaignMapTargets(
     const int authoredHeight = state.mapPresentation.clickMap.height > 0
         ? state.mapPresentation.clickMap.height
         : std::max(1, state.mapPresentation.vqaFrame.height);
-    const ULONGLONG now = GetTickCount64();
+    const std::uint64_t now = state.presentationClock->nowMs();
     const int pulse = static_cast<int>((now / 80ULL) % 8ULL);
     const double linearFly = std::clamp(
         static_cast<double>(now - state.mapPresentation.phaseStartedAt) / 600.0,
@@ -2502,425 +2106,76 @@ void drawCampaignMapTargets(
 
 #include "ui/campaign/RuntimeCampaignMenuUi.inl"
 
-void closeMenu(CampaignMenuState& state, bool accepted) {
-    if (state.closing) {
-        return;
-    }
-    state.closing = true;
-    state.accepted = accepted;
-    releaseCampaignMapMouseCapture(state);
-    stopCampaignVoice();
-    stopCampaignMapEffect();
-    if (state.window != nullptr && IsWindow(state.window)) {
-        DestroyWindow(state.window);
-    }
-}
 
-void fillSelectionFromMission(
-    CampaignMenuState& state,
-    const CampaignMissionDefinition& mission,
-    bool loadedFromSave,
-    const std::string& savePath,
-    const std::string& difficulty
-) {
-    state.selection = RuntimeCampaignSelection{};
-    state.selection.accepted = true;
-    state.selection.loadedFromSave = loadedFromSave;
-    state.selection.savePath = savePath.empty()
-        ? campaignSavePath(
-            state.config.localDataRootPath,
-            mission.campaignId,
-            mission.id
-        )
-        : savePath;
-    state.selection.mission = mission;
-    state.selection.campaignId = mission.campaignId;
-    state.selection.missionId = mission.id;
-    state.selection.sourceId = mission.sourceId;
-    state.selection.difficulty = difficulty.empty() ? "Normal" : difficulty;
-    state.selection.playerHouse = mission.playerHouse.empty()
-        ? mission.playerCountry
-        : mission.playerHouse;
-    state.selection.nextMissionId = mission.nextMissionId;
-    state.selection.introVideoPath = mission.introVideoPath;
-    state.selection.postScoreVideoPath = mission.postScoreVideoPath;
-    state.selection.briefingKey = mission.briefingKey;
-    state.selection.mapPath = mission.mapPath;
-    state.selection.playerCountry = mission.playerCountry.empty()
-        ? (state.selection.playerHouse.empty() ? "Americans" : state.selection.playerHouse)
-        : mission.playerCountry;
-    state.selection.playerCountryDisplayName = missionLabel(mission, state.csf);
-    state.selection.playerCountryBrief = state.csf.get(
-        mission.briefingKey,
-        state.csf.get(mission.loadBriefingKey, widen(mission.id))
-    );
-    state.selection.loadingScreenAssetId = runtimeLoadingScreenAssetForCountry(
-        state.selection.playerCountry
-    );
-}
 
-void fillSelectionFromSkirmishSave(
-    CampaignMenuState& state,
-    const SkirmishSaveInfo& save
-) {
-    state.selection = RuntimeCampaignSelection{};
-    state.selection.accepted = true;
-    state.selection.loadedFromSave = true;
-    state.selection.loadedSkirmishSave = true;
-    state.selection.loadedSkirmishFixedTickHz = save.fixedTickHz;
-    state.selection.loadedSkirmishTechLevel = save.techLevel;
-    state.selection.savePath = save.path;
 
-    RuntimeSkirmishSelection& selection = state.selection.skirmish;
-    selection.accepted = true;
-    selection.mapPath = save.mapPath;
-    selection.gameMode = save.gameMode;
-    selection.gameModeRulesOverride = save.gameModeRulesOverride;
-    selection.playerCountry = save.playerCountry;
-    selection.playerColor = save.playerColor;
-    selection.playerCountryDisplayName = widen(save.playerCountry);
-    selection.loadingScreenAssetId = runtimeLoadingScreenAssetForCountry(
-        save.playerCountry
-    );
-    selection.startingCredits = save.startingCredits;
-    selection.unitCount = save.startingUnits;
-    selection.gameSpeed = save.gameSpeed;
-    selection.shortGame = save.shortGame;
-    selection.mcvRepacks = save.mcvRepacks;
-    selection.crates = save.crates;
-    selection.superweapons = save.superweapons;
-    selection.buildOffAlly = save.buildOffAlly;
-    selection.computerAiEnabled = save.computerAiEnabled;
-    selection.noCooldown = save.noCooldown;
-    selection.slots.reserve(save.players.size());
-    for (const SkirmishSavePlayerInfo& savedPlayer : save.players) {
-        RuntimeSkirmishPlayerSlot player;
-        player.enabled = savedPlayer.enabled;
-        player.human = savedPlayer.human;
-        player.name = savedPlayer.name;
-        player.country = savedPlayer.country;
-        player.color = savedPlayer.color;
-        player.team = savedPlayer.team;
-        player.difficulty = savedPlayer.difficulty;
-        player.startPosition = savedPlayer.startPosition;
-        selection.slots.push_back(std::move(player));
-    }
-}
 
-void acceptMission(CampaignMenuState& state) {
-    const CampaignDefinition* campaign = selectedCampaign(state);
-    const CampaignMissionDefinition* mission = selectedMission(state);
-    if (campaign == nullptr || mission == nullptr
-        || !missionUnlocked(state, *campaign, *mission)) {
-        state.status = L"Mission is locked or its authored map is unavailable.";
-        return;
-    }
 
-    const std::string difficulty = difficultyNames()[
-        static_cast<std::size_t>(std::clamp(state.difficultyIndex, 0, 3))
-    ];
-    fillSelectionFromMission(state, *mission, false, "", difficulty);
-    CampaignProgressData progress = state.progress;
-    progress.campaignId = campaign->id;
-    progress.difficulty = difficulty;
-    progress.currentMissionId = mission->id;
-    std::string error;
-    if (!saveCampaignProgress(state.config.localDataRootPath, progress, error)) {
-        state.status = L"Progress could not be saved: " + widen(error);
-        return;
-    }
-    closeMenu(state, true);
-}
 
-void acceptSave(CampaignMenuState& state) {
-    const LoadSaveEntry* entry = selectedSave(state);
-    if (entry == nullptr) {
-        state.status = L"Select a valid saved game.";
-        return;
-    }
-    if (entry->kind == LoadSaveKind::Skirmish) {
-        std::string pathError;
-        if (!validateSkirmishSaveStartupPaths(
-                state.config,
-                entry->skirmish,
-                pathError
-            )) {
-            state.status = L"遭遇战存档无法载入：" + widen(pathError);
-            return;
-        }
-        fillSelectionFromSkirmishSave(state, entry->skirmish);
-        closeMenu(state, true);
-        return;
-    }
 
-    const CampaignSaveInfo& save = entry->campaign;
-    const CampaignMissionDefinition* mission = state.database.findMission(
-        save.campaignId,
-        save.missionId
-    );
-    if (mission == nullptr || !mission->available) {
-        state.status = L"Save refers to a mission missing from the mounted resources.";
-        return;
-    }
-    fillSelectionFromMission(
-        state,
-        *mission,
-        true,
-        save.path,
-        save.difficulty
-    );
-    closeMenu(state, true);
-}
 
-bool confirmCampaignMapChoice(CampaignMenuState& state, int colorIndex) {
-    const CampaignDefinition* campaign = selectedCampaign(state);
-    const CampaignMapSelectionStage* stage = currentMapSelectionStage(state);
-    const CampaignMapSelectionChoice* choice = mapChoiceByColor(
-        stage,
-        colorIndex
-    );
-    if (campaign == nullptr || stage == nullptr || choice == nullptr) {
-        return false;
-    }
-    const int targetIndex = missionIndexById(
-        *campaign,
-        choice->targetMissionId
-    );
-    if (targetIndex < 0) {
-        state.status = L"地图选择目标没有对应的可运行任务。";
-        return false;
-    }
-    const CampaignMissionDefinition& target =
-        campaign->missions[static_cast<std::size_t>(targetIndex)];
-    if (!target.available) {
-        state.status = L"该地图目标的任务资源不可用。";
-        return false;
-    }
-    stopCampaignVoice();
-    state.missionIndex = targetIndex;
-    state.page = CampaignPage::Difficulty;
-    state.status.clear();
-    refreshMissionBackground(state);
-    refreshCampaignMapPresentation(state);
-    playCampaignMapSound(state, campaign->mapSelectionSounds.clickRegion);
-    return true;
-}
 
-void skipCampaignMapIntro(CampaignMenuState& state) {
-    CampaignMapPresentationState& presentation = state.mapPresentation;
-    if (presentation.phase != CampaignMapPresentationPhase::VqaIntro
-        && presentation.phase != CampaignMapPresentationPhase::OverlayFade) {
-        return;
-    }
-    const CampaignMapSelectionStage* stage = currentMapSelectionStage(state);
-    const CampaignDefinition* campaign = selectedCampaign(state);
-    presentation.vqa.clear();
-    if (presentation.hasClickMap() && stage != nullptr) {
-        presentation.keyboardColor = firstUsableMapChoiceColor(state, *stage);
-        if (presentation.keyboardColor == 0) {
-            presentation.phase = CampaignMapPresentationPhase::FallbackList;
-            presentation.phaseStartedAt = GetTickCount64();
-            appendMapPresentationDiagnostic(
-                presentation,
-                "stage has no available map choice"
-            );
-            return;
-        }
-        presentation.phase = CampaignMapPresentationPhase::Interactive;
-        if (!presentation.targetSoundPlayed && campaign != nullptr) {
-            playCampaignMapSound(
-                state,
-                campaign->mapSelectionSounds.targetFlyIn
-            );
-            presentation.targetSoundPlayed = true;
-        }
-        presentation.phaseStartedAt = GetTickCount64();
-    } else {
-        presentation.phase = CampaignMapPresentationPhase::FallbackList;
-        presentation.phaseStartedAt = GetTickCount64();
-    }
-}
 
-void cycleCampaignMapChoice(CampaignMenuState& state, int delta) {
-    const CampaignMapSelectionStage* stage = currentMapSelectionStage(state);
-    const CampaignDefinition* campaign = selectedCampaign(state);
-    if (stage == nullptr || campaign == nullptr) return;
-    std::vector<int> colors;
-    for (const CampaignMapSelectionChoice& choice : stage->choices) {
-        const int targetIndex = missionIndexById(
-            *campaign,
-            choice.targetMissionId
-        );
-        if (choice.colorIndex <= 0 || choice.colorIndex > 255
-            || targetIndex < 0) {
-            continue;
-        }
-        const CampaignMissionDefinition& target =
-            campaign->missions[static_cast<std::size_t>(targetIndex)];
-        if (target.available) {
-            colors.push_back(choice.colorIndex);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+std::wstring CampaignMenuState::text(const std::string& key,const std::wstring& fallback) const { return csf.get(key,fallback); }
+std::wstring CampaignMenuState::widen(const std::string& value) const { return ::widen(value); }
+std::wstring CampaignMenuState::missionLabel(const CampaignMissionDefinition& mission) const { return ::missionLabel(mission,csf); }
+std::wstring CampaignMenuState::editionSuffix(const CampaignDefinition* campaign) const { return campaignEditionSuffix(campaign); }
+std::string CampaignMenuState::loadingScreenAsset(const std::string& country) const { return runtimeLoadingScreenAssetForCountry(country); }
+std::string CampaignMenuState::savePath(const std::string& root,const std::string& campaign,const std::string& mission) const { return campaignSavePath(root,campaign,mission); }
+const CampaignMapSelectionStage* CampaignMenuState::findMapStage(const CampaignDefinition& campaign,const std::string& id) const { return campaign.findMapSelectionStage(id); }
+const CampaignMissionDefinition* CampaignMenuState::findMission(const std::string& campaign,const std::string& mission) const { return database.findMission(campaign,mission); }
+bool CampaignMenuState::saveProgress(const std::string& root,const CampaignProgressData& value,std::string& error) { return saveCampaignProgress(root,value,error); }
+bool CampaignMenuState::validateSavePaths(const RuntimeConfig& cfg,const SkirmishSaveInfo& value,std::string& error) const { return validateSkirmishSaveStartupPaths(cfg,value,error); }
+void CampaignMenuState::refreshBackground() { refreshMissionBackground(*this); }
+void CampaignMenuState::refreshPresentation() { refreshCampaignMapPresentation(*this); }
+void CampaignMenuState::releaseMapCapture() { releaseCampaignMapMouseCapture(*this); }
+void CampaignMenuState::stopVoice() { stopCampaignVoice(); }
+void CampaignMenuState::stopMapEffect() { stopCampaignMapEffect(); }
+void CampaignMenuState::playMapSound(const CampaignMapSelectionSound& sample) { playCampaignMapSound(*this,sample); }
+void CampaignMenuState::repaintValidWindow() { if(window!=nullptr&&IsWindow(window))InvalidateRect(window,nullptr,FALSE); }
+void CampaignMenuState::destroyWindow() { if(window!=nullptr&&IsWindow(window))DestroyWindow(window); }
+int CampaignMenuState::mapColorAt(int x,int y) const { return campaignMapColorAtBasePoint(*this,x,y); }
+
+
+std::wstring CampaignMenuState::saveTitle(const LoadSaveEntry& entry) const { return loadSaveTitle(entry); }
+void CampaignMenuState::updatePresentation() { updateCampaignMapPresentation(*this); }
+RuntimeInputPixelRect CampaignMenuState::eventClientRect() const { return campaignEventClientRect(eventWindow.value); }
+bool CampaignMenuState::shiftPressed() const { return (GetKeyState(VK_SHIFT)&0x8000)!=0; }
+void CampaignMenuState::repaintEvent(bool requireValid) { if(!requireValid||IsWindow(eventWindow.value))InvalidateRect(eventWindow.value,nullptr,FALSE); }
+void CampaignMenuState::trackMouseLeave() { TRACKMOUSEEVENT tracking{sizeof(TRACKMOUSEEVENT),TME_LEAVE,eventWindow.value,0};TrackMouseEvent(&tracking); }
+void CampaignMenuState::setHandCursor(bool hand) { SetCursor(LoadCursorW(nullptr,MAKEINTRESOURCEW(hand?32649:32512))); }
+void CampaignMenuState::focusEvent() { SetFocus(eventWindow.value); }
+void CampaignMenuState::captureEvent() { SetCapture(eventWindow.value); }
+void CampaignMenuState::releaseEventCapture() { if(GetCapture()==eventWindow.value)ReleaseCapture(); }
+CampaignDatabase CampaignMenuState::loadDatabase(const CampaignDatabaseOptions& options) { return loadCampaignDatabase(options); }
+bool CampaignMenuState::loadProgress(const std::string& root,CampaignProgressData& value,std::string& error) { return loadCampaignProgress(root,value,error); }
+std::vector<CampaignSaveInfo> CampaignMenuState::campaignSaves(const std::string& root) { return listCampaignSaves(root); }
+std::vector<SkirmishSaveInfo> CampaignMenuState::skirmishSaves(const std::string& root) { return listSkirmishSaves(root); }
+std::wstring CampaignMenuState::incompatibleSaveWarning(const std::string& root) const {
+    const fs::path runtimeSave(skirmishSavePath(root));
+    std::error_code saveError;
+    if (fs::is_regular_file(runtimeSave, saveError)) {
+        SkirmishSaveInfo incompatible;
+        if (!inspectSkirmishSave(runtimeSave.string(), incompatible)) {
+            return L"遭遇战存档不可从主菜单载入：" + ::widen(incompatible.error);
         }
     }
-    if (colors.empty()) return;
-    const int currentColor = state.mapPresentation.keyboardColor != 0
-        ? state.mapPresentation.keyboardColor
-        : state.mapPresentation.hoverColor;
-    auto current = std::find(colors.begin(), colors.end(), currentColor);
-    int index = current == colors.end()
-        ? (delta > 0 ? -1 : 0)
-        : static_cast<int>(std::distance(colors.begin(), current));
-    index = (index + delta + static_cast<int>(colors.size()))
-        % static_cast<int>(colors.size());
-    state.mapPresentation.keyboardColor =
-        colors[static_cast<std::size_t>(index)];
-    state.mapPresentation.hoverColor = 0;
-}
-
-void updateCampaignMapHover(
-    CampaignMenuState& state,
-    int baseX,
-    int baseY
-) {
-    if (state.page != CampaignPage::Missions
-        || state.mapPresentation.phase
-            != CampaignMapPresentationPhase::Interactive) {
-        return;
-    }
-    const int previous = state.mapPresentation.hoverColor;
-    const int current = campaignMapColorAtBasePoint(state, baseX, baseY);
-    if (current == previous) return;
-    state.mapPresentation.hoverColor = current;
-    if (current != 0) state.mapPresentation.keyboardColor = current;
-    const CampaignDefinition* campaign = selectedCampaign(state);
-    if (campaign == nullptr) return;
-    if (current != 0) {
-        playCampaignMapSound(
-            state,
-            campaign->mapSelectionSounds.enterRegion
-        );
-    } else if (previous != 0) {
-        playCampaignMapSound(
-            state,
-            campaign->mapSelectionSounds.exitRegion
-        );
-    }
-}
-
-void moveSelection(CampaignMenuState& state, int delta) {
-    if (state.page == CampaignPage::Campaigns) {
-        if (state.database.campaigns.empty()) return;
-        const int count = static_cast<int>(state.database.campaigns.size());
-        state.campaignIndex = (state.campaignIndex + delta + count) % count;
-        chooseFirstUnlockedMission(state);
-    } else if (state.page == CampaignPage::Missions) {
-        if (campaignShowsMap(state) && state.mapPresentation.phase
-            == CampaignMapPresentationPhase::Interactive) {
-            cycleCampaignMapChoice(state, delta);
-            if (state.window != nullptr && IsWindow(state.window)) {
-                InvalidateRect(state.window, nullptr, FALSE);
-            }
-            return;
-        }
-        if (campaignShowsMap(state) && (state.mapPresentation.phase
-                == CampaignMapPresentationPhase::VqaIntro
-            || state.mapPresentation.phase
-                == CampaignMapPresentationPhase::OverlayFade)) {
-            return;
-        }
-        const CampaignDefinition* campaign = selectedCampaign(state);
-        if (campaign == nullptr || campaign->missions.empty()) return;
-        const int count = static_cast<int>(campaign->missions.size());
-        state.missionIndex = (state.missionIndex + delta + count) % count;
-    } else if (state.page == CampaignPage::Difficulty) {
-        const int count = static_cast<int>(difficultyNames().size());
-        state.difficultyIndex = (state.difficultyIndex + delta + count) % count;
-    } else if (state.page == CampaignPage::Briefing) {
-        state.briefingScroll = std::max(0, state.briefingScroll + delta * 40);
-    } else if (state.page == CampaignPage::Saves) {
-        if (state.saves.empty()) return;
-        const int count = static_cast<int>(state.saves.size());
-        state.saveIndex = (state.saveIndex + delta + count) % count;
-    }
-    refreshMissionBackground(state);
-    refreshCampaignMapPresentation(state);
-}
-
-void activateSelection(CampaignMenuState& state) {
-    switch (state.page) {
-    case CampaignPage::Campaigns:
-        if (selectedCampaign(state) != nullptr) {
-            chooseFirstUnlockedMission(state);
-            state.page = CampaignPage::Missions;
-        }
-        break;
-    case CampaignPage::Missions:
-        if (campaignShowsMap(state) && (state.mapPresentation.phase
-                == CampaignMapPresentationPhase::VqaIntro
-            || state.mapPresentation.phase
-                == CampaignMapPresentationPhase::OverlayFade)) {
-            skipCampaignMapIntro(state);
-        } else if (campaignShowsMap(state) && state.mapPresentation.phase
-            == CampaignMapPresentationPhase::Interactive) {
-            int color = state.mapPresentation.keyboardColor;
-            if (color == 0) {
-                const CampaignMapSelectionStage* stage =
-                    currentMapSelectionStage(state);
-                if (stage != nullptr) {
-                    color = firstUsableMapChoiceColor(state, *stage);
-                }
-            }
-            confirmCampaignMapChoice(state, color);
-        } else if (const CampaignMissionDefinition* mission =
-                selectedMission(state)) {
-            const CampaignDefinition* campaign = selectedCampaign(state);
-            if (campaign != nullptr
-                && missionUnlocked(state, *campaign, *mission)) {
-                state.page = CampaignPage::Difficulty;
-                state.status.clear();
-            } else {
-                state.status = L"任务尚未解锁或地图资源不可用。";
-            }
-        }
-        break;
-    case CampaignPage::Difficulty:
-        state.briefingScroll = 0;
-        state.page = CampaignPage::Briefing;
-        break;
-    case CampaignPage::Briefing:
-        acceptMission(state);
-        break;
-    case CampaignPage::Saves:
-        acceptSave(state);
-        break;
-    }
-    refreshMissionBackground(state);
-    refreshCampaignMapPresentation(state);
-    if (state.window != nullptr && IsWindow(state.window)) {
-        InvalidateRect(state.window, nullptr, FALSE);
-    }
-}
-
-void goBack(CampaignMenuState& state) {
-    switch (state.page) {
-    case CampaignPage::Campaigns:
-    case CampaignPage::Saves:
-        closeMenu(state, false);
-        break;
-    case CampaignPage::Missions:
-        state.page = CampaignPage::Campaigns;
-        break;
-    case CampaignPage::Difficulty:
-        state.page = CampaignPage::Missions;
-        break;
-    case CampaignPage::Briefing:
-        state.page = CampaignPage::Difficulty;
-        break;
-    }
-    refreshMissionBackground(state);
-    refreshCampaignMapPresentation(state);
-    if (state.window != nullptr && IsWindow(state.window)) {
-        InvalidateRect(state.window, nullptr, FALSE);
-    }
+    return {};
 }
 
 #include "ui/campaign/RuntimeCampaignMenuInput.inl"
@@ -3230,6 +2485,20 @@ bool writeCampaignFixtureBytes(
     return output.good();
 }
 
+// Diagnostic-only owning environment read; read errors cannot enable cleanup.
+std::optional<std::string> campaignSmokeEnvironment(const char* name) {
+    char* value=nullptr;std::size_t size=0;
+    if(_dupenv_s(&value,&size,name)!=0)throw std::runtime_error("campaign smoke environment read failed");
+    std::unique_ptr<char,decltype(&std::free)> owned(value,&std::free);
+    return value?std::optional<std::string>(value):std::nullopt;
+}
+bool campaignSmokeRetainArtifacts() {
+    const auto retain=campaignSmokeEnvironment("CONCORD_CAMPAIGN_SMOKE_RETAIN");
+    if(!retain)return false;
+    if(*retain!="1")throw std::runtime_error("Campaign smoke retain must be1");
+    return true;
+}
+
 bool runCampaignMapMediaPathSmoke(
     CampaignMenuState& state,
     int campaignIndex,
@@ -3238,6 +2507,19 @@ bool runCampaignMapMediaPathSmoke(
     std::string& missingPathSummary,
     std::string& errorMessage
 ) {
+    const bool retainSmokeArtifacts = campaignSmokeRetainArtifacts();
+    // Optional fixture input only: stock reads remain separate from the owned
+    // temporary localData/audio-cache outputs. Default stock binding is unchanged.
+    const auto stockSmokeRoot = campaignSmokeEnvironment("CONCORD_CAMPAIGN_SMOKE_STOCK_ROOT");
+    if (stockSmokeRoot) {
+        std::error_code stockError;
+        const fs::path stockPath(*stockSmokeRoot);
+        if (stockSmokeRoot->empty() || !stockPath.is_absolute()
+            || !fs::is_directory(stockPath, stockError) || stockError) {
+            errorMessage = "Campaign smoke stock root must be an existing absolute input directory";
+            return false;
+        }
+    }
     realPathSummary.clear();
     missingPathSummary.clear();
     errorMessage.clear();
@@ -3286,6 +2568,7 @@ bool runCampaignMapMediaPathSmoke(
         state.mapPresentation = CampaignMapPresentationState{};
     };
     const auto cleanup = [&]() {
+        if (retainSmokeArtifacts) return;
         removeKnown(cachedVoicePath);
         removeKnown(palettePath);
         removeKnown(vqaPath);
@@ -3361,7 +2644,7 @@ bool runCampaignMapMediaPathSmoke(
     state.config.localDataRootPath = localRoot.string();
     // Keep the test audio cache disposable while mounting the real stock SHP
     // layer beneath the synthetic core media overrides.
-    state.config.resourceRootPath = originalConfig.localDataRootPath;
+    state.config.resourceRootPath = stockSmokeRoot ? *stockSmokeRoot : originalConfig.localDataRootPath;
     state.presentationResources.configure(state.config);
     state.presentationAudio.clear();
     state.missingPresentationAudio.clear();
@@ -3842,6 +3125,7 @@ bool probeCustomYuriCampaignMapRoute(
 }
 
 bool runCampaignResourcePrioritySmoke(std::string& errorMessage) {
+    const bool retainSmokeArtifacts = campaignSmokeRetainArtifacts();
     errorMessage.clear();
     std::error_code error;
     const fs::path root = fs::temp_directory_path(error) / (
@@ -3855,6 +3139,7 @@ bool runCampaignResourcePrioritySmoke(std::string& errorMessage) {
     const fs::path localFile = localRoot / "campaign-priority-probe.bin";
     const fs::path modMix = modRoot / "priority.mix";
     const auto cleanup = [&]() {
+        if (retainSmokeArtifacts) return;
         const auto removeKnown = [](const fs::path& path) {
             std::error_code removeError;
             fs::remove(path, removeError);
@@ -3949,6 +3234,7 @@ bool runCampaignResourcePrioritySmoke(std::string& errorMessage) {
 }
 
 bool runCampaignResourceEditionIsolationSmoke(std::string& errorMessage) {
+    const bool retainSmokeArtifacts = campaignSmokeRetainArtifacts();
     errorMessage.clear();
     std::error_code error;
     const fs::path root = fs::temp_directory_path(error) / (
@@ -3968,6 +3254,7 @@ bool runCampaignResourceEditionIsolationSmoke(std::string& errorMessage) {
         fs::remove(path, removeError);
     };
     const auto cleanup = [&]() {
+        if (retainSmokeArtifacts) return;
         removeKnown(ra2Shared);
         removeKnown(yrShared);
         removeKnown(ra2Only);
@@ -4037,103 +3324,24 @@ bool runCampaignResourceEditionIsolationSmoke(std::string& errorMessage) {
     return isolated;
 }
 
+
+#include "ui/campaign/diagnostics/campaign_clock_original/Methods.original.inl"
+#include "ui/campaign/diagnostics/RuntimeCampaignPresentationClockSmoke.inl"
+
 } // namespace
 
 RuntimeCampaignSelection runRuntimeCampaignMenu(
     const RuntimeConfig& config,
-    void* hostWindow,
+    RuntimeWindowId hostWindow,
     bool loadGame
 ) {
     CampaignMenuState state;
-    state.config = config;
-    state.loadGame = loadGame;
-    state.page = loadGame ? CampaignPage::Saves : CampaignPage::Campaigns;
-
-    CampaignDatabaseOptions options;
-    options.resourceRootPath = config.resourceRootPath;
-    options.localDataRootPath = config.localDataRootPath;
-    options.modRootPath = config.modRootPath;
-    state.database = loadCampaignDatabase(options);
-    std::string progressError;
-    if (!loadCampaignProgress(config.localDataRootPath, state.progress, progressError)
-        && progressError.empty() == false) {
-        state.status = L"Progress read failed: " + widen(progressError);
-    }
-    if (loadGame) {
-        for (CampaignSaveInfo& save :
-                listCampaignSaves(config.localDataRootPath)) {
-            LoadSaveEntry entry;
-            entry.kind = LoadSaveKind::Campaign;
-            entry.campaign = std::move(save);
-            state.saves.push_back(std::move(entry));
-        }
-        for (SkirmishSaveInfo& save :
-                listSkirmishSaves(config.localDataRootPath)) {
-            std::string pathError;
-            if (!validateSkirmishSaveStartupPaths(
-                    config,
-                    save,
-                    pathError
-                )) {
-                state.skirmishSaveWarning =
-                    L"遭遇战存档不可从主菜单载入：" + widen(pathError);
-                continue;
-            }
-            LoadSaveEntry entry;
-            entry.kind = LoadSaveKind::Skirmish;
-            entry.skirmish = std::move(save);
-            state.saves.push_back(std::move(entry));
-        }
-        std::stable_sort(
-            state.saves.begin(),
-            state.saves.end(),
-            [](const LoadSaveEntry& left, const LoadSaveEntry& right) {
-                if (left.kind != right.kind) {
-                    return left.kind == LoadSaveKind::Skirmish;
-                }
-                const int leftTick = left.kind == LoadSaveKind::Skirmish
-                    ? left.skirmish.tick
-                    : left.campaign.tick;
-                const int rightTick = right.kind == LoadSaveKind::Skirmish
-                    ? right.skirmish.tick
-                    : right.campaign.tick;
-                if (leftTick != rightTick) {
-                    return leftTick > rightTick;
-                }
-                const std::string leftPath = left.kind == LoadSaveKind::Skirmish
-                    ? left.skirmish.path
-                    : left.campaign.path;
-                const std::string rightPath = right.kind == LoadSaveKind::Skirmish
-                    ? right.skirmish.path
-                    : right.campaign.path;
-                return lowerAscii(leftPath) < lowerAscii(rightPath);
-            }
-        );
-
-        const fs::path runtimeSave(skirmishSavePath(config.localDataRootPath));
-        std::error_code saveError;
-        if (fs::is_regular_file(runtimeSave, saveError)) {
-            SkirmishSaveInfo incompatible;
-            if (!inspectSkirmishSave(runtimeSave.string(), incompatible)) {
-                state.skirmishSaveWarning =
-                    L"遭遇战存档不可从主菜单载入：" + widen(incompatible.error);
-            }
-        }
-        if (state.saves.empty()) {
-            state.status = state.skirmishSaveWarning.empty()
-                ? L"No compatible campaign or skirmish saves were found."
-                : state.skirmishSaveWarning;
-        } else if (!state.skirmishSaveWarning.empty()) {
-            state.status = state.skirmishSaveWarning;
-        }
-    } else if (state.database.campaigns.empty()) {
-        state.status = L"Campaign database is empty: " + widen(state.database.status);
-    } else {
-        chooseFirstUnlockedMission(state);
-    }
+    initializeCampaignMenu(state, config, loadGame);
     initializeCampaignAssets(state);
 
-    HWND parent = static_cast<HWND>(hostWindow);
+    const auto resolvedParent = resolveRuntimeWindowParentWin32(hostWindow);
+    if (!resolvedParent.supported) return RuntimeCampaignSelection{};
+    HWND parent = resolvedParent.window;
     if (parent != nullptr && !IsWindow(parent)) {
         parent = nullptr;
     }
@@ -4176,10 +3384,23 @@ RuntimeCampaignSelection runRuntimeCampaignMenu(
     return RuntimeCampaignSelection{};
 }
 
+#include "ui/campaign/diagnostics/RuntimeCampaignMenuHostLifecycleSmoke.inl"
+
 int runRuntimeCampaignMenuSmokeTest(
     const RuntimeConfig& config,
     const std::string& outputPath
 ) {
+    if (const auto only=campaignSmokeEnvironment("CONCORD_CAMPAIGN_HOST_LIFECYCLE_ONLY")) {
+        if(*only!="1"){std::cerr<<"Campaign host lifecycle ONLY must be1\n";return 1;}
+        return runRuntimeCampaignHostLifecycleSmoke(config);
+    }
+    if (const auto only=campaignSmokeEnvironment("CONCORD_CAMPAIGN_PRESENTATION_CLOCK_ONLY")) {
+        const auto output=campaignSmokeEnvironment("CONCORD_CAMPAIGN_PRESENTATION_CLOCK_OUTPUT");
+        if(*only!="1" || !output || output->empty()) {
+            std::cerr<<"Campaign clock requires ONLY=1 and explicit OUTPUT\n";return 1;
+        }
+        return runCampaignPresentationClockSmoke(config,fs::path(*output));
+    }
     std::string priorityError;
     if (!runCampaignResourcePrioritySmoke(priorityError)) {
         std::cerr << "Campaign UI smoke failed: " << priorityError << "\n";
@@ -4587,6 +3808,9 @@ int runRuntimeCampaignMenuSmokeTest(
         return 1;
     }
     HGDIOBJ oldBitmap = SelectObject(memory, bitmap);
+    const auto systemFontTraceOutput=campaignSmokeEnvironment("CONCORD_CAMPAIGN_SYSTEM_FONT_TRACE_OUTPUT");
+    std::vector<CampaignSystemFontTraceCall> systemFontCalls;
+    CampaignSystemFontTraceScope systemFontTraceScope(systemFontTraceOutput ? &systemFontCalls : nullptr);
     drawCampaignMenu(state, memory, RECT{0, 0, kCampaignShellWidth, kCampaignShellHeight});
     GdiFlush();
 
@@ -4639,6 +3863,10 @@ int runRuntimeCampaignMenuSmokeTest(
     if (!written) {
         std::cerr << "Campaign UI smoke failed while writing BMP\n";
         return 1;
+    }
+    if(systemFontTraceOutput && (systemFontTraceOutput->empty()
+        || !writeCampaignSystemFontTrace(fs::path(*systemFontTraceOutput),systemFontCalls))) {
+        std::cerr<<"Campaign system font request trace write failed\n";return 1;
     }
     std::ostringstream routeReport;
     for (std::size_t index = 0; index < routeSummaries.size(); ++index) {

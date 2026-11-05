@@ -1,12 +1,20 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <string>
 
 struct RuntimeCampaignMovieResolverOptions {
     std::string resourceRootPath;
     std::string localDataRootPath;
     std::string modRootPath;
+};
+
+// Native OS roots. Legacy options above retain the native narrow code page.
+struct RuntimeCampaignMoviePaths {
+    std::filesystem::path resourceRoot;
+    std::filesystem::path localDataRoot;
+    std::filesystem::path modRoot;
 };
 
 struct RuntimeCampaignMovieResolution {
@@ -20,6 +28,10 @@ struct RuntimeCampaignMovieResolution {
     std::string archivePath;
     std::string entryName;
     std::uint64_t byteSize = 0;
+    // Owned native identities; referencePath/archivePath remain UTF-8 references
+    // and diagnostic labels, with the existing archive.mix!entry.bik convention.
+    std::filesystem::path filePath;
+    std::filesystem::path archiveFilePath;
 };
 
 std::string normalizeRuntimeCampaignMovieSourceId(
@@ -45,3 +57,16 @@ bool materializeRuntimeCampaignMovie(
     std::string& moviePath,
     std::string& errorMessage
 );
+
+RuntimeCampaignMovieResolution resolveRuntimeCampaignMovieFromPaths(
+    const RuntimeCampaignMoviePaths& paths,
+    const std::string& sourceId,
+    const std::string& movieId);
+
+// The resolver's serialized reference is explicitly UTF-8; the movie logical
+// name and original INI bytes are never recoded. Output is an owned OS path.
+bool materializeRuntimeCampaignMovieFromPaths(
+    const RuntimeCampaignMoviePaths& paths,
+    const std::string& utf8Reference,
+    std::filesystem::path& moviePath,
+    std::string& errorMessage);

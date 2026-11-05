@@ -16,7 +16,7 @@ bool runRuntimeSuperWeaponAnimationRenderContractCheck(const RuntimeMapRenderCon
             RuntimeMapCamera camera; camera.initialized=true;
             const auto origin=projectCellXY(host.x,host.y,0,camera);
             camera.worldOffsetX=origin.x-width/2; camera.worldOffsetY=origin.y-160;
-            const auto center=runtimeObjectBodyAnchorForRender(host,viewport,probe,camera);
+            const auto center=runtimeObjectBodyAnchorForRenderWin32(host,viewport,probe,camera);
             const auto* art=findArtTypeForObject(host,probe); if(!art) return fail(host.type+" body art missing");
             for(int column=0;column<columns;++column){
                 std::vector<SpecialMechanismRenderSnapshot> poses{phases[row][column]}; probe.specialMechanismSnapshots=&poses;

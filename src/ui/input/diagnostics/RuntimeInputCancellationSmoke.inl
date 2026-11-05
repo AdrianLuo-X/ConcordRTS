@@ -1,3 +1,4 @@
+#include "ui/input/diagnostics/RuntimeInputPreferenceFixtureReadiness.inl"
 // W012-01: complete frozen native WndProc, same-CPP private-host route,
 // and actual production WndProc. Only diagnostic observers were added to old.
 #include "ui/input/diagnostics/RuntimeInputCancellationOld.inl"
@@ -449,6 +450,7 @@ bool runRuntimeInputCancellationSmokeProbe(RuntimeWindowState& stock,std::ostrea
                     <<" reason="<<hex(reason)<<" fullState="<<hex(complete.str())<<" preferences="<<hex(saved[route].preferences.back())<<'\n';
             };
             save("initial",0);
+            if (name.starts_with("slider-") && !need(RuntimeInputPreferenceFixture::check(state.config.configPath, trace, label), label + " owned preference file stable before original saving action")) return false;
             const auto send=[&](UINT message,WPARAM raw,LPARAM flags){
                 if(!need(IsWindow(window.handle)!=FALSE,label+" target alive before message"))return LRESULT{0};
                 const LRESULT result=SendMessageW(window.handle,message,raw,flags);++inputs;save("message-"+std::to_string(message),result);return result;

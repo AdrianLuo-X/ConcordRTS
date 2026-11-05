@@ -23,45 +23,19 @@ struct RuntimeResultBitFont {
             {stride, rows, height, count, recordSize}, static_cast<std::uint16_t>(character),
             concord::assets::WestwoodGlyphFallback::MissingReferenceOnly);
     }
-    int measure(const std::wstring& text) const {
-        int width = 0;
-        for (const auto c : text) { const auto* g = glyph(c); width += g ? g[0] + 1 : 5; }
-        return std::max(0, width - 1);
+    concord::ui::ResultBitmapFontView view() const {
+        return {bytes,{stride,rows,height,count,recordSize}};
     }
-    void draw(HDC dc, const RECT& client, RECT base, std::wstring text, COLORREF color, bool centered) const {
+    int measure(const std::wstring& text) const {
+        return concord::ui::measureResultBitmapText(view(),std::wstring_view(text));
+    }
+    void draw(HDC dc, const RECT& client, RECT base, std::wstring text, COLORREF color, bool centered,
+        std::vector<RuntimeResultBitmapTraceCall>* trace = nullptr) const {
         if (bytes.empty() || text.empty()) return;
-        if (measure(text) > base.right - base.left) {
-            while (!text.empty() && measure(text + L"...") > base.right - base.left) text.pop_back();
-            text += L"...";
-        }
-        const int startX = base.left + (centered ? std::max(0L, base.right - base.left - measure(text)) / 2 : 0);
-        const int startY = base.top + std::max(0L, base.bottom - base.top - static_cast<LONG>(height)) / 2;
-        const RECT clip = runtimeMatchScoreScaledRect(client, base);
-        const int saved = SaveDC(dc);
-        IntersectClipRect(dc, clip.left, clip.top, clip.right, clip.bottom);
-        for (int pass : {1, 0}) {
-            HBRUSH brush = CreateSolidBrush(pass ? RGB(18, 10, 0) : color);
-            int cursor = startX;
-            for (const auto c : text) {
-                const auto* g = glyph(c);
-                if (!g) { cursor += 5; continue; }
-                for (unsigned y = 0; y < rows; ++y) {
-                    const auto* row = g + 1 + y * stride;
-                    for (int x = 0; x < g[0];) {
-                        if (!(row[x / 8] & (0x80 >> (x % 8)))) { ++x; continue; }
-                        const int left = x++;
-                        while (x < g[0] && (row[x / 8] & (0x80 >> (x % 8)))) ++x;
-                        const RECT run = runtimeMatchScoreScaledRect(client, RECT{
-                            cursor + left + pass, startY + static_cast<int>(y) + pass,
-                            cursor + x + pass, startY + static_cast<int>(y) + 1 + pass});
-                        FillRect(dc, &run, brush);
-                    }
-                }
-                cursor += g[0] + 1;
-            }
-            DeleteObject(brush);
-        }
-        RestoreDC(dc, saved);
+        if (trace != nullptr) trace->push_back({text, {client.left, client.top, client.right, client.bottom},
+            {base.left, base.top, base.right, base.bottom}, color, centered});
+        concord::ui::drawResultBitmapTextWin32(view(),dc,client,base,std::move(text),color,
+            centered,&runtimeMatchScoreScaledRect);
     }
 };
 

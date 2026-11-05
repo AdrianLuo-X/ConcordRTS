@@ -1,10 +1,6 @@
 // Local input routing is gameplay infrastructure. It must not depend on an
 // optional recording/viewing session being present.
-bool runtimeUsesGameplayIntentRouter(const RuntimeWindowState& state) {
-    return state.multiplayerBridge != nullptr
-        || (!state.campaignMode && runtimeLocalObserver(state.config))
-        || state.offlineGameplayIntentRouting;
-}
+
 
 bool dispatchRuntimeOfflineGameplayCommand(RuntimeWindowState& state,
     const RuntimeMultiplayerGameplayCommand& command, std::string& error) {

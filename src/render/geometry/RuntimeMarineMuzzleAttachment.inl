@@ -4,8 +4,8 @@
 // selected. Native-pixel coordinates need no FLH or zoom multiplier: mobile
 // SHPs retain native pixel dimensions at every camera tile size.
 bool resolveRuntimeMarineWeaponMuzzlePoint(const WorldObjectInstance& object,
-    const POINT& center, const RuntimeMapRenderContext& context,
-    const RuntimeMapCamera& camera, RuntimeMapRenderCache& cache, POINT& result) {
+    const RuntimeInputPixelPoint& centerPixels, const RuntimeMapRenderContext& context,
+    const RuntimeMapCamera& camera, RuntimeMapRenderCache& cache, RuntimeInputPixelPoint& result) {
     if (object.kind != WorldObjectKind::Unit) return false;
     auto* sprite = loadRuntimeObjectShpSpriteFromCache(object, context, cache);
     if (!sprite || !sprite->loaded
@@ -17,6 +17,7 @@ bool resolveRuntimeMarineWeaponMuzzlePoint(const WorldObjectInstance& object,
     POINT point{};
     if (!runtimeFindMarineMuzzleAnchor(sprite->resolvedImageId, sprite->frameIndex,
             width, height, point)) return false;
+    const POINT center = runtimeRenderPlacementNativePoint(centerPixels);
     result = {center.x - width / 2 + point.x,
         center.y + camera.tileHeight / 2 - height + point.y
             + runtimeUnderwaterShpAlignmentOffsetY(object, context, camera, image)};

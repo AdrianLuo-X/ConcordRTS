@@ -12,11 +12,13 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <utility>
 #include <vector>
@@ -426,6 +428,17 @@ struct TemporaryContentFiles {
     std::filesystem::path empty;
 
     ~TemporaryContentFiles() {
+#if defined(_MSC_VER)
+        char* retain = nullptr;
+        std::size_t count = 0;
+        const int result = _dupenv_s(&retain, &count, "CONCORD_COMPATIBILITY_FINGERPRINT_SMOKE_RETAIN");
+        const bool retainArtifacts = result != 0 || (retain && std::string_view(retain) == "1");
+        std::free(retain);
+        if (retainArtifacts) return;
+#else
+        const char* retain = std::getenv("CONCORD_COMPATIBILITY_FINGERPRINT_SMOKE_RETAIN");
+        if (retain && std::string_view(retain) == "1") return;
+#endif
         std::error_code cleanupError;
         if (!payload.empty()) std::filesystem::remove(payload, cleanupError);
         cleanupError.clear();

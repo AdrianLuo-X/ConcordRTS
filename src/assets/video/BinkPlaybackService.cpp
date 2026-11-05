@@ -1,4 +1,6 @@
 #include "assets/video/BinkPlaybackService.h"
+#include "assets/video/BinkPlaybackPaths.h"
+#include "core/io/RuntimeExecutableDirectory.h"
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -13,18 +15,6 @@
 
 namespace {
 namespace fs = std::filesystem;
-bool regularFile(const fs::path& path) {
-    std::error_code error;
-    return fs::is_regular_file(path, error);
-}
-
-fs::path firstExisting(std::initializer_list<fs::path> paths) {
-    for (const fs::path& path : paths) {
-        if (!path.empty() && regularFile(path)) return path;
-    }
-    return {};
-}
-
 std::uint32_t readLe32(const std::vector<unsigned char>& bytes, std::size_t at) {
     if (at + 4 > bytes.size()) return 0;
     return static_cast<std::uint32_t>(bytes[at])
@@ -36,15 +26,6 @@ std::uint32_t readLe32(const std::vector<unsigned char>& bytes, std::size_t at) 
 volatile LONG* binkInterlockedField(volatile std::int32_t& field) {
     static_assert(sizeof(LONG) == sizeof(std::int32_t));
     return reinterpret_cast<volatile LONG*>(&field);
-}
-
-fs::path runtimeExecutableDirectory() {
-    std::array<wchar_t, 32768> path{};
-    const DWORD copied = GetModuleFileNameW(
-        nullptr, path.data(), static_cast<DWORD>(path.size())
-    );
-    if (copied == 0 || copied >= path.size()) return {};
-    return fs::path(std::wstring(path.data(), copied)).parent_path();
 }
 
 std::wstring quotedCommandArgument(const std::wstring& value) {
@@ -108,27 +89,14 @@ public:
         failure_.clear();
         finished_ = false;
 
-        const fs::path movie = requestedMovie.empty()
-            ? firstExisting({
-                exportRoot / "langmd" / "ra2ts_l.bik",
-                exportRoot / "lang" / "ra2ts_l.bik"
-            })
-            : firstExisting({requestedMovie});
-        const fs::path decoderDll = firstExisting({
-            resourceRoot / "GameMD" / "Binkw32.dll",
-            resourceRoot / "Game" / "Binkw32.dll"
-        });
-        const fs::path executableDirectory = runtimeExecutableDirectory();
+        const fs::path executableDirectory = runtimeVideoExecutableDirectory();
         std::error_code currentError;
         const fs::path current = fs::current_path(currentError);
-        const fs::path helper = firstExisting({
-            executableDirectory / "BinkFrameExtractor.exe",
-            executableDirectory.parent_path() / "BinkFrameExtractor.exe",
-            executableDirectory.parent_path() / "bink_decoder32" / "Debug"
-                / "BinkFrameExtractor.exe",
-            current / "build" / "BinkFrameExtractor.exe",
-            current / "BinkFrameExtractor.exe"
-        });
+        const BinkPlaybackPaths paths = resolveBinkPlaybackPaths({
+            resourceRoot, exportRoot, requestedMovie, executableDirectory, current});
+        const fs::path& movie = paths.movie;
+        const fs::path& decoderDll = paths.decoderDll;
+        const fs::path& helper = paths.helper;
         if (movie.empty()) return fail(
             requestedMovie.empty()
                 ? "ra2ts_l.bik was not found"

@@ -9,7 +9,7 @@ bool runRuntimeFlakHeightRenderContractCheck(const RuntimeMapRenderContext& cont
     auto* building=const_cast<BuildingType*>(rules.findBuildingType("NAFLAK"));
     if(!building) return fail("original flak rules missing");
     probe.vision=nullptr; probe.surfacePixels=pixels.data(); probe.surfaceWidth=width; probe.surfaceHeight=height;
-    std::unordered_map<std::string,COLORREF> colors{{"russians",RGB(230,190,35)}};
+    RuntimeOwnerRemapColorTable colors{{"russians",RGB(230,190,35)}};
     probe.ownerRemapColors=&colors;
     RuntimeMapCamera camera; camera.initialized=true;
     const auto origin=projectCellXY(source.x,source.y,source.level,camera);
@@ -17,7 +17,7 @@ bool runRuntimeFlakHeightRenderContractCheck(const RuntimeMapRenderContext& cont
     const RECT viewport{0,0,width,height};
     for(int row=0;row<8;++row){
         auto object=source; object.facing=object.turretFacing=row*32;
-        const auto center=runtimeObjectBodyAnchorForRender(object,viewport,probe,camera);
+        const auto center=runtimeObjectBodyAnchorForRenderWin32(object,viewport,probe,camera);
         double oldY=0,newY=0; int oldCount=0,newCount=0;
         for(int column=0;column<2;++column){
             std::fill(pixels.begin(),pixels.end(),background);

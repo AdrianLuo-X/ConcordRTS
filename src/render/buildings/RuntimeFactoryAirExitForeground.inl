@@ -56,8 +56,8 @@ RuntimeFactoryAirExitOcclusionPixels captureRuntimeFactoryAirExitForegroundPixel
     for (const auto& span : spans) {
         if (span.y < std::max<LONG>(0, clip.top)
             || span.y >= std::min<LONG>(context.surfaceHeight, clip.bottom)) continue;
-        for (LONG x = std::max<LONG>(0, std::max(span.left, clip.left));
-                x < std::min<LONG>(context.surfaceWidth, std::min(span.right, clip.right)); ++x) {
+        for (LONG x = std::max<LONG>(0, std::max<LONG>(span.left, clip.left));
+                x < std::min<LONG>(context.surfaceWidth, std::min<LONG>(span.right, clip.right)); ++x) {
             const auto index = static_cast<std::size_t>(span.y) * context.surfaceWidth + x;
             pixels.emplace_back(index, context.surfacePixels[index]);
         }

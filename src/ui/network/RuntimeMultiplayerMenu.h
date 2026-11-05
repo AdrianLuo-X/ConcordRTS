@@ -1,7 +1,8 @@
 #pragma once
 
-#include "network/lobby/RuntimeMultiplayerLobbyFlow.h"
-#include "ui/skirmish/RuntimeSkirmishMenu.h"
+#include "runtime/contracts/RuntimeMultiplayerMenuTypes.h"
+#include "runtime/window/RuntimeWindowId.h"
+#include "runtime/contracts/RuntimeSkirmishSelection.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -10,48 +11,13 @@
 #include <string_view>
 #include <vector>
 
-enum class RuntimeMultiplayerMenuNetwork : std::uint8_t {
-    Lan,
-    Internet
-};
 
-struct RuntimeMultiplayerDirectEndpoint {
-    std::string host;
-    std::uint16_t port = 0;
 
-    bool operator==(const RuntimeMultiplayerDirectEndpoint&) const = default;
-};
 
-struct RuntimeMultiplayerHostSelectionProjection {
-    RuntimeMultiplayerLobbyHostCreateOptions lobby;
-    // Complete canonical slot image applied through LobbyFlow after host
-    // creation. At least one non-host slot is always Closed for a remote peer.
-    std::vector<RuntimeMultiplayerMatchSlot> slots;
-    std::filesystem::path localMapPath;
 
-    bool operator==(
-        const RuntimeMultiplayerHostSelectionProjection&
-    ) const = default;
-};
 
-struct RuntimeMultiplayerMenuResult {
-    bool accepted = false;
-    RuntimeMultiplayerLaunchConfigResult launchConfig;
-    std::unique_ptr<RuntimeMultiplayerRuntimeBridge> bridge;
-    std::string error;
 
-    RuntimeMultiplayerMenuResult() = default;
-    ~RuntimeMultiplayerMenuResult() = default;
-    RuntimeMultiplayerMenuResult(RuntimeMultiplayerMenuResult&&) noexcept =
-        default;
-    RuntimeMultiplayerMenuResult& operator=(
-        RuntimeMultiplayerMenuResult&&
-    ) noexcept = default;
-    RuntimeMultiplayerMenuResult(const RuntimeMultiplayerMenuResult&) = delete;
-    RuntimeMultiplayerMenuResult& operator=(
-        const RuntimeMultiplayerMenuResult&
-    ) = delete;
-};
+
 
 // Strict address parser used by the direct Internet page. IPv4/host names use
 // "host:port" and IPv6 uses "[address]:port". A port is always required.
@@ -109,7 +75,7 @@ bool projectRuntimeMultiplayerResumeSelection(const RuntimeConfig& config,
 // Modal file selection shared by LAN and Internet recovery buttons.
 bool selectRuntimeMultiplayerResumeSave(const RuntimeConfig& config,
     const RuntimeMultiplayerCompatibility& compatibility, std::string playerName,
-    std::string peerId, void* owner, RuntimeMultiplayerResumeSave& save,
+    std::string peerId, RuntimeWindowId owner, RuntimeMultiplayerResumeSave& save,
     RuntimeMultiplayerHostSelectionProjection& projection, std::string& errorMessage);
 
 // Constructs join options only from a discovered/target-probed advertisement
@@ -132,12 +98,12 @@ bool makeRuntimeMultiplayerMenuJoinOptions(
 RuntimeMultiplayerMenuResult runRuntimeMultiplayerMenu(
     const RuntimeConfig& baseConfig,
     RuntimeMultiplayerMenuNetwork network,
-    void* hostWindow = nullptr
+    RuntimeWindowId hostWindow = {}
 );
 
 // Optional interactive entry for manual window smoke runs.
 int runRuntimeMultiplayerMenuUiSmoke(
     const RuntimeConfig& baseConfig,
     RuntimeMultiplayerMenuNetwork network,
-    void* hostWindow = nullptr
+    RuntimeWindowId hostWindow = {}
 );

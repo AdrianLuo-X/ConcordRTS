@@ -83,7 +83,7 @@ bool runRuntimeSpecialDamageSmokeRenderContractCheck(const GameWorld& world,
             }
             if(!producing)expectedBody.y-=std::clamp(lift,0,512);
         }
-        const auto body=runtimeObjectWorldRenderPlacement(object,world,viewport,view,camera,*cache).center;
+        const auto body=runtimeRenderPlacementNative(runtimeObjectWorldRenderPlacementWin32(object,world,viewport,view,camera,*cache)).center;
         const auto base=projectCellXY(sourceX,sourceY,sourceLevel,camera);
         const auto offset=unit->damageSmokeOffset;
         const auto outlet=projectCellXY(sourceX+offset[0]/256.0,sourceY+offset[1]/256.0,sourceLevel+offset[2]/256.0,camera);

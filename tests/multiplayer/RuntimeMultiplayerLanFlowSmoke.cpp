@@ -1,3 +1,6 @@
+#include "network/session/private/RuntimeLanNonceNoiseSource.h"
+#include <array>
+#include <cstring>
 #include "network/session/RuntimeMultiplayerLanSession.h"
 #include "network/lockstep/RuntimeMultiplayerLockstep.h"
 
@@ -1124,10 +1127,13 @@ bool testPasswordProtectedAdmission(SmokeContext& context) {
     return admitted;
 }
 
+#include "RuntimeLanNonceNoiseSourceSmoke.inl"
+
 } // namespace
 
 int main() {
     SmokeContext context;
+    testLanNonceNoiseSource(context);
     RuntimeMultiplayerLanSession host;
     RuntimeMultiplayerLanSession client;
     RuntimeMultiplayerLockstepDriver hostDriver;

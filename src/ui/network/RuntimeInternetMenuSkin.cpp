@@ -1,10 +1,14 @@
 #include "ui/network/RuntimeInternetMenuSkin.h"
+#if defined(_WIN32)
+#include "ui/network/win32/RuntimeInternetMenuSkinDrawingWin32.h"
+#endif
 
 #include "render/core/RuntimeMapRenderer.h"
 
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -767,6 +771,10 @@ bool drawRuntimeInternetMenuSkinButton(
 }
 #endif
 
+#if defined(_WIN32)
+#include "ui/network/win32/diagnostics/RuntimeInternetSkinDrawingContract.inl"
+#endif
+
 int runRuntimeInternetMenuSkinSmokeTest(
     const RuntimeConfig& config,
     const std::string& outputPath
@@ -777,6 +785,10 @@ int runRuntimeInternetMenuSkinSmokeTest(
     std::cerr << "Internet menu skin smoke requires Win32\n";
     return 1;
 #else
+    if (std::getenv("CONCORD_INTERNET_SKIN_DRAWING_CONTRACT"))
+        return runRuntimeInternetSkinDrawingContract(config, outputPath);
+    wchar_t retainValue[2]{};
+    const bool retainSmokeFiles = GetEnvironmentVariableW(L"CONCORD_INTERNET_MENU_SMOKE_RETAIN",retainValue,2)==1 && retainValue[0]==L'1';
     RuntimeInternetMenuSkin skin;
     if (!loadRuntimeInternetMenuSkin(config, skin)) {
         std::cerr << "Internet menu skin smoke failed: "
@@ -946,12 +958,14 @@ int runRuntimeInternetMenuSkinSmokeTest(
                 != std::string::npos;
         }
     );
+    if (!retainSmokeFiles) {
     fs::remove(corruptPcx, fileError);
     fs::remove(localmd, fileError);
     fs::remove(ra2md, fileError);
     fs::remove(exports, fileError);
     fs::remove(resources, fileError);
     fs::remove(corruptRoot, fileError);
+    }
     if (!corruptRejected) {
         std::cerr << "Internet menu skin smoke failed: corrupt fallback\n";
         return 1;

@@ -360,6 +360,7 @@ add_executable(concord_runtime_atomic_file_smoke
     src/core/io/RuntimeAtomicFile.cpp
 )
 target_include_directories(concord_runtime_atomic_file_smoke PRIVATE src)
+include("${CMAKE_CURRENT_LIST_DIR}/AtomicFileContracts.cmake")
 
 add_executable(concord_spy_system_smoke
     tests/gameplay/RuntimeSpySystemSmoke.cpp
@@ -545,6 +546,8 @@ target_include_directories(
 add_executable(concord_runtime_config_smoke
     tests/infrastructure/RuntimeConfigSmoke.cpp
     src/runtime/config/RuntimeConfig.cpp
+    src/runtime/config/RuntimeConfigPaths.cpp
+    src/core/io/RuntimeExecutableDirectory.cpp
     src/runtime/campaign/RuntimeCampaignDataSource.cpp
     src/ui/settings/RuntimeSettings.cpp
     src/core/io/RuntimeAtomicFile.cpp
@@ -556,6 +559,11 @@ target_include_directories(concord_runtime_config_smoke PRIVATE src)
 if(CONCORD_MSVC_FRONTEND)
     concord_target_compile_options(concord_runtime_config_smoke PRIVATE /utf-8 /FS /W4 /permissive-)
 endif()
+
+add_subdirectory(tests/infrastructure/file_path)
+add_subdirectory(tests/infrastructure/resource_path)
+add_subdirectory(tests/audio/path_contract)
+add_subdirectory(tests/assets/movie_path)
 
 add_executable(concord_multiplayer_launch_config_smoke
     tests/multiplayer/RuntimeMultiplayerLaunchConfigSmoke.cpp
@@ -713,7 +721,6 @@ target_include_directories(
 
 add_executable(concord_internet_tls_transport_smoke
     tests/internet/RuntimeInternetTlsTransportSmoke.cpp
-    src/network/transport/RuntimeInternetTlsTransport.cpp
 )
 target_include_directories(
     concord_internet_tls_transport_smoke PRIVATE src
@@ -921,6 +928,8 @@ unset(s23_production_rules_owner)
 add_executable(concord_bink_playback_service_contract
     tests/assets/BinkPlaybackServiceContract.cpp
     src/assets/video/BinkPlaybackService.cpp
+    src/assets/video/BinkPlaybackPaths.cpp
+    src/core/io/RuntimeExecutableDirectory.cpp
 )
 target_include_directories(concord_bink_playback_service_contract PRIVATE src)
 if(CONCORD_MSVC_FRONTEND)
@@ -993,6 +1002,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/SnapshotSessionContracts.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/SnapshotTransferLibraries.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CompatibilityFingerprintLibraries.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/ProductionCoreLibraries.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/ProductionSessionLibraries.cmake")
 
 include("${CMAKE_CURRENT_LIST_DIR}/TaskExecutorContracts.cmake")
 
@@ -1002,3 +1012,39 @@ include("${CMAKE_CURRENT_LIST_DIR}/PathGoalCandidateTaskContracts.cmake")
 
 # S38 is the sole complete-frame Presenter interface owner.
 include("${CMAKE_CURRENT_LIST_DIR}/SoftwareFrameContracts.cmake")
+
+# W005-05: native watch owner and isolated contract, without menu/device linkage.
+add_subdirectory(tests/infrastructure/menu_resource_watch)
+
+include("${CMAKE_CURRENT_LIST_DIR}/MainBitmapTextContracts.cmake")
+
+include("${CMAKE_CURRENT_LIST_DIR}/ResultBitmapTextContracts.cmake")
+
+include("${CMAKE_CURRENT_LIST_DIR}/MainBmpContracts.cmake")
+
+include("${CMAKE_CURRENT_LIST_DIR}/MainSystemFontContracts.cmake")
+
+include("${CMAKE_CURRENT_LIST_DIR}/SkirmishSystemFontContracts.cmake")
+
+include(cmake/CampaignSystemFontContracts.cmake)
+
+include(cmake/MatchResultSystemFontContracts.cmake)
+
+include(cmake/CampaignScoreSystemFontContracts.cmake)
+
+include(cmake/MainVideoFooterFontContracts.cmake)
+
+include(cmake/HudSystemFontContracts.cmake)
+include("${CMAKE_CURRENT_LIST_DIR}/InternetSkinDrawingContracts.cmake")
+
+include("${CMAKE_CURRENT_LIST_DIR}/MainMenuSurfaceContracts.cmake")
+
+include("${CMAKE_CURRENT_LIST_DIR}/CampaignMenuSurfaceContracts.cmake")
+
+# W024 native certificate/credential oracle reuses the existing provider owner.
+target_link_libraries(concord_internet_tls_transport_smoke PRIVATE concord_internet_service_host_core)
+
+# W025 system source keeps its own formal profile providers.
+include("${CMAKE_CURRENT_LIST_DIR}/SystemSecureBytesProviders.cmake")
+
+include("${CMAKE_CURRENT_LIST_DIR}/ServiceProcessContracts.cmake")

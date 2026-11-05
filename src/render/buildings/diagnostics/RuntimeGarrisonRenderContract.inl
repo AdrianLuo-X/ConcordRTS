@@ -52,7 +52,7 @@ bool runRuntimeGarrisonRenderContractCheck(
     probe.specialMechanismSnapshots = nullptr;
     probe.detailStatsEnabled = false;
     probe.animationTick = 0;
-    std::unordered_map<std::string, COLORREF> colors{
+    RuntimeOwnerRemapColorTable colors{
         {"garrisongold", RGB(255, 210, 25)}, {"garrisonblue", RGB(40, 90, 255)}
     };
     probe.ownerRemapColors = &colors;

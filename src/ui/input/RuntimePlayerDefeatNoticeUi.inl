@@ -33,9 +33,8 @@ std::wstring runtimePlayerDefeatNoticeText(const RuntimeWindowState& state,
 // and every retained prefix ends at a complete UTF-16 scalar boundary.
 std::wstring runtimePlayerDefeatNoticeFitText(HDC dc,const std::wstring& text,int width) {
     const auto fits=[&](const std::wstring& value) {
-        SIZE extent{};
-        return GetTextExtentPoint32W(dc,value.c_str(),static_cast<int>(value.size()),&extent)
-            && extent.cx<=width;
+        const auto extent=concord::ui::HudSystemFontWin32::measure(dc,std::wstring_view(value));
+        return extent.measured && extent.width<=width;
     };
     if(fits(text)) return text;
     const std::wstring suffix=L"已被击败！";
@@ -89,10 +88,10 @@ void drawRuntimePlayerDefeatNotices(HDC dc,RuntimeWindowState& state,const RECT&
     LONG top=viewport.top+12;
     const int saved=SaveDC(dc);
     if(saved==0) return;
-    HFONT font=CreateFontW(-18,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,
-        OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Microsoft YaHei");
-    if(font==nullptr) {RestoreDC(dc,saved);return;}
-    SelectObject(dc,font);SetBkMode(dc,TRANSPARENT);
+    concord::ui::HudSystemFontWin32 font;
+    font.initialize(concord::ui::HudSystemFontRole::NoticeAndHotkeys);
+    if(!font.available()) {RestoreDC(dc,saved);return;}
+    SelectObject(dc,font.nativeFont());SetBkMode(dc,TRANSPARENT);
     IntersectClipRect(dc,viewport.left,viewport.top,viewport.right,viewport.bottom);
     constexpr UINT flags=DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX;
     int rendered=0;
@@ -104,10 +103,10 @@ void drawRuntimePlayerDefeatNotices(HDC dc,RuntimeWindowState& state,const RECT&
         RECT bounds{left,top,right,top+25};
         RECT shadow=bounds;OffsetRect(&shadow,1,1);
         SetTextColor(dc,RGB(0,0,0));
-        DrawTextW(dc,text.c_str(),static_cast<int>(text.size()),&shadow,flags);
+        font.drawText(dc,concord::ui::HudSystemWideTextRequest{text.c_str(),static_cast<int>(text.size()),{shadow.left,shadow.top,shadow.right,shadow.bottom},flags});
         SetTextColor(dc,runtimeSuperWeaponTimerColor(state,notice.owner));
-        DrawTextW(dc,text.c_str(),static_cast<int>(text.size()),&bounds,flags);
+        font.drawText(dc,concord::ui::HudSystemWideTextRequest{text.c_str(),static_cast<int>(text.size()),{bounds.left,bounds.top,bounds.right,bounds.bottom},flags});
         top+=27;++rendered;
     }
-    RestoreDC(dc,saved);DeleteObject(font);
+    RestoreDC(dc,saved);font.reset();
 }

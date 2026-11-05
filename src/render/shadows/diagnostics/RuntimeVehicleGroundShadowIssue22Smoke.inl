@@ -321,7 +321,7 @@ bool runRuntimeVehicleGroundShadowIssue22Smoke(const RuntimeMapRenderContext& so
                 if (!drawTerrainLayerToViewport(surface.dc, viewport, context, camera, cache.terrainLayer)) {
                     error = "actual native underlying ground blit"; return false;
                 }
-                RuntimeGeometryQueryScope geometry(world, viewport, context, camera, cache);
+                RuntimeGeometryQueryScope geometry(world, runtimeRenderPlacementPixelRect(viewport), context, camera, cache);
                 if (pass == 3) {
                     actualShadow = drawRuntimeWorldObjectShadow(surface.dc, viewport, tank, nativeCenter,
                         context, camera, cache, true);

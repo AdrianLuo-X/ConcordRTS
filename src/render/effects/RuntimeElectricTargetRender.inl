@@ -11,7 +11,7 @@ POINT runtimeElectricTargetBodyPoint(
     WorldObjectInstance pose = *target;
     POINT point{};
     if (pose.alive && pose.health > 0) {
-        point = runtimeObjectBodyAnchorForRender(pose, viewport, context, camera);
+        point = runtimeObjectBodyAnchorForRenderWin32(pose, viewport, context, camera);
     } else {
         // Project the saved visual height and subcell together. Re-reading a
         // corpse's level/host pose or applying submerged depth again would

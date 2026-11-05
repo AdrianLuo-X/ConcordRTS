@@ -200,20 +200,19 @@ std::vector<fs::path> mixCandidates(
 }
 
 RuntimeCampaignMovieResolution resolveForEdition(
-    const RuntimeCampaignMovieResolverOptions& options,
+    const RuntimeCampaignMoviePaths& paths,
     const std::string& sourceId,
     const std::string& movieId,
     const std::string& entryName
 ) {
-    for (const std::string& rootText : {
-             options.modRootPath,
-             options.localDataRootPath,
-             options.resourceRootPath
+    for (const fs::path& root : {
+             paths.modRoot,
+             paths.localDataRoot,
+             paths.resourceRoot
          }) {
-        if (rootText.empty()) {
+        if (root.empty()) {
             continue;
         }
-        const fs::path root(rootText);
         for (const fs::path& candidate : looseCandidates(
                  root,
                  sourceId,
@@ -226,7 +225,8 @@ RuntimeCampaignMovieResolution resolveForEdition(
             resolution.found = true;
             resolution.sourceId = sourceId;
             resolution.movieId = movieId;
-            resolution.referencePath = pathString(absoluteNormalized(candidate));
+            resolution.filePath = absoluteNormalized(candidate);
+            resolution.referencePath = pathString(resolution.filePath);
             resolution.byteSize = regularFileSize(candidate);
             return resolution;
         }
@@ -248,9 +248,8 @@ RuntimeCampaignMovieResolution resolveForEdition(
             resolution.mixBacked = true;
             resolution.sourceId = sourceId;
             resolution.movieId = movieId;
-            resolution.archivePath = pathString(
-                absoluteNormalized(candidate)
-            );
+            resolution.archiveFilePath = absoluteNormalized(candidate);
+            resolution.archivePath = pathString(resolution.archiveFilePath);
             resolution.entryName = entryName;
             resolution.referencePath = resolution.archivePath
                 + "!" + entryName;
@@ -419,8 +418,8 @@ bool isRuntimeCampaignMovieMixReference(
         ).empty();
 }
 
-RuntimeCampaignMovieResolution resolveRuntimeCampaignMovie(
-    const RuntimeCampaignMovieResolverOptions& options,
+RuntimeCampaignMovieResolution resolveRuntimeCampaignMovieFromPaths(
+    const RuntimeCampaignMoviePaths& paths,
     const std::string& sourceId,
     const std::string& movieId
 ) {
@@ -431,7 +430,7 @@ RuntimeCampaignMovieResolution resolveRuntimeCampaignMovie(
     const std::string normalizedMovieId = fs::path(entryName).stem().string();
     for (const std::string& edition : editionOrder(sourceId)) {
         RuntimeCampaignMovieResolution resolution = resolveForEdition(
-            options,
+            paths,
             edition,
             normalizedMovieId,
             entryName
@@ -443,31 +442,43 @@ RuntimeCampaignMovieResolution resolveRuntimeCampaignMovie(
     return {};
 }
 
-bool materializeRuntimeCampaignMovie(
-    const RuntimeCampaignMovieResolverOptions& options,
+namespace {
+bool materializeMovie(
+    const RuntimeCampaignMoviePaths& paths,
     const std::string& referencePath,
-    std::string& moviePath,
-    std::string& errorMessage
+    fs::path& moviePath,
+    std::string& errorMessage,
+    bool utf8Reference
 ) {
+    const auto nativePath = [utf8Reference](const std::string& text) {
+        return utf8Reference ? fs::path(std::u8string_view(
+            reinterpret_cast<const char8_t*>(text.data()), text.size())) : fs::path(text);
+    };
     moviePath.clear();
     errorMessage.clear();
     if (referencePath.empty()) {
         errorMessage = "campaign has no authored Bink movie";
         return false;
     }
-    if (!isRuntimeCampaignMovieMixReference(referencePath)) {
-        const fs::path loosePath(referencePath);
+    const std::size_t split = referencePath.rfind('!');
+    const bool mixReference = utf8Reference
+        ? split != std::string::npos && split != 0 && split + 1U < referencePath.size()
+            && lowerAscii(pathString(nativePath(referencePath.substr(0, split)).extension())) == ".mix"
+            && !normalizedMovieEntryName(referencePath.substr(split + 1U)).empty()
+        : isRuntimeCampaignMovieMixReference(referencePath);
+    if (!mixReference) {
+        const fs::path loosePath = nativePath(referencePath);
         if (!regularFile(loosePath)) {
             errorMessage = "campaign movie file was not found: "
                 + referencePath;
             return false;
         }
-        moviePath = pathString(absoluteNormalized(loosePath));
+        moviePath = absoluteNormalized(loosePath);
         return true;
     }
 
     const std::size_t separator = referencePath.rfind('!');
-    const fs::path archivePath(referencePath.substr(0, separator));
+    const fs::path archivePath = nativePath(referencePath.substr(0, separator));
     const std::string entryName = normalizedMovieEntryName(
         referencePath.substr(separator + 1U)
     );
@@ -486,8 +497,8 @@ bool materializeRuntimeCampaignMovie(
     }
 
     fs::path cacheRoot;
-    if (!options.localDataRootPath.empty()) {
-        cacheRoot = fs::path(options.localDataRootPath);
+    if (!paths.localDataRoot.empty()) {
+        cacheRoot = paths.localDataRoot;
     } else {
         std::error_code tempError;
         cacheRoot = fs::temp_directory_path(tempError);
@@ -512,7 +523,7 @@ bool materializeRuntimeCampaignMovie(
 
     const fs::path candidate = cacheRoot / lowerAscii(entryName);
     if (fileHasSize(candidate, entry->size)) {
-        moviePath = pathString(absoluteNormalized(candidate));
+        moviePath = absoluteNormalized(candidate);
         return true;
     }
     if (!removeSingleFile(candidate, errorMessage)) {
@@ -551,6 +562,40 @@ bool materializeRuntimeCampaignMovie(
         errorMessage = "campaign movie cache verification failed";
         return false;
     }
-    moviePath = pathString(absoluteNormalized(candidate));
+    moviePath = absoluteNormalized(candidate);
     return true;
+}
+
+} // namespace
+
+RuntimeCampaignMovieResolution resolveRuntimeCampaignMovie(
+    const RuntimeCampaignMovieResolverOptions& options,
+    const std::string& sourceId,
+    const std::string& movieId
+) {
+    return resolveRuntimeCampaignMovieFromPaths({fs::path(options.resourceRootPath),
+        fs::path(options.localDataRootPath), fs::path(options.modRootPath)}, sourceId, movieId);
+}
+
+bool materializeRuntimeCampaignMovie(
+    const RuntimeCampaignMovieResolverOptions& options,
+    const std::string& referencePath,
+    std::string& moviePath,
+    std::string& errorMessage
+) {
+    moviePath.clear();
+    fs::path nativeMovie;
+    if (!materializeMovie({fs::path(options.resourceRootPath), fs::path(options.localDataRootPath),
+            fs::path(options.modRootPath)}, referencePath, nativeMovie, errorMessage, false)) return false;
+    moviePath = pathString(nativeMovie);
+    return true;
+}
+
+bool materializeRuntimeCampaignMovieFromPaths(
+    const RuntimeCampaignMoviePaths& paths,
+    const std::string& utf8Reference,
+    std::filesystem::path& moviePath,
+    std::string& errorMessage
+) {
+    return materializeMovie(paths, utf8Reference, moviePath, errorMessage, true);
 }

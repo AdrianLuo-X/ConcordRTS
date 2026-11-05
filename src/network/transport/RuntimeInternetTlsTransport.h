@@ -1,6 +1,7 @@
 #pragma once
 
 #include "network/transport/RuntimeInternetTcpTunnelProxy.h"
+#include "network/transport/RuntimeInternetTlsCredentials.h"
 
 #include <array>
 #include <cstddef>
@@ -40,10 +41,9 @@ struct RuntimeInternetTlsClientConfig {
     // the Windows system certificate chain or hostname checks.
     std::optional<RuntimeInternetTlsSha256> leafCertificateSha256;
     bool checkCertificateRevocation = true;
-    // Optional Windows HCERTCHAINENGINE for an explicitly configured private
-    // PKI. nullptr uses the normal system chain engine. The caller retains
-    // ownership until the handshake completes; hostname checks remain active.
-    const void* nativeCertificateChainEngine = nullptr;
+    // Empty uses system trust. A configured private authority is borrowed;
+    // its owner retains it through the handshake. Hostname checks stay active.
+    RuntimeInternetTlsPeerTrust peerTrust;
 };
 
 struct RuntimeInternetTlsPollResult {
@@ -98,10 +98,9 @@ struct RuntimeInternetTlsServerConfig {
     RuntimeInternetTlsBindScope bindScope =
         RuntimeInternetTlsBindScope::AnyIpv4;
     RuntimeInternetTlsLimits limits;
-    // On Windows this is a borrowed PCCERT_CONTEXT. open() duplicates it, so
-    // the caller may release its reference immediately after open returns.
-    // The context must have an accessible private key.
-    const void* nativeCertificateContext = nullptr;
+    // Borrowed server identity with an accessible private key. open() acquires
+    // its own reference; the caller may release the original after it returns.
+    RuntimeInternetTlsServerCertificate serverCertificate;
 };
 
 enum class RuntimeInternetTlsServerEventKind : std::uint8_t {

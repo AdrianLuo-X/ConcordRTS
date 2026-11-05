@@ -1,6 +1,8 @@
 #include "network/internet/RuntimeInternetServiceHostConfig.h"
 
 #include <cstdint>
+#include <cstdlib>
+#include <iterator>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -212,9 +214,26 @@ bool testCredentialVerifier() {
     );
 }
 
+bool retainConfigFixture() {
+#ifdef _WIN32
+    char* value = nullptr;
+    std::size_t bytes = 0;
+    const bool retain = _dupenv_s(&value, &bytes,
+        "CONCORD_INTERNET_SERVICE_CONFIG_RETAIN") == 0
+        && value && std::string_view(value) == "1";
+    std::free(value);
+    return retain;
+#else
+    const char* value = std::getenv("CONCORD_INTERNET_SERVICE_CONFIG_RETAIN");
+    return value && std::string_view(value) == "1";
+#endif
+}
+
 bool testExplicitFileLoad() {
+    const bool retain = retainConfigFixture();
     const std::filesystem::path path =
-        std::filesystem::current_path()
+        (retain ? std::filesystem::temp_directory_path()
+                : std::filesystem::current_path())
         / "runtime_internet_service_config_smoke.ini";
     {
         std::ofstream output(path, std::ios::binary | std::ios::trunc);
@@ -232,9 +251,18 @@ bool testExplicitFileLoad() {
         error
     );
     std::error_code removeError;
-    const bool removed = std::filesystem::remove(path, removeError);
+    bool fixtureVerified = false;
+    if (retain) {
+        std::ifstream input(path, std::ios::binary);
+        const std::string retainedBytes{std::istreambuf_iterator<char>(input),
+            std::istreambuf_iterator<char>()};
+        fixtureVerified = !input.bad() && retainedBytes == validConfiguration;
+        if (fixtureVerified) std::cout << "Explicit config fixture retained and byte-exact\n";
+    } else {
+        fixtureVerified = std::filesystem::remove(path, removeError);
+    }
     return require(
-        loaded && removed && !removeError
+        loaded && fixtureVerified && !removeError
             && config.credentials.size() == 2U,
         "explicit configuration file load failed"
     );

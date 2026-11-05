@@ -960,7 +960,7 @@ bool runRuntimePointerIngressSmokeProbe(RuntimeWindowState& stock, std::ostream&
         invalidateRuntimeObjectProjectionCache(s);
         RECT client{}; GetClientRect(window.handle, &client);
         const RECT viewport = runtimeMapViewport(client);
-        s.cameraClampViewport = viewport; clampRuntimeMapCamera(s, viewport);
+        s.cameraClampViewport = runtimeRenderPlacementPixelRect(viewport); clampRuntimeMapCamera(s, viewport);
         trace << "loadFixture path=" << window.path << " phase=after-load file=" << hex(savePath)
             << " rawState=" << hex(RuntimePointerIngressSmokeDetail::state(s, false, s.config.configPath)) << '\n';
         ++loadCases; return true;

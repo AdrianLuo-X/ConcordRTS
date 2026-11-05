@@ -1,5 +1,6 @@
 #pragma once
 #include "runtime/window/RuntimeWindowLifecycle.h"
+#include "runtime/timing/RuntimeHostLoopPort.h"
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -7,10 +8,10 @@
 
 // Private native interoperation between the Win32 window and the retained
 // Win32 input/paint adapter. Never included by the lifecycle contract or core.
-class RuntimeWindowHostWin32 final {
+class RuntimeWindowHostWin32 final : public RuntimeHostLoopPort {
 public:
     explicit RuntimeWindowHostWin32(WNDPROC dispatch) noexcept;
-    ~RuntimeWindowHostWin32();
+    ~RuntimeWindowHostWin32() override;
     RuntimeWindowHostWin32(const RuntimeWindowHostWin32&) = delete;
     RuntimeWindowHostWin32& operator=(const RuntimeWindowHostWin32&) = delete;
     RuntimeWindowCreateResult create(int width, int height);
@@ -18,7 +19,8 @@ public:
     HWND window() const noexcept;
     // Drain the thread queue in the original Translate/Dispatch order. The
     // first quit ends the drain; no simulation or paint is advanced here.
-    bool drainMessages();
+    bool drainMessages() override;
+    void sleepForIdleSlice() override;
 private:
     static LRESULT CALLBACK procedure(HWND, UINT, WPARAM, LPARAM);
     WNDPROC dispatch_;

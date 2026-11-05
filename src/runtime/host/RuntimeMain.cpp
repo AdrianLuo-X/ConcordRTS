@@ -18,6 +18,15 @@
 #include <cstdlib>
 #include <io.h>
 #include <windows.h>
+#include "runtime/window/win32/RuntimeStartupRecoveryPromptWin32.h"
+#endif
+
+#ifdef _WIN32
+int runRuntimeLanMenuHostLifecycleSmoke(const RuntimeConfig&, const std::string&);
+#endif
+
+#ifdef _WIN32
+int runRuntimeInternetMenuHostLifecycleSmoke(const RuntimeConfig&, const std::string&);
 #endif
 
 namespace {
@@ -718,13 +727,10 @@ int runRuntimeWindowWithMultiplayerFailureRecovery(
             formatRuntimeMultiplayerVisibleFailureMessage(
                 *multiplayerFailure
             );
-        const int choice = MessageBoxA(
-            nullptr,
-            message.c_str(),
-            "ConcordRTS Multiplayer",
-            MB_YESNO | MB_ICONERROR | MB_TASKMODAL
-        );
-        if (choice != IDYES) return result;
+        if (!requestRuntimeStartupRecoveryRetry(
+                runtimeStartupRecoveryPromptWin32(),
+                message
+            )) return result;
 #else
         std::cerr << formatRuntimeMultiplayerVisibleFailureMessage(
             *multiplayerFailure
@@ -791,6 +797,18 @@ int runRuntimeApplication(int argc, char** argv) {
     }
 
     if (!commandLine.mainMenuUiSmokeOutput.empty()) {
+#ifdef _WIN32
+        if (const char* only = std::getenv("CONCORD_INTERNET_MENU_HOST_LIFECYCLE_ONLY")) {
+            if (std::string(only) != "1") { std::cerr << "Internet host lifecycle ONLY must be1\n"; return 1; }
+            return runRuntimeInternetMenuHostLifecycleSmoke(config, commandLine.mainMenuUiSmokeOutput);
+        }
+#endif
+#ifdef _WIN32
+        if (const char* only = std::getenv("CONCORD_LAN_MENU_HOST_LIFECYCLE_ONLY")) {
+            if (std::string(only) != "1") { std::cerr << "LAN host lifecycle ONLY must be1\n"; return 1; }
+            return runRuntimeLanMenuHostLifecycleSmoke(config, commandLine.mainMenuUiSmokeOutput);
+        }
+#endif
         return runRuntimeMainMenuSmokeTest(
             config,
             commandLine.mainMenuUiSmokeOutput

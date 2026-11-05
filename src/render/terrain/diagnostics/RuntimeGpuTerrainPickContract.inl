@@ -6,7 +6,7 @@ static void verifyRuntimeGpuTerrainPickContract(const GameWorld& world,const Run
     require(cpu.terrainLayer.built&&gpu.terrainLayer.built&&!tagged(cpu)&&tagged(gpu),"actual CPU RGB/GPU material terrain before owner query");
     const auto cpuKey=cpu.terrainLayer.key,gpuKey=gpu.terrainLayer.key;const auto gpuPixels=gpu.terrainLayer.pixels;const auto cpuMisses=cpu.terrainLayerCacheMisses,gpuMisses=gpu.terrainLayerCacheMisses;
     const auto query=[&](const RuntimeMapCamera& pose){int positive=0;
-        const auto one=[&](int x,int y){POINT a{-32768,32767},b=a;const bool ca=pickRuntimeMapSurfaceCell(world,context,pose,viewport,{x,y},cpu,a),cb=pickRuntimeMapSurfaceCell(world,context,pose,viewport,{x,y},gpu,b);require(ca==cb&&a.x==b.x&&a.y==b.y,"original exact CPU/GPU surface owner and failure outputs");positive+=ca;};
+        const auto one=[&](int x,int y){POINT a{-32768,32767},b=a;const bool ca=pickRuntimeMapSurfaceCellWin32(world,context,pose,viewport,{x,y},cpu,a),cb=pickRuntimeMapSurfaceCellWin32(world,context,pose,viewport,{x,y},gpu,b);require(ca==cb&&a.x==b.x&&a.y==b.y,"original exact CPU/GPU surface owner and failure outputs");positive+=ca;};
         for(int row=0;row<5;++row)for(int column=0;column<5;++column)one(viewport.left+column*(viewport.right-viewport.left-1)/4,viewport.top+row*(viewport.bottom-viewport.top-1)/4);
         one(viewport.left-1,viewport.top-1);one(viewport.right,viewport.bottom);return positive;
     };

@@ -89,9 +89,9 @@ for (const auto& building : probe.rules.getBuildingTypes()) {
             const RECT viewport{0,0,1024,768};
             for (int zoom:{48,60,72}) {
                 RuntimeMapCamera camera;camera.tileWidth=zoom;camera.tileHeight=zoom/2;
-                const auto placement=runtimeObjectWorldRenderPlacement(source,probe.world,viewport,native,camera,probe.renderCache);
+                const auto placement=runtimeRenderPlacementNative(runtimeObjectWorldRenderPlacementWin32(source,probe.world,viewport,native,camera,probe.renderCache));
                 const POINT expected{placement.center.x+dx,placement.center.y+dy};
-                const auto actual=runtimeProjectileActorScreenPoint(makeRuntimeProjectileRenderActor(shot),viewport,camera);
+                const auto actual=runtimeProjectileActorScreenPointWin32(makeRuntimeProjectileRenderActor(shot),viewport,camera);
                 if(std::abs(actual.x-expected.x)>1 || std::abs(actual.y-expected.y)>1)
                     failures.push_back(label+": native window zoom="+std::to_string(zoom)
                         +" delta="+std::to_string(actual.x-expected.x)+","+std::to_string(actual.y-expected.y));

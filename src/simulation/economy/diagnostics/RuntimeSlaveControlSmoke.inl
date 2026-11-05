@@ -136,7 +136,7 @@ bool runRuntimeSlaveControlSmoke(RuntimeWindowState& live, std::string& error) {
         const auto projected=runtimeProjectedObjectsForViewport(s,viewport);
         const auto view=std::find_if(projected.begin(),projected.end(),[&](const auto& v) { return v.object && v.object->instanceId==actor; });
         if (view==projected.end()) return fail("emerged slave was not projected");
-        std::optional<POINT> hit; const RECT bounds=view->bounds;
+        std::optional<POINT> hit; const RECT bounds=runtimeRenderPlacementNativeRect(view->bounds);
         for(int y=std::max(viewport.top,bounds.top);y<std::min(viewport.bottom,bounds.bottom)&&!hit;++y)
             for(int x=std::max(viewport.left,bounds.left);x<std::min(viewport.right,bounds.right);++x) {
                 const auto* p=findProjectedObjectAtPoint(projected,{x,y}); if(p&&p->object&&p->object->instanceId==actor) { hit=POINT{x,y}; break; }

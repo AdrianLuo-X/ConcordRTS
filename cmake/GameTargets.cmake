@@ -85,8 +85,16 @@ add_executable(concord_runtime
     src/core/io/RuntimeAtomicFile.cpp
     src/ui/settings/RuntimeSettings.cpp
     src/ui/main_menu/RuntimeMainMenu.cpp
+    src/runtime/menu/RuntimeMainMenuController.cpp
+    src/ui/resources/RuntimeMenuResourceWatch.cpp
     src/assets/video/BinkPlaybackService.cpp
+    src/assets/video/BinkPlaybackPaths.cpp
     src/ui/campaign/RuntimeCampaignMenu.cpp
+    src/runtime/menu/RuntimeCampaignMenuController.cpp
+    src/runtime/menu/RuntimeLanMenuController.cpp
+    src/runtime/menu/RuntimeInternetMenuController.cpp
+    src/runtime/window/RuntimeMenuParentHost.cpp
+    src/runtime/window/win32/RuntimePersistentMenuHostWin32.cpp
     src/runtime/campaign/RuntimeCampaignDataSource.cpp
     src/runtime/campaign/RuntimeCampaignMovieResolver.cpp
     src/runtime/host/RuntimeShell.cpp
@@ -107,6 +115,8 @@ add_executable(concord_runtime
     src/ui/input/RuntimeMenuKeyController.cpp
     src/ui/input/RuntimeSessionKeyController.cpp
     src/runtime/config/RuntimeConfig.cpp
+    src/runtime/config/RuntimeConfigPaths.cpp
+    src/core/io/RuntimeExecutableDirectory.cpp
     src/core/results/RuntimeMatchScore.cpp
     src/audio/backend/RuntimeVoiceAudio.cpp
     src/ui/skirmish/RuntimeSkirmishMenu.cpp
@@ -125,7 +135,6 @@ add_executable(concord_runtime
     src/simulation/ai/RuntimeAircraftServiceSystem.cpp
     src/simulation/ai/RuntimeAircraftProductionMatcher.cpp
     src/simulation/buildings/RuntimeRepairDepotSystem.cpp
-    src/simulation/production/RuntimeFactoryDeliveryState.cpp
     src/simulation/buildings/RuntimeGrindingSystem.cpp
     src/simulation/navigation/occupancy/RuntimeSubcellSystem.cpp
     src/audio/world/RuntimeWorldAudioSystem.cpp
@@ -139,10 +148,8 @@ add_executable(concord_runtime
     src/simulation/abilities/psionic/RuntimePsychicStatusSystem.cpp
     src/simulation/abilities/psionic/RuntimeSpySystem.cpp
     src/simulation/abilities/unit_special/RuntimeSpecialMechanisms.cpp
-    src/simulation/buildings/RuntimeSpecialBuildingSystem.cpp
     src/simulation/buildings/RuntimeInfantryServiceSystem.cpp
-    src/simulation/superweapons/SuperWeaponSystem.cpp src/simulation/superweapons/RuntimeChronosphereRelocation.cpp
-    src/simulation/vision/RuntimeVision.cpp
+    
     src/assets/archive/MixArchive.cpp
     src/simulation/navigation/pathfinding/PathRequestQueue.cpp
     src/data/rules/TechTreeAnalyzer.cpp

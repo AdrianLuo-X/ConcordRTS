@@ -111,8 +111,8 @@ struct SecondWindowVisit {
             check(software!=nullptr,"create real video window: "+error);
             if(!software)return false;
             state.softwareWindow=software.get();handle=secondWindowSdlHandle();
-            check(state.hwnd==nullptr&&state.titleFont==nullptr&&state.captionFont==nullptr
-                &&state.normalFont==nullptr&&state.smallFont==nullptr&&!state.backBuffer.ready(),
+            check(state.hwnd==nullptr&&state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Title)==nullptr&&state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Caption)==nullptr
+                &&state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Normal)==nullptr&&state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Small)==nullptr&&!state.backBuffer.ready(),
                 "bitmap path owns no original HWND/HDC/native-font bridge");
         }else handle=createShellSkirmishWindow(state,privateConfig,nullptr);
         check(handle&&IsWindow(handle),"actual native window exists");if(!handle)return false;
@@ -364,6 +364,8 @@ void secondWindowBackendContract(int& checks,int& failures,const fs::path& outpu
 }
 } // namespace
 
+#include "ui/skirmish/diagnostics/RuntimeSecondWindowResourceTrace.inl"
+
 int runSecondWindowContract(const RuntimeConfig& config,const fs::path& output) {
     int checks=0,failures=0;
     const auto check=[&](bool valid,const std::string& message){++checks;if(!valid){++failures;std::cerr<<"P11 "<<message<<'\n';}};
@@ -388,11 +390,13 @@ int runSecondWindowContract(const RuntimeConfig& config,const fs::path& output) 
     }
     const DWORD gdi=GetGuiResources(GetCurrentProcess(),GR_GDIOBJECTS);
     const DWORD user=GetGuiResources(GetCurrentProcess(),GR_USEROBJECTS);
+    traceSecondWindowResources("baseline",gdi,user);
     for(bool accepted:{false,true}){
         std::vector<SecondWindowSample> reference;
         std::string referenceInput;
         {SecondWindowVisit visit(false,checks,failures,output/(accepted?"win32-accept":"win32-cancel"));
             if(visit.open(config)){visit.script(accepted);reference=std::move(visit.samples);referenceInput=visit.inputs.str();}}
+        traceSecondWindowResources(accepted?"win32-accept":"win32-cancel",gdi,user);
         check(GetGuiResources(GetCurrentProcess(),GR_GDIOBJECTS)==gdi,"Win32 visit strict GDI resource balance");
         check(GetGuiResources(GetCurrentProcess(),GR_USEROBJECTS)==user,"Win32 visit strict USER resource balance");
         {SecondWindowVisit visit(true,checks,failures,output/(accepted?"sdl3-accept":"sdl3-cancel"));
@@ -409,6 +413,7 @@ int runSecondWindowContract(const RuntimeConfig& config,const fs::path& output) 
                     check(different==0,"complete displayed BGR identical "+a.label+" differences="+std::to_string(different));
                 }
             }}
+        traceSecondWindowResources(accepted?"sdl3-accept":"sdl3-cancel",gdi,user);
         check(GetGuiResources(GetCurrentProcess(),GR_GDIOBJECTS)==gdi,"SDL visit strict GDI resource balance");
         check(GetGuiResources(GetCurrentProcess(),GR_USEROBJECTS)==user,"SDL visit strict USER resource balance");
         check(GetModuleHandleW(L"SDL3.dll")==nullptr,"SDL visit releases the private DLL session");

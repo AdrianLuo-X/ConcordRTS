@@ -10,6 +10,7 @@ param(
     [string]$WindowsSDKVersion,
     [string]$MSVCCompatibilityVersion,
     [string]$CRTRoot,
+    [string]$EvidenceDirectory,
     [switch]$StageOnly,
     [switch]$ValidateOnly
 )
@@ -22,6 +23,7 @@ if ($Toolchain -eq 'clang-cl') {
     & (Join-Path $PSScriptRoot 'toolchain/Build-WindowsClang.ps1') @clangArguments
     exit $LASTEXITCODE
 }
+if ($EvidenceDirectory) { throw '-EvidenceDirectory is supported by the clang-cl entry only.' }
 if ($StageOnly) { throw '-StageOnly is supported by the explicit clang-cl entry only.' }
 foreach ($value in @($CMakeExecutable,$NinjaExecutable,$LLVMRoot,$MSVCRoot,$WindowsSDKRoot,$WindowsSDKVersion,$MSVCCompatibilityVersion,$CRTRoot)) {
     if ($value) { throw 'Clang component overrides require -Toolchain clang-cl; MSVC reference discovery is unchanged.' }

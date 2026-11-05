@@ -1,3 +1,4 @@
+#include "ui/network/private/RuntimeInternetMenuEntropySource.h"
 #include "ui/network/RuntimeInternetMultiplayerMenu.h"
 
 #include <algorithm>
@@ -264,8 +265,8 @@ void testTransportTrust(SmokeContext& context) {
     context.expect(
         transport.coordinatorTls.checkCertificateRevocation
             && transport.relayTls.checkCertificateRevocation
-            && transport.coordinatorTls.nativeCertificateChainEngine == nullptr
-            && transport.relayTls.nativeCertificateChainEngine == nullptr,
+            && transport.coordinatorTls.peerTrust.empty()
+            && transport.relayTls.peerTrust.empty(),
         "system chain, hostname, and revocation checks must not be bypassed"
     );
 }
@@ -893,6 +894,8 @@ void testCommunityProjection(SmokeContext& context) {
     );
 }
 
+#include "RuntimeInternetMenuEntropySourceSmoke.inl"
+
 } // namespace
 
 int main() {
@@ -900,6 +903,7 @@ int main() {
     testStrictConfig(context);
     testTransportTrust(context);
     testEntropy(context);
+    testEntropySourceContract(context);
     testFlowOptionProjection(context);
     testViewProjection(context);
     testCommunityProjection(context);

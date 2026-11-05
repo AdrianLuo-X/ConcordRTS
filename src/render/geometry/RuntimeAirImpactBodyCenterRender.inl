@@ -8,10 +8,10 @@ bool runtimeAirImpactBodyCenterAtCamera(
     const SpecialMechanismRenderSnapshot* missile
 ) {
     const RECT viewport{0, 0, 1024, 768};
-    RuntimeGeometryQueryScope query(world, viewport, context, camera, cache);
+    RuntimeGeometryQueryScope query(world, runtimeRenderPlacementPixelRect(viewport), context, camera, cache);
     // Roof clearance is piecewise in camera scale. Freeze it separately instead
     // of fitting its max/clamp branches into the two-point affine correction.
-    POINT bodyCenter = runtimeObjectBodyAnchorForRender(object, viewport, context, camera);
+    POINT bodyCenter = runtimeObjectBodyAnchorForRenderWin32(object, viewport, context, camera);
     if (missile != nullptr) {
         // Match drawRuntimeSpawnedMissileBody's continuous pitched pose. It
         // has neither the ordinary aircraft lift nor a roof-clearance lift.

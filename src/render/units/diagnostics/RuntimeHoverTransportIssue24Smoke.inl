@@ -122,8 +122,8 @@ bool runRuntimeHoverTransportIssue24Smoke(const RuntimeMapRenderContext& sourceC
                 const int expectedLift = expectLift && scene.hover ? (phase == 0 ? 9 : 6) : 0;
                 const POINT expectedBodyCenter{groundCenter.x, groundCenter.y - expectedLift};
                 RuntimeMapRenderCache cache;
-                const POINT publicAnchor = runtimeObjectBodyAnchorForRender(unit, viewport, context, camera);
-                const auto placement = runtimeObjectWorldRenderPlacement(unit, world, viewport, context, camera, cache);
+                const POINT publicAnchor = runtimeObjectBodyAnchorForRenderWin32(unit, viewport, context, camera);
+                const auto placement = runtimeRenderPlacementNative(runtimeObjectWorldRenderPlacementWin32(unit, world, viewport, context, camera, cache));
                 if (publicAnchor.x != expectedBodyCenter.x || publicAnchor.y != expectedBodyCenter.y
                     || placement.center.x != publicAnchor.x || placement.center.y != publicAnchor.y) {
                     error = std::string(scene.id) + " unscoped actual body/hit anchor lift differs"; return false;
@@ -135,17 +135,17 @@ bool runRuntimeHoverTransportIssue24Smoke(const RuntimeMapRenderContext& sourceC
                 RuntimeMapRenderContext alternate = context;
                 alternate.animationTick = phase == 0 ? 45 : 15;
                 {
-                    RuntimeGeometryQueryScope foreign(world, viewport, alternate, camera, cache);
-                    const POINT actual = runtimeObjectBodyAnchorForRender(unit, viewport, context, camera);
+                    RuntimeGeometryQueryScope foreign(world, runtimeRenderPlacementPixelRect(viewport), alternate, camera, cache);
+                    const POINT actual = runtimeObjectBodyAnchorForRenderWin32(unit, viewport, context, camera);
                     if (actual.x != publicAnchor.x || actual.y != publicAnchor.y) {
                         error = "public anchor borrowed foreign animation time"; return false;
                     }
                 }
                 RuntimeMapRenderContext sixty = context; sixty.fixedTickHz = 60; sixty.animationTick *= 2;
-                const POINT sixtyAnchor = runtimeObjectBodyAnchorForRender(unit, viewport, sixty, camera);
+                const POINT sixtyAnchor = runtimeObjectBodyAnchorForRenderWin32(unit, viewport, sixty, camera);
                 RuntimeMapCamera halfCamera = camera; halfCamera.tileWidth = 30; halfCamera.tileHeight = 15;
                 halfCamera.worldOffsetY = 65 * halfCamera.tileHeight - Original::surfaceHeight / 2;
-                const POINT halfAnchor = runtimeObjectBodyAnchorForRender(unit, viewport, context, halfCamera);
+                const POINT halfAnchor = runtimeObjectBodyAnchorForRenderWin32(unit, viewport, context, halfCamera);
                 const int halfLift = expectLift && scene.hover ? (phase == 0 ? 5 : 3) : 0;
                 if (sixtyAnchor.x != publicAnchor.x || sixtyAnchor.y != publicAnchor.y
                     || halfAnchor.x != groundCenter.x || halfAnchor.y != groundCenter.y - halfLift) {
@@ -189,7 +189,7 @@ bool runRuntimeHoverTransportIssue24Smoke(const RuntimeMapRenderContext& sourceC
                     if (!drawTerrainLayerToViewport(surface.dc, viewport, context, camera, cache.terrainLayer)) {
                         error = "original underlying terrain not drawn"; return false;
                     }
-                    RuntimeGeometryQueryScope geometry(world, viewport, context, camera, cache);
+                    RuntimeGeometryQueryScope geometry(world, runtimeRenderPlacementPixelRect(viewport), context, camera, cache);
                     if (pass == 3) {
                         const auto shadow = drawRuntimeWorldObjectShadow(surface.dc, viewport, unit, groundCenter,
                             context, camera, cache, true);

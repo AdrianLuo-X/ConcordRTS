@@ -302,3 +302,28 @@ if(TARGET concord_map_native_overlay_d3d11_contract)
     add_test(NAME map_native_overlay_d3d11_contract_test COMMAND concord_map_native_overlay_d3d11_contract)
     set_tests_properties(map_native_overlay_d3d11_contract_test PROPERTIES LABELS "no-assets;real-window;d3d11;map-native-overlay" RUN_SERIAL TRUE TIMEOUT 180)
 endif()
+
+foreach(concord_udp_profile IN ITEMS runtime contract)
+    if(TARGET concord_udp_boundary_${concord_udp_profile})
+        add_test(NAME udp_native_${concord_udp_profile}_boundary_contract_test COMMAND concord_udp_boundary_${concord_udp_profile})
+        set_tests_properties(udp_native_${concord_udp_profile}_boundary_contract_test PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE LABELS "no-assets;udp-boundary;windows")
+    endif()
+endforeach()
+
+# W025 default OS capability and injected reader policy are separately checked.
+foreach(_secure_profile IN ITEMS runtime contract)
+    add_test(NAME system_secure_bytes_${_secure_profile}_test COMMAND concord_secure_bytes_${_secure_profile})
+    set_tests_properties(system_secure_bytes_${_secure_profile}_test PROPERTIES TIMEOUT 30 LABELS "no-assets;system-security;native-provider")
+endforeach()
+
+if(TARGET concord_service_random_bytes_contract)
+    add_test(NAME service_main_random_bytes_contract_test COMMAND concord_service_random_bytes_contract)
+    set_tests_properties(service_main_random_bytes_contract_test PROPERTIES TIMEOUT 30
+        LABELS "windows;service-random-bytes;native-contract")
+endif()
+
+if(TARGET concord_service_console_contract)
+    add_test(NAME service_console_lifecycle_contract_test COMMAND concord_service_console_contract)
+    set_tests_properties(service_console_lifecycle_contract_test PROPERTIES TIMEOUT 30
+        LABELS "windows;service-console;native-contract")
+endif()

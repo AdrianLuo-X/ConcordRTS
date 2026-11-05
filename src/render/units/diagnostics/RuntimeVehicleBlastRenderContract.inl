@@ -56,7 +56,7 @@ bool runRuntimeVehicleBlastRenderContractCheck(
             std::fill(pixels.begin(),pixels.end(),background);
             probe.surfacePixels=pixels.data(); probe.surfaceWidth=width; probe.surfaceHeight=height;
             probe.impactActors=&timeline[samples[col]];
-            const auto center=runtimeObjectBodyAnchorForRender(object,viewport,probe,camera);
+            const auto center=runtimeObjectBodyAnchorForRenderWin32(object,viewport,probe,camera);
             drawRuntimeWorldObjectShadow(nullptr,viewport,object,center,probe,camera,*cache,true);
             RuntimeVoxelDrawResult result;
             if (!tryDrawVoxelSprite(nullptr,viewport,object,center,probe,camera,*cache,&result) || !result.bodyDrawn

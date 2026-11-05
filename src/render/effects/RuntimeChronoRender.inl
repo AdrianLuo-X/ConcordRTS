@@ -10,7 +10,7 @@ POINT runtimeChronoEffectAnchor(
             resolved = runtimeRectIsValid(bounds);
         }
     } else {
-        resolved = resolveRuntimeObjectShpSpriteBounds(object, point, context, camera, cache, bounds);
+        resolved = resolveRuntimeObjectShpSpriteBoundsWin32(object, point, context, camera, cache, bounds);
     }
     if (resolved) point.y = ground ? bounds.bottom - 2 : (bounds.top + bounds.bottom) / 2;
     return point;

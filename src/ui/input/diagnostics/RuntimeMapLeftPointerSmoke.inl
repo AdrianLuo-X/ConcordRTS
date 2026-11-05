@@ -1,3 +1,4 @@
+#include "ui/input/diagnostics/RuntimeInputPreferenceFixtureReadiness.inl"
 // Candidate only. Complete independently frozen old owners, with explicit type/member/name adapters.
 namespace RuntimeMapLeftPointerSmokeFrozenOld {
 bool beginRuntimeMenuSliderDrag(
@@ -1615,8 +1616,8 @@ bool runRuntimeMapLeftPointerSmokeProbe(RuntimeWindowState& stock,std::ostream& 
             auto& state=*storage;Clock clock;ClockBinding borrowed(state,clock);RuntimeSnapshotActiveStateScope active(state);
             Window window(state,path);if(!expect(window.window!=nullptr,label+" actual own HWND")){complete=false;break;}
             RECT initialClient{};GetClientRect(window.window,&initialClient);
-            state.cameraClampViewport=runtimeMapViewport(initialClient);
-            clampRuntimeMapCamera(state,state.cameraClampViewport);
+            state.cameraClampViewport=runtimeRenderPlacementPixelRect(runtimeMapViewport(initialClient));
+            clampRuntimeMapCameraToPixels(state, state.cameraClampViewport);
             SetFocus(window.window);SetCapture(window.window);
             if(!expect(GetCapture()==window.window,label+" immediate own capture before input sequence")){complete=false;break;}
             Witness witness(state,routingMode);caseOk=true;
@@ -1641,6 +1642,7 @@ bool runRuntimeMapLeftPointerSmokeProbe(RuntimeWindowState& stock,std::ostream& 
                 const bool result=advanceRuntimeRightMousePan(state);
                 save("coasting-tick-"+std::to_string(recorded[static_cast<std::size_t>(path)].size()),result);return result;
             };
+            if (name.starts_with("menu-slider-") && !expect(RuntimeInputPreferenceFixture::check(state.config.configPath, trace, label), label + " owned preference file stable before original saving action")) { complete=false; break; }
             if(name=="ordinary-active21-load-fresh-root")action(state,window,witness,send,save,tick);
             else {
                 TrustedResourceRootScope resources(state.config,stock.config.localDataRootPath);
@@ -1678,8 +1680,8 @@ bool runRuntimeMapLeftPointerSmokeProbe(RuntimeWindowState& stock,std::ostream& 
         const RECT view=runtimeMapViewport(rect);invalidateRuntimeObjectProjectionCache(state);
         const auto& projected=runtimeProjectedObjectsForViewport(state,view);
         for(const auto& item:projected)if(item.object&&item.object->instanceId==id){
-            for(LONG y=std::max(view.top,item.bounds.top);y<std::min(view.bottom,item.bounds.bottom);++y)
-                for(LONG x=std::max(view.left,item.bounds.left);x<std::min(view.right,item.bounds.right);++x){
+            for(LONG y=std::max<LONG>(view.top,item.bounds.top);y<std::min<LONG>(view.bottom,item.bounds.bottom);++y)
+                for(LONG x=std::max<LONG>(view.left,item.bounds.left);x<std::min<LONG>(view.right,item.bounds.right);++x){
                     const POINT point{x,y};const auto* found=findProjectedObjectAtPoint(projected,point);
                     if(found&&found->object&&found->object->instanceId==id)return point;}
         }return std::nullopt;};
@@ -1718,7 +1720,7 @@ bool runRuntimeMapLeftPointerSmokeProbe(RuntimeWindowState& stock,std::ostream& 
             if(distance<nearest){nearest=distance;best=RuntimeCellPoint{cell.x,cell.y};}
         }
         if(!bounds.valid||!best)return std::nullopt;
-        centerRuntimeCameraOnCell(state,rect,*best);state.cameraClampViewport=view;clampRuntimeMapCamera(state,view);
+        centerRuntimeCameraOnCell(state,rect,*best);state.cameraClampViewport=runtimeRenderPlacementPixelRect(view);clampRuntimeMapCamera(state,view);
         const auto point=runtimeScreenPointForCell(state,view,*best,terrainLevelAtRuntimeCell(state,best->x,best->y));
         return pointInRectInclusive(view,point)?std::optional<POINT>(point):std::nullopt;
     };
@@ -2067,8 +2069,8 @@ bool runRuntimeMapLeftPointerSmokeProbe(RuntimeWindowState& stock,std::ostream& 
         context.fixedTickHz=state.config.fixedTickHz;context.impactActors=runtimeImpactRenderActorsForRender(state);
         context.selectedObjectIds=&state.selectedObjectIds;context.playerCheerUntilTick=&state.playerCommunication.cheerUntilTick;
         std::unordered_map<int,std::vector<RuntimeSpriteHitSpan>> spans;
-        {RuntimeGeometryQueryScope geometry(state.world,view,context,state.camera,state.renderCache,true);
-            if(!need(resolveRuntimeBuildingVisibleHitSpans(state.world,view,context,state.camera,state.renderCache,spans),"actual no-paint wall hit span geometry"))return std::nullopt;}
+        {RuntimeGeometryQueryScope geometry(state.world,runtimeRenderPlacementPixelRect(view),context,state.camera,state.renderCache,true);
+            if(!need(resolveRuntimeBuildingVisibleHitSpansWin32(state.world,view,context,state.camera,state.renderCache,spans),"actual no-paint wall hit span geometry"))return std::nullopt;}
         const auto found=spans.find(target->instanceId);
         if(!need(found!=spans.end(),"actual renderer emitted expected terrain-owned wall ID"))return std::nullopt;
         for(const auto& span:found->second)for(LONG x=span.left;x<span.right;++x){
@@ -2215,7 +2217,7 @@ bool runRuntimeMapLeftPointerSmokeProbe(RuntimeWindowState& stock,std::ostream& 
             SetWindowPos(window.window,nullptr,-32000,-32000,800,600,SWP_NOACTIVATE|SWP_NOZORDER);
             state.camera.tileWidth=90;state.camera.tileHeight=45;invalidateRuntimeObjectProjectionCache(state);
             TrustedResourceRootScope freshResources(state.config,stock.config.localDataRootPath);
-            const RECT view=freshViewport(window);state.cameraClampViewport=view;clampRuntimeMapCamera(state,view);
+            const RECT view=freshViewport(window);state.cameraClampViewport=runtimeRenderPlacementPixelRect(view);clampRuntimeMapCamera(state,view);
             const auto point=playablePoint(state,window);if(!need(point.has_value(),"fresh loaded root and actual new client"))return;
             SetFocus(window.window);SetCapture(window.window);need(GetCapture()==window.window,"fresh own capture after real load");
             state.selectedObjectIds.clear();save("fresh-after-load",0);

@@ -1,3 +1,4 @@
+#include "network/transport/private/RuntimeInternetServiceNonceSource.h"
 #include "network/transport/RuntimeInternetServiceTransport.h"
 
 #include <algorithm>
@@ -23,6 +24,7 @@
 #include <windows.h>
 #include <bcrypt.h>
 #include <wincrypt.h>
+#include "network/transport/private/RuntimeInternetTlsCertificateWin32.h"
 #pragma comment(lib, "ws2_32.lib")
 #pragma comment(lib, "crypt32.lib")
 #pragma comment(lib, "advapi32.lib")
@@ -244,6 +246,12 @@ public:
 
     PCCERT_CONTEXT certificate() const noexcept { return certificate_; }
     HCERTCHAINENGINE chainEngine() const noexcept { return chainEngine_; }
+    RuntimeInternetTlsServerCertificate serverCertificate() const noexcept {
+        return tlsBinding_.serverCertificate();
+    }
+    RuntimeInternetTlsPeerTrust peerTrust() const noexcept {
+        return tlsBinding_.peerTrust();
+    }
 
 private:
     void reset() noexcept {
@@ -286,6 +294,7 @@ private:
     PCCERT_CONTEXT certificate_ = nullptr;
     HCERTSTORE rootStore_ = nullptr;
     HCERTCHAINENGINE chainEngine_ = nullptr;
+    RuntimeInternetTlsCertificateInterop tlsBinding_{certificate_, chainEngine_};
 };
 
 RuntimeInternetAuthenticatedTcpStreamIdentity provisionalIdentity(
@@ -309,11 +318,11 @@ enum class SimulatedStage : std::uint8_t {
 
 class SimulatedService {
 public:
-    bool open(PCCERT_CONTEXT certificate, std::string& errorMessage) {
+    bool open(RuntimeInternetTlsServerCertificate certificate, std::string& errorMessage) {
         RuntimeInternetTlsServerConfig config;
         config.bindScope = RuntimeInternetTlsBindScope::LoopbackIpv4;
         config.maximumConnections = 32;
-        config.nativeCertificateContext = certificate;
+        config.serverCertificate = certificate;
         return server_.open(config, errorMessage);
     }
 
@@ -640,7 +649,7 @@ RuntimeInternetServiceTransportConfig transportConfig(
     const std::string& peerId,
     std::vector<std::uint8_t> credential,
     const SimulatedService& service,
-    HCERTCHAINENGINE chainEngine
+    RuntimeInternetTlsPeerTrust chainEngine
 ) {
     RuntimeInternetServiceTransportConfig config;
     config.serviceId = "smoke-service";
@@ -649,7 +658,7 @@ RuntimeInternetServiceTransportConfig transportConfig(
     config.coordinatorTls.endpoint = {"127.0.0.1", service.port()};
     config.coordinatorTls.serverName = "localhost";
     config.coordinatorTls.checkCertificateRevocation = false;
-    config.coordinatorTls.nativeCertificateChainEngine = chainEngine;
+    config.coordinatorTls.peerTrust = chainEngine;
     config.relayTls = config.coordinatorTls;
     config.applicationAuthenticationTimeoutMilliseconds = 5000;
     return config;
@@ -1035,6 +1044,8 @@ bool sendPlaintextAuthentication(
     return false;
 }
 
+#include "RuntimeInternetServiceNonceSourceSmoke.inl"
+
 } // namespace
 #endif
 
@@ -1044,12 +1055,13 @@ int main() {
     return 0;
 #else
     SmokeContext smoke;
+    testServiceNonceSourceContract(smoke);
     std::string error;
     TestCertificate certificate;
     smoke.expect(certificate.create(error), error);
     if (certificate.certificate() == nullptr) return 1;
     SimulatedService service;
-    smoke.expect(service.open(certificate.certificate(), error), error);
+    smoke.expect(service.open(certificate.serverCertificate(), error), error);
     if (service.port() == 0) return 1;
 
     RuntimeInternetServiceNonce replayNonce{};
@@ -1091,7 +1103,7 @@ int main() {
                 "good-peer",
                 credential,
                 service,
-                certificate.chainEngine()
+                certificate.peerTrust()
             ),
             error
         ),
@@ -1240,7 +1252,7 @@ int main() {
                 "wrong-relay-confirm",
                 credential,
                 service,
-                certificate.chainEngine()
+                certificate.peerTrust()
             ),
             error
         ),
@@ -1282,7 +1294,7 @@ int main() {
                 "bad-credential-peer",
                 secretCredential,
                 service,
-                certificate.chainEngine()
+                certificate.peerTrust()
             ),
             error
         ),
@@ -1306,7 +1318,7 @@ int main() {
                 "oversize-peer",
                 credential,
                 service,
-                certificate.chainEngine()
+                certificate.peerTrust()
             ),
             error
         ),

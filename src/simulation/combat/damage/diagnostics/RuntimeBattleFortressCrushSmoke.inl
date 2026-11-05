@@ -318,7 +318,10 @@ bool runRuntimeBattleFortressCrushSmoke(RuntimeWindowState& live, std::string& e
         const auto hit = [&](POINT p) { const auto* entry = findProjectedObjectAtPoint(projected, p);
             return pointInRectInclusive(viewport, p) && entry && entry->object && entry->object->instanceId == id; };
         for (const auto& candidate : projected) if (candidate.object && candidate.object->instanceId == id) {
-            for (POINT p : candidate.footprintHitCenters) if (hit(p)) return p;
+            for (const auto& pixel : candidate.footprintHitCenters) {
+                    const POINT p = runtimeRenderPlacementNativePoint(pixel);
+                    if (hit(p)) return p;
+                }
             POINT p{(candidate.bounds.left + candidate.bounds.right) / 2, (candidate.bounds.top + candidate.bounds.bottom) / 2};
             if (hit(p)) return p;
             for (int y = candidate.bounds.top; y < candidate.bounds.bottom; y += 2)

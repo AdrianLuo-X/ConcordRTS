@@ -54,18 +54,20 @@ bool runRuntimeUnitSelectionSpecialSmoke(RuntimeWindowState& s,
         const RuntimeMapRenderContext& context, bool shell,
         RuntimeMobileSpriteBoundsProbe& probe) {
         ensureRuntimeCameraForViewport(s,viewport);
-        const POINT center=runtimeObjectBodyAnchorForRender(object,viewport,context,s.camera);
+        const POINT center=runtimeObjectBodyAnchorForRenderWin32(object,viewport,context,s.camera);
+        // Supply the real world used by the original terrain body compositor.
+        RuntimeGeometryQueryScope originalWorldGeometry(s.world,runtimeRenderPlacementPixelRect(viewport),context,s.camera,s.renderCache);
         if (!verifyRuntimeMobileObjectSpriteBounds(object,center,context,s.camera,s.renderCache,probe))
             return fail(label+": "+probe.diagnostic);
-        RECT frame=runtimeUnitSelectionBoundsForSprite(probe.renderedBounds);
+        RECT frame=runtimeUnitSelectionBoundsForSprite(runtimeRenderPlacementNativeRect(probe.renderedBounds));
         if (shell) {
             const auto& projected=runtimeProjectedObjectsForViewport(s,viewport);
             const auto found=std::find_if(projected.begin(),projected.end(),[&](const auto& candidate) {
                 return candidate.object->instanceId==object.instanceId;
             });
-            if (found==projected.end() || !runtimeRectEquals(found->spriteBounds,probe.renderedBounds))
+            if (found==projected.end() || !runtimeRectEquals(found->spriteBounds,runtimeRenderPlacementNativeRect(probe.renderedBounds)))
                 return fail(label+": cached Shell geometry differs from actual pixels");
-            frame=found->selectionBounds;
+            frame=runtimeRenderPlacementNativeRect(found->selectionBounds);
             if (frame.left>probe.renderedBounds.left || frame.top>probe.renderedBounds.top
                 || frame.right<probe.renderedBounds.right || frame.bottom<probe.renderedBounds.bottom)
                 return fail(label+": selection does not contain body");
@@ -196,7 +198,7 @@ bool runRuntimeUnitSelectionSpecialSmoke(RuntimeWindowState& s,
         const RuntimeMobileSpriteBoundsProbe& right) {
         return left.imageWidth==right.imageWidth && left.imageHeight==right.imageHeight
             && left.imageOrigin.x==right.imageOrigin.x && left.imageOrigin.y==right.imageOrigin.y
-            && runtimeRectEquals(left.renderedBounds,right.renderedBounds)
+            && runtimeRectEquals(runtimeRenderPlacementNativeRect(left.renderedBounds),runtimeRenderPlacementNativeRect(right.renderedBounds))
             && left.pixels==right.pixels;
     };
     const auto checkOwnerSpy = [&](const std::string& label, const std::string& expectedType,

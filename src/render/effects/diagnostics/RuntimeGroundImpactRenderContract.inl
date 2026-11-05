@@ -25,7 +25,7 @@ bool runRuntimeGroundImpactRenderContractCheck(
         camera.worldOffsetX = projected.x - width / 2;
         camera.worldOffsetY = projected.y - 110;
         const POINT hit = runtimeImpactActorScreenPoint(actor, viewport, camera);
-        const POINT bullet = runtimeProjectileActorScreenPoint(shots[index], viewport, camera);
+        const POINT bullet = runtimeProjectileActorScreenPointWin32(shots[index], viewport, camera);
         if (hit.x != bullet.x || hit.y != bullet.y || !actor.centerOnAnchor)
             return fail("shell endpoint and impact origin differ: " + actor.weaponId);
         const auto* first = loadRuntimeAuxiliaryShpSpriteFromCache(actor.animId, 0, probe, *cache, false);

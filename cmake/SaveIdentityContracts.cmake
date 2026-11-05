@@ -1,0 +1,14 @@
+include_guard(GLOBAL)
+include("${CMAKE_CURRENT_LIST_DIR}/ProfiledLeaf.cmake")
+concord_add_profiled_leaf(concord_save_identity_runtime_leaf
+    src/runtime/persistence/RuntimeSaveIdentity.cpp concord_runtime Runtime)
+concord_add_profiled_leaf(concord_save_identity_contract_leaf
+    src/runtime/persistence/RuntimeSaveIdentity.cpp concord_radar_cell_values_value_contract Contract)
+target_link_libraries(concord_save_identity_runtime_leaf PRIVATE concord_ini_runtime_leaf)
+target_link_libraries(concord_save_identity_contract_leaf PRIVATE concord_ini_contract_leaf)
+target_link_libraries(concord_runtime PRIVATE concord_save_identity_runtime_leaf)
+add_subdirectory(tests/infrastructure/save_identity)
+add_test(NAME save_identity_runtime_contract_test COMMAND concord_save_identity_runtime_contract)
+add_test(NAME save_identity_contract_contract_test COMMAND concord_save_identity_contract_contract)
+set_tests_properties(save_identity_runtime_contract_test save_identity_contract_contract_test
+    PROPERTIES TIMEOUT 180 LABELS "save-identity;standard-contract;no-assets")

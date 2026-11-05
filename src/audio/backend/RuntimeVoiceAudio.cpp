@@ -102,7 +102,7 @@ RuntimeVoiceAudio::RuntimeVoiceAudio(bool mute) : impl_(std::make_unique<Impl>()
 }
 RuntimeVoiceAudio::~RuntimeVoiceAudio() = default;
 bool RuntimeVoiceAudio::ready() const { return impl_->master != nullptr; }
-long RuntimeVoiceAudio::lastError() const { return impl_->error; }
+std::int32_t RuntimeVoiceAudio::lastError() const { return impl_->error; }
 bool RuntimeVoiceAudio::open(std::uint64_t id, const std::string& path) {
     close(id);
     if (!ready() || impl_->voices.size() >= 4096) return false;

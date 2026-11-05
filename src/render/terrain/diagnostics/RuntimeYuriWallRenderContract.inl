@@ -31,7 +31,7 @@ bool runRuntimeYuriWallRenderContractCheck(
     camera.tileHeight = 30;
     std::vector<std::uint32_t> pixels(size * size, background);
     std::vector<std::uint32_t> expected(size * size, background);
-    std::unordered_map<std::string, COLORREF> colors{
+    RuntimeOwnerRemapColorTable colors{
         {"wall-probe", RGB(192, 128, 32)}
     };
     const std::unordered_set<std::string> neutralOwners;

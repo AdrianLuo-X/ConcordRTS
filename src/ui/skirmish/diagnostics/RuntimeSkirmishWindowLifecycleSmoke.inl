@@ -48,7 +48,7 @@ int runSkirmishWindowLifecycleSmoke(const RuntimeConfig& config, const fs::path&
             ShowWindow(window,SW_SHOWNOACTIVATE);UpdateWindow(window);
             check(!state.composeFrame.bytes().empty()&&!state.hits.empty(),"UpdateWindow prevents paint starvation");
             menuObjects={reinterpret_cast<HGDIOBJ>(state.backBuffer.dc()),state.backBuffer.bitmap(),
-                state.titleFont,state.captionFont,state.normalFont,state.smallFont};
+                state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Title),state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Caption),state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Normal),state.systemFonts.nativeFont(concord::ui::SkirmishSystemFontRole::Small)};
             for(const auto object:menuObjects)check(object!=nullptr&&GetObjectType(object)!=0,"menu owns a valid GDI object");
             for(const auto size:{std::pair{800,600},std::pair{1024,640},std::pair{400,300},std::pair{1600,1200}}) {
                 const DWORD style=static_cast<DWORD>(GetWindowLongPtrW(window,GWL_STYLE));

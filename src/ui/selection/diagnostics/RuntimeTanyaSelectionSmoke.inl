@@ -97,12 +97,12 @@ bool runRuntimeTanyaSelectionSmoke(const RuntimeConfig& config, std::string& err
         const auto before=draw();
         const auto projected=runtimeProjectedObjectsForViewport(*s,viewport);
         if(projected.size()!=1 || !projected.front().object)return fail("projection");
-        const RECT bounds=projected.front().bounds;
-        const RECT body=projected.front().spriteBounds;
+        const RECT bounds=runtimeRenderPlacementNativeRect(projected.front().bounds);
+        const RECT body=runtimeRenderPlacementNativeRect(projected.front().spriteBounds);
         const POINT point{(body.left+body.right)/2,(body.top+body.bottom)/2};
         if(!findProjectedObjectAtPoint(projected,point)||!pointInRectInclusive(viewport,point)||!visible)
             return fail("visible pick: point="+std::to_string(point.x)+","+std::to_string(point.y));
-        const RECT selection=projected.front().selectionBounds;
+        const RECT selection=runtimeRenderPlacementNativeRect(projected.front().selectionBounds);
         const POINT corners[]={{selection.left+1,selection.top+1},
             {selection.right-1,selection.top+1},{selection.left+1,selection.bottom-1},
             {selection.right-1,selection.bottom-1}};
@@ -171,7 +171,7 @@ bool runRuntimeTanyaSelectionSmoke(const RuntimeConfig& config, std::string& err
         s->tick=20+attempt*7;context.animationTick=s->tick;
         const auto before=draw();
         const auto& projection=runtimeProjectedObjectsForViewport(*s,viewport);
-        const RECT body=projection.front().spriteBounds;
+        const RECT body=runtimeRenderPlacementNativeRect(projection.front().spriteBounds);
         const POINT point{(body.left+body.right)/2,(body.top+body.bottom)/2};
         const auto started=std::chrono::steady_clock::now();
         runtimeWindowProc(window,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(point.x,point.y));
@@ -190,7 +190,7 @@ bool runRuntimeTanyaSelectionSmoke(const RuntimeConfig& config, std::string& err
         advanceRuntimeIdleVariants(*s);
         const auto before=draw();
         const auto& projection=runtimeProjectedObjectsForViewport(*s,viewport);
-        const RECT body=projection.front().spriteBounds;
+        const RECT body=runtimeRenderPlacementNativeRect(projection.front().spriteBounds);
         const POINT point{(body.left+body.right)/2,(body.top+body.bottom)/2};
         if(tick%3==0) {
             runtimeWindowProc(window,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(point.x,point.y));
@@ -203,7 +203,7 @@ bool runRuntimeTanyaSelectionSmoke(const RuntimeConfig& config, std::string& err
     s->tick=400;context.animationTick=s->tick;invalidateRuntimeObjectProjectionCache(*s);
     const auto frameBefore=draw();
     const auto projection=runtimeProjectedObjectsForViewport(*s,viewport).front();
-    const RECT selection=projection.selectionBounds;
+    const RECT selection=runtimeRenderPlacementNativeRect(projection.selectionBounds);
     const POINT framePoint{selection.left+1,selection.bottom-1};
     std::cout<<"Tanya selection frame: hit="<<pointInRectInclusive(projection.bounds,framePoint)<<'\n';
     const auto frameHash=s->world.deterministicSimulationStateHash();

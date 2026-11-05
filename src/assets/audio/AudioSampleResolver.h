@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <iosfwd>
 #include <string>
 #include <vector>
@@ -32,6 +33,8 @@ struct AudioSampleResolveResult {
     int bitsPerSample = 0;
     int channels = 0;
     std::size_t pcmBytes = 0;
+    // Owned OS path. Never reconstruct it from a diagnostic label.
+    std::filesystem::path wavFilePath;
 };
 
 struct AudioBackgroundMusicResolveResult {
@@ -46,6 +49,16 @@ struct AudioBackgroundMusicResolveResult {
     bool normalTrack = false;
     bool fromCache = false;
     bool decoded = false;
+    std::filesystem::path wavFilePath;
+};
+
+// Synchronous, owned roots from the existing configuration/resource selection.
+// These APIs do not discover roots, add MOD layers, enumerate directories or
+// change codec/playback policy. Construct UTF-8 inputs explicitly as u8string;
+// INI values and MIX/audio logical names retain their original bytes.
+struct AudioSampleResolverPaths {
+    std::filesystem::path assetRoot;
+    std::filesystem::path cacheRoot;
 };
 
 // Gameplay playlists are intentionally separate from the front-end INTRO
@@ -78,6 +91,29 @@ struct AudioDecodeSmokeReport {
 };
 
 std::string normalizeAudioSampleName(const std::string& sampleName);
+
+// Native path entry points: diagnostic path labels are UTF-8; wavFilePath owns
+// the actual playable path. Existing narrow-string APIs below remain native
+// narrow-code-page compatibility boundaries (ACP on Windows), not UTF-8.
+// Legacy candidate/cache keys and failure caching are unchanged. Native calls
+// have a separate in-memory lookup domain; persistent cache filenames reuse
+// the legacy source identity where representable, otherwise tagged UTF-8.
+std::vector<AudioIndexedSample> collectIndexedAudioSamplesFromPaths(
+    const AudioSampleResolverPaths& paths,
+    const std::string& campaignSourceId = {});
+AudioSampleResolveResult resolveAudioSampleToWaveFromPaths(
+    const AudioSampleResolverPaths& paths,
+    const std::string& sampleName,
+    const std::string& campaignSourceId = {});
+AudioBackgroundMusicResolveResult resolveBackgroundMusicToWaveFromPaths(
+    const AudioSampleResolverPaths& paths,
+    const std::vector<std::string>& preferredThemeIds = {});
+std::vector<std::string> collectBackgroundMusicThemeIdsFromPaths(
+    const AudioSampleResolverPaths& paths,
+    AudioBackgroundMusicFaction faction);
+AudioBackgroundMusicResolveResult resolveBackgroundMusicThemeToWaveFromPaths(
+    const AudioSampleResolverPaths& paths,
+    const std::string& themeId);
 
 std::vector<AudioIndexedSample> collectIndexedAudioSamples(
     const std::string& assetRootPath,

@@ -67,9 +67,10 @@ static void runtimeNormalizeStructureGeometry(RuntimeStructureSpriteGeometry& ge
 }
 
 bool resolveRuntimeStructureSpriteGeometry(const WorldObjectInstance& object,
-    const POINT& center, const RuntimeMapRenderContext& context,
+    const RuntimeInputPixelPoint& centerValue, const RuntimeMapRenderContext& context,
     const RuntimeMapCamera& camera, RuntimeMapRenderCache& cache,
     RuntimeStructureSpriteGeometry& geometry) {
+    const POINT center = runtimeRenderPlacementNativePoint(centerValue);
     geometry = {};
     // Interaction keeps its footprint record for every object, but an explicitly
     // viewport-limited query need not copy and sort sprite spans that the world
@@ -103,14 +104,16 @@ bool resolveRuntimeStructureSpriteGeometry(const WorldObjectInstance& object,
     const RECT viewport{LONG_MIN / 2, LONG_MIN / 2, LONG_MAX / 2, LONG_MAX / 2};
     const bool resolved = drawRuntimeStructureGeometryBody(nullptr, viewport,
         object, center, context, camera, cache, nullptr, &geometry.foregroundHitSpans);
-    geometry.bounds = capture.bounds;
+    geometry.bounds = {static_cast<std::int32_t>(capture.bounds.left),
+        static_cast<std::int32_t>(capture.bounds.top), static_cast<std::int32_t>(capture.bounds.right),
+        static_cast<std::int32_t>(capture.bounds.bottom)};
     geometry.layerCount = capture.layerCount;
     runtimeNormalizeStructureGeometry(geometry);
     rememberRuntimeGeometryStructure(object, center, context, camera, cache, geometry, resolved && capture.valid);
     return resolved && capture.valid;
 }
 
-bool runtimeSpriteHitSpansContain(const std::vector<RuntimeSpriteHitSpan>& spans, POINT point) {
+bool runtimeSpriteHitSpansContain(const std::vector<RuntimeSpriteHitSpan>& spans, RuntimeInputPixelPoint point) {
     auto row = std::lower_bound(spans.begin(), spans.end(), point.y,
         [](const RuntimeSpriteHitSpan& span, LONG y) { return span.y < y; });
     for (; row != spans.end() && row->y == point.y && row->left <= point.x; ++row)
@@ -165,7 +168,7 @@ void collectRuntimeMobileBuildingDepthGeometry(const GameWorld& world, const REC
         const auto footprint = runtimeObjectFoundationDimensions(object, context);
         RuntimeWorldObjectDrawRecord record;
         record.object = &object;
-        record.center = runtimeObjectBodyAnchorForRender(object, viewport, context, camera);
+        record.center = runtimeObjectBodyAnchorForRenderWin32(object, viewport, context, camera);
         record.cullMargin = runtimeObjectCullMargin(object, footprint);
         const RECT candidateRect{record.center.x - record.cullMargin,
             record.center.y - record.cullMargin, record.center.x + record.cullMargin,
@@ -416,7 +419,10 @@ void replayRuntimeBuildingDepthGeometry(const GameWorld& world, const RECT& view
                 record.center, objectContext, camera, cache, nullptr, &observed.foregroundHitSpans);
             observationScope.finish();
             if (observe && observation.supported) {
-                observed.bounds = observation.geometry.bounds;
+                observed.bounds = {static_cast<std::int32_t>(observation.geometry.bounds.left),
+                    static_cast<std::int32_t>(observation.geometry.bounds.top),
+                    static_cast<std::int32_t>(observation.geometry.bounds.right),
+                    static_cast<std::int32_t>(observation.geometry.bounds.bottom)};
                 observed.layerCount = observation.geometry.layerCount;
                 runtimeNormalizeStructureGeometry(observed);
                 rememberRuntimeGeometryStructure(*record.object, record.center, objectContext, camera,
@@ -531,7 +537,9 @@ bool extractRuntimeBuildingVisibleHitSpans(const RuntimeBuildingDepthFrameState&
             const auto entry = visibleSpans.find(id);
             if (entry != visibleSpans.end()) {
                 if (spanCount == spanLimit) { visibleSpans.clear(); return false; }
-                entry->second.push_back({viewport.top + y, viewport.left + first, viewport.left + x});
+                entry->second.push_back({static_cast<std::int32_t>(viewport.top + y),
+                    static_cast<std::int32_t>(viewport.left + first),
+                    static_cast<std::int32_t>(viewport.left + x)});
                 ++spanCount;
             }
         }
@@ -570,10 +578,11 @@ void publishRuntimePaintBuildingVisibleHitSpans(RuntimeGeometryQueryFrame& memo,
 }
 } // namespace
 
-bool resolveRuntimeBuildingVisibleHitSpans(const GameWorld& world, const RECT& viewport,
+bool resolveRuntimeBuildingVisibleHitSpans(const GameWorld& world, const RuntimeInputPixelRect& viewportValue,
     const RuntimeMapRenderContext& context, const RuntimeMapCamera& camera,
     RuntimeMapRenderCache& cache,
     std::unordered_map<int, std::vector<RuntimeSpriteHitSpan>>& visibleSpans) {
+    const RECT viewport = runtimeRenderPlacementNativeRect(viewportValue);
     visibleSpans.clear();
     if (findRuntimePaintBuildingVisibleHitSpans(world, viewport, context, camera, cache, visibleSpans))
         return true;
@@ -590,20 +599,21 @@ bool resolveRuntimeBuildingVisibleHitSpans(const GameWorld& world, const RECT& v
 }
 
 RuntimeObjectWorldRenderPlacement runtimeObjectWorldRenderPlacement(
-    const WorldObjectInstance& object, const GameWorld& world, const RECT& viewport,
+    const WorldObjectInstance& object, const GameWorld& world, const RuntimeInputPixelRect& viewportValue,
     const RuntimeMapRenderContext& context, const RuntimeMapCamera& camera,
     RuntimeMapRenderCache& cache) {
+    const RECT viewport = runtimeRenderPlacementNativeRect(viewportValue);
     RuntimeObjectWorldRenderPlacement result;
-    result.center = runtimeObjectBodyAnchorForRender(object, viewport, context, camera);
+    result.center = runtimeRenderPlacementPixelPoint(runtimeObjectBodyAnchorForRenderWin32(object, viewport, context, camera));
     const auto sortPoint = runtimeObjectSortPoint(object, runtimeObjectFoundationDimensions(object, context), camera);
     result.sortPoint = {sortPoint.x, sortPoint.y};
-    result.bodyViewport = viewport;
+    result.bodyViewport = runtimeRenderPlacementPixelRect(viewport);
     result.airborneForeground = object.airborne
         && runtimeObjectLooksAircraftForRender(object, context);
     if (!result.airborneForeground || object.mission == "MissileFlight" || object.mission == "MissilePreparing") return result;
     RuntimeWorldObjectDrawRecord aircraft;
     aircraft.object = &object;
-    aircraft.center = result.center;
+    aircraft.center = runtimeRenderPlacementNativePoint(result.center);
     aircraft.aircraft = aircraft.airborneForeground = true;
     auto* batch = RuntimeGeometryQueryFrame::active;
     if (batch && &batch->world == &world && &batch->cache == &cache
@@ -645,8 +655,8 @@ RuntimeObjectWorldRenderPlacement runtimeObjectWorldRenderPlacement(
                 const auto& record = batch->structures[candidate];
                 if (record.object->instanceId == object.factoryExitHostId) hosts.push_back(record);
             }
-            result.bodyViewport = runtimeFactoryAirExitBodyViewport(aircraft, hosts,
-                context, camera, cache, viewport);
+            result.bodyViewport = runtimeRenderPlacementPixelRect(runtimeFactoryAirExitBodyViewport(aircraft, hosts,
+                context, camera, cache, viewport));
             for (const auto& host : hosts)
                 if (runtimeAircraftOverStructureFoundation(aircraft, host))
                     result.factoryForegroundHostId = host.object->instanceId;
@@ -668,7 +678,7 @@ RuntimeObjectWorldRenderPlacement runtimeObjectWorldRenderPlacement(
         if (runtimeAircraftOverStructureFoundation(aircraft, record)) structures.push_back(record);
     }
     result.center.y -= runtimeAircraftBuildingClearanceLiftPixels(aircraft, structures, context, camera, cache);
-    result.bodyViewport = runtimeFactoryAirExitBodyViewport(aircraft, structures, context, camera, cache, viewport);
+    result.bodyViewport = runtimeRenderPlacementPixelRect(runtimeFactoryAirExitBodyViewport(aircraft, structures, context, camera, cache, viewport));
     for (const auto& host : structures)
         if (host.object->instanceId == object.factoryExitHostId)
             result.factoryForegroundHostId = host.object->instanceId;

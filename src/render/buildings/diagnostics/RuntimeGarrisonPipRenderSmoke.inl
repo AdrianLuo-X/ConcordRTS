@@ -12,7 +12,7 @@ bool runRuntimeGarrisonPipRenderSmokeProbe(RuntimeWindowState& live, std::string
     context.assetRootPath = runtimeAssetRootPath(s.config);
     context.palettePath = runtimePalettePath(s.config, s.report.map);
     context.structurePalettePath = runtimeStructurePalettePath(s.config, s.report.map);
-    std::unordered_map<std::string, COLORREF> colors{{"americans", RGB(255, 210, 25)}};
+    RuntimeOwnerRemapColorTable colors{{"americans", RGB(255, 210, 25)}};
     context.ownerRemapColors = &colors;
     RuntimeMapCamera camera;
     camera.worldOffsetX = -size / 2; camera.worldOffsetY = -96;

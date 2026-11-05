@@ -79,8 +79,8 @@ bool runRuntimeBuildingRepairSmoke(RuntimeWindowState& live, std::string& error)
         const auto hitPoint = [&](int id) -> std::optional<POINT> {
             const auto all = projection();
             for (const auto& p : all) if (p.object && p.object->instanceId==id) {
-                for (int y=std::max<LONG>(viewport.top,p.bounds.top);y<std::min(viewport.bottom,p.bounds.bottom);y+=2)
-                    for (int x=std::max<LONG>(viewport.left,p.bounds.left);x<std::min(viewport.right,p.bounds.right);x+=2) {
+                for (int y=std::max<LONG>(viewport.top,p.bounds.top);y<std::min<LONG>(viewport.bottom,p.bounds.bottom);y+=2)
+                    for (int x=std::max<LONG>(viewport.left,p.bounds.left);x<std::min<LONG>(viewport.right,p.bounds.right);x+=2) {
                         const auto* hit=runtimeCursorObjectAtPoint(s,viewport,{x,y});
                         if (hit && hit->instanceId==id) return POINT{x,y};
                     }

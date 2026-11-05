@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -12,6 +13,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -445,6 +447,36 @@ bool testReplaceFailurePreservesOriginal(
 }
 #endif
 
+#ifdef __linux__
+bool testLinuxPublicationAndCase(const std::filesystem::path& root) {
+    const auto raced = root / "posix-replace-race";
+    const auto upper = root / "Case.dat";
+    const auto lower = root / "case.dat";
+    std::string error;
+    const bool replaced = runtimeWriteFileAtomically(
+        raced,
+        [&](std::ostream& output, std::string& writerError) {
+            std::error_code directoryError;
+            if (!std::filesystem::create_directory(raced, directoryError)) {
+                writerError = "could not create directory during publication probe";
+                return false;
+            }
+            output << "must not replace the new directory";
+            return true;
+        },
+        error
+    );
+    bool success = expect(!replaced && error.find("atomically replacing") != std::string::npos
+                              && std::filesystem::is_directory(raced),
+                          "native rename refusal must preserve the directory and report the replacement failure");
+    success &= expect(atomicWriteText(upper, "upper", error), "write upper-case POSIX path");
+    success &= expect(atomicWriteText(lower, "lower", error), "write lower-case POSIX path");
+    success &= expect(readText(upper) == "upper" && readText(lower) == "lower",
+                      "case-distinct POSIX paths must publish independently");
+    return success;
+}
+#endif
+
 bool expectNoUnexpectedTemporaryFiles(
     const std::filesystem::path& directory,
     const std::filesystem::path& allowedCollision
@@ -482,7 +514,19 @@ bool removeKnownPath(const std::filesystem::path& path, bool directory) {
 
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    const bool retainArgument = argc == 2 && std::string_view(argv[1]) == "--retain";
+    if (argc != 1 && !retainArgument) { return 2; }
+#if defined(_MSC_VER)
+    char* retain = nullptr;
+    std::size_t count = 0;
+    const int result = _dupenv_s(&retain, &count, "CONCORD_ATOMIC_FILE_SMOKE_RETAIN");
+    const bool retainArtifacts = retainArgument || result != 0 || (retain && std::string_view(retain) == "1");
+    std::free(retain);
+#else
+    const char* retain = std::getenv("CONCORD_ATOMIC_FILE_SMOKE_RETAIN");
+    const bool retainArtifacts = retainArgument || (retain && std::string_view(retain) == "1");
+#endif
     bool success = true;
     const std::filesystem::path root = createUniqueRoot(success);
     if (root.empty()) {
@@ -514,9 +558,13 @@ int main() {
 #ifdef _WIN32
     success &= testReplaceFailurePreservesOriginal(root, lockedTarget);
 #endif
+#ifdef __linux__
+    success &= testLinuxPublicationAndCase(root);
+#endif
     success &= expectNoUnexpectedTemporaryFiles(root, collision);
     success &= expectNoUnexpectedTemporaryFiles(unicodeDirectory, {});
 
+    if (!retainArtifacts) {
     success &= removeKnownPath(collision, false);
     success &= removeKnownPath(firstTarget, false);
     success &= removeKnownPath(replacementTarget, false);
@@ -531,7 +579,13 @@ int main() {
 #ifdef _WIN32
     success &= removeKnownPath(lockedTarget, false);
 #endif
+#ifdef __linux__
+    success &= removeKnownPath(root / "Case.dat", false);
+    success &= removeKnownPath(root / "case.dat", false);
+    success &= removeKnownPath(root / "posix-replace-race", true);
+#endif
     success &= removeKnownPath(root, true);
+    }
 
     if (!success) {
         return 1;

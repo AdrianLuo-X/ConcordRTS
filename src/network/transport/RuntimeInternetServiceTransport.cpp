@@ -1,3 +1,4 @@
+#include "network/transport/private/RuntimeInternetServiceNonceSource.h"
 #include "network/transport/RuntimeInternetServiceTransport.h"
 
 #include <algorithm>
@@ -12,17 +13,6 @@
 #include <type_traits>
 #include <utility>
 
-#ifdef _WIN32
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#include <bcrypt.h>
-#pragma comment(lib, "bcrypt.lib")
-#else
-#include <random>
-#endif
 
 namespace {
 
@@ -705,21 +695,16 @@ void secureZero(std::vector<std::uint8_t>& bytes) noexcept {
     bytes.clear();
 }
 
-bool fillNonce(RuntimeInternetServiceNonce& nonce) noexcept {
-#ifdef _WIN32
-    return BCryptGenRandom(
-        nullptr,
-        nonce.data(),
-        static_cast<ULONG>(nonce.size()),
-        BCRYPT_USE_SYSTEM_PREFERRED_RNG
-    ) == 0 && nonceNonzero(nonce);
-#else
-    std::random_device random;
-    for (std::uint8_t& byte : nonce) {
-        byte = static_cast<std::uint8_t>(random());
+class RuntimeServiceSystemNonceSource final : public runtime_service_nonce_detail::Source {
+public:
+    RuntimeSecureBytesResult fill(std::span<std::uint8_t> output) noexcept override {
+        return fillRuntimeSecureBytes(output);
     }
-    return nonceNonzero(nonce);
-#endif
+};
+
+bool fillNonce(RuntimeInternetServiceNonce& nonce) noexcept {
+    RuntimeServiceSystemNonceSource source;
+    return runtime_service_nonce_detail::fill(nonce, source);
 }
 
 std::uint64_t monotonicMilliseconds() noexcept {
@@ -739,6 +724,16 @@ std::uint64_t deadlineAfter(
 }
 
 } // namespace
+
+bool runtime_service_nonce_detail::fill(RuntimeInternetServiceNonce& nonce, Source& source) noexcept {
+    const RuntimeSecureBytesResult result = source.fill(nonce);
+    if (!result.succeeded() || result.generated != nonce.size()) {
+        std::fill(nonce.begin(), nonce.end(), static_cast<std::uint8_t>(0U));
+        return false;
+    }
+    return nonceNonzero(nonce);
+}
+
 
 bool encodeRuntimeInternetServiceWireFrame(
     const RuntimeInternetServiceWireMessage& message,

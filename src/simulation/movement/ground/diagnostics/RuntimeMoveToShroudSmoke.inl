@@ -30,7 +30,7 @@ bool runRuntimeMoveToShroudSmoke(const RuntimeConfig& config, std::string& error
         authority.canonicalOwner = "americans"; authority.localFacade = true;
         s.humanHouseAuthorities.push_back(std::move(authority));
         for (int y = 1; y <= 40; ++y) for (int x = 1; x <= 40; ++x) {
-            TerrainCell cell; cell.x = x; cell.y = y; cell.cellIndex512 = runtimeCellKey(x, y);
+            TerrainCell cell; cell.x = x; cell.y = y; cell.cellIndex512 = (y * 512) + x;
             cell.tileIndex = cell.subTileIndex = 0; s.world.accessTerrainCells().push_back(cell);
         }
         f.actor = addRuntimeObjectInstance(s, RuntimeBuildKind::Infantry, type, source)->instanceId;
@@ -70,6 +70,27 @@ bool runRuntimeMoveToShroudSmoke(const RuntimeConfig& config, std::string& error
         s.camera.initialized = true; s.mouseClientPointValid = true;
         const POINT point = runtimeScreenPointForCell(s, viewport, destination, 0);
         const auto cursor = runtimeMouseCursorFrameForPoint(s, client, point);
+        if (std::getenv("CONCORD_COMMAND_SMOKE_MOVE_TO_SHROUD_DIAGNOSTIC")) {
+            const auto picked = approximateCellFromScreenPoint(s, viewport, point);
+            const auto* actor = s.selectedObjectIds.empty() ? nullptr : findObjectById(s, s.selectedObjectIds.front());
+            const auto* hover = runtimeCursorObjectAtPoint(s, viewport, point);
+            std::cerr << "MoveToShroud diagnostic: cursor=" << (cursor ? cursor->frameIndex : -1)
+                << " point=" << point.x << ',' << point.y << " picked=" << picked.x << ',' << picked.y
+                << " destination=" << destination.x << ',' << destination.y
+                << " camera=" << s.camera.worldOffsetX << ',' << s.camera.worldOffsetY
+                << " tiles=" << s.camera.tileWidth << ',' << s.camera.tileHeight
+                << " local=" << s.economy.owner << " selected=" << s.selectedObjectIds.size()
+                << " movable=" << selectedMovableObjectCount(s)
+                << " directDestinationAllowed=" << (actor && runtimeObjectAllowsMoveToCell(s, *actor, destination))
+                << " pickedAllowed=" << (actor && runtimeObjectAllowsMoveToCell(s, *actor, {picked.x,picked.y}))
+                << " actorCanMove=" << (actor && runtimeObjectCanReceiveMoveCommand(s, *actor))
+                << " actorOwner=" << (actor ? actor->owner : "<none>")
+                << " pickedVisibility=" << static_cast<int>(s.vision.visibilityFor(s.economy.owner,picked.x,picked.y))
+                << " destinationVisibility=" << static_cast<int>(s.vision.visibilityFor(s.economy.owner,destination.x,destination.y))
+                << " hover=" << (hover ? hover->instanceId : -1)
+                << " placement=" << runtimeSelectedPlacement(s).has_value() << '\n';
+        }
+
         return cursor ? cursor->frameIndex : -1;
     };
     int cases = 0;

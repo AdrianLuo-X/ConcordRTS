@@ -4,7 +4,7 @@ bool runRuntimeDiskContinuousAudioSmoke(RuntimeWindowState& live,std::string& er
         auto p=std::make_unique<RuntimeWindowState>();auto& s=*p;
         s.config=live.config;s.config.fixedTickHz=hz;s.config.computerAiEnabled=false;s.config.playerSlots.clear();
         s.config.multiplayerActive=false;s.report=live.report;s.art=live.art;s.theater=live.theater;
-        IniFile rules;if(!rules.loadFromFile(live.report.rulesPath)||!s.rules.loadFromIni(rules))return std::unique_ptr<RuntimeWindowState>{};
+        IniFile rules;if(!loadRuntimeIniSource(live.config,RuntimeCampaignIniKind::Rules,rules)||!s.rules.loadFromIni(rules))return std::unique_ptr<RuntimeWindowState>{};
         s.rulesLoaded=s.artLoaded=s.theaterLoaded=true;s.visionEnabled=false;s.economy.owner="YuriCountry";
         s.economy.skirmishStartApplied=true;s.triggers.bootstrapComplete=true;
         s.runtimeSoundsEnabled=false;s.runtimeSoundEffectsEnabled=true;s.runtimeSoundVolume=100;

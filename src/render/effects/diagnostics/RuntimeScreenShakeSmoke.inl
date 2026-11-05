@@ -107,5 +107,17 @@ bool runRuntimeScreenShakeSmoke(const RuntimeConfig& config,std::string& error){
     for(int n=0;n<ticks+2;++n){++invisible->tick;advanceRuntimeEffects(*invisible);}
     context.impactActors=runtimeImpactRenderActorsForRender(*invisible);
     if(auto off=runtimeScreenShakeForRender(context);off.x || off.y)return fail("expired impact retained quake");
+    {
+        std::string authorityError;
+        const auto completeBefore=runtimeStandaloneSimulationStateHash(*restored,authorityError);
+        const int tickBefore=restored->tick;
+        if(!completeBefore||!authorityError.empty())return fail("standard draw complete authority before: "+authorityError);
+        const char* path=std::getenv("CONCORD_SCREEN_SHAKE_DRAWING_OUTPUT");
+        if(!runRuntimeScreenShakeDrawingContract(resumed,quietContext,path?path:"",error))return false;
+        const auto completeAfter=runtimeStandaloneSimulationStateHash(*restored,authorityError);
+        if(!authorityError.empty()||completeAfter!=completeBefore||restored->tick!=tickBefore)
+            return fail("standard draw changed complete authority/tick: "+authorityError);
+        std::cout<<"Screen shake drawing authority: complete="<<completeBefore<<" tick="<<tickBefore<<" unchanged=1\n";
+    }
     std::cout<<"Screen shake: passed; real hit, pixels, overlap, paused redraw, save/restore, expiry and unchanged gameplay\n";return true;
 }

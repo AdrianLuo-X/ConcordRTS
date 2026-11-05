@@ -1,6 +1,7 @@
 #include "simulation/ai/RuntimeComputerMiningCodec.h"
 
 #include "core/io/IniFile.h"
+#include "core/io/RuntimeSaveTextFields.h"
 
 #include <cctype>
 #include <ostream>
@@ -8,68 +9,15 @@
 #include <vector>
 
 namespace {
-std::string toLowerAsciiLocal(std::string value) {
-    for (char& character : value) {
-        character = static_cast<char>(
-            std::tolower(static_cast<unsigned char>(character))
-        );
-    }
-    return value;
-}
+using runtime_save_text::toLowerAsciiLocal;
 
-std::string trimAsciiLocal(const std::string& value) {
-    std::size_t first = 0;
-    while (first < value.size()
-        && std::isspace(static_cast<unsigned char>(value[first]))) {
-        ++first;
-    }
+using runtime_save_text::trimAsciiLocal;
 
-    std::size_t last = value.size();
-    while (last > first
-        && std::isspace(static_cast<unsigned char>(value[last - 1]))) {
-        --last;
-    }
+using runtime_save_text::splitRuntimeSaveFields;
 
-    return value.substr(first, last - first);
-}
+using runtime_save_text::runtimeSaveField;
 
-std::vector<std::string> splitRuntimeSaveFields(const std::string& value) {
-    std::vector<std::string> fields;
-    std::string current;
-    for (char character : value) {
-        if (character == '|') {
-            fields.push_back(trimAsciiLocal(current));
-            current.clear();
-        } else {
-            current.push_back(character);
-        }
-    }
-    fields.push_back(trimAsciiLocal(current));
-    return fields;
-}
-
-std::string runtimeSaveField(std::string value) {
-    for (char& character : value) {
-        if (character == '|' || character == '\r' || character == '\n') {
-            character = ' ';
-        }
-    }
-    return value;
-}
-
-bool parseRuntimeInt(const std::string& value, int& output) {
-    try {
-        std::size_t consumed = 0;
-        const int parsed = std::stoi(trimAsciiLocal(value), &consumed);
-        if (consumed != trimAsciiLocal(value).size()) {
-            return false;
-        }
-        output = parsed;
-        return true;
-    } catch (...) {
-        return false;
-    }
-}
+using runtime_save_text::parseRuntimeInt;
 
 std::uint64_t runtimeStableHashString(const std::string& value) {
     std::uint64_t hash = 1469598103934665603ull;

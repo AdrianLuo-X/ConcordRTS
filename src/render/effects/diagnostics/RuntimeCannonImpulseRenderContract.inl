@@ -62,7 +62,7 @@ bool runRuntimeCannonImpulseRenderCheck(
         std::fill(pixels.begin(),pixels.end(),background);probe.surfacePixels=pixels.data();probe.surfaceWidth=width;probe.surfaceHeight=height;
         probe.impactActors=&timeline[frames[col]];
         RuntimeVehicleBodyPoseRenderScope scope(probe);if(col==1)legacy(scope);
-        const auto center=runtimeObjectBodyAnchorForRender(vehicle,viewport,probe,camera);
+        const auto center=runtimeObjectBodyAnchorForRenderWin32(vehicle,viewport,probe,camera);
         drawRuntimeWorldObjectShadow(nullptr,viewport,vehicle,center,probe,camera,*cache,true);
         RuntimeVoxelDrawResult result;
         if(!tryDrawVoxelSprite(nullptr,viewport,vehicle,center,probe,camera,*cache,&result)||!result.bodyDrawn

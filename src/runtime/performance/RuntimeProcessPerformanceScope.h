@@ -1,46 +1,44 @@
 #pragma once
 
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
+#include <cstdint>
 
-// A silent or occluded Windows 11 window can otherwise lose both HighQoS and
-// its requested timer resolution. This owns only the current process's policy
-// during a game session; it never changes priority, affinity or a power plan.
-// https://learn.microsoft.com/windows/win32/api/processthreadsapi/nf-processthreadsapi-setprocessinformation
+// Current-process, session-local optional policy. Values are owned; the port
+// is borrowed and must outlive the scope. No priority, affinity or power plan.
+struct RuntimeProcessPowerPolicy {
+    std::uint32_t version = 0;
+    std::uint32_t controlMask = 0;
+    std::uint32_t stateMask = 0;
+    bool operator==(const RuntimeProcessPowerPolicy&) const = default;
+};
+inline constexpr std::uint32_t runtimeProcessPowerPolicyVersion = 1;
+inline constexpr std::uint32_t runtimeProcessExecutionPolicy = 1;
+inline constexpr std::uint32_t runtimeProcessTimerPolicy = 4;
+
+enum class RuntimeProcessPolicyWriteError { Other, InvalidParameter, NotSupported };
+
+class RuntimeProcessPerformancePort {
+public:
+    virtual ~RuntimeProcessPerformancePort() = default;
+    virtual bool available() const noexcept = 0;
+    virtual bool read(RuntimeProcessPowerPolicy& value) noexcept = 0;
+    virtual bool write(const RuntimeProcessPowerPolicy& value) noexcept = 0;
+    // Queried only after the first failed apply, never after a failed restore.
+    virtual RuntimeProcessPolicyWriteError lastWriteError() const noexcept = 0;
+};
+
 class RuntimeProcessPerformanceScope {
 public:
-    using InformationFunction = BOOL (WINAPI*)(
-        HANDLE, PROCESS_INFORMATION_CLASS, LPVOID, DWORD);
-    struct Api {
-        InformationFunction get = nullptr;
-        InformationFunction set = nullptr;
-    };
+    explicit RuntimeProcessPerformanceScope(RuntimeProcessPerformancePort& api) noexcept : api_(api) {
+        if (!api_.available()) return;
+        previous_.version = runtimeProcessPowerPolicyVersion;
+        if (!api_.read(previous_) || previous_.version != runtimeProcessPowerPolicyVersion) return;
 
-    static Api nativeApi() noexcept {
-        const HMODULE kernel = GetModuleHandleW(L"kernel32.dll");
-        if (kernel == nullptr) return {};
-        return {
-            reinterpret_cast<InformationFunction>(GetProcAddress(kernel, "GetProcessInformation")),
-            reinterpret_cast<InformationFunction>(GetProcAddress(kernel, "SetProcessInformation"))
-        };
-    }
-
-    RuntimeProcessPerformanceScope() noexcept : RuntimeProcessPerformanceScope(nativeApi()) {}
-    explicit RuntimeProcessPerformanceScope(Api api) noexcept : api_(api) {
-        if (api_.get == nullptr || api_.set == nullptr) return;
-        previous_.Version = PROCESS_POWER_THROTTLING_CURRENT_VERSION;
-        if (!api_.get(GetCurrentProcess(), ProcessPowerThrottling, &previous_, sizeof(previous_))
-            || previous_.Version != PROCESS_POWER_THROTTLING_CURRENT_VERSION) return;
-
-        constexpr ULONG execution = PROCESS_POWER_THROTTLING_EXECUTION_SPEED;
-        constexpr ULONG timers = PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION;
+        constexpr std::uint32_t execution = runtimeProcessExecutionPolicy;
+        constexpr std::uint32_t timers = runtimeProcessTimerPolicy;
         if (apply(execution | timers)) return;
-        const DWORD error = GetLastError();
-        // Windows versions predating timer-resolution policy may still support
-        // explicit HighQoS. Other failures leave the process policy untouched.
-        if (error == ERROR_INVALID_PARAMETER || error == ERROR_NOT_SUPPORTED)
+        const auto error = api_.lastWriteError();
+        if (error == RuntimeProcessPolicyWriteError::InvalidParameter
+            || error == RuntimeProcessPolicyWriteError::NotSupported)
             (void)apply(execution);
     }
 
@@ -50,32 +48,30 @@ public:
     RuntimeProcessPerformanceScope(RuntimeProcessPerformanceScope&&) = delete;
     RuntimeProcessPerformanceScope& operator=(RuntimeProcessPerformanceScope&&) = delete;
 
-    ULONG appliedMask() const noexcept { return appliedMask_; }
+    std::uint32_t appliedMask() const noexcept { return appliedMask_; }
     bool restore() noexcept {
         if (!changed_) return true;
-        if (!api_.set(GetCurrentProcess(), ProcessPowerThrottling, &previous_, sizeof(previous_)))
-            return false;
+        if (!api_.write(previous_)) return false;
         changed_ = false;
         appliedMask_ = 0;
         return true;
     }
 
 private:
-    bool apply(ULONG mask) noexcept {
+    bool apply(std::uint32_t mask) noexcept {
         auto requested = previous_;
-        requested.ControlMask |= mask;
-        requested.StateMask &= ~mask;
-        const bool differs = requested.ControlMask != previous_.ControlMask
-            || requested.StateMask != previous_.StateMask;
-        if (differs && !api_.set(GetCurrentProcess(), ProcessPowerThrottling,
-                &requested, sizeof(requested))) return false;
+        requested.controlMask |= mask;
+        requested.stateMask &= ~mask;
+        const bool differs = requested.controlMask != previous_.controlMask
+            || requested.stateMask != previous_.stateMask;
+        if (differs && !api_.write(requested)) return false;
         changed_ = differs;
         appliedMask_ = mask;
         return true;
     }
 
-    Api api_;
-    PROCESS_POWER_THROTTLING_STATE previous_{};
-    ULONG appliedMask_ = 0;
+    RuntimeProcessPerformancePort& api_;
+    RuntimeProcessPowerPolicy previous_{};
+    std::uint32_t appliedMask_ = 0;
     bool changed_ = false;
 };

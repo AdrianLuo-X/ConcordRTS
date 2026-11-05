@@ -4,10 +4,10 @@
 // adds the direction-dependent FLH to that pixel pivot in the native 60x30
 // projection; camera zoom moves the building, but does not resize its SHP.
 bool resolveRuntimeStructureWeaponMuzzlePoint(const WorldObjectInstance& object,
-    const POINT& center, const RuntimeMapRenderContext& context,
+    const RuntimeInputPixelPoint& centerPixels, const RuntimeMapRenderContext& context,
     const RuntimeMapCamera& camera, RuntimeMapRenderCache& cache,
     int forwardLeptons, int lateralLeptons, int heightLeptons,
-    int firingFacing, bool secondary, POINT& result) {
+    int firingFacing, bool secondary, RuntimeInputPixelPoint& result) {
     if (object.kind != WorldObjectKind::Structure) return false;
     const auto* art = findArtTypeForObject(object, context);
     if (!art) return false;
@@ -32,6 +32,7 @@ bool resolveRuntimeStructureWeaponMuzzlePoint(const WorldObjectInstance& object,
             sx += (dx - dy) * 30.0;
             sy += (dx + dy) * 15.0 - heightLeptons * std::sqrt(6.0) * 15.0 / 256.0;
         }
+        const POINT center = runtimeRenderPlacementNativePoint(centerPixels);
         result = {center.x + static_cast<LONG>(std::lround(sx)),
             center.y + static_cast<LONG>(std::lround(sy))};
         return true;
@@ -44,6 +45,7 @@ bool resolveRuntimeStructureWeaponMuzzlePoint(const WorldObjectInstance& object,
         if (!runtimeNativeStructureMuzzleAnchor(sprite->resolvedImageId, sprite->sourceFingerprint,
                 sprite->frameIndex, width, height, point)) return false;
         // Structure main and active SHPs are center-authored, unlike infantry.
+        const POINT center = runtimeRenderPlacementNativePoint(centerPixels);
         result = {center.x + offsetX - width / 2 + point.x,
             center.y + offsetY - height / 2 + point.y};
         return true;

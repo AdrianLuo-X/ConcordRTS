@@ -1,0 +1,111 @@
+#include "runtime/menu/RuntimeInternetMenuController.h"
+#include "runtime/window/win32/RuntimeWindowParentWin32.h"
+#include "ui/network/win32/RuntimeInternetMenuWidgetViewWin32.h"
+#include <array>
+#include <cstddef>
+#include <iostream>
+#include <thread>
+#include <type_traits>
+using namespace concord::internet_menu;
+static_assert(std::is_standard_layout_v<RuntimeInternetMenuWidgetViewWin32>);
+static_assert(sizeof(RuntimeInternetMenuWidgetViewWin32)==82*sizeof(HWND));
+static_assert(alignof(RuntimeInternetMenuWidgetViewWin32)==alignof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,hostWindow)==0);
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,window)==sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,matchHistoryDetail)==81*sizeof(HWND));
+static_assert(sizeof(RuntimeMultiplayerMenuNetwork)==1);
+static_assert(InternetPlayerName==5101&&InternetResumeSwap==5161&&InternetMatchHistoryList==5164);
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,hostWindow)==0*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,window)==1*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,playerNameLabel)==2*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,playerNameEdit)==3*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,roomNameLabel)==4*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,roomNameEdit)==5*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,passwordLabel)==6*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,passwordEdit)==7*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,refreshButton)==8*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,hostButton)==9*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,resumeHostButton)==10*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,resumeSwapButton)==11*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,joinButton)==12*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,spectatorCheck)==13*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,quickMatchButton)==14*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,roomList)==15*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,rosterList)==16*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,countryLabel)==17*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,countryEdit)==18*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,colorLabel)==19*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,colorEdit)==20*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,teamLabel)==21*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,teamEdit)==22*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,difficultyLabel)==23*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,difficultyEdit)==24*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,startPositionLabel)==25*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,startPositionEdit)==26*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,applySlotButton)==27*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,readyButton)==28*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,startButton)==29*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,kickButton)==30*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,leaveButton)==31*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,statusText)==32*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,connectionText)==33*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,navCommunityButton)==34*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,navGamesButton)==35*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,navLadderButton)==36*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,navNewsButton)==37*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,profileSummaryText)==38*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,accountTitleText)==39*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,accountDescriptionText)==40*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,accountHandleLabel)==41*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,accountHandleEdit)==42*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,accountRegisterButton)==43*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,channelLabel)==44*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,channelList)==45*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,channelJoinButton)==46*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,chatLabel)==47*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,chatList)==48*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,chatEdit)==49*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,chatSendButton)==50*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,participantLabel)==51*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,participantList)==52*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,friendLabel)==53*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,friendList)==54*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,friendEdit)==55*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,friendAddButton)==56*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,friendRemoveButton)==57*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,ladderTitleText)==58*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,ladderList)==59*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,clanSummaryText)==60*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,clanMemberList)==61*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,clanInvitationList)==62*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,clanNameEdit)==63*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,clanTagEdit)==64*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,clanCreateButton)==65*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,clanTargetEdit)==66*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,clanInviteButton)==67*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,clanAcceptButton)==68*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,clanRemoveButton)==69*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,clanTransferButton)==70*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,clanLeaveButton)==71*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,clanLadderTitleText)==72*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,clanLadderList)==73*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,communityRefreshButton)==74*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,newsTitleText)==75*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,newsList)==76*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,newsDetail)==77*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,matchHistoryButton)==78*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,matchHistoryBackButton)==79*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,matchHistoryList)==80*sizeof(HWND));
+static_assert(offsetof(RuntimeInternetMenuWidgetViewWin32,matchHistoryDetail)==81*sizeof(HWND));
+int main(){unsigned checks=0,failures=0;auto require=[&](bool b,const char* why){++checks;if(!b){++failures;std::cerr<<why<<'\n';}};
+ RuntimeInternetMenuWidgetViewWin32 view;require(!view.hostWindow&&!view.window&&!view.roomList&&!view.passwordEdit&&!view.matchHistoryDetail,"all representative borrowed widget defaults null");
+ HWND parent=CreateWindowExW(0,L"STATIC",L"Owned Internet contract",WS_OVERLAPPEDWINDOW,50,50,800,600,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);require(parent!=nullptr,"actual native parent creation");if(!parent)return 1;
+ RuntimeWindowId retired{};
+ {RuntimeWindowParentWin32 lease(parent);retired=lease.id();const auto r=resolveRuntimeWindowParentWin32(retired);require(r.supported&&r.window==parent,"same thread parent identity");
+  bool crossSupported=true;std::thread other([&]{crossSupported=resolveRuntimeWindowParentWin32(retired).supported;});other.join();require(!crossSupported,"cross thread identity rejected");
+  view.hostWindow=parent;view.window=CreateWindowExW(0,L"STATIC",L"Internet child",WS_CHILD,0,0,780,540,parent,nullptr,GetModuleHandleW(nullptr),nullptr);require(view.window&&GetParent(view.window)==parent,"native child parent preserved");
+  HWND borrowed=view.window;{RuntimeInternetMenuWidgetViewWin32 copy=view;require(copy.window==borrowed,"private view copies only borrows");}require(IsWindow(borrowed),"view destructor never owns native child");require(DestroyWindow(borrowed)!=FALSE,"destroy owned child");
+ }
+ require(IsWindow(parent),"lease does not destroy parent");require(!resolveRuntimeWindowParentWin32(retired).supported,"revoked parent identity rejected");require(resolveRuntimeWindowParentWin32({}).supported&&resolveRuntimeWindowParentWin32({}).window==nullptr,"zero standalone identity");require(!resolveRuntimeWindowParentWin32({~std::uint64_t{0}}).supported,"unknown identity rejected");
+ require(DestroyWindow(parent)!=FALSE,"destroy own parent");std::cout<<"Internet native ABI/widget/parent: checks="<<checks<<" failures="<<failures<<" skipped=0\n";return failures?1:0;
+}

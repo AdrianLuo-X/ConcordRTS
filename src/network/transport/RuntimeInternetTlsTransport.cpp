@@ -22,6 +22,7 @@
 #include <schannel.h>
 #include <security.h>
 #include <wincrypt.h>
+#include "network/transport/private/RuntimeInternetTlsCertificateWin32.h"
 #pragma comment(lib, "ws2_32.lib")
 #pragma comment(lib, "secur32.lib")
 #pragma comment(lib, "crypt32.lib")
@@ -1459,9 +1460,10 @@ bool RuntimeInternetTlsClient::begin(
     impl_->connection.serverName = std::move(serverName);
     impl_->connection.checkRevocation = impl_->config.checkCertificateRevocation;
     impl_->connection.expectedPin = impl_->config.leafCertificateSha256;
-    impl_->connection.chainEngine = reinterpret_cast<HCERTCHAINENGINE>(
-        const_cast<void*>(impl_->config.nativeCertificateChainEngine)
-    );
+    impl_->connection.chainEngine =
+        RuntimeInternetTlsCertificateInterop::nativePeerTrust(
+            impl_->config.peerTrust
+        );
     impl_->connectDeadline = nowMilliseconds
         + impl_->config.limits.connectTimeoutMilliseconds;
     if (connected) {
@@ -1589,6 +1591,8 @@ struct RuntimeInternetTlsServer::Impl {
     std::uint16_t boundPort = 0;
     std::uint64_t nextConnectionId = 1;
     std::map<std::uint64_t, Connection> connections;
+
+    ~Impl() { closeSocket(listener); }
 };
 
 RuntimeInternetTlsServer::RuntimeInternetTlsServer()
@@ -1624,7 +1628,9 @@ bool RuntimeInternetTlsServer::open(
         return false;
     }
     auto credential = acquireServerCredential(
-        config.nativeCertificateContext,
+        RuntimeInternetTlsCertificateInterop::nativeCertificate(
+            config.serverCertificate
+        ),
         errorMessage
     );
     if (!credential) return false;

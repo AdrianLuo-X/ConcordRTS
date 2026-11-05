@@ -1,4 +1,5 @@
 #pragma once
+#include "runtime/contracts/RuntimeInternetMenuData.h"
 
 #include "network/internet/RuntimeInternetLobbyFlow.h"
 #include "network/transport/RuntimeInternetServiceTransport.h"
@@ -32,43 +33,11 @@ struct RuntimeInternetMultiplayerServiceConfig {
 
 // Every correlation value and the room identity are generated in one
 // BCryptGenRandom-backed transaction before a UI action mutates networking.
-struct RuntimeInternetMultiplayerMenuEntropy {
-    std::uint64_t queryTransactionId = 0U;
-    std::uint64_t hostTransactionId = 0U;
-    std::uint64_t joinTransactionId = 0U;
-    std::uint64_t matchRequestId = 0U;
-    std::uint64_t matchActivationTransactionId = 0U;
-    std::uint64_t matchHostTransactionId = 0U;
-    std::uint64_t matchJoinTransactionId = 0U;
-    std::uint64_t roomGeneration = 0U;
-    std::uint64_t gameplayRandomSeed = 0U;
-    std::array<std::uint8_t, 16U> roomIdBytes{};
 
-    bool operator==(
-        const RuntimeInternetMultiplayerMenuEntropy&
-    ) const = default;
-};
 
-struct RuntimeInternetMultiplayerRoomRow {
-    std::string roomId;
-    std::string text;
-    bool joinable = false;
 
-    bool operator==(
-        const RuntimeInternetMultiplayerRoomRow&
-    ) const = default;
-};
 
-struct RuntimeInternetMultiplayerRosterRow {
-    std::string peerId;
-    std::string text;
-    bool local = false;
-    bool kickable = false;
 
-    bool operator==(
-        const RuntimeInternetMultiplayerRosterRow&
-    ) const = default;
-};
 
 // Strict parser for the [Internet] section. All six required keys must occur
 // exactly once. Unknown or duplicate keys in the section fail closed.
@@ -216,12 +185,12 @@ std::string projectRuntimeInternetRankedHistoryDetail(
 // authenticated TCP relay.
 RuntimeMultiplayerMenuResult runRuntimeInternetMultiplayerMenu(
     const RuntimeConfig& baseConfig,
-    void* hostWindow = nullptr
+    RuntimeWindowId hostWindow = {}
 );
 
 int runRuntimeInternetMultiplayerMenuUiSmoke(
     const RuntimeConfig& baseConfig,
-    void* hostWindow = nullptr
+    RuntimeWindowId hostWindow = {}
 );
 
 int runRuntimeInternetMultiplayerMenuSkinWindowSmoke(

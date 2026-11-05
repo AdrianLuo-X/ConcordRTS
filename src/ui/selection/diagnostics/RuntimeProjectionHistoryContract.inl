@@ -48,7 +48,7 @@ static bool runRuntimeProjectionHistoryContract(RuntimeWindowState& probe,
         if (left.size() != right.size()) return false;
         for (std::size_t i = 0; i < left.size(); ++i) {
             const auto& a = left[i]; const auto& b = right[i];
-            const auto point = [](POINT x, POINT y) { return x.x == y.x && x.y == y.y; };
+            const auto point = [](const auto& x, const auto& y) { return x.x == y.x && x.y == y.y; };
             if (a.object != b.object || a.observerType != b.observerType || a.observerOwner != b.observerOwner
                 || a.observerKind != b.observerKind || a.spyDisguiseProjected != b.spyDisguiseProjected
                 || !point(a.center, b.center) || !point(a.renderCenter, b.renderCenter)
@@ -355,7 +355,7 @@ static bool runRuntimeProjectionHistoryContract(RuntimeWindowState& probe,
         // History path renders without that outer scope, so the map's internal
         // geometry pool expires before the overlay's fresh visibility replay.
         if (reference) return render(true);
-        RuntimeGeometryQueryScope paint(probe.world, viewport, context, probe.camera, probe.renderCache);
+        RuntimeGeometryQueryScope paint(probe.world, runtimeRenderPlacementPixelRect(viewport), context, probe.camera, probe.renderCache);
         return render(false);
     };
     std::size_t structuralCases = 0;
@@ -375,13 +375,13 @@ static bool runRuntimeProjectionHistoryContract(RuntimeWindowState& probe,
             || probe.world.deterministicSimulationStateHash() != beforeDraw)
             return fail("actual rubble/selling map and paint-to-projection replay differ");
         std::unordered_map<int, std::vector<RuntimeSpriteHitSpan>> actualSpans;
-        if (!resolveRuntimeBuildingVisibleHitSpans(probe.world, viewport, context, probe.camera,
+        if (!resolveRuntimeBuildingVisibleHitSpansWin32(probe.world, viewport, context, probe.camera,
                 probe.renderCache, actualSpans) || !actualSpans.contains(base.instanceId))
             return fail("actual rubble/selling structure did not participate in scene-Z replay");
-        const auto placement = runtimeObjectWorldRenderPlacement(base, probe.world, viewport,
-            context, probe.camera, probe.renderCache);
+        const auto placement = runtimeRenderPlacementNative(runtimeObjectWorldRenderPlacementWin32(base, probe.world, viewport,
+            context, probe.camera, probe.renderCache));
         RuntimeStructureSpriteGeometry body;
-        if (!resolveRuntimeStructureSpriteGeometry(base, placement.center, context, probe.camera,
+        if (!resolveRuntimeStructureSpriteGeometryWin32(base, placement.center, context, probe.camera,
                 probe.renderCache, body) || body.hitSpans.empty())
             return fail("actual rubble/selling body did not resolve opaque stock asset geometry");
 

@@ -1,8 +1,8 @@
 #include "render/geometry/RuntimeInfantryMuzzleAnchors.inl"
 // Native anchors must never apply to a same-named replacement SHP.
 bool resolveRuntimeInfantryWeaponMuzzlePoint(const WorldObjectInstance& object,
-    const POINT& center, const RuntimeMapRenderContext& context,
-    const RuntimeMapCamera& camera, RuntimeMapRenderCache& cache, POINT& result) {
+    const RuntimeInputPixelPoint& centerPixels, const RuntimeMapRenderContext& context,
+    const RuntimeMapCamera& camera, RuntimeMapRenderCache& cache, RuntimeInputPixelPoint& result) {
     auto* sprite = loadRuntimeObjectShpSpriteFromCache(object, context, cache);
     if (!sprite || !sprite->loaded) return false;
     static const std::map<std::string, std::uint64_t> nativeFingerprints{
@@ -43,6 +43,7 @@ bool resolveRuntimeInfantryWeaponMuzzlePoint(const WorldObjectInstance& object,
     POINT point{};
     if (!runtimeFindInfantryMuzzleAnchor(sprite->resolvedImageId, sprite->sequenceName,
             sprite->frameIndex, width, height, point)) return false;
+    const POINT center = runtimeRenderPlacementNativePoint(centerPixels);
     result = {center.x - width / 2 + point.x,
         center.y + camera.tileHeight / 2 - height + point.y};
     return true;

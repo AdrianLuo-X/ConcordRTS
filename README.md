@@ -10,11 +10,21 @@ ConcordRTS 是使用 C++20 开发的 RTS 引擎工程，面向《命令与征服
 
 源码包含遭遇战、AI、战役、局域网与互联网联机、观战、存档与联机恢复，以及规则分析、地图解析、资源读取和导出工具。遭遇战菜单可选择 Win32 或可选的 SDL3 软件窗口；Win32 大厅和选图页另可显式启用 GPU 绘制，开始战局后使用 Win32 游戏窗口。主战局默认使用软件绘制与呈现，也可显式选择 D3D11 完整帧呈现或地图 GPU 绘制。地图 GPU 路径覆盖地形、物体材质、阴影、光照与迷雾显示；资源解码、几何、地形查询、视野和模拟仍由 CPU 的原实现负责。硬件与 WARP 分别选择，`auto` 当前使用软件；地图命令索引准备可选工作线程，默认仍为同步参考算法。
 
-另提供独立核心构建，支持在不创建窗口、图形、音频和视频后端的情况下构建所选实际生产模块。已验证的核心环境为 Windows Clang；文件和 LAN 仍保留私有操作系统适配，不表示整个游戏已完成跨平台运行。
+另提供独立核心构建，复用游戏中的实际生产模拟、命令、保存和恢复实现，无需创建窗口、图形、音频或视频设备。已在 Windows Clang 和 Ubuntu 24.04.5 x86_64／Clang 18.1.3 上运行所选核心，并对照推进和恢复结果。Linux 的 POSIX 文件、UDP／TCP 和系统随机源已完成所选原生检查；完整 Linux／macOS 游戏及其窗口、音视频和 GPU 后端尚未构建运行，Linux TLS 的 Schannel 实现明确不支持。
 
 项目仍在持续开发，不保证原版所有细节、全部战役或任意第三方 MOD 均已完整兼容。
 
 ## 更新记录
+
+### 2026-11-05
+
+- 完成当前平台边界整理，将文件路径、表现时钟、输入值、菜单控制器、字体与像素表面、音频设备、传输及系统随机源通过明确接口连接原生产逻辑。Windows 原生句柄和设备操作保留在私有适配实现中。
+- 提取共享生产会话，完整游戏与无窗口入口编译同一套模拟、命令、导航、战斗、经济生产、场景和保存恢复实现；整理触发器调度、视野更新、AI 状态编码与确定性哈希，保留原玩法、参数及权威更新顺序。
+- 统一保存文档解析、身份校验和候选状态加载事务。本地保存、回放和网络快照复用恢复过程，设备重建在候选状态提交后执行，保留原保存格式和失败处理。
+- 在 Ubuntu 24.04.5 x86_64／Clang 18.1.3 上原生构建所选核心，10 项核心测试全部通过、零跳过；完成 POSIX 原子文件、UDP／TCP 和 Linux `getrandom` 的实际检查。
+- 完成真实生产推进 800 个 tick、7 个命令帧及三条恢复路线的 96 次观察。Windows 与 Linux 的权威记录、三份保存及恢复结果逐字节一致，原完整恢复与任务恢复的 49 份文件一致；当前 Windows 游戏的所选绘制运行也与无窗口核心对照一致。
+- 复核 Windows 的 Win32／SDL3 遭遇战菜单、软件／硬件 D3D11／WARP 及窗口生命周期，完成所选完整画面、输入、控制器状态、故障回退和资源恢复检查。结构检查覆盖 366 项，保留 5,267 条精确基线记录，新增违规和待收紧项均为零。
+- 上述结果来自本次开发验收，范围限于所选核心和 Windows 场景。完整 Linux／macOS 游戏未验；既有动画、深度及历史检查问题按原状态保留，不据此宣称全部测试、全部设备或整体性能均已通过。
 
 ### 2026-10-29
 
@@ -150,7 +160,9 @@ ConcordRTS 是使用 C++20 开发的 RTS 引擎工程，面向《命令与征服
 ConcordRTS/
 ├── src/                            引擎与运行程序源码
 │   ├── core/                       基础工具与不依赖界面的数据逻辑
-│   │   ├── io/                     INI 与文件读写
+│   │   ├── io/                     INI、原子文件、可执行路径与保存文本
+│   │   ├── security/               操作系统随机字节与平台适配
+│   │   ├── determinism/            权威状态的确定性哈希基础
 │   │   ├── players/                纯席位角色判断
 │   │   ├── tasks/                  有界任务执行器、输入与结果所有权
 │   │   └── results/                比赛计分、保存与哈希
@@ -165,7 +177,9 @@ ConcordRTS/
 │   │   └── video/                  视频格式、播放服务与帧通信
 │   ├── world/                      世界状态、对象索引与查询
 │   ├── simulation/                 战斗、移动、经济、AI 与特殊机制
-│   │   ├── ai/                     AI 采矿状态与保存、哈希接口
+│   │   ├── ai/                     AI 采矿、战术状态编码与触发定义哈希
+│   │   ├── triggers/               触发器状态、调度、增援与任务保存恢复
+│   │   ├── vision/                 视野系统与权威更新阶段
 │   │   ├── economy/                户级经济上下文与收入固定步
 │   │   ├── production/             生产队列与扣款事务
 │   │   ├── abilities/              单位能力与特殊机制
@@ -179,8 +193,13 @@ ConcordRTS/
 │   │   ├── contracts/              回放事件与菜单选择数据
 │   │   ├── window/                 窗口标识、生命周期与软件窗口接口
 │   │   │   └── sdl3/               可选 SDL3 窗口、事件与软件呈现
-│   │   ├── menu/                   遭遇战菜单控制器与同步服务
-│   │   ├── persistence/            保存、加载与恢复一致性诊断
+│   │   ├── menu/                   主菜单、战役、遭遇战与联机控制器
+│   │   ├── session/                完整游戏与无窗口入口共享的生产会话
+│   │   │   ├── detail/             会话内部状态、操作与几何声明
+│   │   │   ├── headless/           无窗口地图查询、资源查询与设备适配
+│   │   │   └── win32/              游戏宿主的原生设备与几何适配
+│   │   ├── timing/                 规则时间、宿主循环与计时器配对
+│   │   ├── persistence/            保存解析、身份校验、加载事务与恢复诊断
 │   │   ├── replay/                 回放封包与宿主恢复内核
 │   │   ├── performance/            生产循环性能计时与诊断
 │   │   ├── presentation/           完整帧、预算、设备恢复与私有呈现适配
@@ -191,6 +210,7 @@ ConcordRTS/
 │   ├── render/                     地图、单位、效果与软件／GPU 绘图接入
 │   │   ├── core/                   地图绘图、短期帧输入与自有 GPU 命令资源
 │   │   ├── buildings/              建筑绘制与辅助动画帧选择
+│   │   ├── geometry/               标准坐标、边界、命中与发射位置查询
 │   │   ├── preparation/            地图屏幕块索引快照、有界任务与稳定合并
 │   │   ├── voxel/                  体素绘制、巨炮光栅任务与预热生命周期
 │   │   └── resources/              菜单资源接口的既有缓存实现
@@ -201,14 +221,17 @@ ConcordRTS/
 │   │   ├── drawing/                有序菜单命令、资源字节与代际
 │   │   ├── surface/                CPU 像素缓冲与绘图操作
 │   │   │   └── win32/              后台缓冲、像素借用与地图原生覆盖合成
-│   │   ├── text/                   遭遇战位图文字测量与绘制
+│   │   ├── text/                   菜单位图文字与系统字体接口
 │   │   ├── audio/                  菜单音乐启停与重播策略
 │   │   ├── skirmish/               遭遇战菜单、软件窗口接入与原生缓冲
 │   │   └── sidebar/                侧栏分页与滚轮控制
 │   ├── audio/                      音频播放、空间音效与世界音频
+│   │   ├── backend/                PCM、语音路径及音频设备接口
+│   │   ├── events/                 菜单音效与游戏音频事件
 │   │   └── menu/                   菜单音乐设备与私有 Windows 实现
 │   ├── network/                    联机协议、同步、会话与互联网服务
 │   │   ├── lobby/                  大厅状态与地图传输
+│   │   ├── transport/              TCP、TLS 凭据与私有平台边界
 │   │   └── snapshots/              快照传输、暂存与会话提交
 │   └── analysis/                   规则分析、命令行工具与报告
 │       ├── reports/                能力报告与证据来源说明
@@ -222,6 +245,7 @@ ConcordRTS/
 │   │   ├── main_back_buffer/       主窗口后台缓冲合同目标
 │   │   ├── frame_presenter/        Windows 软件帧提交合同目标
 │   │   └── d3d11_frame_presenter/  完整帧、菜单、地图与原生覆盖合同目标
+│   ├── ui/                         菜单控制器、字体与位图文字合同
 │   ├── gameplay/                   战斗、生产、单位行为与机制检查
 │   ├── multiplayer/                局域网、同步、快照与恢复检查
 │   ├── internet/                   互联网服务、TLS 与匹配检查
@@ -263,6 +287,7 @@ ConcordRTS/
 │   ├── RunSecondWindowNative.cmake  真实菜单窗口合同执行入口
 │   ├── dependencies/               第三方依赖的工具链配置
 │   ├── CoreTargets.cmake           独立核心的实际目标与生产库
+│   ├── ProductionSessionLibraries.cmake  共享生产会话与无窗口恢复入口
 │   ├── CoreTestSuite.cmake         核心测试集合与串行检查入口
 │   ├── ProfiledLeaf.cmake          按消费者编译约定建立静态库
 │   └── toolchains/                 Windows clang-cl 工具链配置
@@ -377,7 +402,7 @@ if ($LASTEXITCODE -ne 0) { throw '游戏构建或部署失败。' }
 
 ### 独立核心构建
 
-`CONCORD_PORTABLE_CORE=ON` 只创建所选生产模块及对应测试，复用完整产品使用的源码和静态库；不生成 `concord_runtime`、视频助手或菜单设备目标。配置入口使用 `-PortableCore`。核心与完整产品、Release 与 Debug 必须分别使用独立构建目录，脚本会拒绝混用缓存。
+`CONCORD_PORTABLE_CORE=ON` 只创建所选生产模块及对应测试，复用完整产品使用的源码和静态库；不生成 `concord_runtime`、视频助手或菜单设备目标。Windows 配置脚本使用 `-PortableCore`，Linux 直接使用 CMake 选项。核心与完整产品、Release 与 Debug 必须分别使用独立构建目录，脚本会拒绝混用缓存。
 
 准备好“第一次构建”示例中的工具路径变量后，从仓库根目录执行：
 
@@ -397,7 +422,22 @@ if ($LASTEXITCODE -ne 0) { throw '核心构建或测试失败，请检查错误�
 
 Debug 使用 `-Configuration Debug` 和另一个目录，例如 `build/clang-cl-x64-core-debug`。`concord_core_check` 会构建所需目标并串行执行 10 项测试；缺失测试、禁用测试和跳过条件不被接受。目标与测试集合见 [CoreTargets.cmake](cmake/CoreTargets.cmake)、[CoreTestSuite.cmake](cmake/CoreTestSuite.cmake)。
 
-当前核心覆盖世界确定性哈希、地图、游戏命令、比赛设置、快照传输、兼容指纹、锁步、原子文件和 LAN 传输，其中新增世界哈希入口链接实际运行时编译约定的世界库。Windows 核心默认只链接 Kernel32，LAN 夹具另私有链接 Winsock；原子文件和 LAN 实现仍有私有系统分支。这一构建不依赖官方游戏素材，其通过结果只覆盖列出的核心范围。
+核心固定集合覆盖世界确定性哈希、地图、游戏命令、比赛设置、快照传输、兼容指纹、锁步、原子文件和 LAN 传输，包含使用实际 Runtime 编译约定的生产世界哈希入口。这 10 项测试不需要官方素材。Windows 核心去掉窗口设备的默认链接，实际网络与系统随机源使用各自所需的私有系统库；Linux 使用对应的 POSIX 和系统随机源实现。
+
+Linux 上安装好 CMake、Ninja 和 Clang 后，从源码根目录执行：
+
+```sh
+cmake -S . -B build/linux-clang-core-release -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++ \
+  -DCONCORD_PORTABLE_CORE=ON
+cmake --build build/linux-clang-core-release --target concord_core_check --parallel 1
+```
+
+原生验收使用 Ubuntu 24.04.5 x86_64 与 Clang 18.1.3。不同系统、编译器和配置使用不同构建目录，不能复用 Windows 缓存。
+
+[ProductionSessionLibraries.cmake](cmake/ProductionSessionLibraries.cmake) 另提供 `concord_production_session_recovery_smoke`，链接同一套生产会话，覆盖完整恢复与固定 tick 诊断。它没有加入固定的 10 项集合；运行所需的显式输入和输出条件见 [测试入口源码](tests/infrastructure/RuntimeProductionSessionRecoverySmoke.cpp) 及其包含的诊断实现，私人验收材料不随源码分发。
+
+Linux 的原子文件实现同步临时文件并在同目录重命名，当前未同步父目录；不要将其目录项掉电持久性等同于 Windows 的写穿行为。Linux Schannel 返回不支持，完整非 Windows 窗口、音视频和 GPU 产品不在本次核心支持范围内。
 
 ### 显式 MSVC 参考构建
 
@@ -601,13 +641,17 @@ pwsh -NoProfile -File .\tools\testing\Run-LocalTests.ps1 -Compiler Clang -BuildD
 
 `-StructureOnly` 单独执行结构检查，不追加执行 12＋4 测试集合。入口校验缓存、刷新 CMake 元数据、冻结目标清单并运行合成夹具，然后检查依赖与精确例外；它不会构建游戏目标。结果默认写入已忽略的 `build/local-tests/structure-*/`，其中可能包含本机路径和环境信息，应留在本机。
 
-[结构基线](tools/structure/structure-baseline.json) 保留 4,696 条逐项审核的精确例外。新增违规、出现次数增加或已经消失而尚未收紧的例外都会导致失败；工具不会自动扩大豁免范围。它提供所选构建配置的静态结构证据，不表示完整游戏、其他平台或性能已经验收。
+[结构基线](tools/structure/structure-baseline.json) 保留 5,267 条逐项审核的精确例外。新增违规、出现次数增加或已经消失而尚未收紧的例外都会导致失败；工具不会自动扩大豁免范围。它提供所选构建配置的静态结构证据，不表示完整游戏、其他平台或性能已经验收。
 
 已记录的验证覆盖所选标准合同、Windows 适配、资源查询、命令桥接及经济保存恢复对照。旧回归中已知的月球剧场深度、部分交互和几何绘制，以及 Yuri 采矿收入、完整 AI 经济、部分编队紧凑度与矿石动画检查失败仍保留；完整物理输入、IME、双端运行游戏，以及未覆盖的窗口、平台和性能场景不据此视为通过。
 
 CMake 保留专项测试目标。部分测试只使用自编夹具，部分需要本地原游戏数据；资源相关测试与调试工具需要按自己的环境配置路径。不能将无素材环境下的编译成功视为全部游戏功能或全部测试通过。
 
 普通构建只编译游戏核心与视频助手，避免一次构建全部历史测试目标。`samples/` 内的演示准备脚本与部分开发工具需要先具备相应本地数据；Python 工具的解释器和依赖应自行准备。
+
+新增平台与生产会话合同见各模块的 `*Contracts.cmake`、[共享生产会话构建](cmake/ProductionSessionLibraries.cmake) 和 [测试注册](cmake/TestsUnitAndNetwork.cmake)。其中 7 份 `Actual*V1.bin` 是开发时采集的文字布局记录，本源码包不附带；相关原生对照可执行程序仍可构建，仅在相应记录存在时注册测试，位图字体对照还要求使用者自行准备字体。纯值、合成输入和其他已注册测试不受这些记录缺失影响。
+
+菜单音效／主菜单音乐时钟诊断需要从项目根目录启动，显式指定各自 `build/smoke/menu-sfx-clock/` 或 `build/smoke/main-menu-music-clock/` 下尚不存在的输出子目录；不会使用开发者机器上的材料路径。构建脚本的可选 `-EvidenceDirectory` 同样限制在本项目 `build/` 内的新目录，未指定时沿用构建目录内的默认记录位置。
 
 ### 可选菜单窗口合同
 

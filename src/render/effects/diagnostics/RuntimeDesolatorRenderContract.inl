@@ -68,7 +68,7 @@ bool runRuntimeDesolatorRenderContractCheck(const RuntimeMapRenderContext& conte
     deso.owner = "Arabs"; deso.alive = true; deso.health = 150;
     deso.x = deso.y = 15; deso.cell = 15 * 512 + 15; deso.subCell = -1;
     deso.deployed = true; deso.mission = "Deployed"; deso.facing = 128;
-    const auto center = runtimeObjectBodyAnchorForRender(deso, viewport, probe, camera);
+    const auto center = runtimeObjectBodyAnchorForRenderWin32(deso, viewport, probe, camera);
     if (!tryDrawObjectShpSprite(nullptr, viewport, deso, center, probe, camera, *cache))
         return fail("original deployed Desolator SHP was unavailable");
     if (const char* path = std::getenv("CONCORD_DESOLATOR_BMP"))

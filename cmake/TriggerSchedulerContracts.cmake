@@ -1,0 +1,15 @@
+# H035: original phase owner; reuse qualified production World/codec archives.
+include_guard(GLOBAL)
+include("${CMAKE_CURRENT_LIST_DIR}/ProfiledLeaf.cmake")
+concord_add_profiled_leaf(concord_trigger_scheduler_runtime_leaf
+    src/simulation/triggers/RuntimeTriggerScheduler.cpp concord_runtime Runtime)
+concord_add_profiled_leaf(concord_trigger_scheduler_contract_leaf
+    src/simulation/triggers/RuntimeTriggerScheduler.cpp concord_radar_cell_values_value_contract Contract)
+target_link_libraries(concord_trigger_scheduler_runtime_leaf PRIVATE concord_world_core_runtime_leaf)
+target_link_libraries(concord_trigger_scheduler_contract_leaf PRIVATE concord_world_core_hash_contract_leaf)
+target_link_libraries(concord_runtime PRIVATE concord_trigger_scheduler_runtime_leaf)
+add_subdirectory(tests/infrastructure/trigger_scheduler)
+add_test(NAME trigger_scheduler_runtime_contract_test COMMAND concord_trigger_scheduler_runtime_contract)
+add_test(NAME trigger_scheduler_contract_contract_test COMMAND concord_trigger_scheduler_contract_contract)
+set_tests_properties(trigger_scheduler_runtime_contract_test trigger_scheduler_contract_contract_test
+    PROPERTIES TIMEOUT 120 LABELS "trigger-scheduler;standard-contract;no-assets")

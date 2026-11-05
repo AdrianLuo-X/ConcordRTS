@@ -1,14 +1,25 @@
 #include "runtime/config/RuntimeConfig.h"
+#include "core/io/IniFile.h"
+#include "core/io/RuntimeExecutableDirectory.h"
+#include "runtime/config/RuntimeConfigPaths.h"
 
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 namespace {
 namespace fs = std::filesystem;
@@ -37,6 +48,12 @@ struct CurrentDirectoryGuard {
         std::error_code ignored;
         fs::current_path(previous, ignored);
     }
+};
+
+struct DiagnosticCapture {
+    std::ostringstream text;
+    std::streambuf* previous = std::cerr.rdbuf(text.rdbuf());
+    ~DiagnosticCapture() { std::cerr.rdbuf(previous); }
 };
 
 void requirePath(const std::string& actual, const fs::path& expected,
@@ -222,6 +239,71 @@ void checkPreferenceRoundTrip(const fs::path& fixture) {
     config.configPath.clear();
     require(!saveRuntimeConfigPreferences(config, error) && !error.empty(), "empty save path must fail clearly");
 }
+
+void checkNativeFileConsumer(const fs::path& project) {
+    const fs::path unicodeDirectory = project / fs::path(u8"中文配置入口");
+    const fs::path unicodeConfig = unicodeDirectory / fs::path(u8"设置.ini");
+    // RuntimeConfig's existing string fields retain native narrow encoding.
+    // This actual consumer fixture requires a lossless native-code-page path;
+    // the separate native-path contract also covers unrepresentable Unicode.
+    require(fs::path(unicodeConfig.string()) == unicodeConfig,
+        "Chinese consumer fixture is not representable in the current native code page");
+    const std::string originalBytes("\xd6\xd0\xce\xc4\xff", 5);
+    const auto loaded = loadFixture(unicodeConfig,
+        "[Runtime]\r\nWindowWidth=1379\r\n[Skirmish]\r\nGameMode=" + originalBytes + "\r\n");
+    require(loaded.windowWidth == 1379 && loaded.gameMode == originalBytes,
+        "real configuration consumer failed native path or changed payload bytes");
+    requirePath(loaded.configPath, unicodeConfig, "native configuration path");
+    checkPreferenceRoundTrip(unicodeDirectory / fs::path(u8"偏好.ini"));
+    {
+        DiagnosticCapture diagnostic;
+        RuntimeConfigOverrides missing;
+        missing.configPath = (unicodeDirectory / fs::path(u8"可选缺失.ini")).string();
+        const auto defaults = loadRuntimeConfig(missing);
+        require(diagnostic.text.str().empty() && defaults.windowWidth == 1024,
+            "optional missing configuration must remain silent and use defaults");
+    }
+#ifdef _WIN32
+    const DWORD attributes = GetFileAttributesW(unicodeConfig.c_str());
+    require(attributes != INVALID_FILE_ATTRIBUTES, "could not read fixture attributes");
+    struct AttributesGuard {
+        fs::path path;
+        DWORD previous;
+        ~AttributesGuard() { (void)SetFileAttributesW(path.c_str(), previous); }
+    } restore{unicodeConfig, attributes};
+    require(SetFileAttributesW(unicodeConfig.c_str(), attributes | FILE_ATTRIBUTE_READONLY) != 0,
+        "could not mark owned fixture read-only");
+    RuntimeConfigOverrides overrides;
+    overrides.configPath = unicodeConfig.string();
+    require(loadRuntimeConfig(overrides).windowWidth == 1379,
+        "read-only input must remain readable");
+    require(SetFileAttributesW(unicodeConfig.c_str(), attributes) != 0,
+        "could not restore owned fixture attributes");
+    const HANDLE handle = CreateFileW(unicodeConfig.c_str(), GENERIC_READ, 0, nullptr,
+        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    require(handle != INVALID_HANDLE_VALUE, "could not establish exclusive owned fixture handle");
+    struct HandleGuard { HANDLE handle; ~HandleGuard() { CloseHandle(handle); } } close{handle};
+    DiagnosticCapture diagnostic;
+    const auto blocked = loadRuntimeConfig(overrides);
+    require(blocked.windowWidth == 1024 && diagnostic.text.str()
+        == "Failed to open INI file: " + blocked.configPath + "\n",
+        "sharing-denied configuration error/default semantics changed");
+    IniFile preserved;
+    preserved.loadFromString("[Keep]\nK=retained\n");
+    DiagnosticCapture ignored;
+    const bool accepted = preserved.loadFromPath(unicodeConfig);
+    require(!accepted && preserved.getValue("Keep", "K") == "retained",
+        "sharing-denied native INI open changed existing state");
+    std::wstring executable(32768, L'\0');
+    const DWORD length = GetModuleFileNameW(nullptr, executable.data(), static_cast<DWORD>(executable.size()));
+    require(length > 0 && length < executable.size(), "native executable-path oracle failed");
+    executable.resize(length);
+    require(runtimeExecutableDirectory() == fs::path(executable).parent_path(),
+        "actual executable directory provider changed");
+    std::cout << "Runtime config native file consumer passed Chinese=1 readOnly=1 sharingDenied=1"
+        << " optionalMissing=1 bytePayload=unchanged preferenceRoundTrip=1 codePage=" << GetACP() << '\n';
+#endif
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -241,6 +323,7 @@ int main(int argc, char** argv) {
         checkPercentages(project / "percentages.ini");
         checkPathsAndOverrides(project, nested);
         checkPreferenceRoundTrip(project / "preferences.ini");
+        checkNativeFileConsumer(project);
         std::cout << "Runtime config: defaults, parsing, paths, overrides and preference round-trips passed\n";
         return 0;
     } catch (const std::exception& error) {

@@ -98,6 +98,7 @@ RuntimeIniSource looseSource(
     source.sourceId = sourceId;
     source.displayPath = pathString(path);
     source.backingPath = source.displayPath;
+    source.filePath = path;
     return source;
 }
 
@@ -109,6 +110,7 @@ RuntimeIniSource mixSource(
     RuntimeIniSource source;
     source.sourceId = sourceId;
     source.backingPath = pathString(path);
+    source.filePath = path;
     source.entryName = entryName;
     source.displayPath = source.backingPath + "!" + entryName;
     source.mixEntry = true;
@@ -190,8 +192,9 @@ void appendMixCandidates(
     }
 }
 
+template <typename Paths>
 RuntimeIniSource resolveEditionFile(
-    const RuntimeCampaignDataSourceOptions& options,
+    const Paths& options,
     const std::string& sourceId,
     const std::string& fileName
 ) {
@@ -284,12 +287,13 @@ std::string theaterFileName(
 }
 
 bool readLooseText(
+    const fs::path& filePath,
     const std::string& path,
     std::string& text,
     std::string& errorMessage
 ) {
     std::error_code error;
-    const std::uintmax_t bytes = fs::file_size(fs::path(path), error);
+    const std::uintmax_t bytes = fs::file_size(filePath, error);
     if (error || bytes == 0 || bytes > kMaximumRuntimeIniBytes
         || bytes > static_cast<std::uintmax_t>(
             std::numeric_limits<std::streamsize>::max()
@@ -299,7 +303,7 @@ bool readLooseText(
             : "runtime INI has an invalid size: " + path;
         return false;
     }
-    std::ifstream input(fs::path(path), std::ios::binary);
+    std::ifstream input(filePath, std::ios::binary);
     if (!input) {
         errorMessage = "runtime INI could not be opened: " + path;
         return false;
@@ -322,7 +326,9 @@ bool readMixText(
     std::string& errorMessage
 ) {
     MixArchive archive;
-    if (!archive.loadFromFile(source.backingPath)
+    const fs::path filePath = source.filePath.empty()
+        ? fs::path(source.backingPath) : source.filePath;
+    if (!archive.loadFromPath(filePath)
         || !archive.isIndexReadable()) {
         errorMessage = "runtime MIX could not be opened: "
             + source.backingPath;
@@ -386,7 +392,8 @@ bool RuntimeIniSource::readText(
             if (errorMessage != nullptr) errorMessage->clear();
             return true;
         }
-    } else if (readLooseText(backingPath, text, localError)) {
+    } else if (readLooseText(filePath.empty() ? fs::path(backingPath) : filePath,
+                   backingPath, text, localError)) {
         if (errorMessage != nullptr) errorMessage->clear();
         return true;
     }
@@ -449,8 +456,13 @@ std::string runtimeCampaignIniFileName(
     return {};
 }
 
-RuntimeIniSource resolveRuntimeCampaignIniSource(
-    const RuntimeCampaignDataSourceOptions& options,
+namespace {
+// Instantiate the same search for legacy strings and native paths. Keep root
+// conversion at the original candidate-building sites, after edition/theater
+// guards and in mod/local/resource order, including error/exception timing.
+template <typename Paths>
+RuntimeIniSource resolveIniSource(
+    const Paths& options,
     RuntimeCampaignIniKind kind
 ) {
     for (const std::string& sourceId : editionOrder(options.sourceId)) {
@@ -466,8 +478,9 @@ RuntimeIniSource resolveRuntimeCampaignIniSource(
     return {};
 }
 
-RuntimeIniSource resolveRuntimeCampaignTheaterSource(
-    const RuntimeCampaignDataSourceOptions& options,
+template <typename Paths>
+RuntimeIniSource resolveTheaterSource(
+    const Paths& options,
     const std::string& mapTheater
 ) {
     for (const std::string& sourceId : editionOrder(options.sourceId)) {
@@ -485,4 +498,34 @@ RuntimeIniSource resolveRuntimeCampaignTheaterSource(
         }
     }
     return {};
+}
+
+} // namespace
+
+RuntimeIniSource resolveRuntimeCampaignIniSource(
+    const RuntimeCampaignDataSourceOptions& options,
+    RuntimeCampaignIniKind kind
+) {
+    return resolveIniSource(options, kind);
+}
+
+RuntimeIniSource resolveRuntimeCampaignTheaterSource(
+    const RuntimeCampaignDataSourceOptions& options,
+    const std::string& mapTheater
+) {
+    return resolveTheaterSource(options, mapTheater);
+}
+
+RuntimeIniSource resolveRuntimeCampaignIniSourceFromPaths(
+    const RuntimeCampaignDataSourcePaths& paths,
+    RuntimeCampaignIniKind kind
+) {
+    return resolveIniSource(paths, kind);
+}
+
+RuntimeIniSource resolveRuntimeCampaignTheaterSourceFromPaths(
+    const RuntimeCampaignDataSourcePaths& paths,
+    const std::string& mapTheater
+) {
+    return resolveTheaterSource(paths, mapTheater);
 }

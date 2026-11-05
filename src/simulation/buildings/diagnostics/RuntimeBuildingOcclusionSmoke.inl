@@ -121,7 +121,7 @@ bool runRuntimeBuildingOcclusionSmoke(const RuntimeConfig& config,std::string& e
             std::vector<int> beforePaintOwners(width*height,-2);
             for(std::size_t a=0;a<warmed.size();++a)for(std::size_t b=a+1;b<warmed.size();++b){
                 RECT intersection{},clipped{};
-                if(!IntersectRect(&intersection,&warmed[a].spriteBounds,&warmed[b].spriteBounds)
+                if(!runtimeProjectedIntersectRect(intersection,warmed[a].spriteBounds,warmed[b].spriteBounds)
                     ||!IntersectRect(&clipped,&intersection,&viewport))continue;
                 for(int y=clipped.top;y<clipped.bottom;++y)for(int x=clipped.left;x<clipped.right;++x){
                     auto& saved=beforePaintOwners[static_cast<std::size_t>(y)*width+x];

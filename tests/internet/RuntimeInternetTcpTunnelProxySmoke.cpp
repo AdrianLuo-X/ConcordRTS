@@ -1,3 +1,5 @@
+#include <array>
+#include "network/transport/private/RuntimeTunnelPreludeSource.h"
 #include "network/transport/RuntimeInternetTcpTunnelProxy.h"
 
 #include "network/session/RuntimeMultiplayerLanSession.h"
@@ -1395,10 +1397,13 @@ void testRealLanSessionAndLargeSnapshot(SmokeContext& context) {
     );
 }
 
+#include "RuntimeTunnelPreludeSourceSmoke.inl"
+
 } // namespace
 
 int main() {
     SmokeContext context;
+    testTunnelPreludeSourceContract(context);
     testRouteBindingAndDuplicateRejection(context);
     testOversizeAndBackpressure(context);
     testTimeoutCleanup(context);

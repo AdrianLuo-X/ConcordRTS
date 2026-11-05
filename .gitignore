@@ -33,6 +33,8 @@ CTestTestfile.cmake
 *.lib
 *.obj
 *.pdb
+*.bin
+*.cso
 *.ilk
 *.exp
 *.pch

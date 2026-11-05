@@ -1,5 +1,5 @@
 bool runtimeHarvesterCanUnloadAtRefinery(
-    const RuntimeWindowState& state,
+    const RuntimeProductionHostState& state,
     const WorldObjectInstance& harvester,
     const WorldObjectInstance& refinery
 ) {
@@ -36,7 +36,7 @@ bool runtimeHarvesterCanUnloadAtRefinery(
 }
 
 int runtimeResourceStorageCapacityForObject(
-    const RuntimeWindowState& state,
+    const RuntimeProductionHostState& state,
     const WorldObjectInstance& object
 ) {
     if (!object.alive
@@ -54,7 +54,7 @@ int runtimeResourceStorageCapacityForObject(
     return std::max(0, building->storage);
 }
 
-int runtimeOwnedResourceStorageCapacity(const RuntimeWindowState& state) {
+int runtimeOwnedResourceStorageCapacity(const RuntimeProductionHostState& state) {
     int capacity = 0;
     for (const WorldObjectInstance& object : state.world.getObjects()) {
         capacity += runtimeResourceStorageCapacityForObject(state, object);
@@ -62,7 +62,7 @@ int runtimeOwnedResourceStorageCapacity(const RuntimeWindowState& state) {
     return capacity;
 }
 
-void refreshRuntimeResourceStorageCapacity(RuntimeWindowState& state) {
+void refreshRuntimeResourceStorageCapacity(RuntimeProductionHostState& state) {
     const int capacity = runtimeOwnedResourceStorageCapacity(state);
     state.economy.resourceStorageCapacity = capacity;
     state.economy.storedResourceUnits =
@@ -99,7 +99,7 @@ void refreshRuntimeResourceStorageCapacity(RuntimeWindowState& state) {
 }
 
 void recordRuntimeResourceDeliveryToStorage(
-    RuntimeWindowState& state,
+    RuntimeProductionHostState& state,
     int cargoUnits,
     int cargoGemUnits,
     int deliveredValue
@@ -151,7 +151,7 @@ void recordRuntimeResourceDeliveryToStorage(
 }
 
 void refreshRuntimeEconomyMetricsForCurrentOwner(
-    RuntimeWindowState& state
+    RuntimeProductionHostState& state
 ) {
     const std::string ownerKey =
         runtimeCanonicalHumanHouseOwner(state.economy.owner);
@@ -196,7 +196,7 @@ void refreshRuntimeEconomyMetricsForCurrentOwner(
 }
 
 int runtimeHarvesterDepartureRefineryId(
-    const RuntimeWindowState& state, const WorldObjectInstance& harvester
+    const RuntimeProductionHostState& state, const WorldObjectInstance& harvester
 ) {
     if (const auto worker = state.slaveMinerTasks.find(harvester.instanceId);
         worker != state.slaveMinerTasks.end()) {
@@ -220,7 +220,7 @@ int runtimeHarvesterDepartureRefineryId(
 // Harvesting must have ground contact with the resource. A nearby empty cell
 // on the other side of a cliff/wall is not a valid mining approach.
 struct RuntimeHarvesterResourceAccess {
-    const RuntimeWindowState& state;
+    const RuntimeProductionHostState& state;
     const WorldObjectInstance& harvester;
     int departureRefineryId;
     std::unordered_map<int, const TerrainCell*> generatedTerrain;
@@ -229,7 +229,7 @@ struct RuntimeHarvesterResourceAccess {
     std::optional<std::unordered_map<int, int>> pathOccupancy;
     std::optional<std::unordered_set<int>> reachableAfterFailure;
 
-    RuntimeHarvesterResourceAccess(const RuntimeWindowState& worldState, const WorldObjectInstance& miner)
+    RuntimeHarvesterResourceAccess(const RuntimeProductionHostState& worldState, const WorldObjectInstance& miner)
         : state(worldState), harvester(miner),
           departureRefineryId(runtimeHarvesterDepartureRefineryId(state, miner)),
           terrain(&state.terrainByCell),
@@ -317,14 +317,14 @@ std::optional<RuntimeCellPoint> findRuntimeHarvesterResourceApproach(
 }
 
 std::optional<RuntimeCellPoint> findRuntimeHarvesterResourceApproach(
-    const RuntimeWindowState& state, const WorldObjectInstance& harvester,
+    const RuntimeProductionHostState& state, const WorldObjectInstance& harvester,
     const RuntimeCellPoint& resource
 ) {
     RuntimeHarvesterResourceAccess access(state, harvester);
     return findRuntimeHarvesterResourceApproach(access, resource);
 }
 std::optional<RuntimeCellPoint> findHarvestableRuntimeResourceNear(
-    const RuntimeWindowState& state,
+    const RuntimeProductionHostState& state,
     const WorldObjectInstance& harvester,
     const RuntimeCellPoint& preferred
 ) {
@@ -383,7 +383,7 @@ std::optional<RuntimeCellPoint> findHarvestableRuntimeResourceNear(
 }
 
 std::optional<RuntimeCellPoint> findNearestRuntimeOreCell(
-    const RuntimeWindowState& state,
+    const RuntimeProductionHostState& state,
     const WorldObjectInstance& harvester,
     std::optional<RuntimeCellPoint> scanOrigin = std::nullopt,
     bool farScan = true
@@ -510,7 +510,7 @@ std::optional<RuntimeCellPoint> findNearestRuntimeOreCell(
 }
 
 bool issueRuntimeHarvesterMoveToCell(
-    RuntimeWindowState& state,
+    RuntimeProductionHostState& state,
     WorldObjectInstance& harvester,
     const RuntimeCellPoint& targetCell,
     const std::string& mission,
@@ -579,7 +579,7 @@ bool issueRuntimeHarvesterMoveToCell(
 }
 
 const WorldObjectInstance* findRuntimeHarvesterRefineryById(
-    const RuntimeWindowState& state,
+    const RuntimeProductionHostState& state,
     const WorldObjectInstance& harvester,
     int objectId
 ) {
@@ -597,7 +597,7 @@ const WorldObjectInstance* findRuntimeHarvesterRefineryById(
 }
 
 std::optional<int> findNearestRuntimeRefineryId(
-    const RuntimeWindowState& state,
+    const RuntimeProductionHostState& state,
     const WorldObjectInstance& harvester
 ) {
     const RuntimeCellPoint from = runtimeCellPointForObject(harvester);
@@ -632,7 +632,7 @@ std::optional<int> findNearestRuntimeRefineryId(
 }
 
 bool teleportRuntimeHarvesterToCell(
-    RuntimeWindowState& state,
+    RuntimeProductionHostState& state,
     WorldObjectInstance& harvester,
     const RuntimeCellPoint& target
 ) {
@@ -675,7 +675,7 @@ bool teleportRuntimeHarvesterToCell(
 }
 
 void spawnRuntimeRefinerySmokeEffects(
-    RuntimeWindowState& state,
+    RuntimeProductionHostState& state,
     const WorldObjectInstance& refinery,
     const WorldObjectInstance& harvester
 ) {

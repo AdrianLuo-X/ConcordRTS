@@ -38,9 +38,9 @@ bool handleRuntimePlayerWaypointClick(RuntimeWindowState& state, const RECT& vie
 void drawRuntimePlayerWaypoints(HDC dc, const RECT& viewport, const RuntimeWindowState& state) {
     const int saved = SaveDC(dc);
     IntersectClipRect(dc, viewport.left, viewport.top, viewport.right, viewport.bottom);
-    HFONT font = CreateFontW(-14, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-        OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Microsoft YaHei");
-    SelectObject(dc, font); SetBkMode(dc, TRANSPARENT);
+    concord::ui::HudSystemFontWin32 font;
+    font.initialize(concord::ui::HudSystemFontRole::WaypointLabels);
+    SelectObject(dc, font.nativeFont()); SetBkMode(dc, TRANSPARENT);
     const auto owner = runtimeCanonicalHumanHouseOwner(state.economy.owner);
     std::set<std::uint64_t> drawnPoints;
     std::set<std::pair<std::uint64_t, std::uint64_t>> drawnEdges;
@@ -76,7 +76,7 @@ void drawRuntimePlayerWaypoints(HDC dc, const RECT& viewport, const RuntimeWindo
             SetTextColor(dc, selected ? RGB(20, 30, 35) : color);
             RECT bounds{p->x - 11, p->y - 11, p->x + 12, p->y + 12};
             const auto label = std::to_wstring(i + 1);
-            DrawTextW(dc, label.c_str(), -1, &bounds, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+            font.drawText(dc,concord::ui::HudSystemWideTextRequest{label.c_str(),-1,{bounds.left,bounds.top,bounds.right,bounds.bottom},DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX});
         }
         SelectObject(dc, oldPen); DeleteObject(pen);
     }
@@ -84,7 +84,7 @@ void drawRuntimePlayerWaypoints(HDC dc, const RECT& viewport, const RuntimeWindo
         SetTextColor(dc, RGB(255, 230, 130));
         const std::wstring hint = L"路径规划：点击加点 · 点已有路径点闭环 · Delete 删选中点 · 右键换部队 · Z 全部出发";
         RECT bounds{viewport.left + 12, viewport.bottom - 32, viewport.right - 12, viewport.bottom - 8};
-        DrawTextW(dc, hint.c_str(), -1, &bounds, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        font.drawText(dc,concord::ui::HudSystemWideTextRequest{hint.c_str(),-1,{bounds.left,bounds.top,bounds.right,bounds.bottom},DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX});
     }
-    RestoreDC(dc, saved); DeleteObject(font);
+    RestoreDC(dc, saved); font.reset();
 }

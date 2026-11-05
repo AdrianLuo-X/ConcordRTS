@@ -59,7 +59,7 @@ bool runRuntimeHarvesterCursorSmoke(RuntimeWindowState& live, std::string& error
             context.structureRootPath=runtimeStructureRootPath(s.config,s.report.map);
             context.structurePalettePath=runtimeStructurePalettePath(s.config,s.report.map);
             POINT surface{-1,-1};
-            const bool picked=pickRuntimeMapSurfaceCell(s.world,context,s.camera,viewport,point,s.renderCache,surface);
+            const bool picked=pickRuntimeMapSurfaceCellWin32(s.world,context,s.camera,viewport,point,s.renderCache,surface);
             const auto& layer=s.renderCache.terrainLayer;
             const int px=point.x-viewport.left+s.camera.worldOffsetX-layer.originX;
             const int py=point.y-viewport.top+s.camera.worldOffsetY-layer.originY;

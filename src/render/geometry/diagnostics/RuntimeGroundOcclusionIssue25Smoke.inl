@@ -230,7 +230,7 @@ bool runRuntimeGroundOcclusionIssue25Smoke(const RuntimeConfig& config,std::stri
             const auto projected=runtimeProjectedObjectsForViewport(s,viewport);
             std::vector<int> beforeOwners(width*height,-2);
             for(const auto& item:projected){RECT clip{};
-                if(!IntersectRect(&clip,&item.spriteBounds,&viewport))continue;
+                if(!runtimeProjectedIntersectRect(clip,item.spriteBounds,viewport))continue;
                 for(int y=clip.top;y<clip.bottom;++y)for(int x=clip.left;x<clip.right;++x){auto& saved=beforeOwners[static_cast<std::size_t>(y)*width+x];
                     if(saved!=-2)continue;const auto* hit=findProjectedObjectAtPoint(projected,POINT{x,y});saved=hit&&hit->object?hit->object->instanceId:-1;++beforeClickCount;}}
             GameWorld renderWorld=s.world;
@@ -354,8 +354,8 @@ bool runRuntimeGroundOcclusionIssue25Smoke(const RuntimeConfig& config,std::stri
                         pickDiagnostics<<label<<','<<point.x<<','<<point.y<<','<<owner<<','<<beforeOwners[p]<<','<<diagnosticAfter<<','<<item.object->instanceId
                             <<','<<item.renderCenter.x<<','<<item.renderCenter.y<<','<<item.bounds.left<<','<<item.bounds.top<<','<<item.bounds.right<<','<<item.bounds.bottom
                             <<','<<item.spriteBounds.left<<','<<item.spriteBounds.top<<','<<item.spriteBounds.right<<','<<item.spriteBounds.bottom
-                            <<','<<pointInRectInclusive(item.bounds,point)<<','<<PtInRect(&item.spriteBounds,point)<<','<<item.hasBuildingDepthVisibility
-                            <<','<<runtimeSpriteHitSpansContain(item.visibleBuildingHitSpans,point)<<','<<item.visibleBuildingHitSpans.size()<<'\n';}
+                            <<','<<pointInRectInclusive(item.bounds,point)<<','<<runtimeProjectedPtInRect(item.spriteBounds,point)<<','<<item.hasBuildingDepthVisibility
+                            <<','<<runtimeSpriteHitSpansContainWin32(item.visibleBuildingHitSpans,point)<<','<<item.visibleBuildingHitSpans.size()<<'\n';}
                 }
                 if(beforeOwners[p]!=owner)++beforeErrors;const auto* hit=findProjectedObjectAtPoint(afterProjected,POINT{static_cast<LONG>(p%width),static_cast<LONG>(p/width)});
                 if((hit&&hit->object?hit->object->instanceId:-1)!=owner)++afterErrors;++afterClickCount;}
@@ -378,7 +378,7 @@ bool runRuntimeGroundOcclusionIssue25Smoke(const RuntimeConfig& config,std::stri
             if(beforeErrors||afterErrors){
                 std::ofstream cacheDiagnostic(root/(label+"-pick-cache-geometry.txt"));
                 const auto item=std::find_if(projected.begin(),projected.end(),[&](const auto& value){return value.object&&value.object->instanceId==mobileId;});
-                if(item!=projected.end()){RECT queried{};const bool resolved=resolveRuntimeMobileObjectSpriteBounds(mobile,item->renderCenter,view,s.camera,s.renderCache,queried);
+                if(item!=projected.end()){RECT queried{};const bool resolved=resolveRuntimeMobileObjectSpriteBoundsWin32(mobile,runtimeRenderPlacementNativePoint(item->renderCenter),view,s.camera,s.renderCache,queried);
                     cacheDiagnostic<<"before center="<<item->renderCenter.x<<','<<item->renderCenter.y<<" bounds="<<item->bounds.left<<','<<item->bounds.top<<','<<item->bounds.right<<','<<item->bounds.bottom
                         <<" sprite="<<item->spriteBounds.left<<','<<item->spriteBounds.top<<','<<item->spriteBounds.right<<','<<item->spriteBounds.bottom<<" finalSpans="<<item->visibleBuildingHitSpans.size()
                         <<" directResolve="<<resolved<<" directBounds="<<queried.left<<','<<queried.top<<','<<queried.right<<','<<queried.bottom<<'\n';}
@@ -473,7 +473,7 @@ bool runRuntimeGroundOcclusionIssue25Smoke(const RuntimeConfig& config,std::stri
                 const std::vector<Wall> pair(walls.begin(),walls.end());prepare(pair,true);
                 const auto projected=runtimeProjectedObjectsForViewport(s,viewport);
                 std::vector<int> before(width*height,-2);
-                for(const auto& item:projected){RECT clip{};if(!IntersectRect(&clip,&item.spriteBounds,&viewport))continue;
+                for(const auto& item:projected){RECT clip{};if(!runtimeProjectedIntersectRect(clip,item.spriteBounds,viewport))continue;
                     for(int y=clip.top;y<clip.bottom;++y)for(int x=clip.left;x<clip.right;++x){const auto p=static_cast<std::size_t>(y)*width+x;
                         const auto* hit=findProjectedObjectAtPoint(projected,POINT{x,y});before[p]=hit&&hit->object?hit->object->instanceId:-1;}}
                 const auto paint=[&](const std::vector<Wall>& selected,bool withMobile,bool reversed=false,bool hdc=false){

@@ -1,3 +1,6 @@
+#include "network/session/private/RuntimeLanNonceNoiseSource.h"
+#include <array>
+#include <cstring>
 #include "network/session/RuntimeMultiplayerLanSession.h"
 #include "network/snapshots/RuntimeMultiplayerSnapshotSession.h"
 #include "network/lobby/RuntimeRoomPassword.h"
@@ -11,7 +14,6 @@
 #include <iterator>
 #include <limits>
 #include <map>
-#include <random>
 #include <string>
 #include <utility>
 #include <vector>
@@ -149,7 +151,37 @@ std::size_t deferredCanonicalPacketBytes(
     return sizeof(packet.type) + packet.payload.size();
 }
 
+class RuntimeLanSystemNonceNoiseSource final : public runtime_lan_nonce_noise_detail::Source {
+public:
+    RuntimeSecureBytesResult fill(std::span<std::uint8_t> bytes) noexcept override {
+        return fillRuntimeSecureBytes(bytes);
+    }
+};
+
 } // namespace
+
+bool runtime_lan_nonce_noise_detail::acquire(std::uint64_t& noise, Source& source) noexcept {
+    static_assert(sizeof(std::uint32_t) == 4U);
+    std::array<std::uint8_t, 8> bytes{};
+    const RuntimeSecureBytesResult result = source.fill(bytes);
+    if (!result.succeeded() || result.generated != bytes.size()) {
+        std::fill(bytes.begin(), bytes.end(), static_cast<std::uint8_t>(0U));
+        noise = 0;
+        return false;
+    }
+    std::uint32_t first = 0, second = 0;
+    std::memcpy(&first, bytes.data(), sizeof(first));
+    std::memcpy(&second, bytes.data() + sizeof(first), sizeof(second));
+    noise = static_cast<std::uint64_t>(first);
+    noise = (noise << 32U) ^ static_cast<std::uint64_t>(second);
+    return true;
+}
+
+bool runtime_lan_nonce_noise_detail::acquire(std::uint64_t& noise) noexcept {
+    RuntimeLanSystemNonceNoiseSource source;
+    return acquire(noise, source);
+}
+
 
 bool RuntimeMultiplayerLanSimulationHooks::empty() const {
     return !onStarted
@@ -557,14 +589,9 @@ struct RuntimeMultiplayerLanSession::Impl {
 
     std::uint64_t makeNonce() {
         std::uint64_t entropy = 0;
-        try {
-            std::random_device random;
-            entropy = static_cast<std::uint64_t>(random());
-            entropy = (entropy << 32U)
-                ^ static_cast<std::uint64_t>(random());
-        } catch (...) {
-            entropy = 0;
-        }
+        // Original S26 zero-noise fallback/mix is retained below. It is not
+        // advertised as cryptographic output when the OS source fails.
+        (void)runtime_lan_nonce_noise_detail::acquire(entropy);
         const auto now = std::chrono::steady_clock::now()
             .time_since_epoch().count();
         std::uint64_t value = entropy

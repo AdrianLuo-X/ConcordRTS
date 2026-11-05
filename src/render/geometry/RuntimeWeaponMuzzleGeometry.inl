@@ -4,17 +4,17 @@
 // voxel that was drawn. World FLH remains the simulation's trajectory origin;
 // this is the captured presentation correction applied to that trajectory.
 bool resolveRuntimeVoxelWeaponMuzzlePoint(const WorldObjectInstance& object,
-    const POINT& bodyCenter, const RuntimeMapRenderContext& context,
+    const RuntimeInputPixelPoint& bodyCenterPixels, const RuntimeMapRenderContext& context,
     const RuntimeMapCamera& camera, RuntimeMapRenderCache& cache,
     int forwardLeptons, int lateralLeptons, int heightLeptons,
-    int firingFacing, POINT& point, bool useBarrelEndpoint) {
+    int firingFacing, RuntimeInputPixelPoint& point, bool useBarrelEndpoint) {
     if (!context.rules) return false;
     constexpr double modelUnitsPerLepton = 0.18;
     std::array<double, 3> local{forwardLeptons * modelUnitsPerLepton,
         lateralLeptons * modelUnitsPerLepton, heightLeptons * modelUnitsPerLepton};
     RuntimeVoxelCacheEntry* body = nullptr;
     std::string owner = object.type;
-    POINT center = bodyCenter;
+    POINT center = runtimeRenderPlacementNativePoint(bodyCenterPixels);
     bool turret = false;
     double fitScale = 0.0;
     double bodyFitScale = 0.0;

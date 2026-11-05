@@ -1,6 +1,6 @@
-bool s1702OldDrainRuntimeObjectExitQueue(RuntimeWindowState& state, RuntimeEconomyState* miningEconomy = nullptr);
+bool s1702OldDrainRuntimeObjectExitQueue(RuntimeProductionHostState& state, RuntimeEconomyState* miningEconomy = nullptr);
 bool s1702OldValidateRuntimePadAircraftProductionProjection(
-    const RuntimeWindowState& state,
+    const RuntimeProductionHostState& state,
     std::string& errorMessage, const std::string* miningOwner = nullptr
 ) {
     if (!validateRuntimeAircraftPadSlotCapacity(state, errorMessage)) {
@@ -192,7 +192,7 @@ bool s1702OldValidateRuntimePadAircraftProductionProjection(
 }
 
 std::optional<RuntimeCellPoint> s1702OldFindNearestRuntimeStructureResourceCell(
-    const RuntimeWindowState& state,
+    const RuntimeProductionHostState& state,
     const WorldObjectInstance& structure,
     int maxRadius,
     const WorldObjectInstance& worker
@@ -284,7 +284,7 @@ std::optional<RuntimeCellPoint> s1702OldFindNearestRuntimeStructureResourceCell(
 // Workers in a mobile miner retain their identity and health, but do not
 // occupy a ground subcell or participate as independent active units.
 void s1702OldSynchronizeRuntimeStoredSlaveMinerWorker(
-    RuntimeWindowState& state, WorldObjectInstance& worker,
+    RuntimeProductionHostState& state, WorldObjectInstance& worker,
     const WorldObjectInstance& refinery
 ) {
     releaseRuntimeInfantrySubcellReservation(state, worker.instanceId);
@@ -304,7 +304,7 @@ void s1702OldSynchronizeRuntimeStoredSlaveMinerWorker(
 }
 
 const BuildingType* s1702OldRuntimeSlaveMinerParentBuilding(
-    const RuntimeWindowState& state, const WorldObjectInstance& refinery
+    const RuntimeProductionHostState& state, const WorldObjectInstance& refinery
 ) {
     const auto* mobile = runtimeObjectIsMobileSlaveMiner(state, refinery)
         ? findRuntimeUnitType(state.rules, refinery) : nullptr;
@@ -317,7 +317,7 @@ const BuildingType* s1702OldRuntimeSlaveMinerParentBuilding(
 }
 
 bool s1702OldRuntimeSlaveMinerWorkerIsStored(
-    const RuntimeWindowState& state, const WorldObjectInstance& worker
+    const RuntimeProductionHostState& state, const WorldObjectInstance& worker
 ) {
     const auto task = state.slaveMinerTasks.find(worker.instanceId);
     return task != state.slaveMinerTasks.end()
@@ -325,7 +325,7 @@ bool s1702OldRuntimeSlaveMinerWorkerIsStored(
         && !worker.alive && worker.health > 0 && worker.mission == "InsideSlaveMiner";
 }
 
-void s1702OldSynchronizeRuntimeStoredSlaveMinerWorkers(RuntimeWindowState& state) {
+void s1702OldSynchronizeRuntimeStoredSlaveMinerWorkers(RuntimeProductionHostState& state) {
     for (auto& worker : state.world.accessObjects()) {
         if (!s1702OldRuntimeSlaveMinerWorkerIsStored(state, worker)) continue;
         const auto& task = state.slaveMinerTasks.at(worker.instanceId);
@@ -343,7 +343,7 @@ int s1702OldRuntimeSlaveMinerWorkerCapacity(const UnitType& worker) {
 }
 
 int s1702OldRuntimeSlaveMinerWorkerHarvestTicks(
-    const RuntimeWindowState& state,
+    const RuntimeProductionHostState& state,
     const UnitType& worker,
     const BuildingType& building
 ) {
@@ -357,14 +357,14 @@ int s1702OldRuntimeSlaveMinerWorkerHarvestTicks(
 }
 
 int s1702OldRuntimeSlaveMinerWorkerRegenTicks(
-    const RuntimeWindowState& state, const BuildingType& building
+    const RuntimeProductionHostState& state, const BuildingType& building
 ) {
     return runtimeRuleFramesToTicks(building.slaveRegenRate > 0
         ? building.slaveRegenRate : 500, state.config.fixedTickHz);
 }
 
 bool s1702OldRuntimeObjectIsSlaveMinerWorker(
-    const RuntimeWindowState& state,
+    const RuntimeProductionHostState& state,
     const WorldObjectInstance& object,
     const std::string& workerTypeId
 ) {
@@ -382,7 +382,7 @@ bool s1702OldRuntimeObjectIsSlaveMinerWorker(
 }
 
 std::optional<RuntimeCellPoint> s1702OldFindRuntimeSlaveMinerWorkerSpawnCell(
-    const RuntimeWindowState& state,
+    const RuntimeProductionHostState& state,
     const WorldObjectInstance& refinery,
     const std::string& workerTypeId
 ) {
@@ -405,7 +405,7 @@ std::optional<RuntimeCellPoint> s1702OldFindRuntimeSlaveMinerWorkerSpawnCell(
 }
 
 std::optional<RuntimeCellPoint> s1702OldFindRuntimeSlaveMinerWorkerExitCell(
-    const RuntimeWindowState& state,
+    const RuntimeProductionHostState& state,
     const WorldObjectInstance& refinery,
     const std::string& workerTypeId
 ) {
@@ -457,7 +457,7 @@ std::optional<RuntimeCellPoint> s1702OldFindRuntimeSlaveMinerWorkerExitCell(
 }
 
 bool s1702OldEnsureRuntimeSlaveMinerWorkers(
-    RuntimeWindowState& state,
+    RuntimeProductionHostState& state,
     const WorldObjectInstance& refinery,
     const BuildingType& building
 ) {
@@ -546,7 +546,7 @@ bool s1702OldEnsureRuntimeSlaveMinerWorkers(
 }
 
 int s1702OldReleaseRuntimeSlaveMinerWorkersForRefinery(
-    RuntimeWindowState& state,
+    RuntimeProductionHostState& state,
     int refineryId,
     const std::string& reason,
     const RuntimeObjectExitRequest* request = nullptr
@@ -641,7 +641,7 @@ int s1702OldReleaseRuntimeSlaveMinerWorkersForRefinery(
     return released;
 }
 
-void s1702OldCleanRuntimeSlaveMinerTasks(RuntimeWindowState& state) {
+void s1702OldCleanRuntimeSlaveMinerTasks(RuntimeProductionHostState& state) {
     const std::string currentOwner =
         runtimeCanonicalHumanHouseOwner(state.economy.owner);
     std::unordered_set<int> lostRefineryIds;
@@ -698,7 +698,7 @@ void s1702OldCleanRuntimeSlaveMinerTasks(RuntimeWindowState& state) {
 }
 
 bool s1702OldRuntimeSlaveMinerWorkerAtRefinery(
-    const RuntimeWindowState& state,
+    const RuntimeProductionHostState& state,
     const WorldObjectInstance& worker,
     const WorldObjectInstance& refinery
 ) {
@@ -722,7 +722,7 @@ bool s1702OldRuntimeSlaveMinerWorkerAtRefinery(
 }
 
 bool s1702OldIssueRuntimeSlaveMinerReturn(
-    RuntimeWindowState& state,
+    RuntimeProductionHostState& state,
     WorldObjectInstance& worker,
     const WorldObjectInstance& refinery
 ) {
@@ -754,7 +754,7 @@ bool s1702OldIssueRuntimeSlaveMinerReturn(
 }
 
 bool s1702OldAdvanceRuntimeSlaveMinerWorkerTask(
-    RuntimeWindowState& state,
+    RuntimeProductionHostState& state,
     WorldObjectInstance& worker,
     RuntimeSlaveMinerTask& task
 ) {
@@ -1025,7 +1025,7 @@ bool s1702OldAdvanceRuntimeSlaveMinerWorkerTask(
     return false;
 }
 
-bool s1702OldAdvanceRuntimeSlaveMinerEconomy(RuntimeWindowState& state) {
+bool s1702OldAdvanceRuntimeSlaveMinerEconomy(RuntimeProductionHostState& state) {
     RuntimePerfTraceScope trace("s1702OldAdvanceRuntimeSlaveMinerEconomy", state.tick);
     s1702OldCleanRuntimeSlaveMinerTasks(state);
 
@@ -1083,7 +1083,7 @@ bool s1702OldAdvanceRuntimeSlaveMinerEconomy(RuntimeWindowState& state) {
     return changed;
 }
 RuntimeObjectExitResult s1702OldFinalizeRuntimeObjectExit(
-    RuntimeWindowState& state,
+    RuntimeProductionHostState& state,
     const RuntimeObjectExitRequest& request
 ) {
     RuntimeObjectExitResult result;
@@ -1637,7 +1637,7 @@ RuntimeObjectExitResult s1702OldFinalizeRuntimeObjectExit(
     return result;
 }
 
-bool s1702OldDrainRuntimeObjectExitQueue(RuntimeWindowState& state, RuntimeEconomyState* miningEconomy) {
+bool s1702OldDrainRuntimeObjectExitQueue(RuntimeProductionHostState& state, RuntimeEconomyState* miningEconomy) {
     auto& economy = miningEconomy ? *miningEconomy : state.economy;
     if (state.drainingObjectExits) {
         return false;
@@ -2111,7 +2111,7 @@ bool s1702OldDrainRuntimeObjectExitQueue(RuntimeWindowState& state, RuntimeEcono
 // again here; its net balance is committed after both slave paths finish.
 class s1702OldRuntimeComputerMiningScope {
 public:
-    s1702OldRuntimeComputerMiningScope(RuntimeWindowState& state, const std::string& owner,
+    s1702OldRuntimeComputerMiningScope(RuntimeProductionHostState& state, const std::string& owner,
         const RuntimeEconomyState* ordinaryWork = nullptr)
         : state_(state), owner_(runtimeRepairDepotCanonicalOwnerId(state, owner)),
           startingCredits_(runtimeRepairDepotCreditBalance(state, owner)),
@@ -2171,7 +2171,7 @@ public:
         }
     }
 private:
-    RuntimeWindowState& state_;
+    RuntimeProductionHostState& state_;
     std::string owner_;
     int startingCredits_;
     RuntimeComputerMiningState& ledger_;
@@ -2184,7 +2184,7 @@ private:
 
 // The old enclosing Scope committed a partial explicit balance during stack
 // unwinding too. Preserve that synchronous owner-account boundary on failure.
-void s1702OldCommitRuntimeComputerMiningWorkAfterExplicitFailure(RuntimeWindowState& state,
+void s1702OldCommitRuntimeComputerMiningWorkAfterExplicitFailure(RuntimeProductionHostState& state,
     const std::string& owner, const RuntimeEconomyState& work, int startingCredits) {
     const std::string key = runtimeRepairDepotCanonicalOwnerId(state, owner);
     auto& ledger = state.computerMiningByOwner[key];
@@ -2207,7 +2207,7 @@ void s1702OldCommitRuntimeComputerMiningWorkAfterExplicitFailure(RuntimeWindowSt
 // player's economy or technology tree during explicit computer harvesting.
 class s1702OldRuntimeComputerMiningFeedbackScope {
 public:
-    explicit s1702OldRuntimeComputerMiningFeedbackScope(RuntimeWindowState& state)
+    explicit s1702OldRuntimeComputerMiningFeedbackScope(RuntimeProductionHostState& state)
         : state_(state), interaction_(state.interactionStatus), simulation_(state.simulationStatus),
           command_(state.lastCommand), human_(state.humanHouseScopeActive),
           remote_(state.remoteHumanHouseScopeActive), computer_(state.computerMiningScopeActive),
@@ -2224,13 +2224,13 @@ public:
     s1702OldRuntimeComputerMiningFeedbackScope(const s1702OldRuntimeComputerMiningFeedbackScope&) = delete;
     s1702OldRuntimeComputerMiningFeedbackScope& operator=(const s1702OldRuntimeComputerMiningFeedbackScope&) = delete;
 private:
-    RuntimeWindowState& state_;
+    RuntimeProductionHostState& state_;
     std::string interaction_, simulation_;
     decltype(RuntimeWindowState::lastCommand) command_;
     bool human_, remote_, computer_, suppress_;
 };
 
-bool s1702OldAdvanceRuntimeComputerMining(RuntimeWindowState& state) {
+bool s1702OldAdvanceRuntimeComputerMining(RuntimeProductionHostState& state) {
     if (!state.rulesLoaded || state.humanHouseScopeActive
         || state.skirmishMatchFinished) return false;
     std::vector<std::string> owners;

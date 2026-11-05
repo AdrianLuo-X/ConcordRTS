@@ -9,7 +9,7 @@ bool runRuntimeGrindingAnimationRenderContractCheck(const RuntimeMapRenderContex
     auto cache=std::make_unique<RuntimeMapRenderCache>(); auto probe=context;
     probe.surfacePixels=pixels.data(); probe.surfaceWidth=width; probe.surfaceHeight=height;
     probe.fixedTickHz=30; probe.animationTick=0; probe.vision=nullptr;
-    std::unordered_map<std::string,COLORREF> colors{{"yuricountry",RGB(200,45,200)}};
+    RuntimeOwnerRemapColorTable colors{{"yuricountry",RGB(200,45,200)}};
     probe.ownerRemapColors=&colors;
     const RECT viewport{0,0,width,height};
     const auto copy=[&](int row,int column){for(int y=0;y<height;++y)
@@ -18,7 +18,7 @@ bool runRuntimeGrindingAnimationRenderContractCheck(const RuntimeMapRenderContex
         const auto& host=hosts[row]; RuntimeMapCamera camera; camera.initialized=true;
         const auto origin=projectCellXY(host.x,host.y,host.level,camera);
         camera.worldOffsetX=origin.x-width/2; camera.worldOffsetY=origin.y-170;
-        const auto center=runtimeObjectBodyAnchorForRender(host,viewport,probe,camera);
+        const auto center=runtimeObjectBodyAnchorForRenderWin32(host,viewport,probe,camera);
         const auto draw=[&](){
             std::fill(pixels.begin(),pixels.end(),background);
             if(!tryDrawObjectShpSprite(nullptr,viewport,host,center,probe,camera,*cache)) return false;

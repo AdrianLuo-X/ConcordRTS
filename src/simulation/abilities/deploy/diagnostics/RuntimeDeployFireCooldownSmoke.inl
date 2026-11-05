@@ -241,7 +241,10 @@ bool runRuntimeDeployFireCooldownSmoke(RuntimeWindowState& live, std::string& er
         const auto hit = [&](POINT p) { const auto* entry = findProjectedObjectAtPoint(projected, p);
             return pointInRectInclusive(viewport, p) && entry && entry->object && entry->object->instanceId == id; };
         for (const auto& candidate : projected) if (candidate.object && candidate.object->instanceId == id) {
-            for (const auto p : candidate.footprintHitCenters) if (hit(p)) return p;
+            for (const auto& pixel : candidate.footprintHitCenters) {
+                    const auto p = runtimeRenderPlacementNativePoint(pixel);
+                    if (hit(p)) return p;
+                }
             const POINT midpoint{(candidate.bounds.left + candidate.bounds.right) / 2, (candidate.bounds.top + candidate.bounds.bottom) / 2};
             if (hit(midpoint)) return midpoint;
             for (int y = candidate.bounds.top; y < candidate.bounds.bottom; y += 2)

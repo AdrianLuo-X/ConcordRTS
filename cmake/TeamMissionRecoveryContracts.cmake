@@ -1,0 +1,16 @@
+# Original production trigger codec qualification before any parser repair.
+include_guard(GLOBAL)
+include("${CMAKE_CURRENT_LIST_DIR}/ProfiledLeaf.cmake")
+concord_add_profiled_leaf(concord_save_document_runtime_leaf
+    src/runtime/persistence/RuntimeSaveDocument.cpp concord_runtime Runtime)
+concord_add_profiled_leaf(concord_save_document_contract_leaf
+    src/runtime/persistence/RuntimeSaveDocument.cpp concord_radar_cell_values_value_contract Contract)
+target_link_libraries(concord_save_document_runtime_leaf PRIVATE concord_ini_runtime_leaf)
+target_link_libraries(concord_save_document_contract_leaf PRIVATE concord_ini_contract_leaf)
+target_link_libraries(concord_runtime PRIVATE concord_save_document_runtime_leaf)
+
+add_subdirectory(tests/infrastructure/mission_recovery)
+add_test(NAME mission_recovery_runtime_contract_test COMMAND concord_mission_recovery_runtime_contract)
+add_test(NAME mission_recovery_contract_contract_test COMMAND concord_mission_recovery_contract_contract)
+set_tests_properties(mission_recovery_runtime_contract_test mission_recovery_contract_contract_test
+    PROPERTIES TIMEOUT 180 LABELS "mission-recovery;standard-contract;no-assets")

@@ -62,6 +62,12 @@
 | 互联网服务               | 服务配置、证书、连接和轮询    | [RuntimeInternetServiceHost.h](src/network/internet/RuntimeInternetServiceHost.h)、[RuntimeInternetServiceHostConfig.h](src/network/internet/RuntimeInternetServiceHostConfig.h) |
 
 典型的数据加载顺序为 `IniFile → RulesDatabase / ArtDatabase / MapDatabase → GameWorld`。`ArtDatabase::buildLinks()` 可以将规则对象与美术定义关联。
+| 生产会话 | 游戏与无窗口入口共享的内部会话实现 | [RuntimeProductionHostState.h](src/runtime/session/detail/RuntimeProductionHostState.h)、[ProductionSessionLibraries.cmake](cmake/ProductionSessionLibraries.cmake) |
+| 保存加载事务 | 文档解析、身份校验及候选状态提交 | [RuntimeSaveDocument.h](src/runtime/persistence/RuntimeSaveDocument.h)、[RuntimeSaveIdentity.h](src/runtime/persistence/RuntimeSaveIdentity.h)、[RuntimeLoadTransaction.h](src/runtime/persistence/RuntimeLoadTransaction.h) |
+| 触发与视野阶段 | 借用当前权威状态执行同步更新 | [RuntimeTriggerScheduler.h](src/simulation/triggers/RuntimeTriggerScheduler.h)、[RuntimeVisionPhase.h](src/simulation/vision/RuntimeVisionPhase.h) |
+| 原子文件 | 同目录临时文件与替换发布 | [RuntimeAtomicFile.h](src/core/io/RuntimeAtomicFile.h) |
+| 系统随机源 | 有界读取、完整成功与失败清零 | [RuntimeSecureBytes.h](src/core/security/RuntimeSecureBytes.h) |
+| 宿主循环与计时器 | 消息处理、空闲休眠与 begin/end 配对 | [RuntimeHostLoopPort.h](src/runtime/timing/RuntimeHostLoopPort.h)、[RuntimeTimerResolutionScope.h](src/runtime/timing/RuntimeTimerResolutionScope.h) |
 
 ## 返回值与对象生命周期
 
@@ -293,9 +299,29 @@ bool finished() const;
 
 `validateRuntimeMatchReplay()` 读取至 Finish 并拒绝尾随数据。Initial、Reset 和 Finish 需要非零校验值；Step 的零值表示延后到下一检查点验证。需要再次读取时，调用方须回退流并创建新的读取过程。
 
-宿主的共享恢复实现位于 [RuntimeMatchReplayState.inl](src/runtime/replay/RuntimeMatchReplayState.inl)。它是依赖宿主状态的私有实现，不能作为独立公共头文件使用。恢复先在临时状态中解析、重建并核对 tick 与完整运行时哈希，再通过原事务入口提交；非法 tick、零检查点或零恢复哈希会被拒绝。
+生产会话的共享恢复实现位于 [RuntimeMatchReplayState.inl](src/runtime/replay/RuntimeMatchReplayState.inl)。它由游戏和无窗口诊断的生产会话共同使用，仍是依赖内部会话状态的私有实现，不能作为独立公共头文件使用。恢复先在临时状态中解析、重建并核对 tick 与完整运行时哈希，再通过原事务入口提交；非法 tick、零检查点或零恢复哈希会被拒绝。
 
 本地保存、回放 Reset 和网络快照的检查覆盖计分、ComputerMining、经济生产与定时炸弹等已提取状态，继续沿用原保存与快照格式。对应诊断见 [RuntimeRecoveryConsistencySmoke.inl](src/runtime/persistence/diagnostics/RuntimeRecoveryConsistencySmoke.inl)。这些封包与恢复接口不表示已经提供录像界面或自动录制功能。
+
+[RuntimeSaveDocument.h](src/runtime/persistence/RuntimeSaveDocument.h) 提供 `loadRuntimeSaveDocument()` 和 `parseRuntimeSaveDocument()`，使文件与内存入口采用同一保存解析策略，保留任务记录中的原始数值文本。[RuntimeSaveIdentity.h](src/runtime/persistence/RuntimeSaveIdentity.h) 同步借用当前地图、战役与来源标识，通过 `RuntimeSaveIdentityNormalization` 调用原标识规范化规则；这些借用不会保留到校验结束以后。
+
+[RuntimeLoadTransaction](src/runtime/persistence/RuntimeLoadTransaction.h) 将候选状态的播种、物化、准备、提交、设备重建与释放分开。`executeRuntimeLoadTransaction()` 先完成候选准备，再调用不抛异常的 `commitCandidate()`；设备重建在提交后进行，其异常不撤销已经成功的加载。候选释放在正常返回、拒绝和异常路径都会执行，适配器必须保证借用生命周期以及 `commitCandidate()`、`releaseCandidate()` 的不抛异常约定。
+
+## 共享生产会话与平台接口
+
+[ProductionSessionLibraries.cmake](cmake/ProductionSessionLibraries.cmake) 将固定 tick、命令、导航、战斗、经济生产、场景、世界和保存恢复编译为共享生产会话。内部状态与操作声明位于 [session/detail](src/runtime/session/detail)，完整 Windows 游戏接入 [原生设备](src/runtime/session/win32)，无窗口入口接入 [headless 适配](src/runtime/session/headless)。这些是引擎内部协作边界，不是稳定的独立游戏 SDK。
+
+[RuntimeTriggerContext / RuntimeTriggerOperations](src/simulation/triggers/RuntimeTriggerScheduler.h) 与 [RuntimeVisionPhaseContext / RuntimeVisionPhaseOperations](src/simulation/vision/RuntimeVisionPhase.h) 在同步更新期间借用实时权威字段和原领域操作，不保存复制的 tick、模式或完成状态。操作调用可更新同一会话，返回的对象与队伍引用仅在约定的当前调用内有效。触发集合、任务及增援的读写见 [RuntimeTriggerPersistence.h](src/simulation/triggers/RuntimeTriggerPersistence.h)；AI 战术状态与触发定义哈希分别见 [RuntimeComputerTacticsCodec.h](src/simulation/ai/RuntimeComputerTacticsCodec.h) 和 [RuntimeComputerAiTriggerHash.h](src/simulation/ai/RuntimeComputerAiTriggerHash.h)。
+
+[RuntimeHostLoopPort](src/runtime/timing/RuntimeHostLoopPort.h) 保留消息队列处理与一次空闲休眠两个同步动作，调用发生在原会话／UI 线程。[RuntimeTimerResolutionScope](src/runtime/timing/RuntimeTimerResolutionScope.h) 借用比作用域长寿的端口，仅对成功的 `begin()` 尝试一次 `end()`；关闭失败会保留返回结果，重复 `close()` 或析构不会隐式重试。
+
+`CONCORD_PORTABLE_CORE=ON` 创建所选核心目标；`concord_core_check` 构建并执行固定的 10 项测试，`concord_production_session_recovery_smoke` 是另一个共享生产会话诊断入口。Windows 与 Linux 所选推进、保存和恢复的开发验收范围及构建示例见 [README](README.md#独立核心构建)。该能力不创建完整非 Windows 游戏窗口、音视频或 GPU 产品，Linux Schannel 明确返回不支持。
+
+## 原子文件与系统随机源
+
+[RuntimeAtomicFile.h](src/core/io/RuntimeAtomicFile.h) 的 `runtimeWriteFileAtomically()` 接收目标路径和写入回调，在目标同目录创建临时文件、同步并关闭后替换发布。失败保留原目标，错误文本有长度上限；不会直接以截断方式打开目标文件。POSIX 当前同步文件并执行同目录重命名，未同步父目录，不承诺与 Windows 写穿相同的目录项掉电持久性。
+
+[RuntimeSecureBytes.h](src/core/security/RuntimeSecureBytes.h) 提供 `fillRuntimeSecureBytes(std::span<std::uint8_t>) noexcept`。输出仅在本次调用借用，成功意味着完整填满；空或超大请求不写入，其余失败清零整个请求范围并返回 `generated=0`。中断、短读与有进展的重试都受固定次数限制，不以时间、计数器或 `random_device` 代替系统密码学随机源。Windows 使用 CNG，Linux 使用 `getrandom`；`runtimeSecureBytesBackend()` 只标识编译的提供者，不表示某次读取成功，调用者须检查 `RuntimeSecureBytesResult::status`。非零值要求与事务提交策略仍由各调用方决定。
 
 ## 运行时配置与启动
 
@@ -395,6 +421,8 @@ public:
 
 选择数据见 [RuntimeSkirmishSelection.h](src/runtime/contracts/RuntimeSkirmishSelection.h)。调用方接受选择后，才通过 [applyRuntimeSkirmishSelection](src/ui/skirmish/RuntimeSkirmishSetup.h) 写入 `RuntimeConfig`；固定步、随机种子、联机身份及无关设置继续由调用方管理。
 
+菜单控制器已扩展到 [主菜单](src/runtime/menu/RuntimeMainMenuController.h)、[战役](src/runtime/menu/RuntimeCampaignMenuController.h)、[LAN](src/runtime/menu/RuntimeLanMenuController.h) 和 [互联网](src/runtime/menu/RuntimeInternetMenuController.h)。控制器通过类型化服务和视图连接原窗口，保留原页面、配置提交和网络会话流程；原生控件、句柄与消息分派留在各私有 Windows 实现。
+
 ## 软件窗口与 SDL3 菜单入口
 
 [RuntimeSoftwareWindow.h](src/runtime/window/RuntimeSoftwareWindow.h) 在 `concord::window` 中定义窗口端口和事件值，公共头文件不包含 SDL 或 Windows 类型。`SoftwareWindowOptions` 指定客户区尺寸及绘制能力；当前实现只接受 `BitmapFrame`、正尺寸、独立窗口，其他绘制方式、嵌入父窗口和原生随机地图编辑器由 `softwareWindowUnsupported()` 明确拒绝。
@@ -445,6 +473,12 @@ public:
 
 Windows DIB、DC 和 GDI 对象由 [RuntimeSkirmishBackBufferWin32](src/ui/skirmish/win32/RuntimeSkirmishBackBufferWin32.h) 私有管理。CPU 表面只提供存储与绘图输入，不代表一个通用的完整帧呈现接口。
 
+### 绘制几何与字体边界
+
+地图绘制共享值见 [RuntimeMapColorValues.h](src/render/core/RuntimeMapColorValues.h) 和 [RuntimeSpriteFrameImage.h](src/render/core/RuntimeSpriteFrameImage.h)，命中、放置、可见范围及发射位置查询位于 [render/geometry](src/render/geometry)。接口复用标准像素坐标和矩形，原生转换留在私有边界；保留原颜色高位、整数计算与结果写入规则，不能将 raw32 颜色表当作会丢弃高位的 UI RGB 值。
+
+[RuntimeMainBitmapText.h](src/ui/text/RuntimeMainBitmapText.h) 与 [RuntimeResultBitmapText.h](src/ui/text/RuntimeResultBitmapText.h) 连接主菜单和结算页的位图文字策略；系统字体角色和借用接口见 [RuntimeMainSystemFont.h](src/ui/text/RuntimeMainSystemFont.h)、[RuntimeCampaignSystemFont.h](src/ui/text/RuntimeCampaignSystemFont.h) 和 [RuntimeHudSystemFont.h](src/ui/text/RuntimeHudSystemFont.h)。实际 GDI 字体、DC 和对象释放在 [text/win32](src/ui/text/win32) 中管理，源码包不附带游戏字体或采集的文字布局记录。
+
 ## 菜单音乐策略与设备
 
 [SkirmishMusicPolicy](src/ui/audio/RuntimeSkirmishMusicPolicy.h) 同步借用 `RuntimeUiClock` 和文件存在检查函数，二者须按接口约定保持有效。`start()`、`poll()`、`stop()` 接收同一所有者管理的 [MenuMusicDevice](src/audio/menu/RuntimeMenuMusicDevice.h)，保留原启停、约一秒轮询、循环重播与失败重开顺序。
@@ -453,9 +487,11 @@ Windows DIB、DC 和 GDI 对象由 [RuntimeSkirmishBackBufferWin32](src/ui/skirm
 
 实际 Windows 实现见 [RuntimeSkirmishMusicWin32.h](src/audio/menu/win32/RuntimeSkirmishMusicWin32.h)，构造不打开设备，所有操作在 UI 线程同步执行。设备所有权用于避免旧实例析构关闭已经替换的播放会话；Bink 视频服务保持自己的独立生命周期。
 
+主菜单音乐、战役地图音频和菜单音效分别通过 [RuntimeMainMenuMusicDevice.h](src/audio/menu/RuntimeMainMenuMusicDevice.h)、[RuntimeCampaignMapAudioDevice.h](src/audio/menu/RuntimeCampaignMapAudioDevice.h) 和 [RuntimeMenuSoundDevice.h](src/audio/events/RuntimeMenuSoundDevice.h) 连接设备。语音路径与传统／异步播放接口位于 [audio/backend](src/audio/backend)，设备原生状态留在私有实现中。无窗口会话使用对应的不支持设备适配，不据此声称能播放音视频。
+
 ## TCP 边界与联机快照会话
 
-[RuntimeLanTransport.h](src/network/session/RuntimeLanTransport.h) 保持标准类型和私有实现边界，所选消费者通过 [LanTransportProviders.cmake](cmake/LanTransportProviders.cmake) 链接对应编译约定的生产实现。Winsock 依赖保留在实际 Windows 消费者的私有链接中；该整理没有改变网络协议，也不表示所有联机职责均已隔离。
+[RuntimeLanTransport.h](src/network/session/RuntimeLanTransport.h) 保持标准类型和私有实现边界，所选消费者通过 [LanTransportProviders.cmake](cmake/LanTransportProviders.cmake) 链接对应编译约定的生产实现。Winsock 依赖保留在实际 Windows 消费者的私有链接中；该整理没有改变网络协议，保留各调用方的协议、超时、重试与所有权策略。Linux 核心使用实际 POSIX UDP／TCP 提供者，TLS 凭据与证书另由 [RuntimeInternetTlsCredentials.h](src/network/transport/RuntimeInternetTlsCredentials.h) 及私有平台实现管理。
 
 [RuntimeMultiplayerSnapshotSession](src/network/snapshots/RuntimeMultiplayerSnapshotSession.h) 管理分块传输、已校验候选及提交状态，同步借用会话、快照 hooks、本地 peer 字符串和当前阶段；这些引用的所有者必须比组件长寿。组件不拥有规范会话状态或原生传输，状态视图不得跨越 reset 使用。
 

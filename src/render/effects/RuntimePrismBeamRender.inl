@@ -175,7 +175,7 @@ bool runRuntimePrismChargeRenderContractCheck(const RuntimeMapRenderContext& sup
     RuntimeMapRenderContext context = supplied;
     context.surfacePixels = pixels.data(); context.surfaceWidth = width; context.surfaceHeight = height;
     context.vision = nullptr;
-    std::unordered_map<std::string, COLORREF> colors{{toLowerAscii(tower.owner), RGB(240, 40, 40)}};
+    RuntimeOwnerRemapColorTable colors{{toLowerAscii(tower.owner), RGB(240, 40, 40)}};
     context.ownerRemapColors = &colors;
     const auto* type = context.rules->findBuildingType(tower.type);
     if (!type) return fail("missing tower rules");
@@ -185,7 +185,7 @@ bool runRuntimePrismChargeRenderContractCheck(const RuntimeMapRenderContext& sup
     const auto projected = projectCellXY(tower.x, tower.y, tower.level, camera);
     camera.worldOffsetX = projected.x - width / 2; camera.worldOffsetY = projected.y - 200;
     const RECT viewport{0, 0, width, height};
-    const auto center = runtimeObjectBodyAnchorForRender(tower, viewport, context, camera);
+    const auto center = runtimeObjectBodyAnchorForRenderWin32(tower, viewport, context, camera);
     int frames = 0;
     for (int hz : {15, 30, 60}) for (int damaged : {0, 1}) {
         context.fixedTickHz = hz;

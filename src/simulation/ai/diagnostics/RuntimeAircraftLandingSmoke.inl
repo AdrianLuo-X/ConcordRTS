@@ -224,7 +224,7 @@ bool runRuntimeAircraftLandingSmoke(const RuntimeWindowState& live, std::string&
     const auto renderedAnchor = [&](const RuntimeWindowState& s, int id, const RuntimeMapCamera& camera, POINT& anchor) {
         const auto* object = findObjectById(s, id); if (!object) return fail("body anchor aircraft absent");
         auto c = contextFor(s);
-        anchor = runtimeObjectBodyAnchorForRender(*object, viewport, c, camera);
+        anchor = runtimeObjectBodyAnchorForRenderWin32(*object, viewport, c, camera);
         RuntimeParticleAirbornePresentation presentation;
         if (!captureRuntimeAircraftAirbornePresentation(s.world, *object, c, *bodyCache, presentation, &error)) return false;
         anchor.y -= runtimeAircraftAirbornePresentationLiftPixels(presentation, camera,

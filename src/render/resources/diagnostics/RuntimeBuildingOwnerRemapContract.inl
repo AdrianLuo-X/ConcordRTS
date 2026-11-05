@@ -27,7 +27,7 @@ bool runRuntimeBuildingOwnerRemapPolicyContractCheck(std::string& error) {
         error = "support-building remap fixtures did not load";
         return false;
     }
-    std::unordered_map<std::string, COLORREF> colors{{"customhouse", RGB(20, 220, 90)}};
+    RuntimeOwnerRemapColorTable colors{{"customhouse", RGB(20, 220, 90)}};
     RuntimeMapRenderContext context;
     context.rules = &rules;
     context.art = &art;
@@ -74,7 +74,7 @@ bool runRuntimeBuildingOwnerRemapAssetContractCheck(
     }
     probe.vision = nullptr;
     probe.detailStatsEnabled = false;
-    std::unordered_map<std::string, COLORREF> colors{{"remapaudit", RGB(255, 230, 10)}};
+    RuntimeOwnerRemapColorTable colors{{"remapaudit", RGB(255, 230, 10)}};
     probe.ownerRemapColors = &colors;
     RuntimeMapCamera camera;
     auto cache = std::make_unique<RuntimeMapRenderCache>();

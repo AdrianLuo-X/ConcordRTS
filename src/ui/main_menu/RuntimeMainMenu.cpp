@@ -1,10 +1,22 @@
+#include "ui/main_menu/win32/RuntimeMainMenuEventWindowWin32.h"
+#include "runtime/menu/RuntimeMainMenuController.h"
+#include "runtime/window/win32/RuntimeWindowParentWin32.h"
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
 
 #include "ui/main_menu/RuntimeMainMenu.h"
+#include "audio/menu/win32/RuntimeMainMenuMusicWin32.h"
+#include "audio/backend/win32/RuntimeAsyncSoundDeviceWin32.h"
+#include "ui/network/diagnostics/RuntimeInternetMenuClockContract.h"
+#include "runtime/host/RuntimeUiClockWin32.h"
 #include "assets/text/CsfCodec.h"
 #include "assets/text/WestwoodFontCodec.h"
+#include "ui/text/RuntimeMainBitmapText.h"
+#include "ui/text/win32/RuntimeMainSystemFontWin32.h"
+#include "ui/text/win32/RuntimeMainVideoFooterFontWin32.h"
+#include "ui/surface/win32/RuntimeMainBackBufferWin32.h"
+#include "ui/main_menu/win32/RuntimeMainMenuBackBufferWin32.h"
 
 #include "assets/audio/AudioSampleResolver.h"
 #include "assets/video/BinkVideoStream.h"
@@ -12,7 +24,9 @@
 #include "core/io/IniFile.h"
 #include "runtime/campaign/RuntimeCampaignMovieResolver.h"
 #include "assets/menu/MenuImageResources.h"
+#include "assets/menu/win32/MenuBmpReaderWin32.h"
 #include "ui/resources/RuntimeMenuResourceWatch.h"
+#include "runtime/config/RuntimeConfigPaths.h"
 #include "network/lockstep/RuntimeMultiplayerRuntimeBridge.h"
 #include "ui/skirmish/RuntimeSkirmishMenu.h"
 
@@ -24,8 +38,13 @@
 #include <cctype>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
+#include <cwchar>
+#include <stdexcept>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
+#include <sstream>
 #include <iostream>
 #include <iterator>
 #include <limits>
@@ -43,34 +62,7 @@ namespace {
 
 namespace fs = std::filesystem;
 
-constexpr int kWidth = 800;
-constexpr int kHeight = 600;
-constexpr int kLeftWidth = 632;
-constexpr int kStatusTop = 568;
-constexpr int kSidebarLeft = 632;
-constexpr int kSidebarTopHeight = 199;
-constexpr int kSlotHeight = 42;
-constexpr int kSlotCount = 8;
-constexpr int kSidebarBottomTop = 535;
-constexpr int kMenuButtonLeft = 653;
-constexpr int kMenuButtonTop = 207;
-constexpr int kBottomButtonTop = 543;
-constexpr int kBottomHitTop = 535;
-constexpr int kWarningLeft = 670;
-// SDTP's 92x53 monitor aperture starts at local (38, 48). The
-// SDWRNANM canvas replaces that embedded image without covering its bezel.
-constexpr int kWarningTop = 48;
-constexpr int kAnimationFrames = 6;
-constexpr std::uint64_t kAnimationFrameMs = 42;
-constexpr std::size_t kCreditsLinesPerPage = 18;
-constexpr std::array<std::pair<int, int>, 5> kOptionResolutions{{
-    {800, 600},
-    {1024, 640},
-    {1024, 768},
-    {1280, 720},
-    {1600, 900}
-}};
-constexpr std::array<int, 4> kOptionTargetFps{{30, 60, 120, 144}};
+using namespace concord::main_menu;
 
 std::string lowerAscii(std::string value) {
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
@@ -84,6 +76,12 @@ std::string trimAscii(const std::string& value) {
     if (first == std::string::npos) return {};
     const std::size_t last = value.find_last_not_of(" \t\r\n");
     return value.substr(first, last - first + 1);
+}
+
+// UTF-8 labels are never passed back to an OS file-opening entry.
+std::string pathLabel(const fs::path& path) {
+    const auto text = path.generic_u8string();
+    return std::string(reinterpret_cast<const char*>(text.data()), text.size());
 }
 
 std::wstring toWide(const std::string& value) {
@@ -294,7 +292,7 @@ struct WestwoodBitFont {
         lineHeight = metrics.lineHeight;
         glyphCount = metrics.glyphCount;
         recordSize = metrics.recordSize;
-        source = path.string();
+        source = pathLabel(path);
         return true;
     }
 
@@ -309,156 +307,35 @@ struct WestwoodBitFont {
             concord::assets::WestwoodGlyphFallback::AnyUnavailableRecord);
     }
 
-    int measure(const std::wstring& text) const {
-        int width = 0;
-        int glyphs = 0;
-        for (std::size_t i = 0; i < text.size(); ++i) {
-            wchar_t character = text[i];
-            if (character >= 0xd800 && character <= 0xdbff
-                && i + 1 < text.size()
-                && text[i + 1] >= 0xdc00 && text[i + 1] <= 0xdfff) {
-                character = L'?';
-                ++i;
-            }
-            const unsigned char* record = glyph(character);
-            width += record != nullptr ? record[0] + 1 : 5;
-            ++glyphs;
-        }
-        return glyphs > 0 ? std::max(0, width - 1) : 0;
+    concord::ui::MainBitmapFontView view() const {
+        return {bytes, {stride, bitmapRows, lineHeight, glyphCount, recordSize}};
     }
-
-    void draw(
-        unsigned char* pixels,
-        int surfaceWidth,
-        int surfaceHeight,
-        const std::wstring& text,
-        const RECT& rect,
-        bool centered,
-        bool verticallyCentered,
-        const FontColorRamp& colors
-    ) const {
-        if (!valid() || pixels == nullptr || text.empty()) return;
-        const int textWidth = measure(text);
-        const int startX = centered
-            ? rect.left + std::max(0L, rect.right - rect.left - textWidth) / 2
-            : rect.left;
-        const int startY = verticallyCentered
-            ? rect.top + std::max(0L, rect.bottom - rect.top
-                - static_cast<LONG>(lineHeight)) / 2
-            : rect.top;
-        const auto setPixel = [=](int x, int y, COLORREF value) {
-            if (x < rect.left || x >= rect.right || y < rect.top || y >= rect.bottom
-                || x < 0 || y < 0 || x >= surfaceWidth || y >= surfaceHeight) {
-                return;
-            }
-            const std::size_t at = static_cast<std::size_t>(y * surfaceWidth + x) * 4U;
-            pixels[at] = GetBValue(value);
-            pixels[at + 1] = GetGValue(value);
-            pixels[at + 2] = GetRValue(value);
-            pixels[at + 3] = 255;
-        };
-        const auto glyphPixel = [this](
-            const unsigned char* record,
-            int glyphWidth,
-            int x,
-            int y
-        ) {
-            if (x < 0 || x >= glyphWidth
-                || y < 0 || y >= static_cast<int>(bitmapRows)) {
-                return false;
-            }
-            const unsigned char* row = record + 1U
-                + static_cast<std::size_t>(y) * stride;
-            return (row[x >> 3] & (0x80U >> (x & 7))) != 0;
-        };
-        const auto drawPass = [
-            &
-        ](int offsetX, int offsetY, COLORREF passColor, bool highlightsOnly) {
-            int cursorX = startX;
-            for (std::size_t i = 0; i < text.size(); ++i) {
-                wchar_t character = text[i];
-                if (character >= 0xd800 && character <= 0xdbff
-                    && i + 1 < text.size()
-                    && text[i + 1] >= 0xdc00 && text[i + 1] <= 0xdfff) {
-                    character = L'?';
-                    ++i;
-                }
-                const unsigned char* record = glyph(character);
-                if (record == nullptr) {
-                    cursorX += 5;
-                    continue;
-                }
-                const int glyphWidth = record[0];
-                for (std::uint32_t y = 0; y < bitmapRows; ++y) {
-                    for (int x = 0; x < glyphWidth; ++x) {
-                        if (glyphPixel(
-                                record,
-                                glyphWidth,
-                                x,
-                                static_cast<int>(y))
-                            && (!highlightsOnly || !glyphPixel(
-                                record,
-                                glyphWidth,
-                                x,
-                                static_cast<int>(y) - 1))) {
-                            setPixel(
-                                cursorX + x + offsetX,
-                                startY + static_cast<int>(y) + offsetY,
-                                passColor
-                            );
-                        }
-                    }
-                }
-                cursorX += glyphWidth + 1;
-            }
-        };
-        drawPass(1, 1, colors.dark, false);
-        drawPass(0, 0, colors.middle, false);
-        drawPass(0, 0, colors.bright, true);
+    int measure(const std::wstring& text) const {
+        return concord::ui::measureMainBitmapText(view(), std::wstring_view(text));
+    }
+    void draw(unsigned char* pixels, int surfaceWidth, int surfaceHeight,
+        const std::wstring& text, const RECT& rect, bool centered,
+        bool verticallyCentered, const FontColorRamp& colors) const {
+        if (pixels == nullptr || surfaceWidth <= 0 || surfaceHeight <= 0) return;
+        const auto width = static_cast<std::size_t>(surfaceWidth);
+        const auto height = static_cast<std::size_t>(surfaceHeight);
+        if (width > std::numeric_limits<std::size_t>::max() / 4) return;
+        const auto rowStride = width * 4;
+        if (height > std::numeric_limits<std::size_t>::max() / rowStride) return;
+        concord::ui::drawMainBitmapText(view(),
+            {{pixels, height * rowStride}, surfaceWidth, surfaceHeight, rowStride},
+            std::wstring_view(text), {rect.left, rect.top, rect.right, rect.bottom},
+            centered, verticallyCentered,
+            {RuntimeRgbColorValue::fromPackedRgb(colors.bright),
+                RuntimeRgbColorValue::fromPackedRgb(colors.middle),
+                RuntimeRgbColorValue::fromPackedRgb(colors.dark)});
     }
 };
 
 using AssetImage = concord::assets::MenuImage;
 
 bool loadBmp(const fs::path& path, AssetImage& output) {
-    output = {};
-    if (!regularFile(path)) return false;
-    const std::wstring wide = toWide(path.string());
-    HBITMAP bitmap = static_cast<HBITMAP>(LoadImageW(
-        nullptr, wide.c_str(), IMAGE_BITMAP, 0, 0,
-        LR_LOADFROMFILE | LR_CREATEDIBSECTION
-    ));
-    if (bitmap == nullptr) return false;
-    BITMAP facts{};
-    GetObjectW(bitmap, sizeof(facts), &facts);
-    if (facts.bmWidth <= 0 || facts.bmHeight <= 0) {
-        DeleteObject(bitmap);
-        return false;
-    }
-    output.width = facts.bmWidth;
-    output.height = facts.bmHeight;
-    output.bgra.resize(static_cast<std::size_t>(output.width * output.height * 4));
-    BITMAPINFO info{};
-    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    info.bmiHeader.biWidth = output.width;
-    info.bmiHeader.biHeight = -output.height;
-    info.bmiHeader.biPlanes = 1;
-    info.bmiHeader.biBitCount = 32;
-    info.bmiHeader.biCompression = BI_RGB;
-    HDC dc = GetDC(nullptr);
-    const int copied = GetDIBits(
-        dc, bitmap, 0, static_cast<UINT>(output.height), output.bgra.data(),
-        &info, DIB_RGB_COLORS
-    );
-    if (dc != nullptr) ReleaseDC(nullptr, dc);
-    DeleteObject(bitmap);
-    if (copied != output.height) {
-        output = {};
-        return false;
-    }
-    for (std::size_t at = 3; at < output.bgra.size(); at += 4) output.bgra[at] = 255;
-    output.source = path.string();
-    return true;
+    return concord::assets::menuWin32BmpReader().read(path, output);
 }
 
 const wchar_t* binkStreamArgument(
@@ -519,6 +396,11 @@ private:
     BinkPlaybackService playback_;
 };
 
+concord::audio::RuntimeAsyncSoundDevice& mainAsyncSoundDevice() {
+    static auto device=concord::audio::createAsyncSoundDeviceWin32();
+    return *device;
+}
+
 struct MenuAudio {
     bool enabled = true;
     int musicVolumePercent = 100;
@@ -530,15 +412,19 @@ struct MenuAudio {
         {"MenuSlideOut", "uslide2"}
     };
     std::unordered_map<std::string, std::optional<std::wstring>> waves;
+    std::unique_ptr<concord::audio::MainMenuMusicDevice> musicDevice =
+        concord::audio::createMainMenuMusicDeviceWin32();
     bool musicOpen = false;
     fs::path musicPath;
-    ULONGLONG nextMusicProbe = 0;
+    // Borrowed input; the immutable native provider outlives this owner.
+    const RuntimeUiClock* clock = &runtimeWin32UiClock();
+    std::uint64_t nextMusicProbe = 0;
 
     ~MenuAudio() { stopMusic(); }
 
     void initialize(const fs::path& soundIni) {
         IniFile ini;
-        if (!soundIni.empty() && ini.loadFromFile(soundIni.string())) {
+        if (!soundIni.empty() && ini.loadFromPath(soundIni)) {
             for (auto& [eventName, sample] : samples) {
                 std::string configured = trimAscii(
                     iniValueNoCase(ini, eventName, "Sounds", sample)
@@ -561,20 +447,17 @@ struct MenuAudio {
             std::optional<std::wstring> path;
             const auto sample = samples.find(eventName);
             if (sample != samples.end()) {
-                const AudioSampleResolveResult resolved = resolveAudioSampleToWave(
-                    assetRoot.string(), cacheRoot.string(), sample->second
+                const AudioSampleResolveResult resolved = resolveAudioSampleToWaveFromPaths(
+                    {assetRoot, cacheRoot}, sample->second
                 );
-                if (resolved.success && !resolved.wavPath.empty()) {
-                    path = toWide(resolved.wavPath);
+                if (resolved.success && !resolved.wavFilePath.empty()) {
+                    path = resolved.wavFilePath.wstring();
                 }
             }
             wave = waves.emplace(eventName, std::move(path)).first;
         }
         if (wave->second) {
-            PlaySoundW(
-                wave->second->c_str(), nullptr,
-                SND_FILENAME | SND_ASYNC | SND_NODEFAULT
-            );
+            (void)mainAsyncSoundDevice().playFile(*wave->second);
         }
     }
 
@@ -583,47 +466,22 @@ struct MenuAudio {
         if (musicOpen && musicPath == path) return;
         if (musicOpen) stopMusic();
         musicPath = path;
-        nextMusicProbe = GetTickCount64() + 1000ULL;
-        mciSendStringW(L"close concord_runtime_intro", nullptr, 0, nullptr);
-        const std::wstring command = L"open \"" + toWide(path.string())
-            + L"\" type waveaudio alias concord_runtime_intro";
-        const MCIERROR openError =
-            mciSendStringW(command.c_str(), nullptr, 0, nullptr);
-        if (openError == 0) {
-            const std::wstring volumeCommand =
-                L"setaudio concord_runtime_intro volume to "
-                + std::to_wstring(
-                    std::clamp(musicVolumePercent, 0, 100) * 10
-                );
-            (void)mciSendStringW(
-                volumeCommand.c_str(),
-                nullptr,
-                0,
-                nullptr
-            );
-        }
-        // The Windows waveaudio MCI driver rejects the string-command
-        // `repeat` flag.  Play once and let ensureMusicPlaying restart the
-        // track after it reaches the stopped state.
-        const MCIERROR playError = openError == 0
-            ? mciSendStringW(
-                L"play concord_runtime_intro from 0",
-                nullptr,
-                0,
-                nullptr
-            )
-            : openError;
-        if (openError == 0 && playError == 0) {
+        nextMusicProbe = clock->nowMs() + 1000ULL;
+        const bool opened = musicDevice->open(path);
+        if (opened) musicDevice->setVolumePercent(musicVolumePercent);
+        // Keep the original once-only play and caller-owned EOF restart policy.
+        const bool played = opened && musicDevice->playFromStart();
+        if (opened && played) {
             musicOpen = true;
         } else {
-            mciSendStringW(L"close concord_runtime_intro", nullptr, 0, nullptr);
+            musicDevice->close();
             musicOpen = false;
         }
     }
 
     void ensureMusicPlaying() {
         if (!enabled || musicPath.empty()) return;
-        const ULONGLONG now = GetTickCount64();
+        const std::uint64_t now = clock->nowMs();
         if (now < nextMusicProbe) return;
         nextMusicProbe = now + 1000ULL;
 
@@ -633,90 +491,71 @@ struct MenuAudio {
             return;
         }
 
-        wchar_t status[32]{};
-        const MCIERROR statusError = mciSendStringW(
-            L"status concord_runtime_intro mode",
-            status,
-            static_cast<UINT>(sizeof(status) / sizeof(status[0])),
-            nullptr
-        );
-        if (statusError == 0 && std::wstring(status) == L"playing") return;
+        if (musicDevice->isPlaying().value_or(false)) return;
 
-        const MCIERROR playError = mciSendStringW(
-            L"play concord_runtime_intro from 0",
-            nullptr,
-            0,
-            nullptr
-        );
-        if (playError == 0) return;
+        if (musicDevice->playFromStart()) return;
 
         const fs::path requestedPath = musicPath;
-        mciSendStringW(L"close concord_runtime_intro", nullptr, 0, nullptr);
+        musicDevice->close();
         musicOpen = false;
         startMusic(requestedPath);
     }
 
     void stopMusic() {
-        mciSendStringW(L"stop concord_runtime_intro", nullptr, 0, nullptr);
-        mciSendStringW(L"close concord_runtime_intro", nullptr, 0, nullptr);
+        musicDevice->stop();
+        musicDevice->close();
         musicOpen = false;
         musicPath.clear();
         nextMusicProbe = 0;
     }
 };
 
-enum class MenuPage {
-    Home,
-    SinglePlayer,
-    Movies,
-    Credits,
-    Options
-};
-enum class MenuPhase { SlideIn, Idle, SlideOut };
-enum class MenuAction {
-    None,
-    OpenSinglePlayer,
-    OpenHome,
-    OpenMovies,
-    OpenCredits,
-    OpenOptions,
-    PreviousMovie,
-    PlayMovie,
-    NextMovie,
-    PreviousCreditsPage,
-    NextCreditsPage,
-    CycleResolution,
-    CycleTargetFps,
-    CycleGameSpeed,
-    ApplyOptions,
-    Campaign,
-    LoadGame,
-    Skirmish,
-    Network,
-    Internet,
-    Exit
-};
+#include "audio/menu/diagnostics/RuntimeMainMenuMusicClockSmoke.inl"
 
-struct ButtonSpec {
-    int slot = 0;
-    std::wstring label;
-    std::wstring tooltip;
-    MenuAction action = MenuAction::None;
-};
+#include "ui/main_menu/diagnostics/RuntimeMainBitmapTextTrace.inl"
+#include "ui/main_menu/diagnostics/RuntimeMainSystemFontTrace.inl"
+#include "ui/main_menu/diagnostics/RuntimeMainVideoFooterTrace.inl"
 
-struct MenuState {
-    RuntimeConfig config;
+struct MenuState : RuntimeMainMenuServices, RuntimeMainMenuController {
+    MenuState() : RuntimeMainMenuController(static_cast<RuntimeMainMenuServices&>(*this), runtimeWin32UiClock()) {}
+    std::wstring text(const char*, const wchar_t*) const override;
+    std::wstring widen(const std::string&) const override;
+    void playSound(const std::string&) override;
+    void stopVideo() override;
+    void stopMusic() override;
+    void setMusicVolumePercent(int) override;
+    void destroyWindow() override;
+    void repaintValidWindow() override;
+    void repaintPresentWindow() override;
+    void repaintEventWindow() override;
+    void prewarmSkirmish() override;
+    bool skirmishReady() const override;
+    bool savePreferences(const RuntimeConfig&, std::string&) override;
+    void resizeHost() override;
+    void startPageMusic() override;
+    bool playMovie(const std::filesystem::path&, std::string&) override;
+    void prepareMoviePlayback() override;
+    void restartMainVideo() override;
+    void focusAndRepaint() override;
+    bool pollVideo() override;
+    std::size_t warningFrames() const override;
+    void trackMouseLeave() override;
+    void capture() override;
+    void releaseCaptureIfOwned() override;
+    bool shiftDown() const override;
+    RuntimeMainMenuEventWindowWin32 eventWindow;
+
+    // Presentation time only; this borrow is independent of MenuAudio timing.
     std::unique_ptr<RuntimeMenuResourceWatch> resourceWatch;
-    RuntimeMainMenuResult result = RuntimeMainMenuResult::Exit;
     bool initialized = false;
-    bool smoke = false;
-    bool closing = false;
     HWND window = nullptr;
     fs::path exportRoot;
     concord::assets::MenuImageResources ra2Resources;
     concord::assets::MenuImageResources allResources;
     CsfCatalog csf;
     WestwoodBitFont gameFont;
+    std::vector<MainBitmapTextTraceCall>* bitmapTextTrace = nullptr;
+    std::vector<MainSystemFontTraceCall>* systemFontTrace = nullptr;
     std::unordered_map<std::string, std::vector<RuntimePaletteColor>> palettes;
     std::unordered_map<std::string, std::string> paletteSources;
     BinkMenuAnimation videoAnimation;
@@ -739,57 +578,18 @@ struct MenuState {
     fs::path creditsThemePath;
     fs::path optionsThemePath;
     fs::path themeCatalogPath;
-    MenuPage page = MenuPage::Home;
-    std::vector<fs::path> moviePaths;
-    std::size_t movieIndex = 0;
-    std::vector<std::wstring> creditLines;
-    std::size_t creditsPage = 0;
-    int optionWindowWidth = 0;
-    int optionWindowHeight = 0;
-    int optionTargetFps = 0;
-    int optionGameSpeed = 0;
-    std::wstring pageStatus;
-    MenuPhase phase = MenuPhase::SlideIn;
-    MenuAction pending = MenuAction::None;
-    std::uint64_t phaseStarted = 0;
-    int focus = 0;
-    int hover = -1;
-    int pressed = -1;
-    bool keyboardTooltip = false;
-    bool mouseVisible = false;
-    POINT mousePoint{};
     FontColorRamp menuTextColors{};
     std::string menuTextColorSource;
-    int viewLeft = 0;
-    int viewTop = 0;
-    int viewWidth = kWidth;
-    int viewHeight = kHeight;
-    HDC backDc = nullptr;
-    HBITMAP backBitmap = nullptr;
-    HGDIOBJ backOldBitmap = nullptr;
-    void* backBits = nullptr;
-    BITMAPINFO backInfo{};
+    concord::ui::win32::MainMenuBackBufferWin32 backBuffer;
     std::vector<unsigned char> composePixels;
-    bool backDirty = true;
-    int warningFrame = 0;
-    int phaseTick = 0;
-    HFONT buttonFont = nullptr;
-    HFONT titleFont = nullptr;
-    HFONT smallFont = nullptr;
+    concord::ui::MainSystemFontsWin32 systemFonts;
 
     ~MenuState() {
         if (window != nullptr && IsWindow(window)) DestroyWindow(window);
         videoAnimation.stop();
         audio.stopMusic();
-        if (backDc != nullptr && backOldBitmap != nullptr
-            && backOldBitmap != HGDI_ERROR) {
-            SelectObject(backDc, backOldBitmap);
-        }
-        if (backBitmap != nullptr) DeleteObject(backBitmap);
-        if (backDc != nullptr) DeleteDC(backDc);
-        if (buttonFont != nullptr) DeleteObject(buttonFont);
-        if (titleFont != nullptr) DeleteObject(titleFont);
-        if (smallFont != nullptr) DeleteObject(smallFont);
+        backBuffer.release();
+        systemFonts.reset();
     }
 };
 
@@ -811,7 +611,7 @@ bool pollMainMenuVideo(MenuState& state, DWORD waitMilliseconds = 0) {
         waitMilliseconds
     );
     if (!state.videoFirstFramePending) return changed;
-    const std::uint64_t elapsed = GetTickCount64() - state.videoStartupStarted;
+    const std::uint64_t elapsed = state.presentationClock->nowMs() - state.videoStartupStarted;
     if (changed) {
         state.videoFirstFramePending = false;
         std::cout << "Main menu Bink animation ready: sequence="
@@ -836,7 +636,7 @@ bool startMainMenuVideo(
     DWORD initialWaitMilliseconds
 ) {
     state.videoFirstFramePending = false;
-    state.videoStartupStarted = GetTickCount64();
+    state.videoStartupStarted = state.presentationClock->nowMs();
     if (!state.videoAnimation.start(
             config,
             state.exportRoot,
@@ -877,132 +677,20 @@ bool waitMainMenuVideoForSmoke(MenuState& state) {
     return state.videoAnimation.sequence() > 0;
 }
 
-std::vector<ButtonSpec> buttons(const MenuState& state);
-void finishMenu(MenuState& state, RuntimeMainMenuResult result);
 
-std::vector<ButtonSpec> buttons(const MenuState& state) {
-    const auto text = [&state](const char* key, const wchar_t* fallback) {
-        return state.csf.get(key, fallback);
-    };
-    if (state.page == MenuPage::SinglePlayer) {
-        return {
-            {0, text("GUI:NewCampaign", L"Campaign"),
-                text("STT:SingleButtonNewCampaign", L"Start a new campaign."),
-                MenuAction::Campaign},
-            {1, text("GUI:LoadSavedGame", L"Load Game"),
-                text("STT:SingleButtonLoadSavedGame", L"Load a saved game."),
-                MenuAction::LoadGame},
-            {2, text("GUI:Skirmish", L"Skirmish"),
-                text("STT:SingleButtonSkirmish", L"Battle the computer in a skirmish game."),
-                MenuAction::Skirmish},
-            {-1, text("GUI:Back", L"Back"),
-                text("STT:SingleButtonBack", L"Return to the Main Menu."),
-                MenuAction::OpenHome}
-        };
-    }
-    if (state.page == MenuPage::Movies) {
-        const bool moviesAvailable = !state.moviePaths.empty();
-        return {
-            {0, text("GUI:Previous", L"Previous"),
-                L"Select the previous installed movie.",
-                moviesAvailable ? MenuAction::PreviousMovie : MenuAction::None},
-            {1, text("GUI:Play", L"Play Movie"),
-                L"Play the selected movie. Press Esc to skip it.",
-                moviesAvailable ? MenuAction::PlayMovie : MenuAction::None},
-            {2, text("GUI:Next", L"Next"),
-                L"Select the next installed movie.",
-                moviesAvailable ? MenuAction::NextMovie : MenuAction::None},
-            {3, text("GUI:ViewCredits", L"Credits"),
-                L"View the game credits.", MenuAction::OpenCredits},
-            {-1, text("GUI:Back", L"Back"),
-                L"Return to the Main Menu.", MenuAction::OpenHome}
-        };
-    }
-    if (state.page == MenuPage::Credits) {
-        return {
-            {0, text("GUI:Previous", L"Previous Page"),
-                L"Show the previous credits page.",
-                MenuAction::PreviousCreditsPage},
-            {1, text("GUI:Next", L"Next Page"),
-                L"Show the next credits page.",
-                MenuAction::NextCreditsPage},
-            {-1, text("GUI:Back", L"Back"),
-                L"Return to Movies & Credits.", MenuAction::OpenMovies}
-        };
-    }
-    if (state.page == MenuPage::Options) {
-        return {
-            {0, text("GUI:Resolution", L"Resolution"),
-                L"Cycle the game window resolution.",
-                MenuAction::CycleResolution},
-            {1, text("GUI:TargetFPS", L"Frame Rate"),
-                L"Cycle the target frame rate.",
-                MenuAction::CycleTargetFps},
-            {2, text("GUI:GameSpeed", L"Game Speed"),
-                L"Cycle the default simulation speed.",
-                MenuAction::CycleGameSpeed},
-            {3, text("GUI:Apply", L"Apply"),
-                L"Apply these options and return to the Main Menu.",
-                MenuAction::ApplyOptions},
-            {-1, text("GUI:Back", L"Cancel"),
-                L"Discard these changes and return to the Main Menu.",
-                MenuAction::OpenHome}
-        };
-    }
-    return {
-        {0, text("GUI:SinglePlayer", L"Single Player"),
-            text("STT:MainButtonSinglePlayer", L"Play a single player game."),
-            MenuAction::OpenSinglePlayer},
-        {1, text("GUI:Internet", L"Internet"),
-            text("STT:MainButtonWWOnline", L"Play on the Internet."),
-            MenuAction::Internet},
-        {2, text("GUI:Network", L"Network"),
-            text("STT:MainButtonNetwork", L"Play a network game."),
-            MenuAction::Network},
-        {3, text("GUI:MoviesAndCredits", L"Movies & Credits"),
-            text("STT:MainButtonMovies", L"View movies and credits."),
-            MenuAction::OpenMovies},
-        {4, text("GUI:Options", L"Options"),
-            text("STT:MainButtonOptions", L"Customize game settings."),
-            MenuAction::OpenOptions},
-        {-1, text("GUI:ExitGame", L"Exit Game"),
-            text("STT:MainButtonExitGamemd", L"Quit Yuri's Revenge."), MenuAction::Exit}
-    };
-}
 
-int sidebarX(const MenuState& state) {
-    (void)state;
-    return kSidebarLeft;
-}
 
-int buttonsTop(const MenuState& state) {
-    (void)state;
-    return kSidebarTopHeight;
-}
 
-int slotHeight(const MenuState& state) {
-    (void)state;
-    return kSlotHeight;
-}
 
-int slotCount(const MenuState& state) {
-    (void)state;
-    // The original shell has eight 42-pixel background slots ending at y=535.
-    // Exit/Back is a separate button inside SDBTM below those slots.
-    return kSlotCount;
-}
 
-int resolvedSlot(const MenuState& state, const ButtonSpec& button) {
-    (void)state;
-    // Negative is the dedicated SDBTM button, not the eighth normal slot.
-    return button.slot;
-}
 
-int buttonTopFor(const ButtonSpec& button) {
-    return button.slot < 0
-        ? kBottomButtonTop
-        : kMenuButtonTop + button.slot * kSlotHeight;
-}
+
+
+
+
+
+
+
 
 bool loadPalette(
     MenuState& state,
@@ -1073,21 +761,7 @@ bool loadOne(
 }
 
 void initializeFonts(MenuState& state) {
-    state.buttonFont = CreateFontW(
-        -17, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        NONANTIALIASED_QUALITY, FF_DONTCARE, L"Arial Narrow"
-    );
-    state.titleFont = CreateFontW(
-        -16, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        NONANTIALIASED_QUALITY, FF_DONTCARE, L"Arial Narrow"
-    );
-    state.smallFont = CreateFontW(
-        -14, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        NONANTIALIASED_QUALITY, FF_DONTCARE, L"Arial Narrow"
-    );
+    state.systemFonts.initialize();
 }
 
 void loadMovieLibrary(MenuState& state) {
@@ -1210,12 +884,12 @@ bool initializeMenu(MenuState& state, const RuntimeConfig& config, bool smoke) {
     state.exportRoot = fs::path(config.localDataRootPath) / "resources" / "mix_exports";
     const fs::path ra2Root = state.exportRoot / "ra2";
     concord::assets::MapPreviewResourceContext ra2Roots;
-    ra2Roots.assetRootPath = ra2Root.string();
-    ra2Roots.tileRootPath = ra2Root.string();
+    ra2Roots.assetRootPath = runtimeConfigLegacyPathString(ra2Root);
+    ra2Roots.tileRootPath = runtimeConfigLegacyPathString(ra2Root);
     state.ra2Resources.configureRoots(std::move(ra2Roots));
     concord::assets::MapPreviewResourceContext allRoots;
-    allRoots.assetRootPath = state.exportRoot.string();
-    allRoots.tileRootPath = state.exportRoot.string();
+    allRoots.assetRootPath = runtimeConfigLegacyPathString(state.exportRoot);
+    allRoots.tileRootPath = runtimeConfigLegacyPathString(state.exportRoot);
     state.allResources.configureRoots(std::move(allRoots));
 
     const fs::path csfPath = firstExisting({
@@ -1238,7 +912,7 @@ bool initializeMenu(MenuState& state, const RuntimeConfig& config, bool smoke) {
         fs::path(config.resourceRootPath) / "GameMD" / "rulesmd.ini"
     });
     IniFile rules;
-    if (!rulesPath.empty() && rules.loadFromFile(rulesPath.string())) {
+    if (!rulesPath.empty() && rules.loadFromPath(rulesPath)) {
         state.menuTextColorSource = iniValueNoCase(
             rules,
             "Colors",
@@ -1302,7 +976,7 @@ bool initializeMenu(MenuState& state, const RuntimeConfig& config, bool smoke) {
     });
     IniFile themeCatalog;
     if (!state.themeCatalogPath.empty()) {
-        themeCatalog.loadFromFile(state.themeCatalogPath.string());
+        themeCatalog.loadFromPath(state.themeCatalogPath);
     }
     const std::string introSound = lowerAscii(iniValueNoCase(
         themeCatalog,
@@ -1329,13 +1003,12 @@ bool initializeMenu(MenuState& state, const RuntimeConfig& config, bool smoke) {
         const std::string& fallbackSound
     ) {
         const AudioBackgroundMusicResolveResult resolved =
-            resolveBackgroundMusicThemeToWave(
-                state.exportRoot.string(),
-                state.audio.cacheRoot.string(),
+            resolveBackgroundMusicThemeToWaveFromPaths(
+                {state.exportRoot, state.audio.cacheRoot},
                 themeId
             );
-        if (resolved.success && !resolved.wavPath.empty()) {
-            return fs::path(resolved.wavPath);
+        if (resolved.success && !resolved.wavFilePath.empty()) {
+            return resolved.wavFilePath;
         }
         return firstExisting({
             state.exportRoot / "thememd" / (fallbackSound + ".wav")
@@ -1350,7 +1023,7 @@ bool initializeMenu(MenuState& state, const RuntimeConfig& config, bool smoke) {
     state.optionTargetFps = std::max(1, config.targetFps);
     state.optionGameSpeed = std::clamp(config.gameSpeed, 0, 6);
     initializeFonts(state);
-    state.phaseStarted = GetTickCount64();
+    state.phaseStarted = state.presentationClock->nowMs();
     state.initialized = assetsLoaded;
     return state.initialized;
 }
@@ -1361,52 +1034,19 @@ struct RenderSurface {
 };
 
 bool ensureBackBuffer(MenuState& state, HDC reference) {
-    if (state.backDc != nullptr && state.backBitmap != nullptr
-        && state.backOldBitmap != nullptr
-        && state.backBits != nullptr
+    if (state.backBuffer.ready()
         && state.composePixels.size() == static_cast<std::size_t>(kWidth * kHeight * 4)) {
         return true;
     }
-    state.backInfo = {};
-    state.backInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    state.backInfo.bmiHeader.biWidth = kWidth;
-    state.backInfo.bmiHeader.biHeight = -kHeight;
-    state.backInfo.bmiHeader.biPlanes = 1;
-    state.backInfo.bmiHeader.biBitCount = 32;
-    state.backInfo.bmiHeader.biCompression = BI_RGB;
-    state.backDc = CreateCompatibleDC(reference);
-    if (state.backDc == nullptr) return false;
-    state.backBitmap = CreateDIBSection(
-        reference,
-        &state.backInfo,
-        DIB_RGB_COLORS,
-        &state.backBits,
-        nullptr,
-        0
-    );
-    if (state.backBitmap == nullptr) return false;
-    state.backOldBitmap = SelectObject(state.backDc, state.backBitmap);
-    if (state.backOldBitmap == nullptr || state.backOldBitmap == HGDI_ERROR) return false;
+    if (!state.backBuffer.ensure(reference, kWidth, kHeight)) return false;
     state.composePixels.assign(static_cast<std::size_t>(kWidth * kHeight * 4), 0);
     state.backDirty = true;
     return true;
 }
 
 bool uploadBackBuffer(MenuState& state) {
-    if (state.backDc == nullptr || state.backBits == nullptr
-        || state.composePixels.empty()) {
-        return false;
-    }
-    // Finish any earlier BitBlt that reads the selected DIB, then replace its
-    // complete memory image in one CPU copy.  This avoids GDI deferring a
-    // SetDIBitsToDevice read while the compositor starts the next frame.
-    GdiFlush();
-    std::copy(
-        state.composePixels.begin(),
-        state.composePixels.end(),
-        static_cast<unsigned char*>(state.backBits)
-    );
-    return true;
+    return state.backBuffer.uploadLegacy({state.composePixels, kWidth, kHeight,
+        static_cast<std::size_t>(kWidth * 4), 0});
 }
 
 void clearSurface(RenderSurface& surface) {
@@ -1492,35 +1132,27 @@ int phaseFrameForSlot(const MenuState& state, int slot, bool occupied) {
     return (occupied ? 5 : 11) + tick;
 }
 
-void drawShadowText(
-    HDC dc,
-    HFONT font,
-    const std::wstring& text,
-    RECT rect,
-    UINT format,
-    const FontColorRamp& colors
-) {
-    if (text.empty()) return;
-    HGDIOBJ oldFont = SelectObject(dc, font);
-    SetBkMode(dc, TRANSPARENT);
-    RECT shadow = rect;
-    OffsetRect(&shadow, 1, 1);
-    SetTextColor(dc, colors.dark);
-    DrawTextW(dc, text.c_str(), static_cast<int>(text.size()), &shadow, format);
-    SetTextColor(dc, colors.middle);
-    DrawTextW(dc, text.c_str(), static_cast<int>(text.size()), &rect, format);
-    SelectObject(dc, oldFont);
-}
+
 
 void drawMenuText(
     MenuState& state,
     RenderSurface& surface,
-    HFONT fallbackFont,
+    concord::ui::MainSystemFontRole fallbackFont,
     const std::wstring& text,
     RECT rect,
     UINT format
 ) {
+    if (state.systemFontTrace != nullptr) {
+        const auto role = static_cast<std::uint32_t>(fallbackFont);
+        state.systemFontTrace->push_back({text, {rect.left,rect.top,rect.right,rect.bottom},
+            role,format,state.menuTextColors.dark,state.menuTextColors.middle});
+    }
     if (state.gameFont.valid()) {
+        if (state.bitmapTextTrace != nullptr) {
+            state.bitmapTextTrace->push_back({text, {rect.left, rect.top, rect.right, rect.bottom},
+                (format & DT_CENTER) != 0, (format & DT_VCENTER) != 0,
+                state.menuTextColors.bright, state.menuTextColors.middle, state.menuTextColors.dark});
+        }
         state.gameFont.draw(
             surface.pixels,
             kWidth,
@@ -1533,14 +1165,11 @@ void drawMenuText(
         );
         return;
     }
-    drawShadowText(
-        surface.dc,
-        fallbackFont,
-        text,
-        rect,
-        format,
-        state.menuTextColors
-    );
+    state.systemFonts.draw(surface.dc,fallbackFont,
+        concord::ui::MainSystemWideTextRequest{text,
+            {rect.left,rect.top,rect.right,rect.bottom},format,
+            concord::ui::MainSystemFontColors::fromPacked(
+                state.menuTextColors.dark,state.menuTextColors.middle)});
 }
 
 void shadeContentPanel(RenderSurface& surface) {
@@ -1591,7 +1220,7 @@ void drawPageContent(MenuState& state, RenderSurface& surface) {
         drawMenuText(
             state,
             surface,
-            state.titleFont,
+            concord::ui::MainSystemFontRole::Title,
             state.csf.get("GUI:MoviesAndCredits", L"Movies & Credits"),
             RECT{54, 62, 578, 96},
             DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX
@@ -1600,7 +1229,7 @@ void drawPageContent(MenuState& state, RenderSurface& surface) {
             drawMenuText(
                 state,
                 surface,
-                state.buttonFont,
+                concord::ui::MainSystemFontRole::Button,
                 L"No installed Bink movies were found.",
                 RECT{54, 230, 578, 266},
                 DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX
@@ -1612,7 +1241,7 @@ void drawPageContent(MenuState& state, RenderSurface& surface) {
             drawMenuText(
                 state,
                 surface,
-                state.buttonFont,
+                concord::ui::MainSystemFontRole::Button,
                 toWide(selected.stem().string()),
                 RECT{54, 206, 578, 242},
                 DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX
@@ -1622,7 +1251,7 @@ void drawPageContent(MenuState& state, RenderSurface& surface) {
             drawMenuText(
                 state,
                 surface,
-                state.smallFont,
+                concord::ui::MainSystemFontRole::Small,
                 position,
                 RECT{54, 250, 578, 280},
                 DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX
@@ -1630,7 +1259,7 @@ void drawPageContent(MenuState& state, RenderSurface& surface) {
             drawMenuText(
                 state,
                 surface,
-                state.smallFont,
+                concord::ui::MainSystemFontRole::Small,
                 L"Choose Previous/Next, then Play Movie. Esc skips playback.",
                 RECT{54, 300, 578, 330},
                 DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX
@@ -1653,7 +1282,7 @@ void drawPageContent(MenuState& state, RenderSurface& surface) {
             drawMenuText(
                 state,
                 surface,
-                state.smallFont,
+                concord::ui::MainSystemFontRole::Small,
                 state.creditLines[index],
                 RECT{46, y, 586, y + 23},
                 DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX
@@ -1664,7 +1293,7 @@ void drawPageContent(MenuState& state, RenderSurface& surface) {
         drawMenuText(
             state,
             surface,
-            state.smallFont,
+            concord::ui::MainSystemFontRole::Small,
             position,
             RECT{46, 504, 586, 532},
             DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX
@@ -1690,7 +1319,7 @@ void drawPageContent(MenuState& state, RenderSurface& surface) {
             drawMenuText(
                 state,
                 surface,
-                state.buttonFont,
+                concord::ui::MainSystemFontRole::Button,
                 row.first,
                 RECT{74, y, 320, y + 34},
                 DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX
@@ -1698,7 +1327,7 @@ void drawPageContent(MenuState& state, RenderSurface& surface) {
             drawMenuText(
                 state,
                 surface,
-                state.buttonFont,
+                concord::ui::MainSystemFontRole::Button,
                 row.second,
                 RECT{320, y, 558, y + 34},
                 DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX
@@ -1708,7 +1337,7 @@ void drawPageContent(MenuState& state, RenderSurface& surface) {
         drawMenuText(
             state,
             surface,
-            state.smallFont,
+            concord::ui::MainSystemFontRole::Small,
             L"Apply commits these defaults for the next game; Cancel discards them.",
             RECT{54, 418, 578, 448},
             DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX
@@ -1718,7 +1347,7 @@ void drawPageContent(MenuState& state, RenderSurface& surface) {
         drawMenuText(
             state,
             surface,
-            state.smallFont,
+            concord::ui::MainSystemFontRole::Small,
             state.pageStatus,
             RECT{44, 470, 588, 500},
             DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX
@@ -1814,7 +1443,7 @@ bool renderBase(MenuState& state, RenderSurface& surface) {
 
     const std::wstring title = menuPageTitle(state);
     drawMenuText(
-        state, surface, state.titleFont, title,
+        state, surface, concord::ui::MainSystemFontRole::Title, title,
         RECT{sideX + 25, 3, sideX + 143, 35},
         DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX
     );
@@ -1830,7 +1459,7 @@ bool renderBase(MenuState& state, RenderSurface& surface) {
         for (std::size_t i = 0; i < current.size(); ++i) {
             const int y = buttonTopFor(current[i]);
             drawMenuText(
-                state, surface, state.buttonFont, current[i].label,
+                state, surface, concord::ui::MainSystemFontRole::Button, current[i].label,
                 RECT{kMenuButtonLeft, y, kMenuButtonLeft + 126, y + 25},
                 DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX
             );
@@ -1841,7 +1470,7 @@ bool renderBase(MenuState& state, RenderSurface& surface) {
     if (tooltipIndex < 0 && state.keyboardTooltip) tooltipIndex = state.focus;
     if (tooltipIndex >= 0 && tooltipIndex < static_cast<int>(current.size())) {
         drawMenuText(
-            state, surface, state.smallFont,
+            state, surface, concord::ui::MainSystemFontRole::Small,
             current[static_cast<std::size_t>(tooltipIndex)].tooltip,
             RECT{10, kStatusTop + 3, kLeftWidth - 8, kHeight - 1},
             DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX
@@ -1850,7 +1479,7 @@ bool renderBase(MenuState& state, RenderSurface& surface) {
     const std::wstring version = state.csf.get("GUI:Version", L"Version")
         + L" 1.001";
     drawMenuText(
-        state, surface, state.smallFont, version,
+        state, surface, concord::ui::MainSystemFontRole::Small, version,
         RECT{sideX, kHeight - 20, kWidth, kHeight},
         DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX
     );
@@ -1867,71 +1496,13 @@ bool renderBase(MenuState& state, RenderSurface& surface) {
     return true;
 }
 
-void updateViewport(MenuState& state, int clientWidth, int clientHeight) {
-    const double fitScale = std::min(
-        static_cast<double>(std::max(1, clientWidth)) / kWidth,
-        static_cast<double>(std::max(1, clientHeight)) / kHeight
-    );
-    // Preserve the original pixel grid whenever it fits.  1024x640, the
-    // normal runtime window, therefore shows an exact centered 800x600 image
-    // instead of a blurred 1.066x stretch with shifted hit targets.
-    const int integerScale = static_cast<int>(std::floor(fitScale));
-    const double scale = integerScale >= 1
-        ? static_cast<double>(integerScale)
-        : fitScale;
-    state.viewWidth = std::max(1, static_cast<int>(std::lround(kWidth * scale)));
-    state.viewHeight = std::max(1, static_cast<int>(std::lround(kHeight * scale)));
-    state.viewLeft = (clientWidth - state.viewWidth) / 2;
-    state.viewTop = (clientHeight - state.viewHeight) / 2;
-}
 
-POINT clientToBase(const MenuState& state, POINT point) {
-    POINT result{-1, -1};
-    if (point.x < state.viewLeft || point.y < state.viewTop
-        || point.x >= state.viewLeft + state.viewWidth
-        || point.y >= state.viewTop + state.viewHeight) {
-        return result;
-    }
-    result.x = std::clamp<int>(
-        (point.x - state.viewLeft) * kWidth / std::max(1, state.viewWidth),
-        0, kWidth - 1
-    );
-    result.y = std::clamp<int>(
-        (point.y - state.viewTop) * kHeight / std::max(1, state.viewHeight),
-        0, kHeight - 1
-    );
-    return result;
-}
 
-int hitButton(const MenuState& state, POINT point) {
-    if (point.x < 0 || state.phase != MenuPhase::Idle) return -1;
-    const int side = sidebarX(state);
-    if (point.x < side + 12 || point.x >= side + 158) return -1;
-    const int top = buttonsTop(state);
-    const int height = slotHeight(state);
-    const std::vector<ButtonSpec> current = buttons(state);
-    for (std::size_t i = 0; i < current.size(); ++i) {
-        const int slot = resolvedSlot(state, current[i]);
-        if (slot < 0) {
-            if (point.y >= kBottomHitTop && point.y < kHeight) {
-                return static_cast<int>(i);
-            }
-        } else {
-            const int y = top + slot * height;
-            if (point.y >= y && point.y < y + height) return static_cast<int>(i);
-        }
-    }
-    return -1;
-}
 
-void finishMenu(MenuState& state, RuntimeMainMenuResult result) {
-    if (state.closing) return;
-    state.closing = true;
-    state.result = result;
-    state.videoAnimation.stop();
-    state.audio.stopMusic();
-    if (state.window != nullptr && IsWindow(state.window)) DestroyWindow(state.window);
-}
+
+
+
+
 
 fs::path musicPathForPage(const MenuState& state) {
     if (state.page == MenuPage::Credits && !state.creditsThemePath.empty()) {
@@ -1951,23 +1522,9 @@ void startPageMusic(MenuState& state) {
     if (!path.empty()) state.audio.startMusic(path);
 }
 
-void publishMenuConfig(const MenuState& state, RuntimeConfig& output) {
-    output = state.config;
-}
 
-MenuAction escapeActionForPage(MenuPage page) {
-    switch (page) {
-    case MenuPage::Home:
-        return MenuAction::Exit;
-    case MenuPage::Credits:
-        return MenuAction::OpenMovies;
-    case MenuPage::SinglePlayer:
-    case MenuPage::Movies:
-    case MenuPage::Options:
-        return MenuAction::OpenHome;
-    }
-    return MenuAction::OpenHome;
-}
+
+
 
 void resizeMenuHostForOptions(MenuState& state) {
     if (state.window == nullptr || !IsWindow(state.window)) return;
@@ -1994,265 +1551,72 @@ void resizeMenuHostForOptions(MenuState& state) {
     );
 }
 
-void cycleResolution(MenuState& state) {
-    std::size_t next = 0;
-    for (std::size_t index = 0; index < kOptionResolutions.size(); ++index) {
-        if (kOptionResolutions[index].first == state.optionWindowWidth
-            && kOptionResolutions[index].second == state.optionWindowHeight) {
-            next = (index + 1) % kOptionResolutions.size();
-            break;
-        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+std::wstring MenuState::text(const char* key,const wchar_t* fallback) const { return csf.get(key,fallback); }
+std::wstring MenuState::widen(const std::string& value) const { return toWide(value); }
+void MenuState::playSound(const std::string& event) { audio.play(event); }
+void MenuState::stopVideo() { videoAnimation.stop(); }
+void MenuState::stopMusic() { audio.stopMusic(); }
+void MenuState::setMusicVolumePercent(int value) { audio.musicVolumePercent=value; }
+void MenuState::destroyWindow() { if(window!=nullptr && IsWindow(window)) DestroyWindow(window); }
+void MenuState::repaintValidWindow() { if(window!=nullptr && IsWindow(window)) InvalidateRect(window,nullptr,FALSE); }
+void MenuState::repaintPresentWindow() { if(window!=nullptr) InvalidateRect(window,nullptr,FALSE); }
+void MenuState::repaintEventWindow() { InvalidateRect(eventWindow.value,nullptr,FALSE); }
+void MenuState::prewarmSkirmish() { prewarmRuntimeSkirmishMenu(config); }
+bool MenuState::skirmishReady() const { return runtimeSkirmishMenuReady(config); }
+bool MenuState::savePreferences(const RuntimeConfig& candidate,std::string& error) { return saveRuntimeConfigPreferences(candidate,error); }
+void MenuState::resizeHost() { resizeMenuHostForOptions(*this); }
+void MenuState::startPageMusic() { ::startPageMusic(*this); }
+void MenuState::prepareMoviePlayback() { videoFirstFramePending=false;videoAnimation.stop();audio.stopMusic(); }
+bool MenuState::playMovie(const fs::path& movie,std::string& error) {
+    HWND playbackHost=window;
+    if(window!=nullptr && IsWindow(window)) {
+        HWND parent=GetParent(window);
+        if(parent!=nullptr && IsWindow(parent)) playbackHost=parent;
     }
-    state.optionWindowWidth = kOptionResolutions[next].first;
-    state.optionWindowHeight = kOptionResolutions[next].second;
+    const std::u8string movieUtf8=movie.generic_u8string();
+    const RuntimeWindowParentWin32 videoParent(playbackHost);
+    return runRuntimeBinkVideo(config,videoParent.id(),
+        std::string(reinterpret_cast<const char*>(movieUtf8.data()),movieUtf8.size()),
+        error,config.voiceVolume,false,RuntimeBinkMovieReferenceEncoding::Utf8);
 }
+void MenuState::restartMainVideo() { startMainMenuVideo(*this,config,250); }
+void MenuState::focusAndRepaint() { if(window!=nullptr && IsWindow(window)) {SetFocus(window);InvalidateRect(window,nullptr,FALSE);} }
+bool MenuState::pollVideo() { return pollMainMenuVideo(*this); }
+std::size_t MenuState::warningFrames() const { return warning.size(); }
+void MenuState::trackMouseLeave() { TRACKMOUSEEVENT tracking{};tracking.cbSize=sizeof(tracking);tracking.dwFlags=TME_LEAVE;tracking.hwndTrack=eventWindow.value;TrackMouseEvent(&tracking); }
+void MenuState::capture() { SetCapture(eventWindow.value); }
+void MenuState::releaseCaptureIfOwned() { if(GetCapture()==eventWindow.value)ReleaseCapture(); }
+bool MenuState::shiftDown() const { return GetKeyState(VK_SHIFT)<0; }
 
-void cycleTargetFps(MenuState& state) {
-    std::size_t next = 0;
-    for (std::size_t index = 0; index < kOptionTargetFps.size(); ++index) {
-        if (kOptionTargetFps[index] == state.optionTargetFps) {
-            next = (index + 1) % kOptionTargetFps.size();
-            break;
-        }
-    }
-    state.optionTargetFps = kOptionTargetFps[next];
-}
-
-std::size_t creditPageCount(const MenuState& state) {
-    return std::max<std::size_t>(
-        1,
-        (state.creditLines.size() + kCreditsLinesPerPage - 1)
-            / kCreditsLinesPerPage
-    );
-}
-
-std::wstring moviePlaybackStatus(bool played, const std::string& error) {
-    if (played) return L"Movie playback finished.";
-    const std::wstring detail = error.empty()
-        ? L"unknown decoder error"
-        : toWide(error);
-    return L"Playback unavailable: " + detail;
-}
-
-void playSelectedMovie(MenuState& state) {
-    state.pageStatus.clear();
-    if (state.moviePaths.empty()) {
-        state.pageStatus = L"No installed movie is available.";
-        state.backDirty = true;
-        return;
-    }
-    state.videoFirstFramePending = false;
-    state.videoAnimation.stop();
-    state.audio.stopMusic();
-    HWND playbackHost = state.window;
-    if (state.window != nullptr && IsWindow(state.window)) {
-        HWND parent = GetParent(state.window);
-        if (parent != nullptr && IsWindow(parent)) playbackHost = parent;
-    }
-    std::string error;
-    const fs::path& movie = state.moviePaths[
-        std::min(state.movieIndex, state.moviePaths.size() - 1)
-    ];
-    const bool played = runRuntimeBinkVideo(
-        state.config,
-        playbackHost,
-        movie.string(),
-        error,
-        state.config.voiceVolume
-    );
-    state.pageStatus = moviePlaybackStatus(played, error);
-    startMainMenuVideo(state, state.config, 250);
-    startPageMusic(state);
-    if (state.window != nullptr && IsWindow(state.window)) {
-        SetFocus(state.window);
-        InvalidateRect(state.window, nullptr, FALSE);
-    }
-    state.backDirty = true;
-}
-
-bool performImmediateAction(MenuState& state, MenuAction action) {
-    if (action == MenuAction::PreviousMovie) {
-        if (!state.moviePaths.empty()) {
-            state.movieIndex = (state.movieIndex + state.moviePaths.size() - 1)
-                % state.moviePaths.size();
-        }
-    } else if (action == MenuAction::PlayMovie) {
-        playSelectedMovie(state);
-        return true;
-    } else if (action == MenuAction::NextMovie) {
-        if (!state.moviePaths.empty()) {
-            state.movieIndex = (state.movieIndex + 1) % state.moviePaths.size();
-        }
-    } else if (action == MenuAction::PreviousCreditsPage) {
-        const std::size_t pages = creditPageCount(state);
-        state.creditsPage = (state.creditsPage + pages - 1) % pages;
-    } else if (action == MenuAction::NextCreditsPage) {
-        const std::size_t pages = creditPageCount(state);
-        state.creditsPage = (state.creditsPage + 1) % pages;
-    } else if (action == MenuAction::CycleResolution) {
-        cycleResolution(state);
-    } else if (action == MenuAction::CycleTargetFps) {
-        cycleTargetFps(state);
-    } else if (action == MenuAction::CycleGameSpeed) {
-        state.optionGameSpeed = (state.optionGameSpeed + 1) % 7;
-    } else {
-        return false;
-    }
-    state.pageStatus.clear();
-    state.backDirty = true;
-    if (state.window != nullptr && IsWindow(state.window)) {
-        InvalidateRect(state.window, nullptr, FALSE);
-    }
-    return true;
-}
-
-void beginAction(MenuState& state, MenuAction action) {
-    if (state.phase != MenuPhase::Idle || state.closing) return;
-    if (action == MenuAction::None) {
-        return;
-    }
-    if (action == MenuAction::Skirmish && !state.smoke) {
-        prewarmRuntimeSkirmishMenu(state.config);
-    }
-    state.pending = action;
-    state.phase = MenuPhase::SlideOut;
-    state.phaseStarted = GetTickCount64();
-    state.phaseTick = 0;
-    state.pressed = -1;
-    state.backDirty = true;
-    state.audio.play("MenuSlideOut");
-    if (state.window != nullptr) InvalidateRect(state.window, nullptr, FALSE);
-}
-
-void activate(MenuState& state, int logicalIndex, bool playClick) {
-    const std::vector<ButtonSpec> current = buttons(state);
-    if (logicalIndex < 0 || logicalIndex >= static_cast<int>(current.size())) return;
-    const MenuAction action = current[static_cast<std::size_t>(logicalIndex)].action;
-    if (action == MenuAction::None) return;
-    if (playClick) state.audio.play("MenuClick");
-    if (!performImmediateAction(state, action)) beginAction(state, action);
-}
-
-bool updateAnimation(MenuState& state, std::uint64_t now) {
-    if (state.phase == MenuPhase::Idle || state.closing) return false;
-    bool changed = false;
-    const std::uint64_t elapsed = now - state.phaseStarted;
-    const int nextTick = static_cast<int>(elapsed / kAnimationFrameMs);
-    if (nextTick != state.phaseTick) {
-        state.phaseTick = nextTick;
-        changed = true;
-    }
-    const std::uint64_t duration = static_cast<std::uint64_t>(
-        slotCount(state) - 1 + kAnimationFrames
-    ) * kAnimationFrameMs;
-    if (elapsed < duration) return changed;
-    if (state.phase == MenuPhase::SlideIn) {
-        state.phase = MenuPhase::Idle;
-        state.phaseTick = 0;
-        return true;
-    }
-
-    const MenuAction action = state.pending;
-    if (action == MenuAction::Skirmish && !state.smoke
-        && !runtimeSkirmishMenuReady(state.config)) {
-        state.pageStatus = L"正在准备遭遇战…";
-        // Keep dispatching timer, paint, mouse and close messages while the
-        // worker finishes. The video and cursor continue updating normally.
-        return true;
-    }
-    state.pending = MenuAction::None;
-    if (action == MenuAction::Campaign
-        || action == MenuAction::LoadGame
-        || action == MenuAction::Skirmish
-        || action == MenuAction::Network
-        || action == MenuAction::Internet) {
-        RuntimeMainMenuResult result = RuntimeMainMenuResult::Skirmish;
-        if (action == MenuAction::Campaign) {
-            result = RuntimeMainMenuResult::Campaign;
-        } else if (action == MenuAction::LoadGame) {
-            result = RuntimeMainMenuResult::LoadGame;
-
-        } else if (action == MenuAction::Network) {
-            result = RuntimeMainMenuResult::Network;
-        } else if (action == MenuAction::Internet) {
-            result = RuntimeMainMenuResult::Internet;
-        }
-        finishMenu(state, result);
-        return true;
-    }
-    if (action == MenuAction::Exit) {
-        finishMenu(state, RuntimeMainMenuResult::Exit);
-        return true;
-    }
-    if (action == MenuAction::ApplyOptions) {
-        RuntimeConfig candidate = state.config;
-        candidate.windowWidth = state.optionWindowWidth;
-        candidate.windowHeight = state.optionWindowHeight;
-        candidate.targetFps = state.optionTargetFps;
-        candidate.gameSpeed = state.optionGameSpeed;
-        std::string saveError;
-        if (saveRuntimeConfigPreferences(candidate, saveError)) {
-            state.config = std::move(candidate);
-            resizeMenuHostForOptions(state);
-            state.page = MenuPage::Home;
-        } else {
-            state.pageStatus = L"Could not save options: "
-                + toWide(saveError);
-        }
-    } else if (action == MenuAction::OpenSinglePlayer) {
-        state.page = MenuPage::SinglePlayer;
-    } else if (action == MenuAction::OpenMovies) {
-        state.page = MenuPage::Movies;
-    } else if (action == MenuAction::OpenCredits) {
-        state.page = MenuPage::Credits;
-    } else if (action == MenuAction::OpenOptions) {
-        state.optionWindowWidth = std::max(1, state.config.windowWidth);
-        state.optionWindowHeight = std::max(1, state.config.windowHeight);
-        state.optionTargetFps = std::max(1, state.config.targetFps);
-        state.optionGameSpeed = std::clamp(state.config.gameSpeed, 0, 6);
-        state.page = MenuPage::Options;
-    } else if (action == MenuAction::OpenHome) {
-        state.page = MenuPage::Home;
-    }
-    if (action != MenuAction::ApplyOptions
-        || state.page != MenuPage::Options) {
-        state.pageStatus.clear();
-    }
-    state.focus = 0;
-    state.hover = -1;
-    state.keyboardTooltip = false;
-    state.phase = MenuPhase::SlideIn;
-    state.phaseStarted = now;
-    state.phaseTick = 0;
-    startPageMusic(state);
-    state.audio.play("MenuSlideIn");
-    return true;
-}
-
-bool updateDynamicState(MenuState& state) {
-    if (state.closing) return false;
-    const std::uint64_t now = GetTickCount64();
-    bool changed = false;
-    changed = pollMainMenuVideo(state) || changed;
-    if (!state.warning.empty()) {
-        const int nextWarning = static_cast<int>(
-            (now / 75ULL) % state.warning.size()
-        );
-        if (nextWarning != state.warningFrame) {
-            state.warningFrame = nextWarning;
-            changed = true;
-        }
-    }
-    changed = updateAnimation(state, now) || changed;
-    if (changed) state.backDirty = true;
-    return changed;
-}
+#include "ui/main_menu/diagnostics/main_presentation_original/Methods.original.inl"
+#include "ui/main_menu/diagnostics/RuntimeMainMenuPresentationClockSmoke.inl"
 
 bool renderClient(MenuState& state, HDC target, int width, int height) {
     updateViewport(state, width, height);
     if (!ensureBackBuffer(state, target)) return false;
     if (state.backDirty) {
-        RenderSurface base{state.backDc, state.composePixels.data()};
+        RenderSurface base{state.backBuffer.dc(), state.composePixels.data()};
         if (!renderBase(state, base)) return false;
     }
 
@@ -2260,14 +1624,14 @@ bool renderClient(MenuState& state, HDC target, int width, int height) {
     if (state.viewWidth == kWidth && state.viewHeight == kHeight) {
         copied = BitBlt(
             target, state.viewLeft, state.viewTop, kWidth, kHeight,
-            state.backDc, 0, 0, SRCCOPY
+            state.backBuffer.dc(), 0, 0, SRCCOPY
         );
     } else {
         SetStretchBltMode(target, COLORONCOLOR);
         copied = StretchBlt(
             target,
             state.viewLeft, state.viewTop, state.viewWidth, state.viewHeight,
-            state.backDc, 0, 0, kWidth, kHeight, SRCCOPY
+            state.backBuffer.dc(), 0, 0, kWidth, kHeight, SRCCOPY
         );
     }
     const HBRUSH black = static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
@@ -2303,6 +1667,7 @@ LRESULT CALLBACK mainMenuWindowProc(
         state->window = window;
     }
     if (state == nullptr) return DefWindowProcW(window, message, wParam, lParam);
+    RuntimeMainMenuEventWindowBorrowWin32 eventWindowBorrow(state->eventWindow, window);
 
     switch (message) {
     case WM_CREATE:
@@ -2330,102 +1695,38 @@ LRESULT CALLBACK mainMenuWindowProc(
         }
         return 0;
     case WM_MOUSEMOVE: {
-        POINT client{
-            static_cast<short>(LOWORD(lParam)),
-            static_cast<short>(HIWORD(lParam))
-        };
-        const POINT base = clientToBase(*state, client);
-        const POINT oldMouse = state->mousePoint;
-        const bool oldVisible = state->mouseVisible;
-        const int oldHover = state->hover;
-        const bool oldKeyboardTooltip = state->keyboardTooltip;
-        state->mousePoint = base;
-        state->mouseVisible = base.x >= 0;
-        state->hover = hitButton(*state, base);
-        state->keyboardTooltip = false;
-        TRACKMOUSEEVENT tracking{};
-        tracking.cbSize = sizeof(tracking);
-        tracking.dwFlags = TME_LEAVE;
-        tracking.hwndTrack = window;
-        TrackMouseEvent(&tracking);
-        if (oldMouse.x != state->mousePoint.x || oldMouse.y != state->mousePoint.y
-            || oldVisible != state->mouseVisible || oldHover != state->hover
-            || oldKeyboardTooltip != state->keyboardTooltip) {
-            state->backDirty = true;
-            InvalidateRect(window, nullptr, FALSE);
-        }
+        RuntimeInputPixelPoint client{static_cast<short>(LOWORD(lParam)), static_cast<short>(HIWORD(lParam))};
+        handleMainMenuMouseMove(*state, client);
         return 0;
     }
     case WM_MOUSELEAVE:
-        state->backDirty = state->mouseVisible || state->hover >= 0 || state->backDirty;
-        state->mouseVisible = false;
-        state->hover = -1;
-        if (state->pressed < 0) InvalidateRect(window, nullptr, FALSE);
+        handleMainMenuMouseLeave(*state);
         return 0;
     case WM_LBUTTONDOWN: {
-        POINT client{
-            static_cast<short>(LOWORD(lParam)),
-            static_cast<short>(HIWORD(lParam))
-        };
-        const int hit = hitButton(*state, clientToBase(*state, client));
-        if (hit >= 0) {
-            SetCapture(window);
-            state->focus = hit;
-            state->hover = hit;
-            state->pressed = hit;
-            state->backDirty = true;
-            state->audio.play("MenuClick");
-            InvalidateRect(window, nullptr, FALSE);
-        }
+        RuntimeInputPixelPoint client{static_cast<short>(LOWORD(lParam)), static_cast<short>(HIWORD(lParam))};
+        handleMainMenuLeftDown(*state, client);
         return 0;
     }
     case WM_LBUTTONUP: {
-        POINT client{
-            static_cast<short>(LOWORD(lParam)),
-            static_cast<short>(HIWORD(lParam))
-        };
-        const int hit = hitButton(*state, clientToBase(*state, client));
-        const int pressed = state->pressed;
-        state->pressed = -1;
-        state->backDirty = pressed >= 0 || state->backDirty;
-        if (GetCapture() == window) ReleaseCapture();
-        if (hit >= 0 && hit == pressed) activate(*state, hit, false);
-        InvalidateRect(window, nullptr, FALSE);
+        RuntimeInputPixelPoint client{static_cast<short>(LOWORD(lParam)), static_cast<short>(HIWORD(lParam))};
+        handleMainMenuLeftUp(*state, client);
         return 0;
     }
     case WM_CAPTURECHANGED:
-        state->backDirty = state->pressed >= 0 || state->backDirty;
-        state->pressed = -1;
-        InvalidateRect(window, nullptr, FALSE);
+        handleMainMenuCaptureLost(*state);
         return 0;
     case WM_KEYDOWN: {
-        const int count = static_cast<int>(buttons(*state).size());
-        if (state->phase != MenuPhase::Idle || count <= 0) return 0;
-        if (wParam == VK_UP || (wParam == VK_TAB && GetKeyState(VK_SHIFT) < 0)) {
-            state->focus = (state->focus + count - 1) % count;
-            state->keyboardTooltip = true;
-            state->hover = -1;
-            state->backDirty = true;
-            InvalidateRect(window, nullptr, FALSE);
-            return 0;
+        MainMenuKey key = MainMenuKey::Other;
+        switch (wParam) {
+        case VK_UP: key = MainMenuKey::Up; break;
+        case VK_DOWN: key = MainMenuKey::Down; break;
+        case VK_TAB: key = MainMenuKey::Tab; break;
+        case VK_RETURN: key = MainMenuKey::Return; break;
+        case VK_SPACE: key = MainMenuKey::Space; break;
+        case VK_ESCAPE: key = MainMenuKey::Escape; break;
+        default: break;
         }
-        if (wParam == VK_DOWN || wParam == VK_TAB) {
-            state->focus = (state->focus + 1) % count;
-            state->keyboardTooltip = true;
-            state->hover = -1;
-            state->backDirty = true;
-            InvalidateRect(window, nullptr, FALSE);
-            return 0;
-        }
-        if (wParam == VK_RETURN || wParam == VK_SPACE) {
-            activate(*state, state->focus, true);
-            return 0;
-        }
-        if (wParam == VK_ESCAPE) {
-            state->audio.play("MenuClick");
-            beginAction(*state, escapeActionForPage(state->page));
-            return 0;
-        }
+        if (handleMainMenuKey(*state, key)) return 0;
         break;
     }
     case WM_SETCURSOR:
@@ -2585,6 +1886,7 @@ struct BinkVideoPageState {
     bool skipped = false;
     bool standalone = false;
     bool campaignMovie = false;
+    std::vector<MainVideoFooterTraceCall>* footerFontTrace = nullptr;
     int viewLeft = 0;
     int viewTop = 0;
     int viewWidth = 0;
@@ -2654,11 +1956,13 @@ void drawBinkVideoPageFrame(BinkVideoPageState& state, HDC dc, const RECT& clien
         RECT footer{client.left, client.bottom - campaignFooterHeight,
             client.right, client.bottom};
         FillRect(dc, &footer, black);
-        SelectObject(dc, GetStockObject(DEFAULT_GUI_FONT));
-        SetBkMode(dc, TRANSPARENT);
-        SetTextColor(dc, RGB(255, 255, 255));
-        DrawTextW(dc, L"\uff08\u6309 \u7a7a\u683c \u8df3\u8fc7\uff09", -1, &footer,
-            DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        if(state.footerFontTrace)state.footerFontTrace->push_back({
+            {client.left,client.top,client.right,client.bottom},
+            {footer.left,footer.top,footer.right,footer.bottom},
+            L"（按 空格 跳过）",RGB(255,255,255),
+            DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX,-1});
+        concord::ui::drawMainStockVideoFooter(dc,concord::ui::MainStockFooterWideTextRequest{
+            L"\uff08\u6309 \u7a7a\u683c \u8df3\u8fc7\uff09",{footer.left,footer.top,footer.right,footer.bottom}});
         if (savedDc != 0) RestoreDC(dc, savedDc);
     }
 }
@@ -2762,11 +2066,12 @@ bool registerBinkVideoPageClass() {
 
 bool runRuntimeBinkVideo(
     const RuntimeConfig& config,
-    void* hostWindow,
+    RuntimeWindowId hostWindow,
     const std::string& moviePath,
     std::string& errorMessage,
     int voiceVolumePercent,
-    bool campaignMovie
+    bool campaignMovie,
+    RuntimeBinkMovieReferenceEncoding referenceEncoding
 ) {
     errorMessage.clear();
     if (moviePath.empty()) {
@@ -2774,24 +2079,25 @@ bool runRuntimeBinkVideo(
         return false;
     }
 
-    RuntimeCampaignMovieResolverOptions movieOptions;
-    movieOptions.resourceRootPath = config.resourceRootPath;
-    movieOptions.localDataRootPath = config.localDataRootPath;
-    movieOptions.modRootPath = config.modRootPath;
-    std::string materializedMoviePath;
-    if (!materializeRuntimeCampaignMovie(
-            movieOptions,
-            moviePath,
-            materializedMoviePath,
-            errorMessage
-        )) {
-        return false;
+    fs::path movie;
+    if (referenceEncoding == RuntimeBinkMovieReferenceEncoding::Utf8) {
+        if (!materializeRuntimeCampaignMovieFromPaths({fs::path(config.resourceRootPath),
+                fs::path(config.localDataRootPath), fs::path(config.modRootPath)},
+                moviePath, movie, errorMessage)) return false;
+    } else {
+        RuntimeCampaignMovieResolverOptions movieOptions;
+        movieOptions.resourceRootPath = config.resourceRootPath;
+        movieOptions.localDataRootPath = config.localDataRootPath;
+        movieOptions.modRootPath = config.modRootPath;
+        std::string materializedMoviePath;
+        if (!materializeRuntimeCampaignMovie(movieOptions, moviePath, materializedMoviePath, errorMessage)) return false;
+        movie = fs::path(std::u8string_view(reinterpret_cast<const char8_t*>(materializedMoviePath.data()),
+            materializedMoviePath.size()));
     }
 
     BinkVideoPageState state;
     state.config = config;
     state.campaignMovie = campaignMovie;
-    const fs::path movie(materializedMoviePath);
     if (!state.animation.start(
             config,
             {},
@@ -2820,7 +2126,13 @@ bool runRuntimeBinkVideo(
         return false;
     }
 
-    HWND parent = static_cast<HWND>(hostWindow);
+    const auto parentIdentity = resolveRuntimeWindowParentWin32(hostWindow);
+    if (!parentIdentity.supported) {
+        errorMessage = "Bink video parent identity is unavailable";
+        state.animation.stop();
+        return false;
+    }
+    HWND parent = parentIdentity.window;
     if (parent != nullptr && !IsWindow(parent)) {
         parent = nullptr;
     }
@@ -2922,21 +2234,24 @@ bool runRuntimeBinkVideo(
     return true;
 }
 
+#include "ui/campaign/diagnostics/RuntimeBinkParentIdentitySmoke.inl"
 #include "ui/campaign/diagnostics/RuntimeCampaignVideoSkipSmoke.inl"
 
 void prewarmRuntimeMainMenu(
     const RuntimeConfig& config,
-    void* hostWindow
+    RuntimeWindowId hostWindow
 ) {
     if (prewarmedMainMenuState != nullptr && prewarmedMainMenuState->initialized
         && prewarmedMainMenuState->resourceWatch->unchanged(config)) return;
+    const auto parent = resolveRuntimeWindowParentWin32(hostWindow);
+    if (!parent.supported) return;
     auto state = std::make_unique<MenuState>();
     initializeMenu(*state, config, false);
     if (state->initialized) {
         createMainMenuWindow(
             *state,
             config,
-            static_cast<HWND>(hostWindow)
+            parent.window
         );
     }
     prewarmedMainMenuState = std::move(state);
@@ -2945,7 +2260,7 @@ void prewarmRuntimeMainMenu(
 RuntimeMainMenuResult runRuntimeMainMenu(
     RuntimeConfig& config,
     RuntimeMainMenuStartPage startPage,
-    void* hostWindow
+    RuntimeWindowId hostWindow
 ) {
     // A successful multiplayer ReturnToMainMenu destroys its handed-off
     // bridge before re-entering here. Discard that normal teardown fallback;
@@ -2965,26 +2280,10 @@ RuntimeMainMenuResult runRuntimeMainMenu(
         std::cerr << "Main menu initialization failed: original shell assets are incomplete.\n";
         return RuntimeMainMenuResult::Exit;
     }
-    state.config = config;
-    state.closing = false;
-    state.result = RuntimeMainMenuResult::Exit;
-    state.pending = MenuAction::None;
-    state.phaseTick = 0;
-    state.focus = 0;
-    state.hover = -1;
-    state.pressed = -1;
-    state.keyboardTooltip = false;
-    state.mouseVisible = false;
-    state.pageStatus.clear();
-    state.optionWindowWidth = std::max(1, config.windowWidth);
-    state.optionWindowHeight = std::max(1, config.windowHeight);
-    state.optionTargetFps = std::max(1, config.targetFps);
-    state.optionGameSpeed = std::clamp(config.gameSpeed, 0, 6);
-    state.audio.musicVolumePercent = std::clamp(config.musicVolume, 0, 100);
-    state.page = startPage == RuntimeMainMenuStartPage::SinglePlayer
-        ? MenuPage::SinglePlayer
-        : MenuPage::Home;
-    HWND requestedHost = static_cast<HWND>(hostWindow);
+    resetMainMenuForEntry(state, config, startPage);
+    const auto parent = resolveRuntimeWindowParentWin32(hostWindow);
+    if (!parent.supported) return RuntimeMainMenuResult::Exit;
+    HWND requestedHost = parent.window;
     if (requestedHost != nullptr && !IsWindow(requestedHost)) {
         requestedHost = nullptr;
     }
@@ -3001,7 +2300,7 @@ RuntimeMainMenuResult runRuntimeMainMenu(
     if (window == nullptr) return RuntimeMainMenuResult::Exit;
     prewarmRuntimeSkirmishMenu(config);
     state.phase = MenuPhase::SlideIn;
-    state.phaseStarted = GetTickCount64();
+    state.phaseStarted = state.presentationClock->nowMs();
     startMainMenuVideo(state, config, 2000);
     state.backDirty = true;
     ShowWindow(window, SW_SHOW);
@@ -3027,10 +2326,62 @@ RuntimeMainMenuResult runRuntimeMainMenu(
     return result;
 }
 
+#include "ui/main_menu/diagnostics/RuntimeMainMenuHostLifecycleSmoke.inl"
+#include "ui/main_menu/diagnostics/RuntimeMainSystemFontFallbackSmoke.inl"
+#include "ui/main_menu/diagnostics/RuntimeMainVideoFooterSmoke.inl"
+#include "ui/main_menu/diagnostics/RuntimeMainVideoCallerBoundarySmoke.inl"
+
 int runRuntimeMainMenuSmokeTest(
     const RuntimeConfig& config,
     const std::string& bmpPath
 ) {
+    if(const auto only=mainMenuSmokeEnvironment("CONCORD_MAIN_VIDEO_CALLER_BOUNDARY_ONLY")) {
+        const auto output=mainMenuSmokeEnvironment("CONCORD_MAIN_VIDEO_CALLER_BOUNDARY_OUTPUT");
+        if(*only!="1"||!output||output->empty())return 1;
+        return runMainVideoCallerBoundarySmoke(config,fs::path(*output));
+    }
+    if(const auto only=mainMenuSmokeEnvironment("CONCORD_MAIN_VIDEO_FOOTER_FONT_ONLY")){
+        const auto output=mainMenuSmokeEnvironment("CONCORD_MAIN_VIDEO_FOOTER_FONT_OUTPUT");
+        const auto input=mainMenuSmokeEnvironment("CONCORD_MAIN_VIDEO_FOOTER_FRAME_INPUT");
+        if(*only!="1"||!output||output->empty())return 1;
+        return runMainVideoFooterFontSmoke(config,fs::path(*output),input?fs::path(*input):fs::path{});
+    }
+    if (const auto only=mainMenuSmokeEnvironment("CONCORD_MAIN_SYSTEM_FONT_FALLBACK_ONLY")) {
+        const auto output=mainMenuSmokeEnvironment("CONCORD_MAIN_SYSTEM_FONT_FALLBACK_OUTPUT");
+        if(*only!="1" || !output || output->empty())return 1;
+        return runMainSystemFontFallbackSmoke(config,fs::path(*output));
+    }
+    if (const auto only=mainMenuSmokeEnvironment("CONCORD_MAIN_MENU_HOST_LIFECYCLE_ONLY")) {
+        if(*only!="1") {std::cerr<<"Main host lifecycle ONLY must be1\n";return 1;}
+        const int lifecycle=runRuntimeMainMenuHostLifecycleSmoke(config);
+        if(lifecycle!=0)return lifecycle;
+        return runRuntimeMainMenuControllerHostEdgesSmoke(config);
+    }
+    if (const auto only=mainMenuSmokeEnvironment("CONCORD_MAIN_MENU_MUSIC_CLOCK_ONLY")) {
+        if(*only!="1") {std::cerr<<"Main music clock ONLY must be1\n";return 1;}
+        return runMainMenuMusicClockSmoke();
+    }
+    if (const auto only=mainMenuSmokeEnvironment("CONCORD_INTERNET_MENU_CLOCK_ONLY")) {
+        const auto output=mainMenuSmokeEnvironment("CONCORD_INTERNET_MENU_CLOCK_OUTPUT");
+        if(*only!="1" || !output || output->empty()) {
+            std::cerr<<"Internet menu clock requires ONLY=1 and explicit OUTPUT\n";
+            return 1;
+        }
+        return runRuntimeInternetMenuClockContract(fs::path(*output));
+    }
+    if (const auto only=mainMenuSmokeEnvironment("CONCORD_MAIN_MENU_PRESENTATION_CLOCK_ONLY")) {
+        const auto output=mainMenuSmokeEnvironment("CONCORD_MAIN_MENU_PRESENTATION_CLOCK_OUTPUT");
+        if(*only!="1" || !output || output->empty()) {
+            std::cerr<<"Main presentation clock requires ONLY=1 and explicit OUTPUT\n";
+            return 1;
+        }
+        return runMainMenuPresentationClockSmoke(config,fs::path(*output));
+    }
+    bool retainSmokeArtifacts=false;
+    if (const auto retain=mainMenuSmokeEnvironment("CONCORD_MAIN_MENU_SMOKE_RETAIN")) {
+        if(*retain!="1") {std::cerr<<"Main smoke retain must be1\n";return 1;}
+        retainSmokeArtifacts=true;
+    }
     const fs::path preferenceSmokePath = fs::temp_directory_path()
         / ("concord_main_menu_options_"
             + std::to_string(GetCurrentProcessId())
@@ -3039,18 +2390,23 @@ int runRuntimeMainMenuSmokeTest(
             + ".ini");
     struct PreferenceSmokeFileGuard {
         fs::path path;
+        bool retain = false;
         ~PreferenceSmokeFileGuard() {
+            if(retain) return;
             std::error_code ignored;
             fs::remove(path, ignored);
         }
-    } preferenceSmokeFileGuard{preferenceSmokePath};
+    } preferenceSmokeFileGuard{preferenceSmokePath, retainSmokeArtifacts};
     RuntimeConfig smokeConfig = config;
     smokeConfig.configPath = preferenceSmokePath.string();
+    const auto bitmapTextTraceOutput = mainMenuSmokeEnvironment("CONCORD_MAIN_BITMAP_FONT_TRACE_OUTPUT");
+    std::vector<MainBitmapTextTraceCall> bitmapTextCalls;
     MenuState state;
     if (!initializeMenu(state, smokeConfig, true)) {
         std::cerr << "Main menu smoke failed: original shell resources did not initialize.\n";
         return 1;
     }
+    if (bitmapTextTraceOutput && !bitmapTextTraceOutput->empty()) state.bitmapTextTrace = &bitmapTextCalls;
     HWND hostedShell = CreateWindowExW(
         0,
         L"STATIC",
@@ -3492,7 +2848,7 @@ int runRuntimeMainMenuSmokeTest(
     noMovieState.audio.enabled = false;
     playSelectedMovie(noMovieState);
     const bool playbackFeedback = !noMovieState.pageStatus.empty()
-        && moviePlaybackStatus(false, "decoder failed").find(L"decoder failed")
+        && moviePlaybackStatus(state, false, "decoder failed").find(L"decoder failed")
             != std::wstring::npos;
     state.config = originalConfig;
     state.page = MenuPage::Home;
@@ -3525,7 +2881,7 @@ int runRuntimeMainMenuSmokeTest(
     state.hover = static_cast<int>(home.size()) - 1;
     state.focus = state.hover;
     state.mouseVisible = state.mouse.valid();
-    state.mousePoint = POINT{744, 552};
+    state.mousePoint = RuntimeInputPixelPoint{744, 552};
 
     HDC screen = GetDC(nullptr);
     if (screen == nullptr || !ensureBackBuffer(state, screen)) {
@@ -3533,7 +2889,7 @@ int runRuntimeMainMenuSmokeTest(
         std::cerr << "Main menu smoke failed: offscreen surface creation failed.\n";
         return 1;
     }
-    RenderSurface surface{state.backDc, state.composePixels.data()};
+    RenderSurface surface{state.backBuffer.dc(), state.composePixels.data()};
     state.backDirty = true;
     if (!renderBase(state, surface)) {
         ReleaseDC(nullptr, screen);
@@ -3693,7 +3049,7 @@ int runRuntimeMainMenuSmokeTest(
     state.page = MenuPage::SinglePlayer;
     state.hover = 2;
     state.focus = 2;
-    state.mousePoint = POINT{744, buttonsTop(state) + 2 * slotHeight(state) + 20};
+    state.mousePoint = RuntimeInputPixelPoint{744, buttonsTop(state) + 2 * slotHeight(state) + 20};
     state.backDirty = true;
     const bool singleRendered = renderBase(state, surface)
         && writeBmp(singlePlayerPath.string(), state.composePixels.data(), error);
@@ -3785,5 +3141,11 @@ int runRuntimeMainMenuSmokeTest(
               << " result=skirmish completed=yes transitionMs="
               << GetTickCount64() - preparationStarted
               << " prewarmMs=" << GetTickCount64() - skirmishPrewarmStarted << "\n";
+    if (bitmapTextTraceOutput && !bitmapTextTraceOutput->empty()) {
+        std::string traceError;
+        if (!writeMainBitmapTextTrace(fs::path(*bitmapTextTraceOutput), state.gameFont.bytes, bitmapTextCalls, traceError)) {
+            std::cerr << "Main bitmap trace failed: " << traceError << "\n"; return 1;
+        }
+    }
     return 0;
 }

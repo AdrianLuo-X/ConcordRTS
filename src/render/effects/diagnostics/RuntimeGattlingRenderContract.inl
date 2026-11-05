@@ -8,7 +8,7 @@ bool runRuntimeGattlingRenderContractCheck(const RuntimeMapRenderContext& contex
     auto cache = std::make_unique<RuntimeMapRenderCache>();
     auto probe = context;
     RulesDatabase localRules = *context.rules; probe.rules = &localRules;
-    std::unordered_map<std::string, COLORREF> colors{{"yuricountry", RGB(55, 92, 208)}};
+    RuntimeOwnerRemapColorTable colors{{"yuricountry", RGB(55, 92, 208)}};
     probe.ownerRemapColors = &colors;
     probe.vision = nullptr; probe.specialMechanismSnapshots = nullptr;
     probe.surfacePixels = pixels.data(); probe.surfaceWidth = width; probe.surfaceHeight = height;
@@ -22,7 +22,7 @@ bool runRuntimeGattlingRenderContractCheck(const RuntimeMapRenderContext& contex
     for (int row = 0; row < 8; ++row) {
         object.facing = object.turretFacing = row * 32;
         world.accessObjects() = {object};
-        const auto center = runtimeObjectBodyAnchorForRender(object, viewport, probe, camera);
+        const auto center = runtimeObjectBodyAnchorForRenderWin32(object, viewport, probe, camera);
         const auto drawBody = [&]() {
             if (object.kind == WorldObjectKind::Unit)
                 return tryDrawVoxelSprite(nullptr, viewport, object, center, probe, camera, *cache);

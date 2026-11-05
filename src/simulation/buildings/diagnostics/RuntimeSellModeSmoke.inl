@@ -113,7 +113,10 @@ bool runRuntimeSellModeSmoke(RuntimeWindowState& live, std::string& error) {
                     && selected->object->instanceId == id && cursor && cursor->instanceId == id;
             };
             for (const auto& projected : projections) if (projected.object && projected.object->instanceId == id) {
-                for (const auto p : projected.footprintHitCenters) if (hits(p)) return p;
+                for (const auto& pixel : projected.footprintHitCenters) {
+                    const auto p = runtimeRenderPlacementNativePoint(pixel);
+                    if (hits(p)) return p;
+                }
                 const POINT middle{(projected.bounds.left + projected.bounds.right) / 2,
                     (projected.bounds.top + projected.bounds.bottom) / 2};
                 if (hits(middle)) return middle;

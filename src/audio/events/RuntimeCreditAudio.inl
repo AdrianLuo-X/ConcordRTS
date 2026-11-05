@@ -1,14 +1,4 @@
-void snapRuntimeCreditAudio(RuntimeWindowState& state) {
-    auto& audio = state.creditAudio;
-    audio.observed = true;
-    audio.owner = toLowerAsciiLocal(trimAsciiLocal(state.economy.owner));
-    audio.balance = state.economy.credits;
-    audio.pendingDirection = 0;
-    audio.lastObservationMs = 0;
-    audio.nextSoundMs = 0;
-    audio.burstEndMs = 0;
-    audio.burstPlayed = false;
-}
+
 
 void prepareRuntimeCreditAudio(RuntimeWindowState& state) {
     auto& audio = state.creditAudio;

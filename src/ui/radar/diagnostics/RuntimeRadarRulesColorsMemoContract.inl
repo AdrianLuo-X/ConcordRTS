@@ -42,7 +42,7 @@ static bool runRuntimeRadarCellColorsContract(std::string& error) {
     write(runtimeCellKey(-1, 5), RGB(1, 2, 253), true);
     write(runtimeCellKey(7, -1), RGB(17, 19, 23), false);
     const auto compare = [&](int key) {
-        COLORREF a = 0x6e512913UL, b = a;
+        RuntimeMapColorValue a = 0x6e512913UL, b = a;
         const auto found = colors.find(key);
         const bool expected = found != colors.end();
         if (actual.findColor(key, a) != expected || old.findColor(key, b) != expected

@@ -1,5 +1,5 @@
 // Included before multiplayer prevalidation; issuing ownership comes from its frame.
-std::string runtimePlayerCommunicationViewerOwner(const RuntimeWindowState& state) {
+std::string runtimePlayerCommunicationViewerOwner(const RuntimeProductionHostState& state) {
     // A remote house's simulation may temporarily borrow economy.owner. It
     // does not change the player viewing this process's private presentation.
     if (state.remoteHumanHouseScopeActive) {
@@ -13,7 +13,7 @@ std::string runtimePlayerCommunicationViewerOwner(const RuntimeWindowState& stat
     return runtimeCanonicalHumanHouseOwner(state.economy.owner);
 }
 
-bool runtimePlayerBeaconVisibleToLocal(const RuntimeWindowState& state,
+bool runtimePlayerBeaconVisibleToLocal(const RuntimeProductionHostState& state,
     const RuntimePlayerBeacon& beacon) {
     if (beacon.untilTick >= 0 && beacon.untilTick <= state.tick) return false;
     const auto viewer = runtimePlayerCommunicationViewerOwner(state);
@@ -22,7 +22,7 @@ bool runtimePlayerBeaconVisibleToLocal(const RuntimeWindowState& state,
         && (owner == viewer || runtimeOwnersAreAllied(state, owner, viewer));
 }
 
-std::optional<std::size_t> runtimePlayerChatSlot(const RuntimeWindowState& state,
+std::optional<std::size_t> runtimePlayerChatSlot(const RuntimeProductionHostState& state,
     const std::string& owner) {
     const auto key = runtimeCanonicalHumanHouseOwner(owner);
     for (std::size_t slot = 0; slot < state.config.playerSlots.size() && slot < 8; ++slot)
@@ -31,7 +31,7 @@ std::optional<std::size_t> runtimePlayerChatSlot(const RuntimeWindowState& state
     return std::nullopt;
 }
 
-std::uint8_t runtimePlayerChatSlotsMask(const RuntimeWindowState& state) {
+std::uint8_t runtimePlayerChatSlotsMask(const RuntimeProductionHostState& state) {
     std::uint8_t mask = 0;
     for (std::size_t slot = 0; slot < state.config.playerSlots.size() && slot < 8; ++slot)
         if (state.config.playerSlots[slot].enabled && state.config.playerSlots[slot].human)
@@ -39,18 +39,18 @@ std::uint8_t runtimePlayerChatSlotsMask(const RuntimeWindowState& state) {
     return mask;
 }
 
-bool runtimePlayerChatRecipientsAvailable(const RuntimeWindowState& state) {
+bool runtimePlayerChatRecipientsAvailable(const RuntimeProductionHostState& state) {
     return state.config.playerSlots.size() <= 8 && runtimePlayerChatSlot(state, state.economy.owner).has_value();
 }
 
-std::uint8_t runtimePlayerOutgoingChatMask(const RuntimeWindowState& state) {
+std::uint8_t runtimePlayerOutgoingChatMask(const RuntimeProductionHostState& state) {
     if (!state.playerCommunication.chatRecipientsExplicit || !runtimePlayerChatRecipientsAvailable(state)) return 0;
     const auto own = *runtimePlayerChatSlot(state, state.economy.owner);
     return static_cast<std::uint8_t>((state.playerCommunication.chatRecipients & runtimePlayerChatSlotsMask(state))
         | (1U << own));
 }
 
-std::vector<std::string> runtimePlayerDiplomacyOwners(const RuntimeWindowState& state) {
+std::vector<std::string> runtimePlayerDiplomacyOwners(const RuntimeProductionHostState& state) {
     std::set<std::string> owners;
     for (const auto& object : state.world.getObjects()) {
         const auto owner = runtimeCanonicalHumanHouseOwner(object.owner);
@@ -61,14 +61,14 @@ std::vector<std::string> runtimePlayerDiplomacyOwners(const RuntimeWindowState& 
     return {owners.begin(), owners.end()};
 }
 
-bool runtimePlayerDiplomacyAllowed(const RuntimeWindowState& state) {
+bool runtimePlayerDiplomacyAllowed(const RuntimeProductionHostState& state) {
     return !state.campaignMode && state.skirmishModeAlliesAllowed
         && state.skirmishModeAllyChangeAllowed
         && toUpperAsciiLocal(state.config.gameMode) != "FREEFORALL"
         && toUpperAsciiLocal(state.config.gameMode) != "COOPERATIVE";
 }
 
-bool validateRuntimePlayerCommunication(const RuntimeWindowState& state,
+bool validateRuntimePlayerCommunication(const RuntimeProductionHostState& state,
     const std::string& sender, const RuntimeMultiplayerGameplayPlayerCommunicationCommand& command,
     std::string& error) {
     if ((command.kind == RuntimePlayerCommunicationKind::ChatAll
@@ -102,15 +102,15 @@ bool validateRuntimePlayerCommunication(const RuntimeWindowState& state,
     error.clear(); return true;
 }
 
-void runtimePlayerAddChatLine(RuntimeWindowState& state, const std::string& owner,
-    const std::string& text, bool allies = false) {
+void runtimePlayerAddChatLine(RuntimeProductionHostState& state, const std::string& owner,
+    const std::string& text, bool allies) {
     auto& lines = state.playerCommunication.lines;
     lines.push_back({owner, text, allies, state.tick + 15 * std::max(1, state.config.fixedTickHz)});
     while (lines.size() > 8) lines.pop_front();
     state.repaintRequested = true;
 }
 
-bool applyRuntimePlayerCommunication(RuntimeWindowState& state, const std::string& sender,
+bool applyRuntimePlayerCommunication(RuntimeProductionHostState& state, const std::string& sender,
     const RuntimeMultiplayerGameplayPlayerCommunicationCommand& command) {
     const auto owner = runtimeCanonicalHumanHouseOwner(sender);
     auto& presentation = state.playerCommunication;

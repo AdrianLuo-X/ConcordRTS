@@ -263,7 +263,7 @@ bool runRuntimeMcvCompactGroupSmoke(const RuntimeConfig& config,std::string& err
             mp->particles.reset(mp->config.fixedTickHz);mp->particlesInitialized=true;
             mp->superWeapons.reset(std::vector<SuperWeaponRule>{});mp->superWeaponsInitialized=true;
             if(!mp->particles.alignEmptyStateTick(mp->tick)||!mp->superWeapons.alignEmptyStateTick(mp->tick))return fail("v15 clocks");
-            const auto exactHash=[&](RuntimeWindowState& state){RuntimeSnapshotActiveStateScope scope(state);
+            const auto exactHash=[&](RuntimeProductionHostState& state){RuntimeSnapshotActiveStateScope scope(state);
                 return runtimeMultiplayerAuthoritativeStateHash(state,error);};
             const auto hash=exactHash(*mp);
             RuntimeMultiplayerSnapshotIdentity identity;identity.proposalId=1;identity.sourceTimelineEpoch=1;

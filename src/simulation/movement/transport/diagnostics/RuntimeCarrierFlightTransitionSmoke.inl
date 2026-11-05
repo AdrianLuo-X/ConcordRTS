@@ -266,7 +266,7 @@ bool runRuntimeCarrierFlightTransitionSmoke(const RuntimeConfig& config, std::st
         centerRuntimeCameraOnCell(s,client,{o->x,o->y}); ensureRuntimeCameraForViewport(s,viewport);
         const auto& projected = runtimeProjectedObjectsForViewport(s,viewport);
         for (const auto& item : projected) if (item.object && item.object->instanceId == id) {
-            const RECT b = item.spriteBounds; const POINT middle{(b.left+b.right)/2,(b.top+b.bottom)/2};
+            const RECT b = runtimeRenderPlacementNativeRect(item.spriteBounds); const POINT middle{(b.left+b.right)/2,(b.top+b.bottom)/2};
             const int radius = std::max(b.right-b.left,b.bottom-b.top);
             for (int d=0; d<=radius; ++d) for (int dy=-d; dy<=d; ++dy) for (int dx=-d; dx<=d; ++dx) {
                 if (std::max(std::abs(dx),std::abs(dy)) != d) continue;
@@ -449,7 +449,7 @@ bool runRuntimeCarrierFlightTransitionSmoke(const RuntimeConfig& config, std::st
                     originalModel=true;
                 }
             if(!originalModel)return fail("native Hornet model source not observed");
-            const auto placement=runtimeObjectWorldRenderPlacement(*child,s.world,bounds,context,camera,*cache);
+            const auto placement=runtimeRenderPlacementNative(runtimeObjectWorldRenderPlacementWin32(*child,s.world,bounds,context,camera,*cache));
             if(placement.center.x!=center.x||placement.center.y!=center.y)return fail("flat-water body anchor disagrees with independently projected physical XYZ");
             const std::string bodyName=label+'-'+captureStage+"-body.bmp";
             if(!writeRuntimeSmokeBmp(pathString(output/bodyName),cold.pixels.data(),cold.imageWidth,cold.imageHeight,error))return fail("native body preview: "+error);

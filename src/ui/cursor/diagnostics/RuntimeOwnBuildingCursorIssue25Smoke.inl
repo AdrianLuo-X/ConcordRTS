@@ -151,7 +151,7 @@ bool runRuntimeOwnBuildingCursorIssue25Smoke(RuntimeWindowState& live, std::stri
         auto& s=*f.storage;
         for (const auto& item : runtimeProjectedObjectsForViewport(s,viewport)) {
             if (!item.object || item.object->instanceId!=f.targetId) continue;
-            const RECT bounds=item.bounds;
+            const RECT bounds=runtimeRenderPlacementNativeRect(item.bounds);
             for (int iy=1; iy<=3; ++iy) for (int ix=1; ix<=3; ++ix) {
                 const POINT p{bounds.left+(bounds.right-bounds.left)*ix/4,bounds.top+(bounds.bottom-bounds.top)*iy/4};
                 if (!PtInRect(&viewport,p)) continue;

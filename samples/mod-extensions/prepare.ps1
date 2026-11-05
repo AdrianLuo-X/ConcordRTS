@@ -11,7 +11,6 @@ $taskContent=[IO.File]::ReadAllText($taskRules)+"`r`n"+[IO.File]::ReadAllText($t
 Write-Output "Validation mod prepared: $taskOutput"
 if ($Launch) {
     $taskGame=Join-Path $taskProject 'bin/concord_runtime.exe'
-    if (-not [IO.File]::Exists($taskGame)) {throw 'Build the game first with tools/Build-Game.ps1.'}
     # This is the requested interactive game window, not a background helper.
     Start-Process -FilePath $taskGame -WorkingDirectory $taskProject -ArgumentList @('--mod-root',('"'+$taskOutput+'"'))
 }

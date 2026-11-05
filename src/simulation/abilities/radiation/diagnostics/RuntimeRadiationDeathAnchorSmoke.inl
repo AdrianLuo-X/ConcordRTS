@@ -576,7 +576,10 @@ bool runRuntimeRadiationDeathAnchorSmoke(RuntimeWindowState& live, std::string& 
         const auto* o=findObjectById(s,id);if(!o)return std::nullopt;centerRuntimeCameraOnCell(s,client,{o->x,o->y});ensureRuntimeCameraForViewport(s,viewport);
         invalidateRuntimeObjectProjectionCache(s);const auto& projected=runtimeProjectedObjectsForViewport(s,viewport);
         const auto hit=[&](POINT point){const auto* at=findProjectedObjectAtPoint(projected,point);return pointInRectInclusive(viewport,point)&&at&&at->object&&at->object->instanceId==id;};
-        for(const auto& p:projected)if(p.object&&p.object->instanceId==id){for(const auto point:p.footprintHitCenters)if(hit(point))return point;
+        for(const auto& p:projected)if(p.object&&p.object->instanceId==id){for (const auto& pixel : p.footprintHitCenters) {
+            const auto point = runtimeRenderPlacementNativePoint(pixel);
+            if (hit(point)) return point;
+        }
             for(int y=p.bounds.top;y<p.bounds.bottom;y+=2)for(int x=p.bounds.left;x<p.bounds.right;x+=2)if(hit({x,y}))return POINT{x,y};}
         return std::nullopt;};
     const auto forceAttack=[&](Input& in,int sourceId,int targetId){RuntimeSnapshotActiveStateScope active(in.s);applySelection(in.s,{sourceId},false,false);

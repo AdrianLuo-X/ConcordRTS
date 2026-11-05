@@ -1,5 +1,9 @@
+#include "ui/network/private/RuntimeInternetMenuEntropySource.h"
 #include "ui/network/RuntimeInternetMultiplayerMenu.h"
 #include "ui/network/RuntimeInternetMenuSkin.h"
+#if defined(_WIN32)
+#include "ui/network/win32/RuntimeInternetMenuSkinDrawingWin32.h"
+#endif
 #include "network/lobby/RuntimeRoomPassword.h"
 
 #include <algorithm>
@@ -22,10 +26,11 @@
 
 #if defined(_WIN32)
 #define NOMINMAX
+#include "ui/network/win32/RuntimeInternetMenuWidgetViewWin32.h"
+#include "runtime/menu/RuntimeInternetMenuController.h"
 #include "runtime/window/win32/RuntimeWindowParentWin32.h"
+#include "ui/skirmish/RuntimeSkirmishMenu.h"
 #include <windows.h>
-#include <bcrypt.h>
-#pragma comment(lib, "bcrypt.lib")
 #endif
 
 namespace {
@@ -697,38 +702,41 @@ bool makeRuntimeInternetMultiplayerTransportConfig(
     candidate.coordinatorTls.leafCertificateSha256 =
         service.leafCertificateSha256;
     candidate.coordinatorTls.checkCertificateRevocation = true;
-    candidate.coordinatorTls.nativeCertificateChainEngine = nullptr;
+    candidate.coordinatorTls.peerTrust = {};
     candidate.relayTls.endpoint = candidate.coordinatorTls.endpoint;
     candidate.relayTls.serverName = service.serverName;
     candidate.relayTls.leafCertificateSha256 =
         service.leafCertificateSha256;
     candidate.relayTls.checkCertificateRevocation = true;
-    candidate.relayTls.nativeCertificateChainEngine = nullptr;
+    candidate.relayTls.peerTrust = {};
     transport = std::move(candidate);
     errorMessage.clear();
     return true;
 }
 
-bool generateRuntimeInternetMultiplayerMenuEntropy(
+namespace {
+class RuntimeInternetSystemEntropySource final
+    : public runtime_internet_menu_entropy_detail::Source {
+public:
+    RuntimeSecureBytesResult fill(std::span<std::uint8_t> output) noexcept override {
+        return fillRuntimeSecureBytes(output);
+    }
+};
+} // namespace
+
+bool runtime_internet_menu_entropy_detail::generate(
     RuntimeInternetMultiplayerMenuEntropy& entropy,
-    std::string& errorMessage
+    std::string& errorMessage,
+    Source& source
 ) {
     errorMessage.clear();
-#if !defined(_WIN32)
-    (void)entropy;
-    return fail(errorMessage, "Internet menu secure entropy requires Windows BCrypt");
-#else
     constexpr std::size_t valueCount = 9U;
     constexpr std::size_t byteCount = valueCount * sizeof(std::uint64_t) + 16U;
     std::array<std::uint8_t, byteCount> bytes{};
     for (int attempt = 0; attempt < 8; ++attempt) {
-        const NTSTATUS status = BCryptGenRandom(
-            nullptr,
-            reinterpret_cast<PUCHAR>(bytes.data()),
-            static_cast<ULONG>(bytes.size()),
-            BCRYPT_USE_SYSTEM_PREFERRED_RNG
-        );
-        if (status < 0) {
+        const RuntimeSecureBytesResult result = source.fill(bytes);
+        if (!result.succeeded() || result.generated != bytes.size()) {
+            std::fill(bytes.begin(), bytes.end(), static_cast<std::uint8_t>(0U));
             return fail(errorMessage, "Windows secure random generation failed");
         }
         std::array<std::uint64_t, valueCount> values{};
@@ -782,6 +790,19 @@ bool generateRuntimeInternetMultiplayerMenuEntropy(
         errorMessage,
         "Windows secure random generator returned unusable correlation values"
     );
+}
+
+bool generateRuntimeInternetMultiplayerMenuEntropy(
+    RuntimeInternetMultiplayerMenuEntropy& entropy,
+    std::string& errorMessage
+) {
+#if !defined(_WIN32)
+    errorMessage.clear();
+    (void)entropy;
+    return fail(errorMessage, "Internet menu secure entropy requires Windows BCrypt");
+#else
+    RuntimeInternetSystemEntropySource source;
+    return runtime_internet_menu_entropy_detail::generate(entropy, errorMessage, source);
 #endif
 }
 
@@ -1426,188 +1447,143 @@ std::vector<std::string> projectRuntimeInternetCommunityNewsRows(
 
 #if defined(_WIN32) \
     && !defined(RUNTIME_INTERNET_MULTIPLAYER_MENU_PURE_HELPERS_ONLY)
+#include "runtime/host/RuntimeUiClockWin32.h"
+#include "ui/network/diagnostics/RuntimeInternetMenuClockContract.h"
 namespace {
+using namespace concord::internet_menu;
 
-enum class InternetMenuPage : std::uint8_t {
-    Account,
-    Community,
-    Browser,
-    Ladder,
-    News,
-    Lobby,
-    Kicked,
-    MatchHistory
-};
 
-enum InternetMenuControlId : int {
-    InternetPlayerName = 5101,
-    InternetRoomName = 5102,
-    InternetRefresh = 5103,
-    InternetHost = 5104,
-    InternetResumeHost = 5160,
-    InternetResumeSwap = 5161,
-    InternetMatchHistory = 5162,
-    InternetMatchHistoryBack = 5163,
-    InternetMatchHistoryList = 5164,
-    InternetJoin = 5105,
-    InternetSpectator = 5106,
-    InternetQuickMatch = 5107,
-    InternetRoomList = 5108,
-    InternetRoster = 5109,
-    InternetCountry = 5110,
-    InternetColor = 5111,
-    InternetTeam = 5112,
-    InternetDifficulty = 5113,
-    InternetStartPosition = 5114,
-    InternetApplySlot = 5115,
-    InternetReady = 5116,
-    InternetStart = 5117,
-    InternetKick = 5118,
-    InternetLeave = 5119,
-    InternetStatus = 5120,
-    InternetConnection = 5121,
-    InternetPassword = 5122,
-    InternetNavCommunity = 5123,
-    InternetNavGames = 5124,
-    InternetNavLadder = 5125,
-    InternetNavNews = 5126,
-    InternetProfileSummary = 5127,
-    InternetAccountHandle = 5128,
-    InternetAccountRegister = 5129,
-    InternetChannelList = 5130,
-    InternetChannelJoin = 5131,
-    InternetChatList = 5132,
-    InternetChatEdit = 5133,
-    InternetChatSend = 5134,
-    InternetParticipantList = 5135,
-    InternetFriendList = 5136,
-    InternetFriendEdit = 5137,
-    InternetFriendAdd = 5138,
-    InternetFriendRemove = 5139,
-    InternetLadderList = 5140,
-    InternetCommunityRefresh = 5141,
-    InternetNewsList = 5142,
-    InternetNewsDetail = 5143,
-    InternetClanSummary = 5144,
-    InternetClanMemberList = 5145,
-    InternetClanInvitationList = 5146,
-    InternetClanName = 5147,
-    InternetClanTag = 5148,
-    InternetClanCreate = 5149,
-    InternetClanTarget = 5150,
-    InternetClanInvite = 5151,
-    InternetClanAccept = 5152,
-    InternetClanRemove = 5153,
-    InternetClanTransfer = 5154,
-    InternetClanLeave = 5155,
-    InternetClanLadderList = 5156
-};
+
+
 
 constexpr UINT_PTR internetMenuPollTimer = 1U;
 constexpr UINT internetMenuPollMilliseconds = 50U;
 
-struct RuntimeInternetMultiplayerMenuUiState {
-    RuntimeConfig baseConfig;
+struct RuntimeInternetMenuLobbyBorrow final : concord::lan_menu::RuntimeLanMenuFlow {
+    RuntimeMultiplayerLobbyFlow* backend = nullptr;
+    bool startHost(RuntimeMultiplayerLanHostOptions&& options, const RuntimeMultiplayerLobbyHostCreateOptions& lobby, std::string& error, const RuntimeMultiplayerResumeSave* resume)  override { return backend->startHost(std::move(options), lobby, error, resume); }
+    bool startBrowsing(std::uint16_t port, std::string& error)  override { return backend->startBrowsing(port, error); }
+    bool join(RuntimeMultiplayerLanJoinOptions&& options, std::string& error)  override { return backend->join(std::move(options), error); }
+    bool sendDiscoveryProbe(const std::string& address, std::string& error)  override { return backend->sendDiscoveryProbe(address, error); }
+    std::vector<RuntimeLanRoomAdvertisement> discoveredRooms(std::uint64_t age) const override { return backend->discoveredRooms(age); }
+    RuntimeMultiplayerLobbyFlowPollResult poll(int timeout)  override { return backend->poll(timeout); }
+    RuntimeMultiplayerLobbyEditResult setSlot(std::size_t index, const RuntimeMultiplayerMatchSlot& slot, std::string& error)  override { return backend->setSlot(index, slot, error); }
+    RuntimeMultiplayerLobbyEditResult setSlotController(std::size_t index, RuntimeMultiplayerMatchSlotController kind, std::string_view peer, std::string& error)  override { return backend->setSlotController(index, kind, peer, error); }
+    RuntimeMultiplayerLobbyEditResult setSlotOptions(std::size_t index, std::string&& country, std::string&& color, std::string&& team, std::string&& difficulty, std::uint8_t position, std::string& error)  override { return backend->setSlotOptions(index, std::move(country), std::move(color), std::move(team), std::move(difficulty), position, error); }
+    RuntimeMultiplayerLanOperationResult requestLocalSlotOptions(std::string&& country, std::string&& color, std::string&& team, std::string&& difficulty, std::uint8_t position)  override { return backend->requestLocalSlotOptions(std::move(country), std::move(color), std::move(team), std::move(difficulty), position); }
+    RuntimeMultiplayerLanOperationResult kickPeer(const std::string& peer, std::string reason)  override { return backend->kickPeer(peer, std::move(reason)); }
+    bool verifyLocalMap(const std::filesystem::path& path, std::string& error)  override { return backend->verifyLocalMap(path, error); }
+    bool localMapVerified() const override { return backend->localMapVerified(); }
+    bool downloadMissingMap(const std::filesystem::path& root, std::filesystem::path& output, std::string& error)  override { return backend->downloadMissingMap(root, output, error); }
+    bool hostAuthoritative() const override { return backend->hostAuthoritative(); }
+    bool canonicalSetupPublished() const override { return backend->canonicalSetupPublished(); }
+    bool resuming() const override { return backend->resuming(); }
+    bool resumeReady(std::string& error) const override { return backend->resumeReady(error); }
+    bool canStart(std::string& error) const override { return backend->canStart(error); }
+    bool initialized() const override { return backend->initialized(); }
+    RuntimeMultiplayerLanOperationResult setReady(bool value)  override { return backend->setReady(value); }
+    RuntimeMultiplayerLanOperationResult startMatch(int tick)  override { return backend->startMatch(tick); }
+    void close()  override { backend->close(); }
+    const RuntimeMultiplayerLobbyModel& lobby() const override { return backend->lobby(); }
+    bool bridgePresent() const override { return backend->bridge() != nullptr; }
+    bool sessionActive() const override { return backend->bridge()->lan().session().active(); }
+    const std::string& localPeerId() const override { return backend->bridge()->lan().localPeerId(); }
+    const std::vector<RuntimeMultiplayerRoomMember>& members() const override { return backend->bridge()->lan().session().members(); }
+    RuntimeMultiplayerLanRole lanRole() const override { return backend->bridge()->lan().role(); }
+    RuntimeMultiplayerLanPhase lanPhase() const override { return backend->bridge()->lan().phase(); }
+    void leave() override { backend->bridge()->lan().leave(); }
+};
+
+struct RuntimeInternetMultiplayerMenuUiState : RuntimeInternetMenuFlow, RuntimeInternetMenuView, RuntimeInternetMenuController, RuntimeInternetMenuWidgetViewWin32 {
+    RuntimeInternetMultiplayerMenuUiState() : RuntimeInternetMenuController(static_cast<RuntimeInternetMenuFlow&>(*this),static_cast<RuntimeInternetMenuView&>(*this)) {}
+    HWND widgetHandle(RuntimeInternetMenuWidget) const;
+    mutable RuntimeInternetMenuLobbyBorrow lobbyBorrow;
+    bool beginRoomQuery(RuntimeInternetLobbyQueryOptions&& options, std::uint64_t nowMilliseconds, std::string& errorMessage) override;
+    bool beginMatchmaking(RuntimeInternetLobbyMatchmakingOptions&& options, std::uint64_t nowMilliseconds, std::string& errorMessage) override;
+    bool startHost(RuntimeInternetLobbyHostOptions&& options, std::uint64_t nowMilliseconds, std::string& errorMessage) override;
+    bool join(RuntimeInternetLobbyJoinOptions&& options, std::uint64_t nowMilliseconds, std::string& errorMessage) override;
+    bool requestCommunityLogin(std::uint64_t transactionId, std::string& errorMessage) override;
+    bool requestCommunityRegistration(std::uint64_t transactionId, const std::string& displayName, std::string& errorMessage) override;
+    bool requestCommunityRefresh(std::uint64_t transactionId, std::string& errorMessage) override;
+    bool requestCommunityChannelJoin(std::uint64_t transactionId, const std::string& channelId, std::string& errorMessage) override;
+    bool requestCommunityChannelMessage(std::uint64_t transactionId, const std::string& text, std::string& errorMessage) override;
+    bool requestCommunityFriendAdd(std::uint64_t transactionId, const std::string& handleOrPeerId, std::string& errorMessage) override;
+    bool requestCommunityFriendRemove(std::uint64_t transactionId, const std::string& peerId, std::string& errorMessage) override;
+    bool requestCommunityClanCreate(std::uint64_t transactionId, const std::string& clanName, const std::string& clanTag, std::string& errorMessage) override;
+    bool requestCommunityClanInvite(std::uint64_t transactionId, const std::string& handleOrPeerId, std::string& errorMessage) override;
+    bool requestCommunityClanInvitationAccept(std::uint64_t transactionId, const std::string& clanId, std::string& errorMessage) override;
+    bool requestCommunityClanMemberRemove(std::uint64_t transactionId, const std::string& peerId, std::string& errorMessage) override;
+    bool requestCommunityClanLeave(std::uint64_t transactionId, std::string& errorMessage) override;
+    bool requestCommunityClanOwnershipTransfer(std::uint64_t transactionId, const std::string& peerId, std::string& errorMessage) override;
+    RuntimeInternetLobbyFlowPollResult poll(std::uint64_t nowMilliseconds, int transportTimeoutMilliseconds) override;
+    RuntimeInternetLobbyFlowMode mode() const override;
+    const std::vector<RuntimeInternetRoomRecord>& rooms() const override;
+    RuntimeInternetConnectionState primaryConnectionState() const override;
+    const RuntimeInternetCommunitySnapshot& communitySnapshot() const override;
+    const std::vector<RuntimeInternetRankedRecord>& communityMatchHistory() const override;
+    void close() noexcept override;
+    bool present() const override;
+    bool transportPresent() const override;
+    bool coordinatorAuthenticated() const override;
+    concord::lan_menu::RuntimeLanMenuFlow* lobbyFlow() const override;
+    void showWidget(RuntimeInternetMenuWidget,bool) override;
+    void enableWidget(RuntimeInternetMenuWidget,bool) override;
+    std::string text(RuntimeInternetMenuWidget) const override;
+    void setText(RuntimeInternetMenuWidget,std::string_view) override;
+    bool hasWidget(RuntimeInternetMenuWidget) const override;
+    bool checked(RuntimeInternetMenuWidget) const override;
+    void clearText(RuntimeInternetMenuWidget) override;
+    void listClear(RuntimeInternetMenuWidget) override;
+    void listAdd(RuntimeInternetMenuWidget,const std::string&) override;
+    void replaceRows(RuntimeInternetMenuWidget,std::span<const std::string>) override;
+    std::int64_t listSelected(RuntimeInternetMenuWidget) const override;
+    void listSelect(RuntimeInternetMenuWidget,std::int64_t) override;
+    void listTop(RuntimeInternetMenuWidget,std::size_t) override;
+    void readyLabel(bool) override;
+    void leaveLabel(RuntimeInternetLeaveLabel) override;
+    void invalidateSkinned() override;
+    void invalidateSkin() override;
+    void destroyWindow() override;
+    bool accepted() const override;
+    const std::string& peerId() const override;
+    std::uint64_t nowMs() const override;
+    void clearCredentials() override;
+    bool entropy(RuntimeInternetMultiplayerMenuEntropy&,std::string&) override;
+    std::string trim(std::string&&) const override;
+    bool validateDisplayText(std::string&,std::size_t,std::string_view,std::string&) override;
+    const RuntimeMultiplayerMatchSlot* slotForPeer(const RuntimeMultiplayerMatchSetup*,std::string_view) const override;
+    bool queryOptions(const RuntimeMultiplayerCompatibility&,std::uint64_t,RuntimeInternetLobbyQueryOptions&,std::string&) override;
+    bool hostOptions(const RuntimeMultiplayerCompatibility&,const RuntimeMultiplayerHostSelectionProjection&,const RuntimeInternetMultiplayerMenuEntropy&,RuntimeInternetLobbyHostOptions&,std::string&,const std::shared_ptr<RuntimeMultiplayerResumeSave>&) override;
+    bool joinOptions(const RuntimeMultiplayerCompatibility&,const RuntimeInternetRoomRecord&,bool,std::uint64_t,RuntimeInternetLobbyJoinOptions&,std::string&) override;
+    bool matchmakingOptions(const RuntimeMultiplayerCompatibility&,const RuntimeMultiplayerHostSelectionProjection&,const std::string&,std::int32_t,const RuntimeInternetMultiplayerMenuEntropy&,RuntimeInternetLobbyMatchmakingOptions&,std::string&) override;
+    bool selectHostSetup(const std::string&,const RuntimeInternetMultiplayerMenuEntropy&,RuntimeMultiplayerHostSelectionProjection&,std::string&) override;
+    bool selectResumeWithOriginalFailureStatus(const RuntimeMultiplayerCompatibility&,RuntimeMultiplayerResumeSave&,RuntimeMultiplayerHostSelectionProjection&,std::string&) override;
+    bool resolveMap(const RuntimeConfig&,const RuntimeMultiplayerMatchMap&,std::filesystem::path&,std::string&) override;
+    std::vector<RuntimeInternetMultiplayerRoomRow> roomRows(std::span<const RuntimeInternetRoomRecord>,bool) const override;
+    std::vector<RuntimeInternetMultiplayerRosterRow> rosterRows(std::span<const RuntimeMultiplayerRoomMember>,const RuntimeMultiplayerMatchSetup*,std::string_view,bool) const override;
+    std::string connectionStatus(bool,RuntimeInternetLobbyFlowMode,RuntimeInternetConnectionState) const override;
+    std::string profileSummary(const RuntimeInternetCommunitySnapshot&) const override;
+    std::string clanSummary(const RuntimeInternetCommunitySnapshot&) const override;
+    std::vector<std::string> channelRows(const RuntimeInternetCommunitySnapshot&) const override;
+    std::vector<std::string> chatRows(const RuntimeInternetCommunitySnapshot&) const override;
+    std::vector<std::string> participantRows(const RuntimeInternetCommunitySnapshot&) const override;
+    std::vector<std::string> friendRows(const RuntimeInternetCommunitySnapshot&) const override;
+    std::vector<std::string> ladderRows(const RuntimeInternetCommunitySnapshot&) const override;
+    std::vector<std::string> clanMemberRows(const RuntimeInternetCommunitySnapshot&) const override;
+    std::vector<std::string> clanInvitationRows(const RuntimeInternetCommunitySnapshot&) const override;
+    std::vector<std::string> clanLadderRows(const RuntimeInternetCommunitySnapshot&) const override;
+    std::vector<std::string> newsRows(const RuntimeInternetCommunitySnapshot&) const override;
+    std::vector<std::string> historyRows(std::span<const RuntimeInternetRankedRecord>,std::string_view) const override;
+    std::string historyDetail(const RuntimeInternetRankedRecord&,std::string_view) const override;
+    void finishMatch() override;
+
+    // Borrowed monotonic input; the native provider outlives this UI owner.
+    const RuntimeUiClock* clock = &runtimeWin32UiClock();
     RuntimeInternetMenuSkin skin;
     HBRUSH skinControlBrush = nullptr;
     RuntimeInternetMultiplayerServiceConfig serviceConfig;
-    RuntimeMultiplayerCompatibility compatibility;
     RuntimeInternetServiceTransport* transport = nullptr;
-    std::unique_ptr<RuntimeInternetLobbyFlow> flow;
-    HWND hostWindow = nullptr;
-    HWND window = nullptr;
-    HWND playerNameLabel = nullptr;
-    HWND playerNameEdit = nullptr;
-    HWND roomNameLabel = nullptr;
-    HWND roomNameEdit = nullptr;
-    HWND passwordLabel = nullptr;
-    HWND passwordEdit = nullptr;
-    HWND refreshButton = nullptr;
-    HWND hostButton = nullptr;
-    HWND resumeHostButton = nullptr;
-    HWND resumeSwapButton = nullptr;
-    HWND joinButton = nullptr;
-    HWND spectatorCheck = nullptr;
-    HWND quickMatchButton = nullptr;
-    HWND roomList = nullptr;
-    HWND rosterList = nullptr;
-    HWND countryLabel = nullptr;
-    HWND countryEdit = nullptr;
-    HWND colorLabel = nullptr;
-    HWND colorEdit = nullptr;
-    HWND teamLabel = nullptr;
-    HWND teamEdit = nullptr;
-    HWND difficultyLabel = nullptr;
-    HWND difficultyEdit = nullptr;
-    HWND startPositionLabel = nullptr;
-    HWND startPositionEdit = nullptr;
-    HWND applySlotButton = nullptr;
-    HWND readyButton = nullptr;
-    HWND startButton = nullptr;
-    HWND kickButton = nullptr;
-    HWND leaveButton = nullptr;
-    HWND statusText = nullptr;
-    HWND connectionText = nullptr;
-    HWND navCommunityButton = nullptr;
-    HWND navGamesButton = nullptr;
-    HWND navLadderButton = nullptr;
-    HWND navNewsButton = nullptr;
-    HWND profileSummaryText = nullptr;
-    HWND accountTitleText = nullptr;
-    HWND accountDescriptionText = nullptr;
-    HWND accountHandleLabel = nullptr;
-    HWND accountHandleEdit = nullptr;
-    HWND accountRegisterButton = nullptr;
-    HWND channelLabel = nullptr;
-    HWND channelList = nullptr;
-    HWND channelJoinButton = nullptr;
-    HWND chatLabel = nullptr;
-    HWND chatList = nullptr;
-    HWND chatEdit = nullptr;
-    HWND chatSendButton = nullptr;
-    HWND participantLabel = nullptr;
-    HWND participantList = nullptr;
-    HWND friendLabel = nullptr;
-    HWND friendList = nullptr;
-    HWND friendEdit = nullptr;
-    HWND friendAddButton = nullptr;
-    HWND friendRemoveButton = nullptr;
-    HWND ladderTitleText = nullptr;
-    HWND ladderList = nullptr;
-    HWND clanSummaryText = nullptr;
-    HWND clanMemberList = nullptr;
-    HWND clanInvitationList = nullptr;
-    HWND clanNameEdit = nullptr;
-    HWND clanTagEdit = nullptr;
-    HWND clanCreateButton = nullptr;
-    HWND clanTargetEdit = nullptr;
-    HWND clanInviteButton = nullptr;
-    HWND clanAcceptButton = nullptr;
-    HWND clanRemoveButton = nullptr;
-    HWND clanTransferButton = nullptr;
-    HWND clanLeaveButton = nullptr;
-    HWND clanLadderTitleText = nullptr;
-    HWND clanLadderList = nullptr;
-    HWND communityRefreshButton = nullptr;
-    HWND newsTitleText = nullptr;
-    HWND newsList = nullptr;
-    HWND newsDetail = nullptr;
-    HWND matchHistoryButton = nullptr;
-    HWND matchHistoryBackButton = nullptr;
-    HWND matchHistoryList = nullptr;
-    HWND matchHistoryDetail = nullptr;
-    std::string selectedRankedMatchId;
-    InternetMenuPage page = InternetMenuPage::Account;
-    std::vector<RuntimeInternetRoomRecord> rooms;
-    std::vector<RuntimeInternetMultiplayerRosterRow> rosterRows;
-    std::string selectedPeerId;
-    std::string selectedFriendPeerId;
-    std::size_t selectedNewsIndex = 0U;
-    std::filesystem::path localMapPath;
-    std::vector<RuntimeMultiplayerMatchSlot> pendingHostSlots;
-    std::uint64_t displayedRevision = 0U;
-    bool hosting = false;
-    bool done = false;
+    std::unique_ptr<RuntimeInternetLobbyFlow> flowBackend;
     RuntimeMultiplayerMenuResult result;
 };
 
@@ -1633,8 +1609,10 @@ RuntimeInternetMenuSkinPage internetSkinPage(InternetMenuPage page) {
     }
 }
 
-std::uint64_t internetMenuNowMilliseconds() {
-    return static_cast<std::uint64_t>(GetTickCount64());
+std::uint64_t internetMenuNowMilliseconds(
+    const RuntimeInternetMultiplayerMenuUiState& state
+) {
+    return state.clock->nowMs();
 }
 
 std::wstring wideFromUtf8(std::string_view value) {
@@ -1753,9 +1731,9 @@ RuntimeInternetMenuSkinFaction internetSkinFaction(
 std::uint32_t internetSkinLadderRank(
     const RuntimeInternetMultiplayerMenuUiState& state
 ) {
-    if (!state.flow) return 0U;
+    if (!state.flowBackend) return 0U;
     const RuntimeInternetCommunitySnapshot& snapshot =
-        state.flow->communitySnapshot();
+        state.flowBackend->communitySnapshot();
     return snapshot.registeredProfile ? snapshot.profile.rank : 0U;
 }
 
@@ -1844,7 +1822,7 @@ bool drawInternetSkinOwnerButton(
     }
     wchar_t text[256]{};
     GetWindowTextW(item.hwndItem, text, static_cast<int>(std::size(text)));
-    return drawRuntimeInternetMenuSkinButton(
+    return drawRuntimeInternetMenuSkinButtonWin32(
         item.hDC,
         item.rcItem,
         state.skin,
@@ -1856,12 +1834,7 @@ bool drawInternetSkinOwnerButton(
     );
 }
 
-void setMenuStatus(
-    RuntimeInternetMultiplayerMenuUiState& state,
-    std::string_view text
-) {
-    setControlText(state.statusText, text);
-}
+
 
 HWND createControl(
     HWND parent,
@@ -1894,142 +1867,7 @@ void showControl(HWND control, bool visible) {
     if (control != nullptr) ShowWindow(control, visible ? SW_SHOW : SW_HIDE);
 }
 
-void showInternetMenuPage(
-    RuntimeInternetMultiplayerMenuUiState& state,
-    InternetMenuPage page
-) {
-    state.page = page;
-    const bool account = page == InternetMenuPage::Account;
-    const bool community = page == InternetMenuPage::Community;
-    const bool browser = page == InternetMenuPage::Browser;
-    const bool ladder = page == InternetMenuPage::Ladder;
-    const bool news = page == InternetMenuPage::News;
-    const bool history = page == InternetMenuPage::MatchHistory;
-    const bool lobby = page == InternetMenuPage::Lobby;
-    const bool communityShell = community || browser || ladder || news || history;
-    for (HWND control : {
-            state.navCommunityButton,
-            state.navGamesButton,
-            state.navLadderButton,
-            state.navNewsButton,
-            state.profileSummaryText
-        }) {
-        showControl(control, communityShell);
-    }
-    if (history) showControl(state.profileSummaryText, false);
-    showControl(state.connectionText, !history);
-    for (HWND control : {
-            state.accountTitleText,
-            state.accountDescriptionText,
-            state.accountHandleLabel,
-            state.accountHandleEdit,
-            state.accountRegisterButton
-        }) {
-        showControl(control, account);
-    }
-    for (HWND control : {
-            state.playerNameLabel,
-            state.playerNameEdit,
-            state.roomNameLabel,
-            state.roomNameEdit,
-            state.passwordLabel,
-            state.passwordEdit,
-            state.refreshButton,
-            state.hostButton,
-            state.resumeHostButton,
-            state.joinButton,
-            state.spectatorCheck,
-            state.quickMatchButton,
-            state.roomList
-        }) {
-        showControl(control, browser);
-    }
-    for (HWND control : {
-            state.channelLabel,
-            state.channelList,
-            state.channelJoinButton,
-            state.chatLabel,
-            state.chatList,
-            state.chatEdit,
-            state.chatSendButton,
-            state.participantLabel,
-            state.participantList,
-            state.friendLabel,
-            state.friendList,
-            state.friendEdit,
-            state.friendAddButton,
-            state.friendRemoveButton
-        }) {
-        showControl(control, community);
-    }
-    for (HWND control : {
-            state.ladderTitleText,
-            state.ladderList,
-            state.clanSummaryText,
-            state.clanMemberList,
-            state.clanInvitationList,
-            state.clanNameEdit,
-            state.clanTagEdit,
-            state.clanCreateButton,
-            state.clanTargetEdit,
-            state.clanInviteButton,
-            state.clanAcceptButton,
-            state.clanRemoveButton,
-            state.clanTransferButton,
-            state.clanLeaveButton,
-            state.clanLadderTitleText,
-            state.matchHistoryButton,
-            state.clanLadderList
-        }) {
-        showControl(control, ladder);
-    }
-    for (HWND control : {
-            state.newsTitleText,
-            state.newsList,
-            state.newsDetail
-        }) {
-        showControl(control, news);
-    }
-    showControl(
-        state.communityRefreshButton,
-        community || ladder || news || history
-    );
-    for (HWND control : {state.matchHistoryBackButton, state.matchHistoryList, state.matchHistoryDetail}) showControl(control, history);
-    for (HWND control : {
-            state.rosterList,
-            state.countryLabel,
-            state.countryEdit,
-            state.colorLabel,
-            state.colorEdit,
-            state.teamLabel,
-            state.teamEdit,
-            state.difficultyLabel,
-            state.difficultyEdit,
-            state.startPositionLabel,
-            state.startPositionEdit,
-            state.applySlotButton,
-            state.readyButton,
-            state.kickButton
-        }) {
-        showControl(control, lobby);
-    }
-    showControl(state.startButton, lobby && state.hosting);
-    showControl(state.resumeSwapButton, lobby && state.hosting && state.flow
-        && state.flow->lobbyFlow() && state.flow->lobbyFlow()->resuming());
-    showControl(state.leaveButton, true);
-    if (page == InternetMenuPage::Kicked
-        || page == InternetMenuPage::Account) {
-        SetWindowTextW(state.leaveButton, L"Close");
-    } else {
-        SetWindowTextW(
-            state.leaveButton,
-            lobby ? L"Leave Room" : L"Main Menu"
-        );
-    }
-    if (state.window != nullptr && state.skin.productionReady) {
-        InvalidateRect(state.window, nullptr, TRUE);
-    }
-}
+
 
 void createInternetMenuControls(
     RuntimeInternetMultiplayerMenuUiState& state
@@ -2328,59 +2166,9 @@ void createInternetMenuControls(
     showInternetMenuPage(state, InternetMenuPage::Account);
 }
 
-void updateConnectionText(
-    RuntimeInternetMultiplayerMenuUiState& state
-) {
-    if (!state.flow || !state.transport) return;
-    setControlText(
-        state.connectionText,
-        projectRuntimeInternetMultiplayerConnectionStatus(
-            state.transport->coordinatorAuthenticated(),
-            state.flow->mode(),
-            state.flow->primaryConnectionState()
-        )
-    );
-    const bool browserActions =
-        state.page == InternetMenuPage::Browser
-        && state.transport->coordinatorAuthenticated()
-        && state.flow->communitySnapshot().registeredProfile
-        && state.flow->mode()
-            == RuntimeInternetLobbyFlowMode::RoomListReady;
-    for (HWND control : {
-            state.refreshButton,
-            state.hostButton,
-            state.resumeHostButton,
-            state.joinButton,
-            state.quickMatchButton
-        }) {
-        EnableWindow(control, browserActions ? TRUE : FALSE);
-    }
-}
 
-void updateRoomList(RuntimeInternetMultiplayerMenuUiState& state) {
-    if (!state.flow) return;
-    state.rooms = state.flow->rooms();
-    const bool joiningAsSpectator = SendMessageW(
-        state.spectatorCheck,
-        BM_GETCHECK,
-        0U,
-        0
-    ) == BST_CHECKED;
-    const auto rows = projectRuntimeInternetMultiplayerRoomRows(
-        state.rooms,
-        joiningAsSpectator
-    );
-    SendMessageW(state.roomList, LB_RESETCONTENT, 0U, 0);
-    for (const RuntimeInternetMultiplayerRoomRow& row : rows) {
-        const std::wstring text = wideFromUtf8(row.text);
-        SendMessageW(
-            state.roomList,
-            LB_ADDSTRING,
-            0U,
-            reinterpret_cast<LPARAM>(text.c_str())
-        );
-    }
-}
+
+
 
 void replaceListRows(HWND list, std::span<const std::string> rows) {
     if (list == nullptr) return;
@@ -2396,765 +2184,63 @@ void replaceListRows(HWND list, std::span<const std::string> rows) {
     }
 }
 
-std::string communityDisplayName(
-    const RuntimeInternetMultiplayerMenuUiState& state
-) {
-    if (state.flow) {
-        const RuntimeInternetCommunitySnapshot& snapshot =
-            state.flow->communitySnapshot();
-        if (snapshot.registeredProfile
-            && !snapshot.profile.displayName.empty()) {
-            return snapshot.profile.displayName;
-        }
-    }
-    return state.serviceConfig.peerId;
-}
 
-void updateNewsDetail(RuntimeInternetMultiplayerMenuUiState& state) {
-    if (!state.flow) return;
-    const auto& news = state.flow->communitySnapshot().news;
-    if (news.empty()) {
-        state.selectedNewsIndex = 0U;
-        setControlText(state.newsDetail, "No community news is available.");
-        return;
-    }
-    state.selectedNewsIndex = std::min(
-        state.selectedNewsIndex,
-        news.size() - 1U
-    );
-    const RuntimeInternetCommunityNewsItem& selected =
-        news[state.selectedNewsIndex];
-    setControlText(
-        state.newsDetail,
-        selected.title + "\r\n\r\n" + selected.body
-    );
-    SendMessageW(
-        state.newsList,
-        LB_SETCURSEL,
-        static_cast<WPARAM>(state.selectedNewsIndex),
-        0
-    );
-}
 
-void updateRankedHistory(RuntimeInternetMultiplayerMenuUiState& state) {
-    if (!state.flow) return;
-    const auto& records = state.flow->communityMatchHistory();
-    replaceListRows(state.matchHistoryList, projectRuntimeInternetRankedHistoryRows(records, state.serviceConfig.peerId));
-    if (records.empty()) {
-        state.selectedRankedMatchId.clear();
-        setControlText(state.matchHistoryDetail, "暂无排位记录。服务端保留范围内最近的 32 场对局将在这里显示。");
-        return;
-    }
-    auto selected = std::find_if(records.begin(), records.end(), [&](const auto& record) { return record.matchId == state.selectedRankedMatchId; });
-    if (selected == records.end()) selected = records.begin();
-    state.selectedRankedMatchId = selected->matchId;
-    SendMessageW(state.matchHistoryList, LB_SETCURSEL, static_cast<WPARAM>(selected - records.begin()), 0);
-    setControlText(state.matchHistoryDetail, projectRuntimeInternetRankedHistoryDetail(*selected, state.serviceConfig.peerId));
-}
 
-void updateCommunityViews(RuntimeInternetMultiplayerMenuUiState& state) {
-    if (!state.flow) return;
-    const RuntimeInternetCommunitySnapshot& snapshot =
-        state.flow->communitySnapshot();
-    setControlText(
-        state.profileSummaryText,
-        projectRuntimeInternetCommunityProfileSummary(snapshot)
-    );
-    replaceListRows(
-        state.channelList,
-        projectRuntimeInternetCommunityChannelRows(snapshot)
-    );
-    replaceListRows(
-        state.chatList,
-        projectRuntimeInternetCommunityChatRows(snapshot)
-    );
-    replaceListRows(
-        state.participantList,
-        projectRuntimeInternetCommunityParticipantRows(snapshot)
-    );
-    replaceListRows(
-        state.friendList,
-        projectRuntimeInternetCommunityFriendRows(snapshot)
-    );
-    replaceListRows(
-        state.ladderList,
-        projectRuntimeInternetCommunityLadderRows(snapshot)
-    );
-    setControlText(
-        state.clanSummaryText,
-        projectRuntimeInternetCommunityClanSummary(snapshot)
-    );
-    replaceListRows(
-        state.clanMemberList,
-        projectRuntimeInternetCommunityClanMemberRows(snapshot)
-    );
-    replaceListRows(
-        state.clanInvitationList,
-        projectRuntimeInternetCommunityClanInvitationRows(snapshot)
-    );
-    replaceListRows(
-        state.clanLadderList,
-        projectRuntimeInternetCommunityClanLadderRows(snapshot)
-    );
-    replaceListRows(
-        state.newsList,
-        projectRuntimeInternetCommunityNewsRows(snapshot)
-    );
 
-    if (snapshot.registeredProfile) {
-        setControlText(state.playerNameEdit, snapshot.profile.displayName);
-        setControlText(state.accountHandleEdit, snapshot.profile.displayName);
-        if (controlText(state.roomNameEdit)
-            == state.serviceConfig.peerId + " Room") {
-            setControlText(
-                state.roomNameEdit,
-                snapshot.profile.displayName + " Room"
-            );
-        }
-        for (std::size_t index = 0U; index < snapshot.channels.size(); ++index) {
-            if (snapshot.channels[index].channelId
-                == snapshot.selectedChannelId) {
-                SendMessageW(
-                    state.channelList,
-                    LB_SETCURSEL,
-                    static_cast<WPARAM>(index),
-                    0
-                );
-                break;
-            }
-        }
-        if (!snapshot.chatHistory.empty()) {
-            SendMessageW(
-                state.chatList,
-                LB_SETTOPINDEX,
-                static_cast<WPARAM>(snapshot.chatHistory.size() - 1U),
-                0
-            );
-        }
-    } else if (controlText(state.accountHandleEdit).empty()) {
-        setControlText(state.accountHandleEdit, state.serviceConfig.peerId);
-    }
-    updateNewsDetail(state);
-    updateRankedHistory(state);
-    EnableWindow(
-        state.accountRegisterButton,
-        snapshot.registeredProfile ? FALSE : TRUE
-    );
-    for (HWND control : {
-            state.navCommunityButton,
-            state.navGamesButton,
-            state.navLadderButton,
-            state.navNewsButton,
-            state.communityRefreshButton,
-            state.channelJoinButton,
-            state.chatSendButton,
-            state.friendAddButton,
-            state.friendRemoveButton
-        }) {
-        EnableWindow(control, snapshot.registeredProfile ? TRUE : FALSE);
-    }
-    const bool clanOwner = snapshot.registeredProfile
-        && snapshot.clanMember
-        && snapshot.clan.ownerPeerId == snapshot.profile.peerId;
-    for (HWND control : {
-            state.clanNameEdit,
-            state.clanTagEdit,
-            state.clanCreateButton
-        }) {
-        EnableWindow(
-            control,
-            snapshot.registeredProfile && !snapshot.clanMember ? TRUE : FALSE
-        );
-    }
-    EnableWindow(
-        state.clanAcceptButton,
-        snapshot.registeredProfile
-                && !snapshot.clanMember
-                && !snapshot.clanInvitations.empty()
-            ? TRUE
-            : FALSE
-    );
-    for (HWND control : {
-            state.clanTargetEdit,
-            state.clanInviteButton,
-            state.clanRemoveButton,
-            state.clanTransferButton
-        }) {
-        EnableWindow(control, clanOwner ? TRUE : FALSE);
-    }
-    EnableWindow(
-        state.clanLeaveButton,
-        snapshot.registeredProfile && snapshot.clanMember ? TRUE : FALSE
-    );
-    if (state.window != nullptr && state.skin.productionReady) {
-        InvalidateRect(state.window, nullptr, TRUE);
-    }
-}
 
-bool nextCommunityTransaction(
-    std::uint64_t& transactionId,
-    std::string& errorMessage
-) {
-    RuntimeInternetMultiplayerMenuEntropy entropy;
-    if (!generateRuntimeInternetMultiplayerMenuEntropy(
-            entropy,
-            errorMessage
-        )) {
-        return false;
-    }
-    transactionId = entropy.queryTransactionId;
-    return transactionId != 0U;
-}
+
+
+
+
 
 RuntimeMultiplayerLobbyFlow* activeLobby(
     RuntimeInternetMultiplayerMenuUiState& state
 ) {
-    return state.flow ? state.flow->lobbyFlow() : nullptr;
+    return state.flowBackend ? state.flowBackend->lobbyFlow() : nullptr;
 }
 
-const RuntimeMultiplayerMatchSlot* localHumanSlot(
-    const RuntimeInternetMultiplayerMenuUiState& state
-) {
-    if (!state.flow || !state.flow->lobbyFlow()
-        || !state.flow->lobbyFlow()->lobby().initialized()) {
-        return nullptr;
-    }
-    return slotForPeer(
-        &state.flow->lobbyFlow()->lobby().setup(),
-        state.serviceConfig.peerId
-    );
-}
 
-bool localReady(const RuntimeInternetMultiplayerMenuUiState& state) {
-    if (!state.flow || !state.flow->lobbyFlow()
-        || !state.flow->lobbyFlow()->bridge()
-        || !state.flow->lobbyFlow()->bridge()->lan().session().active()) {
-        return false;
-    }
-    const auto& members =
-        state.flow->lobbyFlow()->bridge()->lan().session().members();
-    const auto found = std::find_if(
-        members.begin(),
-        members.end(),
-        [&](const RuntimeMultiplayerRoomMember& member) {
-            return member.peerId == state.serviceConfig.peerId;
-        }
-    );
-    return found != members.end() && found->ready;
-}
 
-void populateLocalSlotControls(
-    RuntimeInternetMultiplayerMenuUiState& state
-) {
-    const RuntimeMultiplayerMatchSlot* slot = localHumanSlot(state);
-    const bool enabled = slot != nullptr && activeLobby(state) && !activeLobby(state)->resuming();
-    for (HWND control : {
-            state.countryEdit,
-            state.colorEdit,
-            state.teamEdit,
-            state.difficultyEdit,
-            state.startPositionEdit,
-            state.applySlotButton
-        }) {
-        EnableWindow(control, enabled ? TRUE : FALSE);
-    }
-    if (!slot) return;
-    setControlText(state.countryEdit, slot->countryId);
-    setControlText(state.colorEdit, slot->colorId);
-    setControlText(state.teamEdit, slot->teamId);
-    setControlText(state.difficultyEdit, slot->difficultyId);
-    setControlText(
-        state.startPositionEdit,
-        std::to_string(static_cast<unsigned int>(slot->startPosition))
-    );
-}
 
-void updateRoster(RuntimeInternetMultiplayerMenuUiState& state) {
-    RuntimeMultiplayerLobbyFlow* lobby = activeLobby(state);
-    if (!lobby || !lobby->bridge()
-        || !lobby->bridge()->lan().session().active()) {
-        return;
-    }
-    const RuntimeMultiplayerMatchSetup* setup = lobby->lobby().initialized()
-        ? &lobby->lobby().setup()
-        : nullptr;
-    state.hosting = lobby->hostAuthoritative();
-    state.rosterRows = projectRuntimeInternetMultiplayerRosterRows(
-        lobby->bridge()->lan().session().members(),
-        setup,
-        state.serviceConfig.peerId,
-        state.hosting
-    );
-    SendMessageW(state.rosterList, LB_RESETCONTENT, 0U, 0);
-    for (const RuntimeInternetMultiplayerRosterRow& row : state.rosterRows) {
-        const std::wstring text = wideFromUtf8(row.text);
-        SendMessageW(
-            state.rosterList,
-            LB_ADDSTRING,
-            0U,
-            reinterpret_cast<LPARAM>(text.c_str())
-        );
-    }
-    const auto selected = std::find_if(
-        state.rosterRows.begin(),
-        state.rosterRows.end(),
-        [&](const RuntimeInternetMultiplayerRosterRow& row) {
-            return row.peerId == state.selectedPeerId;
-        }
-    );
-    if (selected != state.rosterRows.end()) {
-        SendMessageW(
-            state.rosterList,
-            LB_SETCURSEL,
-            static_cast<WPARAM>(std::distance(
-                state.rosterRows.begin(),
-                selected
-            )),
-            0
-        );
-    }
-    if (setup && state.displayedRevision != setup->revision) {
-        state.displayedRevision = setup->revision;
-        populateLocalSlotControls(state);
-    }
-    SetWindowTextW(
-        state.readyButton,
-        localReady(state) ? L"Unready" : L"Ready"
-    );
-    std::string resumeError;
-    const bool resumeReady = lobby->resumeReady(resumeError);
-    if (lobby->resuming()) populateLocalSlotControls(state);
-    EnableWindow(
-        state.readyButton,
-        lobby->localMapVerified() && resumeReady ? TRUE : FALSE
-    );
-    std::string startError;
-    EnableWindow(
-        state.startButton,
-        state.hosting && lobby->canStart(startError) ? TRUE : FALSE
-    );
-    const bool kickable = selected != state.rosterRows.end()
-        && selected->kickable;
-    EnableWindow(state.kickButton, kickable ? TRUE : FALSE);
-    showControl(state.startButton, state.hosting);
-}
 
-bool verifyLocalMap(
-    RuntimeInternetMultiplayerMenuUiState& state,
-    std::string& errorMessage
-) {
-    RuntimeMultiplayerLobbyFlow* lobby = activeLobby(state);
-    if (!lobby || !lobby->canonicalSetupPublished()) {
-        return fail(
-            errorMessage,
-            "Waiting for the canonical lobby setup before map verification."
-        );
-    }
-    if (!state.localMapPath.empty()) {
-        std::string currentError;
-        if (lobby->verifyLocalMap(state.localMapPath, currentError)) {
-            errorMessage.clear();
-            return true;
-        }
-        state.localMapPath.clear();
-    }
-    if (!resolveRuntimeMultiplayerMenuMap(
-            state.baseConfig,
-            lobby->lobby().setup().map,
-            state.localMapPath,
-            errorMessage
-        )) {
-        if (!lobby->hostAuthoritative())
-            return lobby->downloadMissingMap(state.baseConfig.localDataRootPath, state.localMapPath, errorMessage);
-        return false;
-    }
-    if (!lobby->verifyLocalMap(state.localMapPath, errorMessage)) {
-        state.localMapPath.clear();
-        return false;
-    }
-    return true;
-}
 
-bool applyPendingHostSlots(
-    RuntimeInternetMultiplayerMenuUiState& state,
-    std::string& errorMessage
-) {
-    if (state.pendingHostSlots.empty()) return true;
-    RuntimeMultiplayerLobbyFlow* lobby = activeLobby(state);
-    if (!lobby || !lobby->hostAuthoritative()) return true;
-    for (std::size_t index = 0U; index < state.pendingHostSlots.size();
-         ++index) {
-        std::string publishError;
-        const RuntimeMultiplayerLobbyEditResult edit = lobby->setSlot(
-            index,
-            state.pendingHostSlots[index],
-            publishError
-        );
-        if (!edit.accepted || !publishError.empty()) {
-            return fail(
-                errorMessage,
-                !publishError.empty() ? publishError : edit.reason
-            );
-        }
-    }
-    state.pendingHostSlots.clear();
-    return true;
-}
 
-void closeInternetMenu(RuntimeInternetMultiplayerMenuUiState& state) {
-    if (!state.result.accepted && state.flow) state.flow->close();
-    if (state.passwordEdit != nullptr) SetWindowTextW(state.passwordEdit, L"");
-    secureClear(state.serviceConfig.credential);
-    state.done = true;
-    if (state.window != nullptr && IsWindow(state.window)) {
-        DestroyWindow(state.window);
-    }
-}
 
-void requestCommunityLogin(RuntimeInternetMultiplayerMenuUiState& state) {
-    std::uint64_t transactionId = 0U;
-    std::string errorMessage;
-    if (!state.flow
-        || !nextCommunityTransaction(transactionId, errorMessage)
-        || !state.flow->requestCommunityLogin(
-            transactionId,
-            errorMessage
-        )) {
-        setMenuStatus(
-            state,
-            errorMessage.empty()
-                ? "Community sign-in could not start."
-                : errorMessage
-        );
-        return;
-    }
-    setMenuStatus(state, "Signing in to the Westwood Online community...");
-}
 
-void registerCommunityProfile(
-    RuntimeInternetMultiplayerMenuUiState& state
-) {
-    const std::string handle = trimAscii(controlText(state.accountHandleEdit));
-    std::uint64_t transactionId = 0U;
-    std::string errorMessage;
-    if (!state.flow
-        || !nextCommunityTransaction(transactionId, errorMessage)
-        || !state.flow->requestCommunityRegistration(
-            transactionId,
-            handle,
-            errorMessage
-        )) {
-        setMenuStatus(
-            state,
-            errorMessage.empty() ? "Profile registration failed." : errorMessage
-        );
-        return;
-    }
-    setMenuStatus(state, "Registering the authenticated community profile...");
-}
 
-void refreshCommunity(RuntimeInternetMultiplayerMenuUiState& state) {
-    std::uint64_t transactionId = 0U;
-    std::string errorMessage;
-    if (!state.flow
-        || !nextCommunityTransaction(transactionId, errorMessage)
-        || !state.flow->requestCommunityRefresh(
-            transactionId,
-            errorMessage
-        )) {
-        setMenuStatus(
-            state,
-            errorMessage.empty() ? "Community refresh failed." : errorMessage
-        );
-        return;
-    }
-    setMenuStatus(
-        state,
-        "Refreshing profile, Buddy List, Clan, ladders, and news..."
-    );
-}
 
-void joinSelectedCommunityChannel(
-    RuntimeInternetMultiplayerMenuUiState& state
-) {
-    if (!state.flow) return;
-    const LRESULT selected = SendMessageW(
-        state.channelList,
-        LB_GETCURSEL,
-        0U,
-        0
-    );
-    const auto& channels = state.flow->communitySnapshot().channels;
-    if (selected == LB_ERR
-        || static_cast<std::size_t>(selected) >= channels.size()) {
-        setMenuStatus(state, "Select a community channel first.");
-        return;
-    }
-    std::uint64_t transactionId = 0U;
-    std::string errorMessage;
-    if (!nextCommunityTransaction(transactionId, errorMessage)
-        || !state.flow->requestCommunityChannelJoin(
-            transactionId,
-            channels[static_cast<std::size_t>(selected)].channelId,
-            errorMessage
-        )) {
-        setMenuStatus(state, errorMessage);
-        return;
-    }
-    setMenuStatus(state, "Joining the selected community channel...");
-}
 
-void sendCommunityChat(RuntimeInternetMultiplayerMenuUiState& state) {
-    if (!state.flow) return;
-    const std::string message = trimAscii(controlText(state.chatEdit));
-    std::uint64_t transactionId = 0U;
-    std::string errorMessage;
-    if (!nextCommunityTransaction(transactionId, errorMessage)
-        || !state.flow->requestCommunityChannelMessage(
-            transactionId,
-            message,
-            errorMessage
-        )) {
-        setMenuStatus(
-            state,
-            errorMessage.empty() ? "Enter a chat message first." : errorMessage
-        );
-        return;
-    }
-    SetWindowTextW(state.chatEdit, L"");
-}
 
-void addCommunityFriend(RuntimeInternetMultiplayerMenuUiState& state) {
-    if (!state.flow) return;
-    const std::string target = trimAscii(controlText(state.friendEdit));
-    std::uint64_t transactionId = 0U;
-    std::string errorMessage;
-    if (!nextCommunityTransaction(transactionId, errorMessage)
-        || !state.flow->requestCommunityFriendAdd(
-            transactionId,
-            target,
-            errorMessage
-        )) {
-        setMenuStatus(
-            state,
-            errorMessage.empty() ? "Enter a Buddy handle first." : errorMessage
-        );
-        return;
-    }
-    SetWindowTextW(state.friendEdit, L"");
-    setMenuStatus(state, "Updating the Buddy List...");
-}
 
-void removeSelectedCommunityFriend(
-    RuntimeInternetMultiplayerMenuUiState& state
-) {
-    if (!state.flow) return;
-    const LRESULT selected = SendMessageW(
-        state.friendList,
-        LB_GETCURSEL,
-        0U,
-        0
-    );
-    const auto& friends = state.flow->communitySnapshot().friends;
-    if (selected == LB_ERR
-        || static_cast<std::size_t>(selected) >= friends.size()) {
-        setMenuStatus(state, "Select a Buddy to remove.");
-        return;
-    }
-    std::uint64_t transactionId = 0U;
-    std::string errorMessage;
-    if (!nextCommunityTransaction(transactionId, errorMessage)
-        || !state.flow->requestCommunityFriendRemove(
-            transactionId,
-            friends[static_cast<std::size_t>(selected)].peerId,
-            errorMessage
-        )) {
-        setMenuStatus(state, errorMessage);
-        return;
-    }
-    setMenuStatus(state, "Updating the Buddy List...");
-}
 
-void createCommunityClan(RuntimeInternetMultiplayerMenuUiState& state) {
-    if (!state.flow) return;
-    const std::string name = trimAscii(controlText(state.clanNameEdit));
-    const std::string tag = trimAscii(controlText(state.clanTagEdit));
-    std::uint64_t transactionId = 0U;
-    std::string errorMessage;
-    if (!nextCommunityTransaction(transactionId, errorMessage)
-        || !state.flow->requestCommunityClanCreate(
-            transactionId,
-            name,
-            tag,
-            errorMessage
-        )) {
-        setMenuStatus(
-            state,
-            errorMessage.empty()
-                ? "Enter a Clan name and a 2-8 character tag."
-                : errorMessage
-        );
-        return;
-    }
-    setMenuStatus(state, "Creating the Clan...");
-}
 
-void inviteCommunityClanMember(
-    RuntimeInternetMultiplayerMenuUiState& state
-) {
-    if (!state.flow) return;
-    const std::string target = trimAscii(controlText(state.clanTargetEdit));
-    std::uint64_t transactionId = 0U;
-    std::string errorMessage;
-    if (!nextCommunityTransaction(transactionId, errorMessage)
-        || !state.flow->requestCommunityClanInvite(
-            transactionId,
-            target,
-            errorMessage
-        )) {
-        setMenuStatus(
-            state,
-            errorMessage.empty() ? "Enter a member handle first." : errorMessage
-        );
-        return;
-    }
-    SetWindowTextW(state.clanTargetEdit, L"");
-    setMenuStatus(state, "Sending the Clan invitation...");
-}
 
-void acceptSelectedCommunityClanInvitation(
-    RuntimeInternetMultiplayerMenuUiState& state
-) {
-    if (!state.flow) return;
-    const LRESULT selected = SendMessageW(
-        state.clanInvitationList,
-        LB_GETCURSEL,
-        0U,
-        0
-    );
-    const auto& invitations =
-        state.flow->communitySnapshot().clanInvitations;
-    if (selected == LB_ERR
-        || static_cast<std::size_t>(selected) >= invitations.size()) {
-        setMenuStatus(state, "Select a Clan invitation to accept.");
-        return;
-    }
-    std::uint64_t transactionId = 0U;
-    std::string errorMessage;
-    if (!nextCommunityTransaction(transactionId, errorMessage)
-        || !state.flow->requestCommunityClanInvitationAccept(
-            transactionId,
-            invitations[static_cast<std::size_t>(selected)].clanId,
-            errorMessage
-        )) {
-        setMenuStatus(state, errorMessage);
-        return;
-    }
-    setMenuStatus(state, "Accepting the Clan invitation...");
-}
 
-void removeSelectedCommunityClanMember(
-    RuntimeInternetMultiplayerMenuUiState& state
-) {
-    if (!state.flow) return;
-    const LRESULT selected = SendMessageW(
-        state.clanMemberList,
-        LB_GETCURSEL,
-        0U,
-        0
-    );
-    const auto& members = state.flow->communitySnapshot().clanMembers;
-    if (selected == LB_ERR
-        || static_cast<std::size_t>(selected) >= members.size()) {
-        setMenuStatus(state, "Select a Clan member to remove.");
-        return;
-    }
-    std::uint64_t transactionId = 0U;
-    std::string errorMessage;
-    if (!nextCommunityTransaction(transactionId, errorMessage)
-        || !state.flow->requestCommunityClanMemberRemove(
-            transactionId,
-            members[static_cast<std::size_t>(selected)].peerId,
-            errorMessage
-        )) {
-        setMenuStatus(state, errorMessage);
-        return;
-    }
-    setMenuStatus(state, "Removing the selected Clan member...");
-}
 
-void transferCommunityClanOwnership(
-    RuntimeInternetMultiplayerMenuUiState& state
-) {
-    if (!state.flow) return;
-    const LRESULT selected = SendMessageW(
-        state.clanMemberList,
-        LB_GETCURSEL,
-        0U,
-        0
-    );
-    const auto& members = state.flow->communitySnapshot().clanMembers;
-    if (selected == LB_ERR
-        || static_cast<std::size_t>(selected) >= members.size()) {
-        setMenuStatus(state, "Select the new Clan owner.");
-        return;
-    }
-    std::uint64_t transactionId = 0U;
-    std::string errorMessage;
-    if (!nextCommunityTransaction(transactionId, errorMessage)
-        || !state.flow->requestCommunityClanOwnershipTransfer(
-            transactionId,
-            members[static_cast<std::size_t>(selected)].peerId,
-            errorMessage
-        )) {
-        setMenuStatus(state, errorMessage);
-        return;
-    }
-    setMenuStatus(state, "Transferring Clan ownership...");
-}
 
-void leaveCommunityClan(RuntimeInternetMultiplayerMenuUiState& state) {
-    if (!state.flow) return;
-    std::uint64_t transactionId = 0U;
-    std::string errorMessage;
-    if (!nextCommunityTransaction(transactionId, errorMessage)
-        || !state.flow->requestCommunityClanLeave(
-            transactionId,
-            errorMessage
-        )) {
-        setMenuStatus(state, errorMessage);
-        return;
-    }
-    setMenuStatus(state, "Leaving the Clan...");
-}
 
-bool beginRoomRefresh(
-    RuntimeInternetMultiplayerMenuUiState& state,
-    std::string& errorMessage
-) {
-    RuntimeInternetMultiplayerMenuEntropy entropy;
-    RuntimeInternetLobbyQueryOptions query;
-    if (!generateRuntimeInternetMultiplayerMenuEntropy(entropy, errorMessage)
-        || !makeRuntimeInternetMultiplayerQueryOptions(
-            state.serviceConfig,
-            state.compatibility,
-            entropy.queryTransactionId,
-            query,
-            errorMessage
-        )
-        || !state.flow->beginRoomQuery(
-            std::move(query),
-            internetMenuNowMilliseconds(),
-            errorMessage
-        )) {
-        return false;
-    }
-    state.rooms.clear();
-    SendMessageW(state.roomList, LB_RESETCONTENT, 0U, 0);
-    setMenuStatus(state, "Refreshing formal Internet rooms...");
-    updateConnectionText(state);
-    return true;
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 bool selectHostSetup(
     RuntimeInternetMultiplayerMenuUiState& state,
@@ -3190,308 +2276,23 @@ bool selectHostSetup(
     );
 }
 
-void beginHost(RuntimeInternetMultiplayerMenuUiState& state, bool fromSave = false) {
-    std::string errorMessage;
-    RuntimeInternetMultiplayerMenuEntropy entropy;
-    RuntimeMultiplayerHostSelectionProjection projection;
-    std::shared_ptr<RuntimeMultiplayerResumeSave> resumeSave;
-    const std::string displayName = communityDisplayName(state);
-    if (fromSave) {
-        resumeSave = std::make_shared<RuntimeMultiplayerResumeSave>();
-        if (!selectRuntimeMultiplayerResumeSave(state.baseConfig, state.compatibility, state.serviceConfig.peerId,
-            state.serviceConfig.peerId, state.window, *resumeSave, projection, errorMessage)) {
-            setMenuStatus(state, errorMessage);return;
-        }
-    }
-    if (!generateRuntimeInternetMultiplayerMenuEntropy(entropy, errorMessage)
-        || (!fromSave && !selectHostSetup(
-            state,
-            displayName,
-            entropy,
-            projection,
-            errorMessage
-        ))) {
-        setMenuStatus(state, errorMessage);
-        return;
-    }
-    RuntimeInternetLobbyHostOptions host;
-    if (!makeRuntimeInternetMultiplayerHostOptions(
-            state.serviceConfig,
-            state.compatibility,
-            projection,
-            controlText(state.roomNameEdit),
-            controlText(state.passwordEdit),
-            entropy,
-            host,
-            errorMessage,
-            resumeSave
-        )
-        || !state.flow->startHost(
-            std::move(host),
-            internetMenuNowMilliseconds(),
-            errorMessage
-        )) {
-        setMenuStatus(state, errorMessage);
-        return;
-    }
-    state.pendingHostSlots = fromSave ? std::vector<RuntimeMultiplayerMatchSlot>{} : projection.slots;
-    SetWindowTextW(state.passwordEdit, L"");
-    state.localMapPath = projection.localMapPath;
-    state.hosting = true;
-    if (!applyPendingHostSlots(state, errorMessage)) {
-        state.flow->close();
-        setMenuStatus(state, errorMessage);
-        return;
-    }
-    showInternetMenuPage(state, InternetMenuPage::Lobby);
-    if (verifyLocalMap(state, errorMessage)) {
-        setMenuStatus(
-            state,
-            fromSave ? "恢复房间已建立。等待原有席位到齐并接收存档；房主可选中玩家交换席位。"
-                : "Room is registered through the TLS service. Waiting for players."
-        );
-    } else {
-        setMenuStatus(state, errorMessage);
-    }
-    updateRoster(state);
-}
 
-void joinSelectedRoom(RuntimeInternetMultiplayerMenuUiState& state) {
-    const LRESULT selected = SendMessageW(
-        state.roomList,
-        LB_GETCURSEL,
-        0U,
-        0
-    );
-    if (selected == LB_ERR
-        || static_cast<std::size_t>(selected) >= state.rooms.size()) {
-        setMenuStatus(state, "Select a formal Internet room first.");
-        return;
-    }
-    std::string errorMessage;
-    RuntimeInternetMultiplayerMenuEntropy entropy;
-    RuntimeInternetLobbyJoinOptions joining;
-    const bool spectator = SendMessageW(
-        state.spectatorCheck,
-        BM_GETCHECK,
-        0U,
-        0
-    ) == BST_CHECKED;
-    if (!generateRuntimeInternetMultiplayerMenuEntropy(entropy, errorMessage)
-        || !makeRuntimeInternetMultiplayerJoinOptions(
-            state.serviceConfig,
-            state.compatibility,
-            state.rooms[static_cast<std::size_t>(selected)],
-            controlText(state.playerNameEdit),
-            controlText(state.passwordEdit),
-            spectator,
-            entropy.joinTransactionId,
-            joining,
-            errorMessage
-        )
-        || !state.flow->join(
-            std::move(joining),
-            internetMenuNowMilliseconds(),
-            errorMessage
-        )) {
-        setMenuStatus(state, errorMessage);
-        return;
-    }
-    state.hosting = false;
-    SetWindowTextW(state.passwordEdit, L"");
-    state.localMapPath.clear();
-    state.pendingHostSlots.clear();
-    showInternetMenuPage(state, InternetMenuPage::Lobby);
-    setMenuStatus(
-        state,
-        "Opening the authenticated TCP relay and joining the canonical lobby..."
-    );
-}
 
-void beginQuickMatch(RuntimeInternetMultiplayerMenuUiState& state) {
-    std::string errorMessage;
-    std::string displayName = communityDisplayName(state);
-    if (!displayText(
-            displayName,
-            runtimeInternetMatchmakingMaximumDisplayNameBytes,
-            "Quick Match display name",
-            errorMessage
-        )) {
-        setMenuStatus(state, errorMessage);
-        return;
-    }
-    RuntimeInternetMultiplayerMenuEntropy entropy;
-    RuntimeMultiplayerHostSelectionProjection projection;
-    if (!generateRuntimeInternetMultiplayerMenuEntropy(entropy, errorMessage)
-        || !selectHostSetup(
-            state,
-            displayName,
-            entropy,
-            projection,
-            errorMessage
-        )) {
-        setMenuStatus(state, errorMessage);
-        return;
-    }
 
-    // A two-player queue always exposes one human host and one free human
-    // position. Authored map/rules remain selected, while local AI choices do
-    // not silently change the queue's promised player count.
-    projection.lobby.computerSlotIndices.clear();
-    std::vector<RuntimeMultiplayerMatchSlot> quickSlots = projection.slots;
-    for (std::size_t index = 1U; index < quickSlots.size(); ++index) {
-        quickSlots[index] = RuntimeMultiplayerMatchSlot{};
-        quickSlots[index].slotIndex = static_cast<std::uint8_t>(index);
-        quickSlots[index].controller =
-            RuntimeMultiplayerMatchSlotController::Closed;
-    }
 
-    RuntimeInternetLobbyMatchmakingOptions matching;
-    const std::int32_t skillRating = state.flow
-            && state.flow->communitySnapshot().registeredProfile
-        ? state.flow->communitySnapshot().profile.points
-        : 1000;
-    if (!makeRuntimeInternetMultiplayerMatchmakingOptions(
-            state.serviceConfig,
-            state.compatibility,
-            projection,
-            displayName,
-            skillRating,
-            entropy,
-            matching,
-            errorMessage
-        )
-        || !state.flow->beginMatchmaking(
-            std::move(matching),
-            internetMenuNowMilliseconds(),
-            errorMessage
-        )) {
-        setMenuStatus(state, errorMessage);
-        return;
-    }
-    state.pendingHostSlots = std::move(quickSlots);
-    SetWindowTextW(state.passwordEdit, L"");
-    state.localMapPath = projection.localMapPath;
-    state.hosting = false;
-    setMenuStatus(
-        state,
-        "Quick Match queued for exactly two authenticated players..."
-    );
-}
 
-void applyLocalOptions(RuntimeInternetMultiplayerMenuUiState& state) {
-    RuntimeMultiplayerLobbyFlow* lobby = activeLobby(state);
-    const RuntimeMultiplayerMatchSlot* slot = localHumanSlot(state);
-    if (!lobby || !slot) {
-        setMenuStatus(state, "Spectators do not own a player slot.");
-        return;
-    }
-    const std::string startText = trimAscii(
-        controlText(state.startPositionEdit)
-    );
-    if (startText.size() != 1U || startText.front() < '0'
-        || startText.front() > '8') {
-        setMenuStatus(state, "Start position must be one digit from 0 to 8.");
-        return;
-    }
-    const std::uint8_t start = static_cast<std::uint8_t>(
-        startText.front() - '0'
-    );
-    if (lobby->hostAuthoritative()) {
-        std::string publishError;
-        const RuntimeMultiplayerLobbyEditResult edit = lobby->setSlotOptions(
-            slot->slotIndex,
-            trimAscii(controlText(state.countryEdit)),
-            trimAscii(controlText(state.colorEdit)),
-            trimAscii(controlText(state.teamEdit)),
-            trimAscii(controlText(state.difficultyEdit)),
-            start,
-            publishError
-        );
-        if (!edit.accepted || !publishError.empty()) {
-            setMenuStatus(
-                state,
-                !publishError.empty() ? publishError : edit.reason
-            );
-            return;
-        }
-        setMenuStatus(state, "Canonical player setup updated.");
-    } else {
-        const RuntimeMultiplayerLanOperationResult result =
-            lobby->requestLocalSlotOptions(
-                trimAscii(controlText(state.countryEdit)),
-                trimAscii(controlText(state.colorEdit)),
-                trimAscii(controlText(state.teamEdit)),
-                trimAscii(controlText(state.difficultyEdit)),
-                start
-            );
-        if (!result.succeeded) {
-            setMenuStatus(state, result.reason);
-            return;
-        }
-        setMenuStatus(state, "Player setup request sent to the host...");
-    }
-    updateRoster(state);
-}
 
-void toggleReady(RuntimeInternetMultiplayerMenuUiState& state) {
-    RuntimeMultiplayerLobbyFlow* lobby = activeLobby(state);
-    if (!lobby) return;
-    const RuntimeMultiplayerLanOperationResult result = lobby->setReady(
-        !localReady(state)
-    );
-    if (!result.succeeded) {
-        setMenuStatus(state, result.reason);
-        return;
-    }
-    setMenuStatus(
-        state,
-        result.queued ? "Ready change sent to host..."
-                      : "Ready state updated."
-    );
-    updateRoster(state);
-}
 
-void kickSelected(RuntimeInternetMultiplayerMenuUiState& state) {
-    RuntimeMultiplayerLobbyFlow* lobby = activeLobby(state);
-    const auto selected = std::find_if(
-        state.rosterRows.begin(),
-        state.rosterRows.end(),
-        [&](const RuntimeInternetMultiplayerRosterRow& row) {
-            return row.peerId == state.selectedPeerId && row.kickable;
-        }
-    );
-    if (!lobby || selected == state.rosterRows.end()) {
-        setMenuStatus(state, "Select a remote lobby member first.");
-        return;
-    }
-    const RuntimeMultiplayerLanOperationResult result = lobby->kickPeer(
-        selected->peerId,
-        "removed by the Internet room host"
-    );
-    if (!result.succeeded) {
-        setMenuStatus(state, result.reason);
-        return;
-    }
-    state.selectedPeerId.clear();
-    setMenuStatus(state, "Selected remote lobby member was removed.");
-    updateRoster(state);
-}
 
-void startInternetMatch(RuntimeInternetMultiplayerMenuUiState& state) {
-    RuntimeMultiplayerLobbyFlow* lobby = activeLobby(state);
-    if (!lobby) return;
-    const RuntimeMultiplayerLanOperationResult result = lobby->startMatch();
-    if (!result.succeeded) {
-        setMenuStatus(state, result.reason);
-        return;
-    }
-    setMenuStatus(state, "Starting the verified Internet match...");
-}
+
+
+
+
+
 
 void finishInternetMatch(RuntimeInternetMultiplayerMenuUiState& state) {
     RuntimeMultiplayerLobbyFlow* lobby = activeLobby(state);
-    if (!lobby || !state.flow) return;
+    if (!lobby || !state.flowBackend) return;
     RuntimeMultiplayerLaunchConfigResult launch;
     std::string errorMessage;
     if (!lobby->makeLaunchConfig(
@@ -3503,7 +2304,7 @@ void finishInternetMatch(RuntimeInternetMultiplayerMenuUiState& state) {
         return;
     }
     std::unique_ptr<RuntimeMultiplayerRuntimeBridge> bridge =
-        state.flow->takeRunningBridge(errorMessage);
+        state.flowBackend->takeRunningBridge(errorMessage);
     if (!bridge) {
         setMenuStatus(state, errorMessage);
         return;
@@ -3519,182 +2320,185 @@ void finishInternetMatch(RuntimeInternetMultiplayerMenuUiState& state) {
     closeInternetMenu(state);
 }
 
-void showKickedPage(
-    RuntimeInternetMultiplayerMenuUiState& state,
-    std::string reason
-) {
-    state.hosting = false;
-    state.selectedPeerId.clear();
-    state.pendingHostSlots.clear();
-    if (state.flow) state.flow->close();
-    showInternetMenuPage(state, InternetMenuPage::Kicked);
-    setMenuStatus(
-        state,
-        reason.empty()
-            ? "You were removed from the Internet lobby by its host."
-            : "You were removed from the Internet lobby: " + reason
-    );
+
+
+
+
+bool RuntimeInternetMultiplayerMenuUiState::beginRoomQuery(RuntimeInternetLobbyQueryOptions&& options, std::uint64_t nowMilliseconds, std::string& errorMessage) { return flowBackend->beginRoomQuery(std::move(options), nowMilliseconds, errorMessage); }
+bool RuntimeInternetMultiplayerMenuUiState::beginMatchmaking(RuntimeInternetLobbyMatchmakingOptions&& options, std::uint64_t nowMilliseconds, std::string& errorMessage) { return flowBackend->beginMatchmaking(std::move(options), nowMilliseconds, errorMessage); }
+bool RuntimeInternetMultiplayerMenuUiState::startHost(RuntimeInternetLobbyHostOptions&& options, std::uint64_t nowMilliseconds, std::string& errorMessage) { return flowBackend->startHost(std::move(options), nowMilliseconds, errorMessage); }
+bool RuntimeInternetMultiplayerMenuUiState::join(RuntimeInternetLobbyJoinOptions&& options, std::uint64_t nowMilliseconds, std::string& errorMessage) { return flowBackend->join(std::move(options), nowMilliseconds, errorMessage); }
+bool RuntimeInternetMultiplayerMenuUiState::requestCommunityLogin(std::uint64_t transactionId, std::string& errorMessage) { return flowBackend->requestCommunityLogin(transactionId, errorMessage); }
+bool RuntimeInternetMultiplayerMenuUiState::requestCommunityRegistration(std::uint64_t transactionId, const std::string& displayName, std::string& errorMessage) { return flowBackend->requestCommunityRegistration(transactionId, displayName, errorMessage); }
+bool RuntimeInternetMultiplayerMenuUiState::requestCommunityRefresh(std::uint64_t transactionId, std::string& errorMessage) { return flowBackend->requestCommunityRefresh(transactionId, errorMessage); }
+bool RuntimeInternetMultiplayerMenuUiState::requestCommunityChannelJoin(std::uint64_t transactionId, const std::string& channelId, std::string& errorMessage) { return flowBackend->requestCommunityChannelJoin(transactionId, channelId, errorMessage); }
+bool RuntimeInternetMultiplayerMenuUiState::requestCommunityChannelMessage(std::uint64_t transactionId, const std::string& text, std::string& errorMessage) { return flowBackend->requestCommunityChannelMessage(transactionId, text, errorMessage); }
+bool RuntimeInternetMultiplayerMenuUiState::requestCommunityFriendAdd(std::uint64_t transactionId, const std::string& handleOrPeerId, std::string& errorMessage) { return flowBackend->requestCommunityFriendAdd(transactionId, handleOrPeerId, errorMessage); }
+bool RuntimeInternetMultiplayerMenuUiState::requestCommunityFriendRemove(std::uint64_t transactionId, const std::string& peerId, std::string& errorMessage) { return flowBackend->requestCommunityFriendRemove(transactionId, peerId, errorMessage); }
+bool RuntimeInternetMultiplayerMenuUiState::requestCommunityClanCreate(std::uint64_t transactionId, const std::string& clanName, const std::string& clanTag, std::string& errorMessage) { return flowBackend->requestCommunityClanCreate(transactionId, clanName, clanTag, errorMessage); }
+bool RuntimeInternetMultiplayerMenuUiState::requestCommunityClanInvite(std::uint64_t transactionId, const std::string& handleOrPeerId, std::string& errorMessage) { return flowBackend->requestCommunityClanInvite(transactionId, handleOrPeerId, errorMessage); }
+bool RuntimeInternetMultiplayerMenuUiState::requestCommunityClanInvitationAccept(std::uint64_t transactionId, const std::string& clanId, std::string& errorMessage) { return flowBackend->requestCommunityClanInvitationAccept(transactionId, clanId, errorMessage); }
+bool RuntimeInternetMultiplayerMenuUiState::requestCommunityClanMemberRemove(std::uint64_t transactionId, const std::string& peerId, std::string& errorMessage) { return flowBackend->requestCommunityClanMemberRemove(transactionId, peerId, errorMessage); }
+bool RuntimeInternetMultiplayerMenuUiState::requestCommunityClanLeave(std::uint64_t transactionId, std::string& errorMessage) { return flowBackend->requestCommunityClanLeave(transactionId, errorMessage); }
+bool RuntimeInternetMultiplayerMenuUiState::requestCommunityClanOwnershipTransfer(std::uint64_t transactionId, const std::string& peerId, std::string& errorMessage) { return flowBackend->requestCommunityClanOwnershipTransfer(transactionId, peerId, errorMessage); }
+RuntimeInternetLobbyFlowPollResult RuntimeInternetMultiplayerMenuUiState::poll(std::uint64_t nowMilliseconds, int transportTimeoutMilliseconds) { return flowBackend->poll(nowMilliseconds, transportTimeoutMilliseconds); }
+RuntimeInternetLobbyFlowMode RuntimeInternetMultiplayerMenuUiState::mode() const { return flowBackend->mode(); }
+const std::vector<RuntimeInternetRoomRecord>& RuntimeInternetMultiplayerMenuUiState::rooms() const { return flowBackend->rooms(); }
+RuntimeInternetConnectionState RuntimeInternetMultiplayerMenuUiState::primaryConnectionState() const { return flowBackend->primaryConnectionState(); }
+const RuntimeInternetCommunitySnapshot& RuntimeInternetMultiplayerMenuUiState::communitySnapshot() const { return flowBackend->communitySnapshot(); }
+const std::vector<RuntimeInternetRankedRecord>& RuntimeInternetMultiplayerMenuUiState::communityMatchHistory() const { return flowBackend->communityMatchHistory(); }
+void RuntimeInternetMultiplayerMenuUiState::close() noexcept { flowBackend->close(); }
+bool RuntimeInternetMultiplayerMenuUiState::present() const { return flowBackend != nullptr; }
+bool RuntimeInternetMultiplayerMenuUiState::transportPresent() const { return transport != nullptr; }
+bool RuntimeInternetMultiplayerMenuUiState::coordinatorAuthenticated() const { return transport->coordinatorAuthenticated(); }
+
+HWND RuntimeInternetMultiplayerMenuUiState::widgetHandle(RuntimeInternetMenuWidget widget) const {
+    switch(widget) {
+    case RuntimeInternetMenuWidget::hostWindow: return hostWindow;
+    case RuntimeInternetMenuWidget::window: return window;
+    case RuntimeInternetMenuWidget::playerNameLabel: return playerNameLabel;
+    case RuntimeInternetMenuWidget::playerNameEdit: return playerNameEdit;
+    case RuntimeInternetMenuWidget::roomNameLabel: return roomNameLabel;
+    case RuntimeInternetMenuWidget::roomNameEdit: return roomNameEdit;
+    case RuntimeInternetMenuWidget::passwordLabel: return passwordLabel;
+    case RuntimeInternetMenuWidget::passwordEdit: return passwordEdit;
+    case RuntimeInternetMenuWidget::refreshButton: return refreshButton;
+    case RuntimeInternetMenuWidget::hostButton: return hostButton;
+    case RuntimeInternetMenuWidget::resumeHostButton: return resumeHostButton;
+    case RuntimeInternetMenuWidget::resumeSwapButton: return resumeSwapButton;
+    case RuntimeInternetMenuWidget::joinButton: return joinButton;
+    case RuntimeInternetMenuWidget::spectatorCheck: return spectatorCheck;
+    case RuntimeInternetMenuWidget::quickMatchButton: return quickMatchButton;
+    case RuntimeInternetMenuWidget::roomList: return roomList;
+    case RuntimeInternetMenuWidget::rosterList: return rosterList;
+    case RuntimeInternetMenuWidget::countryLabel: return countryLabel;
+    case RuntimeInternetMenuWidget::countryEdit: return countryEdit;
+    case RuntimeInternetMenuWidget::colorLabel: return colorLabel;
+    case RuntimeInternetMenuWidget::colorEdit: return colorEdit;
+    case RuntimeInternetMenuWidget::teamLabel: return teamLabel;
+    case RuntimeInternetMenuWidget::teamEdit: return teamEdit;
+    case RuntimeInternetMenuWidget::difficultyLabel: return difficultyLabel;
+    case RuntimeInternetMenuWidget::difficultyEdit: return difficultyEdit;
+    case RuntimeInternetMenuWidget::startPositionLabel: return startPositionLabel;
+    case RuntimeInternetMenuWidget::startPositionEdit: return startPositionEdit;
+    case RuntimeInternetMenuWidget::applySlotButton: return applySlotButton;
+    case RuntimeInternetMenuWidget::readyButton: return readyButton;
+    case RuntimeInternetMenuWidget::startButton: return startButton;
+    case RuntimeInternetMenuWidget::kickButton: return kickButton;
+    case RuntimeInternetMenuWidget::leaveButton: return leaveButton;
+    case RuntimeInternetMenuWidget::statusText: return statusText;
+    case RuntimeInternetMenuWidget::connectionText: return connectionText;
+    case RuntimeInternetMenuWidget::navCommunityButton: return navCommunityButton;
+    case RuntimeInternetMenuWidget::navGamesButton: return navGamesButton;
+    case RuntimeInternetMenuWidget::navLadderButton: return navLadderButton;
+    case RuntimeInternetMenuWidget::navNewsButton: return navNewsButton;
+    case RuntimeInternetMenuWidget::profileSummaryText: return profileSummaryText;
+    case RuntimeInternetMenuWidget::accountTitleText: return accountTitleText;
+    case RuntimeInternetMenuWidget::accountDescriptionText: return accountDescriptionText;
+    case RuntimeInternetMenuWidget::accountHandleLabel: return accountHandleLabel;
+    case RuntimeInternetMenuWidget::accountHandleEdit: return accountHandleEdit;
+    case RuntimeInternetMenuWidget::accountRegisterButton: return accountRegisterButton;
+    case RuntimeInternetMenuWidget::channelLabel: return channelLabel;
+    case RuntimeInternetMenuWidget::channelList: return channelList;
+    case RuntimeInternetMenuWidget::channelJoinButton: return channelJoinButton;
+    case RuntimeInternetMenuWidget::chatLabel: return chatLabel;
+    case RuntimeInternetMenuWidget::chatList: return chatList;
+    case RuntimeInternetMenuWidget::chatEdit: return chatEdit;
+    case RuntimeInternetMenuWidget::chatSendButton: return chatSendButton;
+    case RuntimeInternetMenuWidget::participantLabel: return participantLabel;
+    case RuntimeInternetMenuWidget::participantList: return participantList;
+    case RuntimeInternetMenuWidget::friendLabel: return friendLabel;
+    case RuntimeInternetMenuWidget::friendList: return friendList;
+    case RuntimeInternetMenuWidget::friendEdit: return friendEdit;
+    case RuntimeInternetMenuWidget::friendAddButton: return friendAddButton;
+    case RuntimeInternetMenuWidget::friendRemoveButton: return friendRemoveButton;
+    case RuntimeInternetMenuWidget::ladderTitleText: return ladderTitleText;
+    case RuntimeInternetMenuWidget::ladderList: return ladderList;
+    case RuntimeInternetMenuWidget::clanSummaryText: return clanSummaryText;
+    case RuntimeInternetMenuWidget::clanMemberList: return clanMemberList;
+    case RuntimeInternetMenuWidget::clanInvitationList: return clanInvitationList;
+    case RuntimeInternetMenuWidget::clanNameEdit: return clanNameEdit;
+    case RuntimeInternetMenuWidget::clanTagEdit: return clanTagEdit;
+    case RuntimeInternetMenuWidget::clanCreateButton: return clanCreateButton;
+    case RuntimeInternetMenuWidget::clanTargetEdit: return clanTargetEdit;
+    case RuntimeInternetMenuWidget::clanInviteButton: return clanInviteButton;
+    case RuntimeInternetMenuWidget::clanAcceptButton: return clanAcceptButton;
+    case RuntimeInternetMenuWidget::clanRemoveButton: return clanRemoveButton;
+    case RuntimeInternetMenuWidget::clanTransferButton: return clanTransferButton;
+    case RuntimeInternetMenuWidget::clanLeaveButton: return clanLeaveButton;
+    case RuntimeInternetMenuWidget::clanLadderTitleText: return clanLadderTitleText;
+    case RuntimeInternetMenuWidget::clanLadderList: return clanLadderList;
+    case RuntimeInternetMenuWidget::communityRefreshButton: return communityRefreshButton;
+    case RuntimeInternetMenuWidget::newsTitleText: return newsTitleText;
+    case RuntimeInternetMenuWidget::newsList: return newsList;
+    case RuntimeInternetMenuWidget::newsDetail: return newsDetail;
+    case RuntimeInternetMenuWidget::matchHistoryButton: return matchHistoryButton;
+    case RuntimeInternetMenuWidget::matchHistoryBackButton: return matchHistoryBackButton;
+    case RuntimeInternetMenuWidget::matchHistoryList: return matchHistoryList;
+    case RuntimeInternetMenuWidget::matchHistoryDetail: return matchHistoryDetail;
+    }
+    return nullptr;
 }
-
-void pollInternetMenu(RuntimeInternetMultiplayerMenuUiState& state) {
-    if (!state.flow) return;
-    if (state.page == InternetMenuPage::Kicked) {
-        updateConnectionText(state);
-        return;
+void RuntimeInternetMultiplayerMenuUiState::showWidget(RuntimeInternetMenuWidget widget,bool visible) { showControl(widgetHandle(widget),visible); }
+void RuntimeInternetMultiplayerMenuUiState::enableWidget(RuntimeInternetMenuWidget widget,bool enabled) { EnableWindow(widgetHandle(widget),enabled?TRUE:FALSE); }
+std::string RuntimeInternetMultiplayerMenuUiState::text(RuntimeInternetMenuWidget widget) const { return controlText(widgetHandle(widget)); }
+void RuntimeInternetMultiplayerMenuUiState::setText(RuntimeInternetMenuWidget widget,std::string_view value) { setControlText(widgetHandle(widget),value); }
+bool RuntimeInternetMultiplayerMenuUiState::hasWidget(RuntimeInternetMenuWidget widget) const { return widgetHandle(widget)!=nullptr; }
+bool RuntimeInternetMultiplayerMenuUiState::checked(RuntimeInternetMenuWidget widget) const { return SendMessageW(widgetHandle(widget),BM_GETCHECK,0U,0)==BST_CHECKED; }
+void RuntimeInternetMultiplayerMenuUiState::clearText(RuntimeInternetMenuWidget widget) { SetWindowTextW(widgetHandle(widget),L""); }
+void RuntimeInternetMultiplayerMenuUiState::listClear(RuntimeInternetMenuWidget widget) { SendMessageW(widgetHandle(widget),LB_RESETCONTENT,0U,0); }
+void RuntimeInternetMultiplayerMenuUiState::listAdd(RuntimeInternetMenuWidget widget,const std::string& value) { const std::wstring wide=wideFromUtf8(value);SendMessageW(widgetHandle(widget),LB_ADDSTRING,0U,reinterpret_cast<LPARAM>(wide.c_str())); }
+void RuntimeInternetMultiplayerMenuUiState::replaceRows(RuntimeInternetMenuWidget widget,std::span<const std::string> rows) { replaceListRows(widgetHandle(widget),rows); }
+std::int64_t RuntimeInternetMultiplayerMenuUiState::listSelected(RuntimeInternetMenuWidget widget) const { return static_cast<std::int64_t>(SendMessageW(widgetHandle(widget),LB_GETCURSEL,0U,0)); }
+void RuntimeInternetMultiplayerMenuUiState::listSelect(RuntimeInternetMenuWidget widget,std::int64_t index) { SendMessageW(widgetHandle(widget),LB_SETCURSEL,static_cast<WPARAM>(index),0); }
+void RuntimeInternetMultiplayerMenuUiState::listTop(RuntimeInternetMenuWidget widget,std::size_t index) { SendMessageW(widgetHandle(widget),LB_SETTOPINDEX,static_cast<WPARAM>(index),0); }
+void RuntimeInternetMultiplayerMenuUiState::readyLabel(bool ready) { SetWindowTextW(readyButton,ready?L"Unready":L"Ready"); }
+void RuntimeInternetMultiplayerMenuUiState::leaveLabel(RuntimeInternetLeaveLabel label) { SetWindowTextW(leaveButton,label==RuntimeInternetLeaveLabel::Close?L"Close":label==RuntimeInternetLeaveLabel::LeaveRoom?L"Leave Room":L"Main Menu"); }
+void RuntimeInternetMultiplayerMenuUiState::invalidateSkinned() { if(window!=nullptr&&skin.productionReady)InvalidateRect(window,nullptr,TRUE); }
+void RuntimeInternetMultiplayerMenuUiState::invalidateSkin() { if(skin.productionReady)InvalidateRect(window,nullptr,TRUE); }
+void RuntimeInternetMultiplayerMenuUiState::destroyWindow() { if(window!=nullptr&&IsWindow(window))DestroyWindow(window); }
+bool RuntimeInternetMultiplayerMenuUiState::accepted() const { return result.accepted; }
+const std::string& RuntimeInternetMultiplayerMenuUiState::peerId() const { return serviceConfig.peerId; }
+std::uint64_t RuntimeInternetMultiplayerMenuUiState::nowMs() const { return internetMenuNowMilliseconds(*this); }
+void RuntimeInternetMultiplayerMenuUiState::clearCredentials() { secureClear(serviceConfig.credential); }
+bool RuntimeInternetMultiplayerMenuUiState::entropy(RuntimeInternetMultiplayerMenuEntropy& value,std::string& error) { return generateRuntimeInternetMultiplayerMenuEntropy(value,error); }
+std::string RuntimeInternetMultiplayerMenuUiState::trim(std::string&& value) const { return trimAscii(std::move(value)); }
+bool RuntimeInternetMultiplayerMenuUiState::validateDisplayText(std::string& value,std::size_t maximum,std::string_view field,std::string& error) { return displayText(value,maximum,field,error); }
+const RuntimeMultiplayerMatchSlot* RuntimeInternetMultiplayerMenuUiState::slotForPeer(const RuntimeMultiplayerMatchSetup* setup,std::string_view peer) const { return ::slotForPeer(setup,peer); }
+bool RuntimeInternetMultiplayerMenuUiState::queryOptions(const RuntimeMultiplayerCompatibility& compatibility,std::uint64_t transaction,RuntimeInternetLobbyQueryOptions& options,std::string& error) { return makeRuntimeInternetMultiplayerQueryOptions(serviceConfig,compatibility,transaction,options,error); }
+bool RuntimeInternetMultiplayerMenuUiState::hostOptions(const RuntimeMultiplayerCompatibility& compatibility,const RuntimeMultiplayerHostSelectionProjection& projection,const RuntimeInternetMultiplayerMenuEntropy& entropy,RuntimeInternetLobbyHostOptions& options,std::string& error,const std::shared_ptr<RuntimeMultiplayerResumeSave>& resume) { return makeRuntimeInternetMultiplayerHostOptions(serviceConfig,compatibility,projection,controlText(roomNameEdit),controlText(passwordEdit),entropy,options,error,resume); }
+bool RuntimeInternetMultiplayerMenuUiState::joinOptions(const RuntimeMultiplayerCompatibility& compatibility,const RuntimeInternetRoomRecord& room,bool spectator,std::uint64_t transaction,RuntimeInternetLobbyJoinOptions& options,std::string& error) { return makeRuntimeInternetMultiplayerJoinOptions(serviceConfig,compatibility,room,controlText(playerNameEdit),controlText(passwordEdit),spectator,transaction,options,error); }
+bool RuntimeInternetMultiplayerMenuUiState::matchmakingOptions(const RuntimeMultiplayerCompatibility& compatibility,const RuntimeMultiplayerHostSelectionProjection& projection,const std::string& player,std::int32_t rating,const RuntimeInternetMultiplayerMenuEntropy& entropy,RuntimeInternetLobbyMatchmakingOptions& options,std::string& error) { return makeRuntimeInternetMultiplayerMatchmakingOptions(serviceConfig,compatibility,projection,player,rating,entropy,options,error); }
+bool RuntimeInternetMultiplayerMenuUiState::selectHostSetup(const std::string& player,const RuntimeInternetMultiplayerMenuEntropy& entropy,RuntimeMultiplayerHostSelectionProjection& projection,std::string& error) { return ::selectHostSetup(*this,player,entropy,projection,error); }
+bool RuntimeInternetMultiplayerMenuUiState::selectResumeWithOriginalFailureStatus(const RuntimeMultiplayerCompatibility& compatibility,RuntimeMultiplayerResumeSave& save,RuntimeMultiplayerHostSelectionProjection& projection,std::string& error) {
+    RuntimeWindowParentWin32 resumeParent(window);
+    if(!selectRuntimeMultiplayerResumeSave(baseConfig,compatibility,serviceConfig.peerId,serviceConfig.peerId,resumeParent.id(),save,projection,error)) {
+        setMenuStatus(*this,error);return false;
     }
-    const RuntimeInternetLobbyFlowPollResult polled = state.flow->poll(
-        internetMenuNowMilliseconds(),
-        0
-    );
-    updateConnectionText(state);
-    for (const RuntimeInternetLobbyFlowEvent& event : polled.events) {
-        switch (event.kind) {
-        case RuntimeInternetLobbyFlowEventKind::MatchQueued:
-            setMenuStatus(
-                state,
-                "Quick Match accepted. Waiting for a compatible player..."
-            );
-            break;
-        case RuntimeInternetLobbyFlowEventKind::MatchAssigned:
-            setMenuStatus(
-                state,
-                "Quick Match assigned. Preparing its authenticated room..."
-            );
-            break;
-        case RuntimeInternetLobbyFlowEventKind::MatchActivated:
-            setMenuStatus(
-                state,
-                "Quick Match room activated for both authenticated players."
-            );
-            break;
-        case RuntimeInternetLobbyFlowEventKind::JoinAccepted:
-            setMenuStatus(
-                state,
-                "Internet admission accepted. Synchronizing canonical lobby..."
-            );
-            break;
-        case RuntimeInternetLobbyFlowEventKind::JoinRejected:
-            setMenuStatus(
-                state,
-                event.reason.empty()
-                    ? "Internet room admission was rejected."
-                    : "Internet room admission was rejected: " + event.reason
-            );
-            break;
-        case RuntimeInternetLobbyFlowEventKind::Failed:
-            if (!event.reason.empty()) setMenuStatus(state, event.reason);
-            break;
-        default:
-            break;
-        }
-    }
-    for (const RuntimeInternetCommunityClientEvent& event
-         : polled.communityEvents) {
-        switch (event.kind) {
-        case RuntimeInternetCommunityClientEventKind::RegistrationRequired:
-            if (state.page != InternetMenuPage::Lobby
-                && state.page != InternetMenuPage::Kicked) {
-                showInternetMenuPage(state, InternetMenuPage::Account);
-            }
-            setMenuStatus(
-                state,
-                event.status.empty()
-                    ? "Create a community profile to continue."
-                    : event.status
-            );
-            break;
-        case RuntimeInternetCommunityClientEventKind::SnapshotUpdated:
-            if (state.page == InternetMenuPage::Account
-                && state.flow->communitySnapshot().registeredProfile) {
-                showInternetMenuPage(state, InternetMenuPage::Community);
-            }
-            if (!event.status.empty()) setMenuStatus(state, event.status);
-            break;
-        case RuntimeInternetCommunityClientEventKind::ChannelMessageReceived:
-            if (state.page == InternetMenuPage::Community) {
-                setMenuStatus(
-                    state,
-                    event.channelMessage.senderDisplayName
-                        + " posted in the current channel."
-                );
-            }
-            break;
-        case RuntimeInternetCommunityClientEventKind::OperationRejected:
-            setMenuStatus(
-                state,
-                event.status.empty()
-                    ? "The community service rejected that operation."
-                    : event.status
-            );
-            break;
-        }
-    }
-    for (const RuntimeMultiplayerLanEvent& event : polled.lobbyEvents) {
-        if (event.kind == RuntimeMultiplayerLanEventKind::Kicked) {
-            showKickedPage(state, event.reason);
-            return;
-        }
-        if (event.kind
-                == RuntimeMultiplayerLanEventKind::LobbySlotOptionsResult
-            && event.lobbySlotOptionsResult.has_value()) {
-            const auto& response = *event.lobbySlotOptionsResult;
-            setMenuStatus(
-                state,
-                response.accepted
-                    ? "Host accepted the player setup."
-                    : (response.reason.empty()
-                        ? "Host rejected the player setup."
-                        : response.reason)
-            );
-        }
-    }
-    if (!polled.succeeded) {
-        setMenuStatus(
-            state,
-            polled.error.empty()
-                ? "Internet lobby connection failed."
-                : polled.error
-        );
-        return;
-    }
-    if (polled.communityChanged) updateCommunityViews(state);
-    if (polled.roomsChanged) updateRoomList(state);
-
-    std::string slotError;
-    if (!applyPendingHostSlots(state, slotError)) {
-        setMenuStatus(state, slotError);
-        return;
-    }
-    RuntimeMultiplayerLobbyFlow* lobby = activeLobby(state);
-    if (lobby && lobby->initialized()
-        && state.flow->mode() == RuntimeInternetLobbyFlowMode::Lobby) {
-        state.hosting = lobby->hostAuthoritative();
-        if (!state.hosting) state.pendingHostSlots.clear();
-        if (state.page == InternetMenuPage::Browser) {
-            showInternetMenuPage(state, InternetMenuPage::Lobby);
-            setMenuStatus(
-                state,
-                "Authenticated relay connected. Verifying the canonical map..."
-            );
-        }
-        if (!lobby->localMapVerified()
-            && lobby->canonicalSetupPublished()) {
-            std::string verificationError;
-            if (verifyLocalMap(state, verificationError)) {
-                setMenuStatus(
-                    state,
-                    "Local map verified. Player setup and Ready are available."
-                );
-            } else {
-                setMenuStatus(state, verificationError);
-            }
-        }
-        updateRoster(state);
-    }
-    if (polled.matchStarted
-        || state.flow->mode() == RuntimeInternetLobbyFlowMode::Running) {
-        finishInternetMatch(state);
-    }
+    return true;
+}
+bool RuntimeInternetMultiplayerMenuUiState::resolveMap(const RuntimeConfig& config,const RuntimeMultiplayerMatchMap& map,std::filesystem::path& output,std::string& error) { return resolveRuntimeMultiplayerMenuMap(config,map,output,error); }
+std::vector<RuntimeInternetMultiplayerRoomRow> RuntimeInternetMultiplayerMenuUiState::roomRows(std::span<const RuntimeInternetRoomRecord> rows,bool spectator) const { return projectRuntimeInternetMultiplayerRoomRows(rows,spectator); }
+std::vector<RuntimeInternetMultiplayerRosterRow> RuntimeInternetMultiplayerMenuUiState::rosterRows(std::span<const RuntimeMultiplayerRoomMember> members,const RuntimeMultiplayerMatchSetup* setup,std::string_view peer,bool host) const { return projectRuntimeInternetMultiplayerRosterRows(members,setup,peer,host); }
+std::string RuntimeInternetMultiplayerMenuUiState::connectionStatus(bool authenticated,RuntimeInternetLobbyFlowMode mode,RuntimeInternetConnectionState state) const { return projectRuntimeInternetMultiplayerConnectionStatus(authenticated,mode,state); }
+std::string RuntimeInternetMultiplayerMenuUiState::profileSummary(const RuntimeInternetCommunitySnapshot& snapshot) const { return projectRuntimeInternetCommunityProfileSummary(snapshot); }
+std::string RuntimeInternetMultiplayerMenuUiState::clanSummary(const RuntimeInternetCommunitySnapshot& snapshot) const { return projectRuntimeInternetCommunityClanSummary(snapshot); }
+std::vector<std::string> RuntimeInternetMultiplayerMenuUiState::channelRows(const RuntimeInternetCommunitySnapshot& snapshot) const { return projectRuntimeInternetCommunityChannelRows(snapshot); }
+std::vector<std::string> RuntimeInternetMultiplayerMenuUiState::chatRows(const RuntimeInternetCommunitySnapshot& snapshot) const { return projectRuntimeInternetCommunityChatRows(snapshot); }
+std::vector<std::string> RuntimeInternetMultiplayerMenuUiState::participantRows(const RuntimeInternetCommunitySnapshot& snapshot) const { return projectRuntimeInternetCommunityParticipantRows(snapshot); }
+std::vector<std::string> RuntimeInternetMultiplayerMenuUiState::friendRows(const RuntimeInternetCommunitySnapshot& snapshot) const { return projectRuntimeInternetCommunityFriendRows(snapshot); }
+std::vector<std::string> RuntimeInternetMultiplayerMenuUiState::ladderRows(const RuntimeInternetCommunitySnapshot& snapshot) const { return projectRuntimeInternetCommunityLadderRows(snapshot); }
+std::vector<std::string> RuntimeInternetMultiplayerMenuUiState::clanMemberRows(const RuntimeInternetCommunitySnapshot& snapshot) const { return projectRuntimeInternetCommunityClanMemberRows(snapshot); }
+std::vector<std::string> RuntimeInternetMultiplayerMenuUiState::clanInvitationRows(const RuntimeInternetCommunitySnapshot& snapshot) const { return projectRuntimeInternetCommunityClanInvitationRows(snapshot); }
+std::vector<std::string> RuntimeInternetMultiplayerMenuUiState::clanLadderRows(const RuntimeInternetCommunitySnapshot& snapshot) const { return projectRuntimeInternetCommunityClanLadderRows(snapshot); }
+std::vector<std::string> RuntimeInternetMultiplayerMenuUiState::newsRows(const RuntimeInternetCommunitySnapshot& snapshot) const { return projectRuntimeInternetCommunityNewsRows(snapshot); }
+std::vector<std::string> RuntimeInternetMultiplayerMenuUiState::historyRows(std::span<const RuntimeInternetRankedRecord> records,std::string_view peer) const { return projectRuntimeInternetRankedHistoryRows(records,peer); }
+std::string RuntimeInternetMultiplayerMenuUiState::historyDetail(const RuntimeInternetRankedRecord& record,std::string_view peer) const { return projectRuntimeInternetRankedHistoryDetail(record,peer); }
+void RuntimeInternetMultiplayerMenuUiState::finishMatch() { finishInternetMatch(*this); }
+concord::lan_menu::RuntimeLanMenuFlow* RuntimeInternetMultiplayerMenuUiState::lobbyFlow() const {
+    RuntimeMultiplayerLobbyFlow* backend=flowBackend?flowBackend->lobbyFlow():nullptr;
+    lobbyBorrow.backend=backend;
+    return backend?&lobbyBorrow:nullptr;
 }
 
 LRESULT CALLBACK internetMultiplayerMenuWindowProc(
@@ -3727,7 +2531,7 @@ LRESULT CALLBACK internetMultiplayerMenuWindowProc(
         if (state->skin.productionReady && wParam != 0U) {
             RECT client{};
             GetClientRect(window, &client);
-            drawRuntimeInternetMenuSkinSurface(
+            drawRuntimeInternetMenuSkinSurfaceWin32(
                 reinterpret_cast<HDC>(wParam),
                 client,
                 state->skin,
@@ -3744,7 +2548,7 @@ LRESULT CALLBACK internetMultiplayerMenuWindowProc(
             HDC dc = BeginPaint(window, &paint);
             RECT client{};
             GetClientRect(window, &client);
-            drawRuntimeInternetMenuSkinSurface(
+            drawRuntimeInternetMenuSkinSurfaceWin32(
                 dc,
                 client,
                 state->skin,
@@ -3783,174 +2587,10 @@ LRESULT CALLBACK internetMultiplayerMenuWindowProc(
         }
         break;
     case WM_COMMAND:
-        if (LOWORD(wParam) == InternetRoster
-            && HIWORD(wParam) == LBN_SELCHANGE) {
-            const LRESULT selected = SendMessageW(
-                state->rosterList,
-                LB_GETCURSEL,
-                0U,
-                0
-            );
-            state->selectedPeerId = selected != LB_ERR
-                    && static_cast<std::size_t>(selected)
-                        < state->rosterRows.size()
-                ? state->rosterRows[static_cast<std::size_t>(selected)].peerId
-                : std::string{};
-            updateRoster(*state);
-            return 0;
-        }
-        if (LOWORD(wParam) == InternetNewsList
-            && HIWORD(wParam) == LBN_SELCHANGE) {
-            const LRESULT selected = SendMessageW(
-                state->newsList,
-                LB_GETCURSEL,
-                0U,
-                0
-            );
-            if (selected != LB_ERR) {
-                state->selectedNewsIndex = static_cast<std::size_t>(selected);
-                updateNewsDetail(*state);
-            }
-            return 0;
-        }
-        if (LOWORD(wParam) == InternetMatchHistoryList && HIWORD(wParam) == LBN_SELCHANGE && state->flow) {
-            const LRESULT selected = SendMessageW(state->matchHistoryList, LB_GETCURSEL, 0, 0);
-            const auto& records = state->flow->communityMatchHistory();
-            if (selected >= 0 && static_cast<std::size_t>(selected) < records.size()) {
-                state->selectedRankedMatchId = records[static_cast<std::size_t>(selected)].matchId;
-                updateRankedHistory(*state);
-            }
-            return 0;
-        }
-        if (LOWORD(wParam) == InternetChannelList
-            && HIWORD(wParam) == LBN_DBLCLK) {
-            joinSelectedCommunityChannel(*state);
-            return 0;
-        }
-        if (LOWORD(wParam) == InternetClanInvitationList
-            && HIWORD(wParam) == LBN_DBLCLK) {
-            acceptSelectedCommunityClanInvitation(*state);
-            return 0;
-        }
+        if(HIWORD(wParam)==LBN_SELCHANGE && handleInternetSelection(*state,LOWORD(wParam)))return 0;
+        if(HIWORD(wParam)==LBN_DBLCLK && handleInternetDoubleClick(*state,LOWORD(wParam)))return 0;
         if (HIWORD(wParam) != BN_CLICKED) break;
-        switch (LOWORD(wParam)) {
-        case InternetMatchHistory:
-            showInternetMenuPage(*state, InternetMenuPage::MatchHistory);
-            updateRankedHistory(*state);
-            refreshCommunity(*state);
-            return 0;
-        case InternetMatchHistoryBack:
-            showInternetMenuPage(*state, InternetMenuPage::Ladder);
-            updateCommunityViews(*state);
-            return 0;
-        case InternetNavCommunity:
-            showInternetMenuPage(*state, InternetMenuPage::Community);
-            updateCommunityViews(*state);
-            return 0;
-        case InternetNavGames:
-            showInternetMenuPage(*state, InternetMenuPage::Browser);
-            updateRoomList(*state);
-            updateConnectionText(*state);
-            return 0;
-        case InternetNavLadder:
-            showInternetMenuPage(*state, InternetMenuPage::Ladder);
-            updateCommunityViews(*state);
-            return 0;
-        case InternetNavNews:
-            showInternetMenuPage(*state, InternetMenuPage::News);
-            updateCommunityViews(*state);
-            return 0;
-        case InternetAccountRegister:
-            registerCommunityProfile(*state);
-            return 0;
-        case InternetCommunityRefresh:
-            refreshCommunity(*state);
-            return 0;
-        case InternetChannelJoin:
-            joinSelectedCommunityChannel(*state);
-            return 0;
-        case InternetChatSend:
-            sendCommunityChat(*state);
-            return 0;
-        case InternetFriendAdd:
-            addCommunityFriend(*state);
-            return 0;
-        case InternetFriendRemove:
-            removeSelectedCommunityFriend(*state);
-            return 0;
-        case InternetClanCreate:
-            createCommunityClan(*state);
-            return 0;
-        case InternetClanInvite:
-            inviteCommunityClanMember(*state);
-            return 0;
-        case InternetClanAccept:
-            acceptSelectedCommunityClanInvitation(*state);
-            return 0;
-        case InternetClanRemove:
-            removeSelectedCommunityClanMember(*state);
-            return 0;
-        case InternetClanTransfer:
-            transferCommunityClanOwnership(*state);
-            return 0;
-        case InternetClanLeave:
-            leaveCommunityClan(*state);
-            return 0;
-        case InternetRefresh: {
-            std::string errorMessage;
-            if (!beginRoomRefresh(*state, errorMessage)) {
-                setMenuStatus(*state, errorMessage);
-            }
-            return 0;
-        }
-        case InternetHost:
-            beginHost(*state);
-            return 0;
-        case InternetJoin:
-            joinSelectedRoom(*state);
-            return 0;
-        case InternetResumeHost:
-            beginHost(*state, true);return 0;
-        case InternetResumeSwap: {
-            auto* lobby = activeLobby(*state);
-            if (!lobby || !lobby->hostAuthoritative() || !lobby->resuming()) return 0;
-            const auto& slots = lobby->lobby().setup().slots;
-            const auto target = std::find_if(slots.begin(), slots.end(), [&](const auto& slot) {
-                return slot.controller == RuntimeMultiplayerMatchSlotController::Human && slot.peerId == state->selectedPeerId;
-            });
-            if (target == slots.end()) { setMenuStatus(*state, "请先选中一位占有席位的玩家。");return 0; }
-            std::string error;
-            const auto edit = lobby->setSlotController(target->slotIndex, RuntimeMultiplayerMatchSlotController::Human, state->serviceConfig.peerId, error);
-            setMenuStatus(*state, edit.accepted && error.empty() ? "席位已交换，请重新准备。" : error);
-            updateRoster(*state);return 0;
-        }
-        case InternetSpectator:
-            updateRoomList(*state);
-            if (state->skin.productionReady) {
-                InvalidateRect(window, nullptr, TRUE);
-            }
-            return 0;
-        case InternetQuickMatch:
-            beginQuickMatch(*state);
-            return 0;
-        case InternetApplySlot:
-            applyLocalOptions(*state);
-            return 0;
-        case InternetReady:
-            toggleReady(*state);
-            return 0;
-        case InternetStart:
-            startInternetMatch(*state);
-            return 0;
-        case InternetKick:
-            kickSelected(*state);
-            return 0;
-        case InternetLeave:
-            closeInternetMenu(*state);
-            return 0;
-        default:
-            break;
-        }
+        if(handleInternetClick(*state,LOWORD(wParam)))return 0;
         break;
     case WM_TIMER:
         if (wParam == internetMenuPollTimer) pollInternetMenu(*state);
@@ -4041,13 +2681,19 @@ HWND createInternetMenuWindow(
     return window;
 }
 
+#include "ui/network/diagnostics/RuntimeInternetMenuClockSmoke.inl"
+
 } // namespace
+
+int runRuntimeInternetMenuClockContract(const std::filesystem::path& output) {
+    return internetMenuClockContract(output);
+}
 #endif
 
 #if !defined(RUNTIME_INTERNET_MULTIPLAYER_MENU_PURE_HELPERS_ONLY)
 RuntimeMultiplayerMenuResult runRuntimeInternetMultiplayerMenu(
     const RuntimeConfig& baseConfig,
-    void* hostWindow
+    RuntimeWindowId hostWindow
 ) {
     RuntimeMultiplayerMenuResult unavailable;
 #if !defined(_WIN32)
@@ -4072,7 +2718,12 @@ RuntimeMultiplayerMenuResult runRuntimeInternetMultiplayerMenu(
                      "generic controls (diagnostics="
                   << state.skin.diagnostics.size() << ")\n";
     }
-    state.hostWindow = static_cast<HWND>(hostWindow);
+    const auto resolvedParent = resolveRuntimeWindowParentWin32(hostWindow);
+    if(!resolvedParent.supported) {
+        state.result.error = "unsupported Internet multiplayer menu parent identity";
+        return std::move(state.result);
+    }
+    state.hostWindow = resolvedParent.window;
     if (!loadRuntimeInternetMultiplayerServiceConfig(
             baseConfig.configPath,
             state.serviceConfig,
@@ -4105,30 +2756,18 @@ RuntimeMultiplayerMenuResult runRuntimeInternetMultiplayerMenu(
         return std::move(state.result);
     }
     state.transport = transport.get();
-    state.flow = std::make_unique<RuntimeInternetLobbyFlow>(
+    state.flowBackend = std::make_unique<RuntimeInternetLobbyFlow>(
         std::move(transport)
     );
     state.window = createInternetMenuWindow(state, state.result.error);
     if (!state.window) {
         showInternetMenuStartupError(state.hostWindow, state.result.error);
-        state.flow->close();
+        state.flowBackend->close();
         secureClear(state.serviceConfig.credential);
         return std::move(state.result);
     }
     createInternetMenuControls(state);
-    setControlText(state.playerNameEdit, state.serviceConfig.peerId);
-    setControlText(state.accountHandleEdit, state.serviceConfig.peerId);
-    setControlText(
-        state.roomNameEdit,
-        state.serviceConfig.peerId + " Room"
-    );
-    std::string queryError;
-    if (!beginRoomRefresh(state, queryError)) {
-        setMenuStatus(state, queryError);
-    } else {
-        requestCommunityLogin(state);
-    }
-    updateConnectionText(state);
+    initializeInternetMenu(state);
     SetTimer(
         state.window,
         internetMenuPollTimer,
@@ -4151,15 +2790,19 @@ RuntimeMultiplayerMenuResult runRuntimeInternetMultiplayerMenu(
         TranslateMessage(&message);
         DispatchMessageW(&message);
     }
-    if (!state.result.accepted && state.flow) state.flow->close();
+    if (!state.result.accepted && state.flowBackend) state.flowBackend->close();
     secureClear(state.serviceConfig.credential);
+    // WM_QUIT/GetMessage failure can bypass WM_CLOSE. Retire our page while
+    // its stack state/skin brush are still alive, after the original flow close
+    // and credential clear and before the original result transfer.
+    if (state.window != nullptr && IsWindow(state.window)) DestroyWindow(state.window);
     return std::move(state.result);
 #endif
 }
 
 int runRuntimeInternetMultiplayerMenuUiSmoke(
     const RuntimeConfig& baseConfig,
-    void* hostWindow
+    RuntimeWindowId hostWindow
 ) {
     RuntimeMultiplayerMenuResult result = runRuntimeInternetMultiplayerMenu(
         baseConfig,
@@ -4386,4 +3029,8 @@ int runRuntimeInternetMultiplayerMenuSkinWindowSmoke(
     return 0;
 #endif
 }
+#endif
+
+#if defined(_WIN32) && !defined(RUNTIME_INTERNET_MULTIPLAYER_MENU_PURE_HELPERS_ONLY)
+#include "ui/network/diagnostics/RuntimeInternetMenuHostLifecycleSmoke.inl"
 #endif

@@ -1,0 +1,13 @@
+# H033: the same actual committed ground motion producer in Runtime/Contract.
+include_guard(GLOBAL)
+include("${CMAKE_CURRENT_LIST_DIR}/ProfiledLeaf.cmake")
+concord_add_profiled_leaf(concord_committed_ground_runtime_leaf
+    src/simulation/movement/ground/RuntimeCommittedGroundMotion.cpp concord_runtime Runtime)
+concord_add_profiled_leaf(concord_committed_ground_contract_leaf
+    src/simulation/movement/ground/RuntimeCommittedGroundMotion.cpp concord_radar_cell_values_value_contract Contract)
+target_link_libraries(concord_runtime PRIVATE concord_committed_ground_runtime_leaf)
+add_subdirectory(tests/infrastructure/committed_ground_motion)
+add_test(NAME committed_ground_runtime_contract_test COMMAND concord_committed_ground_runtime_contract)
+add_test(NAME committed_ground_contract_contract_test COMMAND concord_committed_ground_contract_contract)
+set_tests_properties(committed_ground_runtime_contract_test committed_ground_contract_contract_test
+    PROPERTIES TIMEOUT 120 LABELS "committed-ground-motion;standard-contract;no-assets")

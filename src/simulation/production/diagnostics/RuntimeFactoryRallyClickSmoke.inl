@@ -64,8 +64,8 @@ bool runRuntimeFactoryRallyClickSmoke(RuntimeWindowState& live, std::string& err
         SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&s));
         const auto pointFor = [&](int id) -> std::optional<POINT> {
             for (const auto& object : runtimeProjectedObjectsForViewport(s, viewport)) if (object.object && object.object->instanceId == id) {
-                for (LONG y = std::max(viewport.top, object.bounds.top); y < std::min(viewport.bottom, object.bounds.bottom); y += 3)
-                    for (LONG x = std::max(viewport.left, object.bounds.left); x < std::min(viewport.right, object.bounds.right); x += 3) {
+                for (LONG y = std::max<LONG>(viewport.top, object.bounds.top); y < std::min<LONG>(viewport.bottom, object.bounds.bottom); y += 3)
+                    for (LONG x = std::max<LONG>(viewport.left, object.bounds.left); x < std::min<LONG>(viewport.right, object.bounds.right); x += 3) {
                         const POINT p{x, y}; const auto* hit = runtimeCursorObjectAtPoint(s, viewport, p);
                         if (hit && hit->instanceId == id) return p;
                     }

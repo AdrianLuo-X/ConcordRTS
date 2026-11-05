@@ -7,7 +7,7 @@ bool runRuntimeChaosRenderContractCheck(const RuntimeMapRenderContext& context, 
     auto cache=std::make_unique<RuntimeMapRenderCache>(); auto probe=context;
     probe.surfacePixels=pixels.data(); probe.surfaceWidth=width; probe.surfaceHeight=height;
     probe.vision=nullptr; probe.animationTick=0;
-    std::unordered_map<std::string,COLORREF> colors{{"yuricountry",RGB(220,45,45)},{"americans",RGB(45,85,220)}};
+    RuntimeOwnerRemapColorTable colors{{"yuricountry",RGB(220,45,45)},{"americans",RGB(45,85,220)}};
     probe.ownerRemapColors=&colors;
     probe.fixedTickHz=30;
     for (const auto& gas : gasFrames) {
@@ -24,7 +24,7 @@ bool runRuntimeChaosRenderContractCheck(const RuntimeMapRenderContext& context, 
     const RECT viewport{0,0,width,height};
     std::vector<SpecialMechanismRenderSnapshot> statuses;
     const auto drawBody=[&](const WorldObjectInstance& object){
-        const auto center=runtimeObjectBodyAnchorForRender(object,viewport,probe,camera);
+        const auto center=runtimeObjectBodyAnchorForRenderWin32(object,viewport,probe,camera);
         return object.kind==WorldObjectKind::Unit
             ? tryDrawVoxelSprite(nullptr,viewport,object,center,probe,camera,*cache)
             : tryDrawObjectShpSprite(nullptr,viewport,object,center,probe,camera,*cache);

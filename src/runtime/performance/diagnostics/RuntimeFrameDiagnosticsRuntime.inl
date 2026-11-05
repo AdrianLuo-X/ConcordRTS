@@ -52,68 +52,12 @@ void resetRuntimeFrameDiagnosticsInterval(RuntimeWindowState& state) noexcept {
 
 // This scope changes only presentation diagnostics. With diagnostics absent or
 // disabled it does not read a clock, allocate, or inspect the world objects.
-class RuntimeMoveCommandDiagnosticScope {
-    RuntimeWindowState* state_ = nullptr;
-    const RuntimeFrameDiagnostics* diagnostics_ = nullptr;
-    RuntimeFrameMoveCommandInterval::ScopeToken token_;
-    std::chrono::steady_clock::time_point started_{};
-public:
-    explicit RuntimeMoveCommandDiagnosticScope(RuntimeWindowState& state) noexcept {
-        if (state.frameDiagnostics == nullptr || !state.frameDiagnostics->enabled()) return;
-        if (!state.world.getSummary().loaded || state.runtimeMenuOpen || state.skirmishMatchFinished) return;
-        state_ = &state;
-        diagnostics_ = state.frameDiagnostics.get();
-        token_ = state.diagnosticPendingMoveCommands.enter();
-        if (token_.ownsTimer) started_ = std::chrono::steady_clock::now();
-    }
-    ~RuntimeMoveCommandDiagnosticScope() {
-        if (state_ == nullptr) return;
-        const bool valid = token_.ownsTimer
-            && state_->frameDiagnostics.get() == diagnostics_
-            && state_->frameDiagnostics->enabled()
-            && state_->world.getSummary().loaded && !state_->runtimeMenuOpen
-            && !state_->skirmishMatchFinished
-            && state_->diagnosticPendingMoveCommands.generation() == token_.generation;
-        const double elapsed = valid ? std::chrono::duration<double, std::milli>(
-            std::chrono::steady_clock::now() - started_).count() : 0.0;
-        state_->diagnosticPendingMoveCommands.leave(token_, elapsed, valid);
-    }
-    RuntimeMoveCommandDiagnosticScope(const RuntimeMoveCommandDiagnosticScope&) = delete;
-    RuntimeMoveCommandDiagnosticScope& operator=(const RuntimeMoveCommandDiagnosticScope&) = delete;
-};
+
 
 // Only three coarse nested stages use this hook. It never visits terrain or
 // objects and takes no timestamp when diagnostics are absent/disabled. The
 // accumulator generation rejects work crossing a discarded paint interval.
-class RuntimeNestedStageDiagnosticScope {
-    RuntimeWindowState* state_ = nullptr;
-    const RuntimeFrameDiagnostics* diagnostics_ = nullptr;
-    RuntimeFrameNestedStageInterval::ScopeToken token_;
-    std::chrono::steady_clock::time_point started_{};
-public:
-    RuntimeNestedStageDiagnosticScope(RuntimeWindowState& state, std::uint32_t stage) noexcept {
-        if (state.frameDiagnostics == nullptr || !state.frameDiagnostics->enabled()) return;
-        if (!state.world.getSummary().loaded || state.runtimeMenuOpen || state.skirmishMatchFinished) return;
-        state_ = &state;
-        diagnostics_ = state.frameDiagnostics.get();
-        token_ = state.diagnosticPendingNestedStages.enter(stage);
-        if (token_.ownsTimer) started_ = std::chrono::steady_clock::now();
-    }
-    ~RuntimeNestedStageDiagnosticScope() {
-        if (state_ == nullptr) return;
-        const bool valid = token_.ownsTimer
-            && state_->frameDiagnostics.get() == diagnostics_
-            && state_->frameDiagnostics->enabled()
-            && state_->world.getSummary().loaded && !state_->runtimeMenuOpen
-            && !state_->skirmishMatchFinished
-            && state_->diagnosticPendingNestedStages.generation() == token_.generation;
-        const double elapsed = valid ? std::chrono::duration<double, std::milli>(
-            std::chrono::steady_clock::now() - started_).count() : 0.0;
-        state_->diagnosticPendingNestedStages.leave(token_, elapsed, valid);
-    }
-    RuntimeNestedStageDiagnosticScope(const RuntimeNestedStageDiagnosticScope&) = delete;
-    RuntimeNestedStageDiagnosticScope& operator=(const RuntimeNestedStageDiagnosticScope&) = delete;
-};
+
 
 void accumulateRuntimeFrameSimulationDiagnostics(RuntimeWindowState& state) noexcept {
     if (state.frameDiagnostics == nullptr || !state.frameDiagnostics->enabled()) return;

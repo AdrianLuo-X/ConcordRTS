@@ -2,6 +2,9 @@
 // All values below are expected coverage; runtime/compilation remain pending.
 #pragma once
 namespace {
+}
+
+namespace concord::runtime::session_detail {
 struct RuntimeMixedLocalKnownUnmappedContractAccess {
     static bool bind(RuntimeMixedLocalComponentCertificate& proof,
         const RuntimeWindowState& state,const WorldObjectInstance& mover,
@@ -34,6 +37,10 @@ struct RuntimeMixedLocalKnownUnmappedContractAccess {
             proof.failedEdges_[runtimeCellKey(from.x,from.y)]=255;
     }
 };
+}
+
+namespace {
+
 }
 namespace RuntimeMixedLocalKnownUnmappedContractDetail {
 using namespace RuntimeMixedLocalComponentContractDetail;

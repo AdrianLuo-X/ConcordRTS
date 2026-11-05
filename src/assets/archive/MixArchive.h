@@ -14,7 +14,12 @@ struct MixEntry {
 
 class MixArchive {
 public:
+    // Compatibility filename in the native narrow OS encoding (ACP on Windows).
+    // This is not a UTF-8 boundary or a MIX logical entry name.
     bool loadFromFile(const std::string& path);
+    // Owns the native filesystem path for both index load and later entry reads.
+    // UTF-8 callers explicitly construct a path from char8_t/u8string. getPath()
+    // is a UTF-8 diagnostic label, never an input to reopen this archive.
     bool loadFromPath(const std::filesystem::path& path);
 
     const std::string& getPath() const;
@@ -61,5 +66,7 @@ private:
     std::vector<MixEntry> entries_;
 };
 
+// Logical MIX names retain the original byte rules: trim/quotes/basename,
+// ASCII-only uppercasing and CRC padding. No filesystem or Unicode folding.
 std::uint32_t mixFileIdFromName(const std::string& fileName);
 std::string formatMixId(std::uint32_t id);

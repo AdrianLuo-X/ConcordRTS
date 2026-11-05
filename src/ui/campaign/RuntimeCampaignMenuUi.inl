@@ -1,157 +1,4 @@
-// Included inside RuntimeCampaignMenu.cpp's anonymous namespace.
-constexpr int kCampaignShellWidth = 800;
-constexpr int kCampaignShellHeight = 600;
-constexpr RECT kCampaignBackButton{653, 543, 779, 569};
-constexpr RECT kCampaignMapViewport{8, 40, 624, 502};
-constexpr RECT kCampaignSlider{206, 230, 422, 254};
-
-enum class CampaignControlAction { Back, Confirm, Edition, Campaign, Previous, Next, Row, Difficulty };
-
-struct CampaignControl {
-    RECT rect{};
-    CampaignControlAction action = CampaignControlAction::Back;
-    int index = 0;
-    std::wstring label;
-    bool enabled = true;
-    bool selected = false;
-};
-
-bool campaignShowsMap(const CampaignMenuState& state) {
-    return state.page == CampaignPage::Missions
-        && state.mapPresentation.usesClassicSurface()
-        && !state.mapPresentation.authoredReconstruction
-        && state.mapPresentation.vqaFrame.valid();
-}
-
-RECT campaignShellClientRect(const RECT& client) {
-    const int width = std::max(1L, client.right - client.left);
-    const int height = std::max(1L, client.bottom - client.top);
-    const double scale = std::min(width / 800.0, height / 600.0);
-    const int fittedWidth = std::max(1, static_cast<int>(800 * scale));
-    const int fittedHeight = std::max(1, static_cast<int>(600 * scale));
-    const int left = client.left + (width - fittedWidth) / 2;
-    const int top = client.top + (height - fittedHeight) / 2;
-    return RECT{left, top, left + fittedWidth, top + fittedHeight};
-}
-
-POINT campaignShellPoint(const RECT& client, int x, int y) {
-    const RECT fit = campaignShellClientRect(client);
-    if (x < fit.left || x >= fit.right || y < fit.top || y >= fit.bottom) {
-        return POINT{-1, -1};
-    }
-    return POINT{(x - fit.left) * 800 / std::max(1L, fit.right - fit.left),
-                 (y - fit.top) * 600 / std::max(1L, fit.bottom - fit.top)};
-}
-
-POINT campaignMapPoint(POINT shell) {
-    if (!PtInRect(&kCampaignMapViewport, shell)) return POINT{-1, -1};
-    return POINT{(shell.x - kCampaignMapViewport.left) * kBaseWidth
-                     / (kCampaignMapViewport.right - kCampaignMapViewport.left),
-                 (shell.y - kCampaignMapViewport.top) * kBaseHeight
-                     / (kCampaignMapViewport.bottom - kCampaignMapViewport.top)};
-}
-
-int campaignListStart(int selected, int count) {
-    return std::clamp(selected - 4, 0, std::max(0, count - 9));
-}
-
-std::vector<CampaignControl> campaignControls(const CampaignMenuState& state) {
-    using Action = CampaignControlAction;
-    std::vector<CampaignControl> controls;
-    controls.push_back({kCampaignBackButton, Action::Back, 0, L"返回"});
-    const CampaignDefinition* campaign = selectedCampaign(state);
-    const CampaignMissionDefinition* mission = selectedMission(state);
-    const auto button = [&](int slot, Action action, int index,
-                            const std::wstring& label, bool enabled = true,
-                            bool selected = false) {
-        controls.push_back({RECT{653, 207 + slot * 42, 779, 233 + slot * 42},
-                            action, index, label, enabled, selected});
-    };
-    bool canContinue = campaign != nullptr;
-    if (state.page == CampaignPage::Saves) canContinue = !state.saves.empty();
-    else if (state.page != CampaignPage::Campaigns && !campaignShowsMap(state)) {
-        canContinue = campaign && mission && missionUnlocked(state, *campaign, *mission);
-    }
-    button(state.page == CampaignPage::Campaigns ? 6 : 0, Action::Confirm, 0,
-        state.page == CampaignPage::Briefing ? L"开始任务"
-        : state.page == CampaignPage::Saves ? L"载入"
-        : campaignShowsMap(state)
-            && state.mapPresentation.phase != CampaignMapPresentationPhase::Interactive
-            ? L"跳过演出" : L"继续", canContinue);
-
-    if (state.page == CampaignPage::Campaigns) {
-        std::set<std::string> sources;
-        int sourceSlot = 0;
-        int iconSlot = 0;
-        for (int index = 0; index < static_cast<int>(state.database.campaigns.size()); ++index) {
-            const auto& candidate = state.database.campaigns[static_cast<std::size_t>(index)];
-            if (!isTutorialCampaign(&candidate) && sources.insert(lowerAscii(candidate.sourceId)).second) {
-                button(sourceSlot++, Action::Edition, index,
-                    campaignSourceIs(&candidate, "yr") ? L"尤里的复仇"
-                    : campaignSourceIs(&candidate, "ra2") ? L"红色警戒 2" : widen(candidate.sourceId),
-                    true, campaign && lowerAscii(campaign->sourceId) == lowerAscii(candidate.sourceId));
-            }
-            if (!campaign || lowerAscii(candidate.sourceId) != lowerAscii(campaign->sourceId)) continue;
-            if (isTutorialCampaign(&candidate)) {
-                button(3, Action::Campaign, index, L"新兵训练");
-            } else {
-                const int top = 51 + iconSlot++ * 286;
-                controls.push_back({RECT{187, top, 448, top + 130}, Action::Campaign,
-                    index, resolvedCampaignName(state, &candidate), true, index == state.campaignIndex});
-            }
-        }
-    } else if (state.page == CampaignPage::Missions && !campaignShowsMap(state) && campaign) {
-        const int count = static_cast<int>(campaign->missions.size());
-        const int start = campaignListStart(state.missionIndex, count);
-        for (int row = 0; row < 9 && start + row < count; ++row) {
-            const int index = start + row;
-            const auto& item = campaign->missions[static_cast<std::size_t>(index)];
-            const bool unlocked = missionUnlocked(state, *campaign, item);
-            controls.push_back({RECT{42, 66 + row * 34, 590, 98 + row * 34}, Action::Row,
-                index, std::to_wstring(item.ordinal) + L". " + missionLabel(item, state.csf)
-                    + (unlocked ? L"" : L"  [未解锁]"), item.available, index == state.missionIndex});
-        }
-        button(1, Action::Previous, 0, L"上一任务", count > 1);
-        button(2, Action::Next, 0, L"下一任务", count > 1);
-    } else if (state.page == CampaignPage::Saves) {
-        const int count = static_cast<int>(state.saves.size());
-        const int start = campaignListStart(state.saveIndex, count);
-        for (int row = 0; row < 9 && start + row < count; ++row) {
-            const int index = start + row;
-            controls.push_back({RECT{42, 66 + row * 34, 590, 98 + row * 34}, Action::Row,
-                index, loadSaveTitle(state.saves[static_cast<std::size_t>(index)]), true,
-                index == state.saveIndex});
-        }
-        button(1, Action::Previous, 0, L"上一存档", count > 1);
-        button(2, Action::Next, 0, L"下一存档", count > 1);
-    } else if (state.page == CampaignPage::Briefing) {
-        button(1, Action::Previous, 0, L"向上滚动");
-        button(2, Action::Next, 0, L"向下滚动");
-    }
-    if (state.page == CampaignPage::Campaigns || state.page == CampaignPage::Difficulty) {
-        for (int index = 0; index < static_cast<int>(difficultyNames().size()); ++index) {
-            const int x = 178 + index * 71;
-            controls.push_back({RECT{x, 267, x + 69, 295}, Action::Difficulty, index,
-                difficultyDisplayName(state, index), true, index == state.difficultyIndex});
-        }
-        // Four contiguous slider regions share the same actions as the labels.
-        for (int index = 0; index < 4; ++index) {
-            const LONG left = kCampaignSlider.left + index * 54;
-            controls.push_back({RECT{left, kCampaignSlider.top, left + 54, kCampaignSlider.bottom},
-                Action::Difficulty, index, L"", true, index == state.difficultyIndex});
-        }
-    }
-    return controls;
-}
-
-int campaignControlAt(const CampaignMenuState& state, POINT point) {
-    const auto controls = campaignControls(state);
-    for (int index = 0; index < static_cast<int>(controls.size()); ++index) {
-        if (controls[static_cast<std::size_t>(index)].enabled
-            && PtInRect(&controls[static_cast<std::size_t>(index)].rect, point)) return index;
-    }
-    return -1;
-}
+using namespace concord::campaign_menu::win32;
 
 void blitCampaignShellImage(std::vector<unsigned char>& canvas, const CampaignImage& image,
                             const RECT& rect) {
@@ -176,14 +23,9 @@ void presentCampaignMenuFrame(HDC destination, HDC shell, const RECT& client) {
     const int width = client.right - client.left;
     const int height = client.bottom - client.top;
     if (width <= 0 || height <= 0) return;
-    HDC presentation = CreateCompatibleDC(destination);
-    HBITMAP bitmap = CreateCompatibleBitmap(destination, width, height);
-    if (!presentation || !bitmap) {
-        if (bitmap) DeleteObject(bitmap);
-        if (presentation) DeleteDC(presentation);
-        return;
-    }
-    HGDIOBJ oldBitmap = SelectObject(presentation, bitmap);
+    concord::ui::win32::CampaignDeviceBitmapWin32 presentationOwner;
+    if (!presentationOwner.ensure(destination, width, height)) return;
+    const HDC presentation = presentationOwner.dc();
     const RECT bounds{0, 0, width, height};
     const RECT fit = campaignShellClientRect(bounds);
     // Letterboxing belongs to the completed frame. Clearing the window DC
@@ -194,9 +36,7 @@ void presentCampaignMenuFrame(HDC destination, HDC shell, const RECT& client) {
             shell, 0, 0, kCampaignShellWidth, kCampaignShellHeight, SRCCOPY)) {
         BitBlt(destination, client.left, client.top, width, height, presentation, 0, 0, SRCCOPY);
     }
-    SelectObject(presentation, oldBitmap);
-    DeleteObject(bitmap);
-    DeleteDC(presentation);
+    presentationOwner.release();
 }
 
 void drawCampaignMenu(CampaignMenuState& state, HDC dc, const RECT& client) {
@@ -226,8 +66,8 @@ void drawCampaignMenu(CampaignMenuState& state, HDC dc, const RECT& client) {
                 : state.hoveredControl == static_cast<int>(index) ? 2 : 0;
             asset("button" + std::to_string(frame), control.rect.left, control.rect.top);
             if (!control.enabled) {
-                for (int y = control.rect.top; y < std::min(600L, control.rect.bottom); ++y) {
-                    for (int x = control.rect.left; x < std::min(800L, control.rect.right); ++x) {
+                for (int y = control.rect.top; y < std::min<long>(600L, control.rect.bottom); ++y) {
+                    for (int x = control.rect.left; x < std::min<long>(800L, control.rect.right); ++x) {
                         const auto at = static_cast<std::size_t>((y * 800 + x) * 4);
                         for (int channel = 0; channel < 3; ++channel) surface[at + channel] /= 2;
                     }
@@ -237,7 +77,7 @@ void drawCampaignMenu(CampaignMenuState& state, HDC dc, const RECT& client) {
             const auto& campaign = state.database.campaigns[static_cast<std::size_t>(control.index)];
             if (state.campaignLogoFrames.size() >= 2) {
                 blitCampaignShellImage(surface, state.campaignLogoFrames[isSovietCampaign(&campaign) ? 1 : 0],
-                    control.rect);
+                    campaignNativeRect(control.rect));
             }
         }
     }
@@ -248,24 +88,21 @@ void drawCampaignMenu(CampaignMenuState& state, HDC dc, const RECT& client) {
     info.bmiHeader.biHeight = -600;
     info.bmiHeader.biPlanes = 1;
     info.bmiHeader.biBitCount = 32;
-    HDC buffer = CreateCompatibleDC(dc);
-    HBITMAP bitmap = CreateCompatibleBitmap(dc, 800, 600);
-    if (!buffer || !bitmap) {
-        if (bitmap) DeleteObject(bitmap);
-        if (buffer) DeleteDC(buffer);
-        return;
-    }
-    HGDIOBJ oldBitmap = SelectObject(buffer, bitmap);
-    SetDIBitsToDevice(buffer, 0, 0, 800, 600, 0, 0, 0, 600, surface.data(), &info, DIB_RGB_COLORS);
-    HFONT body = CreateFontW(-16, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-        OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, L"Microsoft YaHei UI");
-    HFONT smallFont = CreateFontW(-14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-        OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, L"Microsoft YaHei UI");
+    concord::ui::win32::CampaignDeviceBitmapWin32 bufferOwner;
+    if (!bufferOwner.ensure(dc, 800, 600)) return;
+    const HDC buffer = bufferOwner.dc();
+    (void)bufferOwner.upload({surface, 800, 600, 800U * 4U, 0});
+    concord::ui::CampaignSystemFontsWin32 systemFonts;
+    systemFonts.initialize();
     const auto label = [&](const std::wstring& value, RECT rect, bool center = false,
                             COLORREF color = RGB(255, 222, 25), bool wrap = false) {
-        drawText(buffer, wrap ? smallFont : body, value, rect, color,
-            DT_NOPREFIX | (center ? DT_CENTER : DT_LEFT)
-                | (wrap ? DT_WORDBREAK : DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS));
+        const UINT format=DT_NOPREFIX | (center ? DT_CENTER : DT_LEFT)
+                | (wrap ? DT_WORDBREAK : DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+        traceCampaignSystemFont(wrap?1U:0U,value,campaignPixelRect(rect),color,format);
+        systemFonts.draw(buffer,wrap ? concord::ui::CampaignSystemFontRole::Small
+            : concord::ui::CampaignSystemFontRole::Body,
+            concord::ui::CampaignSystemWideTextRequest{value,campaignPixelRect(rect),format,
+                concord::ui::CampaignSystemFontColor::fromPacked(color)});
     };
     label(campaignPageTitle(state), RECT{640, 0, 791, 24}, true);
     const CampaignDefinition* campaign = selectedCampaign(state);
@@ -279,13 +116,13 @@ void drawCampaignMenu(CampaignMenuState& state, HDC dc, const RECT& client) {
             kCampaignMapViewport.right - kCampaignMapViewport.left,
             kCampaignMapViewport.bottom - kCampaignMapViewport.top,
             0, 0, kBaseWidth, kBaseHeight, mapPixels.data(), &mapInfo, DIB_RGB_COLORS, SRCCOPY);
-        drawCampaignMapTargets(state, buffer, kCampaignMapViewport);
+        drawCampaignMapTargets(state, buffer, campaignNativeRect(kCampaignMapViewport));
     }
     for (std::size_t index = 0; index < controls.size(); ++index) {
         const auto& control = controls[index];
         const bool focused = state.hoveredControl == static_cast<int>(index)
             || state.focusedControl == static_cast<int>(index);
-        RECT rect = control.rect;
+        RECT rect = campaignNativeRect(control.rect);
         if (control.action == CampaignControlAction::Campaign && rect.left < 632) {
             rect.top = rect.bottom + 3;
             rect.bottom = rect.top + 22;
@@ -300,7 +137,7 @@ void drawCampaignMenu(CampaignMenuState& state, HDC dc, const RECT& client) {
         if (!control.label.empty()
             && (focused || (control.selected && control.action != CampaignControlAction::Campaign))) {
             HBRUSH edge = CreateSolidBrush(focused ? RGB(255, 222, 25) : RGB(142, 28, 18));
-            FrameRect(buffer, &control.rect, edge);
+            campaignFrameControl(buffer, control.rect, edge);
             DeleteObject(edge);
         }
         label(control.label, rect, control.action != CampaignControlAction::Row,
@@ -336,11 +173,12 @@ void drawCampaignMenu(CampaignMenuState& state, HDC dc, const RECT& client) {
             label(missionLabel(*mission, state.csf), RECT{42, 64, 590, 100}, false, kBrightGold);
             const std::wstring briefing = state.csf.get(mission->briefingKey,
                 state.csf.get(mission->loadBriefingKey, L"该任务没有可用的本地化简报。"));
-            RECT bounds{48, 118, 585, 118};
-            HGDIOBJ oldFont = SelectObject(buffer, smallFont);
-            DrawTextW(buffer, briefing.c_str(), static_cast<int>(briefing.size()), &bounds,
-                DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
-            SelectObject(buffer, oldFont);
+            RECT bounds=campaignNativeRect(systemFonts.measure(buffer,
+                concord::ui::CampaignSystemFontRole::Small,
+                concord::ui::CampaignSystemWideTextRequest{briefing,{48,118,585,118},
+                    DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX,{}}));
+            traceCampaignSystemFont(1U,briefing,{48,118,585,118},0U,
+                DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX,true,campaignPixelRect(bounds));
             state.briefingScroll = std::clamp(state.briefingScroll, 0,
                 static_cast<int>(std::max(0L, bounds.bottom - bounds.top - 408)));
             const int saved = SaveDC(buffer);
@@ -359,14 +197,15 @@ void drawCampaignMenu(CampaignMenuState& state, HDC dc, const RECT& client) {
     }
     const std::wstring hint = state.status.empty()
         ? L"单击选择  ·  Enter 确认  ·  Esc / 右下角返回" : state.status;
-    drawText(buffer, smallFont, hint, RECT{12, 570, 620, 596}, kBrightGold,
+    traceCampaignSystemFont(1U,hint,{12,570,620,596},kBrightGold,
         DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+    systemFonts.draw(buffer,concord::ui::CampaignSystemFontRole::Small,
+        concord::ui::CampaignSystemWideTextRequest{hint,{12,570,620,596},
+            DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX,
+            concord::ui::CampaignSystemFontColor::fromPacked(kBrightGold)});
     presentCampaignMenuFrame(dc, buffer, client);
-    DeleteObject(body);
-    DeleteObject(smallFont);
-    SelectObject(buffer, oldBitmap);
-    DeleteObject(bitmap);
-    DeleteDC(buffer);
+    systemFonts.reset();
+    bufferOwner.release();
 }
 
 struct CampaignPaintAudit {

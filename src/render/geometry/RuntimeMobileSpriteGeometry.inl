@@ -110,16 +110,20 @@ bool captureRuntimeMobileSpriteGeometry(const WorldObjectInstance& object,
 } // namespace
 
 bool resolveRuntimeMobileObjectSpriteBounds(const WorldObjectInstance& object,
-    const POINT& center, const RuntimeMapRenderContext& context,
-    const RuntimeMapCamera& camera, RuntimeMapRenderCache& cache, RECT& spriteRect) {
+    const RuntimeInputPixelPoint& centerPixels, const RuntimeMapRenderContext& context,
+    const RuntimeMapCamera& camera, RuntimeMapRenderCache& cache, RuntimeInputPixelRect& spriteRect) {
+    const POINT center = runtimeRenderPlacementNativePoint(centerPixels);
+    RECT nativeBounds{};
     bool memoResolved = false;
-    if (findRuntimeGeometryMobileBounds(object, center, context, camera, cache, spriteRect, memoResolved))
+    if (findRuntimeGeometryMobileBounds(object, center, context, camera, cache, nativeBounds, memoResolved)) {
+        spriteRect = runtimeRenderPlacementPixelRect(nativeBounds);
         return memoResolved;
+    }
     RuntimeSpriteGeometryCapture geometry;
     const bool resolved = captureRuntimeMobileSpriteGeometry(object, center, context, camera, cache, geometry);
-    spriteRect = geometry.bounds;
+    spriteRect = runtimeRenderPlacementPixelRect(geometry.bounds);
     rememberRuntimeGeometryMobileBounds(object, center, context, camera, cache,
-        spriteRect, resolved && geometry.valid);
+        runtimeRenderPlacementNativeRect(spriteRect), resolved && geometry.valid);
     return resolved && geometry.valid;
 }
 
@@ -130,7 +134,8 @@ bool verifyRuntimeMobileObjectSpriteBounds(const WorldObjectInstance& object,
     probe = {};
     RuntimeSpriteGeometryCapture geometry;
     probe.resourceResolved = captureRuntimeMobileSpriteGeometry(object, center, context, camera, cache, geometry);
-    probe.spriteBounds = geometry.bounds;
+    const RECT spriteBounds = geometry.bounds;
+    probe.spriteBounds = runtimeRenderPlacementPixelRect(spriteBounds);
     probe.layerCount = geometry.layerCount;
     if (!probe.resourceResolved || !geometry.valid) {
         probe.diagnostic = object.type + ": body resource missing or no visible pixels";
@@ -186,18 +191,20 @@ bool verifyRuntimeMobileObjectSpriteBounds(const WorldObjectInstance& object,
     SelectObject(dc, oldBitmap);
     DeleteObject(bitmap);
     DeleteDC(dc);
+    RECT renderedBounds{};
     bool rendered = false;
     for (int y = 0; y < probe.imageHeight; ++y) for (int x = 0; x < probe.imageWidth; ++x) {
         if (!touched[static_cast<std::size_t>(y) * probe.imageWidth + x]) continue;
         const POINT pixel{probe.imageOrigin.x + x, probe.imageOrigin.y + y};
-        RuntimeSpriteGeometryCapture::unite(probe.renderedBounds, rendered,
+        RuntimeSpriteGeometryCapture::unite(renderedBounds, rendered,
             RECT{pixel.x, pixel.y, pixel.x + 1, pixel.y + 1});
         ++probe.renderedPixels;
-        if (!PtInRect(&probe.spriteBounds, pixel)) ++probe.outsidePixels;
+        if (!PtInRect(&spriteBounds, pixel)) ++probe.outsidePixels;
         if (x == 0 || y == 0 || x + 1 == probe.imageWidth || y + 1 == probe.imageHeight)
             probe.clipped = true;
     }
-    probe.exactMatch = rendered && EqualRect(&probe.spriteBounds, &probe.renderedBounds);
+    probe.renderedBounds = runtimeRenderPlacementPixelRect(renderedBounds);
+    probe.exactMatch = rendered && EqualRect(&spriteBounds, &renderedBounds);
     const bool passed = allDrawn && rendered && probe.exactMatch
         && probe.outsidePixels == 0 && !probe.clipped;
     probe.diagnostic = object.type + ": layers=" + std::to_string(probe.layerCount)

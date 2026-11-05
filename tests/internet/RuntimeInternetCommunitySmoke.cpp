@@ -96,14 +96,20 @@ const RuntimeInternetCommunityClan* clanEntry(
 
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    const bool retainArtifacts = argc == 2 && std::string(argv[1]) == "--retain";
+    if (argc != 1 && !retainArtifacts) { return 2; }
     SmokeContext context;
     std::uint64_t nowMilliseconds = 1000U;
     const std::filesystem::path statePath =
         std::filesystem::current_path()
         / "runtime_internet_community_smoke.state";
     std::error_code cleanupError;
-    (void)std::filesystem::remove(statePath, cleanupError);
+    if (retainArtifacts) {
+        context.expect(!std::filesystem::exists(statePath), "retain mode requires a new isolated state path");
+    } else {
+        (void)std::filesystem::remove(statePath, cleanupError);
+    }
 
     RuntimeInternetCommunityService service;
     RuntimeInternetCommunityServiceConfig config;
@@ -698,12 +704,16 @@ int main() {
     );
     reloaded.close();
 
+    if (retainArtifacts) {
+        context.expect(std::filesystem::file_size(statePath) > 0, "community persistence evidence retained");
+    } else {
     cleanupError.clear();
     const bool removed = std::filesystem::remove(statePath, cleanupError);
     context.expect(
         removed && !cleanupError,
         "community smoke state file cleanup"
     );
+    }
 
     if (context.failures != 0) {
         std::cerr << "Runtime Internet community smoke failed: "

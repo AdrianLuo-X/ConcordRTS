@@ -27,7 +27,7 @@ static bool runRuntimePaintTerrainTileMemoContractCheck(std::string& error) {
     cache.terrainTilePathByIndex.emplace(18, "__loose__.tem");
     cache.missingTerrainTilePathByIndex.insert(19);
     {
-        RuntimeGeometryQueryScope paint(world, viewport, context, camera, cache);
+        RuntimeGeometryQueryScope paint(world, runtimeRenderPlacementPixelRect(viewport), context, camera, cache);
         if (loadRuntimeTerrainTileForIndex(17, context, cache) != &mix)
             return fail("first cached MIX resolution");
         if (loadRuntimeTerrainTileForIndex(18, context, cache) != &loose
@@ -35,7 +35,7 @@ static bool runRuntimePaintTerrainTileMemoContractCheck(std::string& error) {
             return fail("first loose or missing resolution");
         for (int index = 0; index != 512; ++index)
             cache.tmpTilesByPath.try_emplace("__insert_only_" + std::to_string(index));
-        RuntimeGeometryQueryScope nested(world, viewport, context, camera, cache);
+        RuntimeGeometryQueryScope nested(world, runtimeRenderPlacementPixelRect(viewport), context, camera, cache);
         const auto hits = cache.geometryTerrainTileMemoHits;
         cache.lastTmpTileLoadError = "other resource";
         if (loadRuntimeTerrainTileForIndex(17, context, cache) != &mix
@@ -78,12 +78,12 @@ static bool runRuntimePaintTerrainTileMemoContractCheck(std::string& error) {
                 return fail("body reference borrowed TMP pointer");
         }
         auto changed = context; changed.tileRootPath += "other paint source";
-        RuntimeGeometryQueryScope incompatible(world, viewport, changed, camera, cache);
+        RuntimeGeometryQueryScope incompatible(world, runtimeRenderPlacementPixelRect(viewport), changed, camera, cache);
         if (findRuntimeGeometryTerrainTile(17, changed, cache, file, updatesError))
             return fail("incompatible nested scope reused outer pool");
     }
     {
-        RuntimeGeometryQueryScope next(world, viewport, context, camera, cache);
+        RuntimeGeometryQueryScope next(world, runtimeRenderPlacementPixelRect(viewport), context, camera, cache);
         RuntimeTmpTileFile* file = nullptr; bool updatesError = false;
         if (findRuntimeGeometryTerrainTile(17, context, cache, file, updatesError))
             return fail("TMP resolution survived paint boundary");
@@ -113,11 +113,11 @@ static bool runRuntimePaintGeometryReuseContractCheck(std::string& error) {
     const RECT viewport{1, 2, 641, 402}, expected{30, 40, 60, 80};
     const POINT center{50, 65};
     {
-        RuntimeGeometryQueryScope paint(world, viewport, context, camera, cache);
+        RuntimeGeometryQueryScope paint(world, runtimeRenderPlacementPixelRect(viewport), context, camera, cache);
         const auto* outer = RuntimeGeometryQueryFrame::active;
         if (runtimeGeometryBatchRenderContext() != &outer->identity) return fail("active context getter");
         {
-            RuntimeGeometryQueryScope map(world, viewport, context, camera, cache);
+            RuntimeGeometryQueryScope map(world, runtimeRenderPlacementPixelRect(viewport), context, camera, cache);
             auto* nested = RuntimeGeometryQueryFrame::active;
             if (nested == outer || nested->memoOwner != outer
                 || !runtimeGeometryPaintRecordingEnabled(object, context, camera, cache))
@@ -129,7 +129,7 @@ static bool runRuntimePaintGeometryReuseContractCheck(std::string& error) {
         interaction.chaosBodyTint = true; interaction.airstrikeBodyColorAdd = 123;
         interaction.detailStatsEnabled = true; interaction.coarseStageTimingEnabled = true;
         {
-            RuntimeGeometryQueryScope overlay(world, viewport, interaction, camera, cache, true);
+            RuntimeGeometryQueryScope overlay(world, runtimeRenderPlacementPixelRect(viewport), interaction, camera, cache, true);
             RECT bounds{}; bool resolved = false;
             if (!findRuntimeGeometryMobileBounds(object, center, interaction, camera, cache, bounds, resolved)
                 || !resolved || !EqualRect(&bounds, &expected)) return fail("map-to-overlay bounds differ");
@@ -159,7 +159,7 @@ static bool runRuntimePaintGeometryReuseContractCheck(std::string& error) {
                 case 8: changed.stableRenderConfiguration = false; break;
                 case 9: changed.effectOnlyProbe = true; break;
             }
-            RuntimeGeometryQueryScope mismatch(world, viewport, changed, camera, cache);
+            RuntimeGeometryQueryScope mismatch(world, runtimeRenderPlacementPixelRect(viewport), changed, camera, cache);
             if (RuntimeGeometryQueryFrame::active->memoOwner == outer)
                 return fail("changed visual dependency shared outer body");
         }
@@ -167,7 +167,7 @@ static bool runRuntimePaintGeometryReuseContractCheck(std::string& error) {
     object.facing = 128; object.turretFacing = 255; object.health = 3;
     object.mission = "Move"; object.movementAnimationDistance = 12.5;
     {
-        RuntimeGeometryQueryScope next(world, viewport, context, camera, cache);
+        RuntimeGeometryQueryScope next(world, runtimeRenderPlacementPixelRect(viewport), context, camera, cache);
         RECT bounds{}; bool resolved = false;
         if (findRuntimeGeometryMobileBounds(object, center, context, camera, cache, bounds, resolved))
             return fail("body survived paint or simulation boundary");
@@ -250,7 +250,7 @@ static bool runRuntimePaintGeometryReuseAssetContractCheck(const RuntimeMapRende
         for (bool fast : {false, true}) {
             RuntimePaintGeometryReferenceScope mode(!fast);
             RuntimeMapRenderCache& cache = fast ? optimized : reference;
-            RuntimeGeometryQueryScope paint(world, viewport, context, camera, cache);
+            RuntimeGeometryQueryScope paint(world, runtimeRenderPlacementPixelRect(viewport), context, camera, cache);
             std::fill_n(pixels, pixelCount, 0x00407199U);
             auto drawCamera = camera;
             drawRuntimeMap(dc, viewport, world, context, drawCamera, cache);
@@ -259,28 +259,32 @@ static bool runRuntimePaintGeometryReuseAssetContractCheck(const RuntimeMapRende
             else if (!std::equal(expectedPixels.begin(), expectedPixels.end(), pixels))
                 return fail("observation changed destination pixels on frame " + std::to_string(frame));
             if (!fast) continue;
-            RuntimeGeometryQueryScope overlay(world, viewport, context, camera, cache, true);
+            RuntimeGeometryQueryScope overlay(world, runtimeRenderPlacementPixelRect(viewport), context, camera, cache, true);
             for (const auto& object : world.getObjects()) {
-                const auto placement = runtimeObjectWorldRenderPlacement(object, world, viewport, context, camera, cache);
+                const auto placement = runtimeRenderPlacementNative(runtimeObjectWorldRenderPlacementWin32(object, world, viewport, context, camera, cache));
                 if (object.kind == WorldObjectKind::Structure) {
                     RuntimeStructureSpriteGeometry actual, expected;
-                    const bool found = resolveRuntimeStructureSpriteGeometry(object, placement.center, context, camera, cache, actual);
+                    const bool found = resolveRuntimeStructureSpriteGeometryWin32(object, placement.center, context, camera, cache, actual);
                     bool direct = false;
                     {
                         RuntimePaintGeometryReferenceScope replay(true);
-                        direct = resolveRuntimeStructureSpriteGeometry(object, placement.center, context, camera, cache, expected);
+                        direct = resolveRuntimeStructureSpriteGeometryWin32(object, placement.center, context, camera, cache, expected);
                     }
-                    if (found != direct || !EqualRect(&actual.bounds, &expected.bounds)
+                    const RECT actualBounds{actual.bounds.left, actual.bounds.top,
+                        actual.bounds.right, actual.bounds.bottom},
+                        expectedBounds{expected.bounds.left, expected.bounds.top,
+                            expected.bounds.right, expected.bounds.bottom};
+                    if (found != direct || !EqualRect(&actualBounds, &expectedBounds)
                         || actual.layerCount != expected.layerCount || !sameSpans(actual.hitSpans, expected.hitSpans)
                         || !sameSpans(actual.foregroundHitSpans, expected.foregroundHitSpans))
                         return fail("structure body/spans differ: " + object.type);
                 } else {
                     RECT actual{}, expected{};
-                    const bool found = resolveRuntimeMobileObjectSpriteBounds(object, placement.center, context, camera, cache, actual);
+                    const bool found = resolveRuntimeMobileObjectSpriteBoundsWin32(object, placement.center, context, camera, cache, actual);
                     bool direct = false;
                     {
                         RuntimePaintGeometryReferenceScope replay(true);
-                        direct = resolveRuntimeMobileObjectSpriteBounds(object, placement.center, context, camera, cache, expected);
+                        direct = resolveRuntimeMobileObjectSpriteBoundsWin32(object, placement.center, context, camera, cache, expected);
                     }
                     if (found != direct || !EqualRect(&actual, &expected)) return fail("mobile body differs: " + object.type);
                     // A local observer projection must replay its changed identity
@@ -288,10 +292,10 @@ static bool runRuntimePaintGeometryReuseAssetContractCheck(const RuntimeMapRende
                     auto observer = object; observer.type = "E1"; observer.kind = WorldObjectKind::Infantry;
                     observer.owner = "Russians"; observer.airborne = false; observer.submerged = false; observer.cloaked = false;
                     const auto hits = cache.geometryMobileBoundsMemoHits;
-                    resolveRuntimeMobileObjectSpriteBounds(observer, placement.center, context, camera, cache, actual);
+                    resolveRuntimeMobileObjectSpriteBoundsWin32(observer, placement.center, context, camera, cache, actual);
                     {
                         RuntimePaintGeometryReferenceScope replay(true);
-                        resolveRuntimeMobileObjectSpriteBounds(observer, placement.center, context, camera, cache, expected);
+                        resolveRuntimeMobileObjectSpriteBoundsWin32(observer, placement.center, context, camera, cache, expected);
                     }
                     if (cache.geometryMobileBoundsMemoHits != hits || !EqualRect(&actual, &expected))
                         return fail("temporary observer did not retain exact fallback");

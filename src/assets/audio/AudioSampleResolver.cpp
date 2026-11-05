@@ -23,6 +23,32 @@
 
 namespace {
 
+// Borrow only for the synchronous call. Cached candidates/libraries/results
+// own their paths; labels are never used to reopen a native file.
+struct ResolverPaths {
+    const AudioSampleResolverPaths* native = nullptr;
+    const std::string* legacyAssetRoot = nullptr;
+    const std::string* legacyCacheRoot = nullptr;
+
+    bool assetEmpty() const {
+        return native ? native->assetRoot.empty() : legacyAssetRoot->empty();
+    }
+    std::filesystem::path assetPath() const {
+        return native ? native->assetRoot : std::filesystem::path(*legacyAssetRoot);
+    }
+    std::filesystem::path cachePath() const {
+        return native ? native->cacheRoot : std::filesystem::path(*legacyCacheRoot);
+    }
+    bool cacheEmpty() const {
+        return native ? native->cacheRoot.empty() : legacyCacheRoot->empty();
+    }
+    std::string rootKey() const {
+        if (!native) return *legacyAssetRoot;
+        const auto bytes = native->assetRoot.generic_u8string();
+        return "native|" + std::string(bytes.begin(), bytes.end());
+    }
+};
+
 struct AudioBagEntry {
     std::string name;
     std::uint32_t offset = 0;
@@ -34,6 +60,8 @@ struct AudioBagEntry {
 
 struct AudioBagLibrary {
     std::string mixPath;
+    std::filesystem::path filePath;
+    std::string cacheIdentity;
     std::uint64_t bagAbsoluteOffset = 0;
     std::uint32_t bagSize = 0;
     std::unordered_map<std::string, AudioBagEntry> entriesByName;
@@ -195,10 +223,10 @@ std::string normalizeAudioCampaignSourceId(const std::string& sourceId) {
 }
 
 std::string audioSourceCacheKey(
-    const std::string& assetRootPath,
+    const ResolverPaths& paths,
     const std::string& campaignSourceId
 ) {
-    return lowerAscii(assetRootPath)
+    return lowerAscii(paths.rootKey())
         + "|source="
         + normalizeAudioCampaignSourceId(campaignSourceId);
 }
@@ -213,11 +241,29 @@ std::uint32_t readUInt32LE(
         | (static_cast<std::uint32_t>(bytes[offset + 3U]) << 24U);
 }
 
-std::string pathString(const std::filesystem::path& path) {
+std::filesystem::path normalizedAudioPath(const std::filesystem::path& path) {
     std::error_code errorCode;
     const std::filesystem::path canonical =
         std::filesystem::weakly_canonical(path, errorCode);
-    return (errorCode ? path.lexically_normal() : canonical).generic_string();
+    return errorCode ? path.lexically_normal() : canonical;
+}
+
+std::string pathString(const std::filesystem::path& path, bool utf8 = false) {
+    const auto normalized = normalizedAudioPath(path);
+    if (!utf8) return normalized.generic_string();
+    const auto bytes = normalized.generic_u8string();
+    return std::string(bytes.begin(), bytes.end());
+}
+
+std::string pathCacheIdentity(const std::filesystem::path& path, const ResolverPaths& paths) {
+    // Keep existing disk-cache names on paths representable by the old API.
+    // The tagged domain covers only paths the old code page could not express.
+    if (!paths.native) return pathString(path);
+    try {
+        return pathString(path);
+    } catch (const std::system_error&) {
+        return "utf8|" + pathString(path, true);
+    }
 }
 
 bool existingRegularFile(const std::filesystem::path& path) {
@@ -318,13 +364,13 @@ std::vector<std::string> sampleTokensForSection(
     return samples;
 }
 
-const std::vector<std::string>& audioMixPathCandidates(
-    const std::string& assetRootPath,
+const std::vector<std::filesystem::path>& audioMixPathCandidates(
+    const ResolverPaths& paths,
     const std::string& campaignSourceId
 ) {
-    static std::unordered_map<std::string, std::vector<std::string>> cache;
+    static std::unordered_map<std::string, std::vector<std::filesystem::path>> cache;
     const std::string cacheKey = audioSourceCacheKey(
-        assetRootPath,
+        paths,
         campaignSourceId
     );
     const auto cached = cache.find(cacheKey);
@@ -332,9 +378,9 @@ const std::vector<std::string>& audioMixPathCandidates(
         return cached->second;
     }
 
-    std::vector<std::string> paths;
-    if (!assetRootPath.empty()) {
-        const std::filesystem::path root(assetRootPath);
+    std::vector<std::filesystem::path> candidatesFound;
+    if (!paths.assetEmpty()) {
+        const std::filesystem::path root(paths.assetPath());
         const std::filesystem::path candidates[] = {
             root / "langmd" / "audiomd.mix",
             root / "langmd" / "audio.mix",
@@ -369,14 +415,14 @@ const std::vector<std::string>& audioMixPathCandidates(
                 continue;
             }
 
-            const std::string path = pathString(candidate);
+            const std::string path = pathString(candidate, paths.native != nullptr);
             if (seen.insert(lowerAscii(path)).second) {
-                paths.push_back(path);
+                candidatesFound.push_back(normalizedAudioPath(candidate));
             }
         }
     }
 
-    auto [inserted, _] = cache.emplace(cacheKey, std::move(paths));
+    auto [inserted, _] = cache.emplace(cacheKey, std::move(candidatesFound));
     return inserted->second;
 }
 
@@ -394,16 +440,16 @@ bool readMixFileData(
     return archive.readEntryData(*entry, bytes, errorMessage);
 }
 
-const MixArchive* loadCachedAudioMixArchive(const std::string& mixPath) {
+const MixArchive* loadCachedAudioMixArchive(const std::filesystem::path& mixPath, const ResolverPaths& paths) {
     static std::unordered_map<std::string, std::shared_ptr<MixArchive>> cache;
-    const std::string cacheKey = lowerAscii(mixPath);
+    const std::string cacheKey = (paths.native ? "native|" : "") + lowerAscii(pathString(mixPath, paths.native != nullptr));
     const auto cached = cache.find(cacheKey);
     if (cached != cache.end()) {
         return cached->second.get();
     }
 
     auto archive = std::make_shared<MixArchive>();
-    if (!archive->loadFromFile(mixPath)) {
+    if (!archive->loadFromPath(mixPath)) {
         cache.emplace(cacheKey, nullptr);
         return nullptr;
     }
@@ -414,7 +460,8 @@ const MixArchive* loadCachedAudioMixArchive(const std::string& mixPath) {
 }
 
 bool readFileSlice(
-    const std::string& path,
+    const std::filesystem::path& path,
+    const std::string& label,
     std::uint64_t absoluteOffset,
     std::uint32_t size,
     std::vector<std::uint8_t>& bytes,
@@ -434,13 +481,13 @@ bool readFileSlice(
 
     std::ifstream input(path, std::ios::binary);
     if (!input.is_open()) {
-        errorMessage = "Failed to open audio MIX file: " + path;
+        errorMessage = "Failed to open audio MIX file: " + label;
         return false;
     }
 
     input.seekg(static_cast<std::streamoff>(absoluteOffset), std::ios::beg);
     if (!input) {
-        errorMessage = "Failed to seek to audio data in MIX file: " + path;
+        errorMessage = "Failed to seek to audio data in MIX file: " + label;
         return false;
     }
 
@@ -451,7 +498,7 @@ bool readFileSlice(
             static_cast<std::streamsize>(bytes.size())
         );
         if (input.gcount() != static_cast<std::streamsize>(bytes.size())) {
-            errorMessage = "Audio data slice is truncated in MIX file: " + path;
+            errorMessage = "Audio data slice is truncated in MIX file: " + label;
             bytes.clear();
             return false;
         }
@@ -523,12 +570,12 @@ bool parseAudioIdx(
 }
 
 const std::vector<AudioBagLibrary>& loadAudioBagLibraries(
-    const std::string& assetRootPath,
+    const ResolverPaths& paths,
     const std::string& campaignSourceId
 ) {
     static std::unordered_map<std::string, std::vector<AudioBagLibrary>> cache;
     const std::string cacheKey = audioSourceCacheKey(
-        assetRootPath,
+        paths,
         campaignSourceId
     );
     const auto cached = cache.find(cacheKey);
@@ -537,11 +584,11 @@ const std::vector<AudioBagLibrary>& loadAudioBagLibraries(
     }
 
     std::vector<AudioBagLibrary> libraries;
-    for (const std::string& mixPath : audioMixPathCandidates(
-            assetRootPath,
+    for (const std::filesystem::path& mixPath : audioMixPathCandidates(
+            paths,
             campaignSourceId
         )) {
-        const MixArchive* archive = loadCachedAudioMixArchive(mixPath);
+        const MixArchive* archive = loadCachedAudioMixArchive(mixPath, paths);
         if (archive == nullptr) {
             continue;
         }
@@ -555,7 +602,9 @@ const std::vector<AudioBagLibrary>& loadAudioBagLibraries(
         }
 
         AudioBagLibrary library;
-        library.mixPath = mixPath;
+        library.mixPath = pathString(mixPath, paths.native != nullptr);
+        library.filePath = mixPath;
+        library.cacheIdentity = pathCacheIdentity(mixPath, paths);
         library.bagAbsoluteOffset = bagEntry->absoluteOffset;
         library.bagSize = bagEntry->size;
         if (!parseAudioIdx(idxBytes, library.entriesByName, errorMessage)) {
@@ -599,7 +648,8 @@ std::string sourceHashTag(const std::string& value) {
 bool writeBytesToFile(
     const std::filesystem::path& path,
     const std::vector<std::uint8_t>& bytes,
-    std::string& errorMessage
+    std::string& errorMessage,
+    bool utf8 = false
 ) {
     const std::filesystem::path parent = path.parent_path();
     if (!parent.empty()) {
@@ -614,7 +664,7 @@ bool writeBytesToFile(
 
     std::ofstream output(path, std::ios::binary);
     if (!output.is_open()) {
-        errorMessage = "Failed to open audio cache file: " + pathString(path);
+        errorMessage = "Failed to open audio cache file: " + pathString(path, utf8);
         return false;
     }
 
@@ -626,7 +676,7 @@ bool writeBytesToFile(
     }
 
     if (!output) {
-        errorMessage = "Failed to write audio cache file: " + pathString(path);
+        errorMessage = "Failed to write audio cache file: " + pathString(path, utf8);
         return false;
     }
     return true;
@@ -635,12 +685,13 @@ bool writeBytesToFile(
 bool readBytesFromFile(
     const std::filesystem::path& path,
     std::vector<std::uint8_t>& bytes,
-    std::string& errorMessage
+    std::string& errorMessage,
+    bool utf8 = false
 ) {
     bytes.clear();
     std::ifstream input(path, std::ios::binary);
     if (!input.is_open()) {
-        errorMessage = "Failed to open audio file: " + pathString(path);
+        errorMessage = "Failed to open audio file: " + pathString(path, utf8);
         return false;
     }
 
@@ -649,7 +700,7 @@ bool readBytesFromFile(
         std::istreambuf_iterator<char>()
     );
     if (!input.eof() && input.fail()) {
-        errorMessage = "Failed to read audio file: " + pathString(path);
+        errorMessage = "Failed to read audio file: " + pathString(path, utf8);
         bytes.clear();
         return false;
     }
@@ -715,7 +766,7 @@ bool waveFileHasNonEmptyData(
 }
 
 std::filesystem::path cachePathForSample(
-    const std::string& cacheRootPath,
+    const ResolverPaths& paths,
     const std::string& prefix,
     const std::string& sourceId,
     const std::string& sampleName,
@@ -736,7 +787,7 @@ std::filesystem::path cachePathForSample(
         + "_"
         + codecTag
         + ".wav";
-    return std::filesystem::path(cacheRootPath) / fileName;
+    return paths.cachePath() / fileName;
 }
 
 std::vector<std::string> looseAudioFileCandidates(
@@ -771,10 +822,10 @@ std::vector<std::string> looseAudioFileCandidates(
 }
 
 std::vector<std::filesystem::path> looseAudioRoots(
-    const std::string& assetRootPath,
+    const ResolverPaths& paths,
     const std::string& campaignSourceId
 ) {
-    const std::filesystem::path root(assetRootPath);
+    const std::filesystem::path root(paths.assetPath());
     const std::string sourceId =
         normalizeAudioCampaignSourceId(campaignSourceId);
     if (sourceId == "ra2") {
@@ -808,8 +859,7 @@ std::vector<std::filesystem::path> looseAudioRoots(
 }
 
 AudioSampleResolveResult resolveLooseAudioFile(
-    const std::string& assetRootPath,
-    const std::string& cacheRootPath,
+    const ResolverPaths& paths,
     const std::string& sampleName,
     const std::string& campaignSourceId
 ) {
@@ -818,7 +868,7 @@ AudioSampleResolveResult resolveLooseAudioFile(
     result.normalizedName = normalizeAudioSampleName(sampleName);
 
     for (const std::filesystem::path& root : looseAudioRoots(
-            assetRootPath,
+            paths,
             campaignSourceId
         )) {
         for (const std::string& fileName : looseAudioFileCandidates(sampleName)) {
@@ -831,28 +881,29 @@ AudioSampleResolveResult resolveLooseAudioFile(
             if (extension == ".wav") {
                 std::vector<std::uint8_t> bytes;
                 std::string readError;
-                if (!readBytesFromFile(candidate, bytes, readError)) {
+                if (!readBytesFromFile(candidate, bytes, readError, paths.native != nullptr)) {
                     result.errorMessage = readError;
                     continue;
                 }
                 if (!isWaveFileBytes(bytes)) {
                     result.errorMessage =
                         "WAV file has an invalid or truncated RIFF/WAVE header: "
-                        + pathString(candidate);
+                        + pathString(candidate, paths.native != nullptr);
                     continue;
                 }
 
                 result.success = true;
-                result.sourcePath = pathString(candidate);
+                result.sourcePath = pathString(candidate, paths.native != nullptr);
                 result.sourceFormat = "wav";
                 result.wavPath = result.sourcePath;
+                result.wavFilePath = normalizedAudioPath(candidate);
                 result.decoded = false;
                 return result;
             }
 
             if (extension == ".aud") {
                 std::vector<std::uint8_t> bytes;
-                if (!readBytesFromFile(candidate, bytes, result.errorMessage)) {
+                if (!readBytesFromFile(candidate, bytes, result.errorMessage, paths.native != nullptr)) {
                     continue;
                 }
 
@@ -863,16 +914,16 @@ AudioSampleResolveResult resolveLooseAudioFile(
                 }
 
                 const std::filesystem::path cachePath = cachePathForSample(
-                    cacheRootPath,
+                    paths,
                     "aud",
-                    pathString(candidate),
+                    pathCacheIdentity(candidate, paths),
                     result.normalizedName,
                     0,
                     static_cast<std::uint32_t>(bytes.size()),
                     "aud_v3"
                 );
                 if (!nonEmptyFile(cachePath)) {
-                    if (!writeBytesToFile(cachePath, decoded.wavBytes, result.errorMessage)) {
+                    if (!writeBytesToFile(cachePath, decoded.wavBytes, result.errorMessage, paths.native != nullptr)) {
                         return result;
                     }
                 } else {
@@ -880,9 +931,10 @@ AudioSampleResolveResult resolveLooseAudioFile(
                 }
 
                 result.success = true;
-                result.sourcePath = pathString(candidate);
+                result.sourcePath = pathString(candidate, paths.native != nullptr);
                 result.sourceFormat = decoded.sourceFormat;
-                result.wavPath = pathString(cachePath);
+                result.wavPath = pathString(cachePath, paths.native != nullptr);
+                result.wavFilePath = normalizedAudioPath(cachePath);
                 result.decoded = true;
                 result.sampleRate = decoded.sampleRate;
                 result.bitsPerSample = decoded.bitsPerSample;
@@ -897,8 +949,7 @@ AudioSampleResolveResult resolveLooseAudioFile(
 }
 
 AudioSampleResolveResult resolveMixLooseAudioFile(
-    const std::string& assetRootPath,
-    const std::string& cacheRootPath,
+    const ResolverPaths& paths,
     const std::string& sampleName,
     const std::string& campaignSourceId
 ) {
@@ -910,11 +961,11 @@ AudioSampleResolveResult resolveMixLooseAudioFile(
         return result;
     }
 
-    for (const std::string& mixPath : audioMixPathCandidates(
-            assetRootPath,
+    for (const std::filesystem::path& mixPath : audioMixPathCandidates(
+            paths,
             campaignSourceId
         )) {
-        const MixArchive* archive = loadCachedAudioMixArchive(mixPath);
+        const MixArchive* archive = loadCachedAudioMixArchive(mixPath, paths);
         if (archive == nullptr) {
             continue;
         }
@@ -938,7 +989,7 @@ AudioSampleResolveResult resolveMixLooseAudioFile(
                 continue;
             }
 
-            const std::string sourceId = mixPath + "|" + fileName;
+            const std::string sourceId = pathCacheIdentity(mixPath, paths) + "|" + fileName;
             if (extension == ".wav") {
                 if (!isWaveFileBytes(bytes)) {
                     result.errorMessage =
@@ -948,7 +999,7 @@ AudioSampleResolveResult resolveMixLooseAudioFile(
                 }
 
                 const std::filesystem::path cachePath = cachePathForSample(
-                    cacheRootPath,
+                    paths,
                     "mixwav",
                     sourceId,
                     result.normalizedName,
@@ -957,7 +1008,7 @@ AudioSampleResolveResult resolveMixLooseAudioFile(
                     "pcm_v2"
                 );
                 if (!nonEmptyFile(cachePath)) {
-                    if (!writeBytesToFile(cachePath, bytes, result.errorMessage)) {
+                    if (!writeBytesToFile(cachePath, bytes, result.errorMessage, paths.native != nullptr)) {
                         return result;
                     }
                 } else {
@@ -965,9 +1016,10 @@ AudioSampleResolveResult resolveMixLooseAudioFile(
                 }
 
                 result.success = true;
-                result.sourcePath = mixPath;
+                result.sourcePath = pathString(mixPath, paths.native != nullptr);
                 result.sourceFormat = "mix wav";
-                result.wavPath = pathString(cachePath);
+                result.wavPath = pathString(cachePath, paths.native != nullptr);
+                result.wavFilePath = normalizedAudioPath(cachePath);
                 result.decoded = false;
                 return result;
             }
@@ -979,7 +1031,7 @@ AudioSampleResolveResult resolveMixLooseAudioFile(
             }
 
             const std::filesystem::path cachePath = cachePathForSample(
-                cacheRootPath,
+                paths,
                 "mixaud",
                 sourceId,
                 result.normalizedName,
@@ -988,7 +1040,7 @@ AudioSampleResolveResult resolveMixLooseAudioFile(
                 "aud_v3"
             );
             if (!nonEmptyFile(cachePath)) {
-                if (!writeBytesToFile(cachePath, decoded.wavBytes, result.errorMessage)) {
+                if (!writeBytesToFile(cachePath, decoded.wavBytes, result.errorMessage, paths.native != nullptr)) {
                     return result;
                 }
             } else {
@@ -996,9 +1048,10 @@ AudioSampleResolveResult resolveMixLooseAudioFile(
             }
 
             result.success = true;
-            result.sourcePath = mixPath;
+            result.sourcePath = pathString(mixPath, paths.native != nullptr);
             result.sourceFormat = decoded.sourceFormat + " from mix";
-            result.wavPath = pathString(cachePath);
+            result.wavPath = pathString(cachePath, paths.native != nullptr);
+                result.wavFilePath = normalizedAudioPath(cachePath);
             result.decoded = true;
             result.sampleRate = decoded.sampleRate;
             result.bitsPerSample = decoded.bitsPerSample;
@@ -1025,10 +1078,10 @@ struct BackgroundMusicIniSource {
 };
 
 std::vector<BackgroundMusicIniSource> backgroundMusicIniSources(
-    const std::string& assetRootPath
+    const ResolverPaths& paths
 ) {
     std::vector<BackgroundMusicIniSource> sources;
-    const std::filesystem::path root(assetRootPath);
+    const std::filesystem::path root(paths.assetPath());
     const std::filesystem::path candidates[] = {
         root / "ra2md" / "localmd" / "thememd.ini",
         root / "localmd" / "thememd.ini",
@@ -1042,13 +1095,13 @@ std::vector<BackgroundMusicIniSource> backgroundMusicIniSources(
         if (!existingRegularFile(candidate)) {
             continue;
         }
-        const std::string sourcePath = pathString(candidate);
+        const std::string sourcePath = pathString(candidate, paths.native != nullptr);
         if (!seen.insert(lowerAscii(sourcePath)).second) {
             continue;
         }
         BackgroundMusicIniSource source;
         source.sourcePath = sourcePath;
-        if (source.ini.loadFromFile(sourcePath)) {
+        if (source.ini.loadFromPath(normalizedAudioPath(candidate))) {
             sources.push_back(std::move(source));
         }
     }
@@ -1066,12 +1119,12 @@ std::vector<BackgroundMusicIniSource> backgroundMusicIniSources(
             continue;
         }
         const std::string sourceKey =
-            lowerAscii(pathString(mixPath) + "|theme.ini");
+            lowerAscii(pathString(mixPath, paths.native != nullptr) + "|theme.ini");
         if (!seen.insert(sourceKey).second) {
             continue;
         }
         MixArchive archive;
-        if (!archive.loadFromFile(pathString(mixPath))) {
+        if (!archive.loadFromPath(normalizedAudioPath(mixPath))) {
             continue;
         }
         const MixEntry* entry = archive.findEntryByName("theme.ini");
@@ -1084,7 +1137,7 @@ std::vector<BackgroundMusicIniSource> backgroundMusicIniSources(
             continue;
         }
         BackgroundMusicIniSource source;
-        source.sourcePath = pathString(mixPath) + "|theme.ini";
+        source.sourcePath = pathString(mixPath, paths.native != nullptr) + "|theme.ini";
         if (source.ini.loadFromString(std::string(
                 reinterpret_cast<const char*>(bytes.data()),
                 bytes.size()
@@ -1096,13 +1149,13 @@ std::vector<BackgroundMusicIniSource> backgroundMusicIniSources(
 }
 
 std::vector<BackgroundMusicTrackCandidate> backgroundMusicTracks(
-    const std::string& assetRootPath,
+    const ResolverPaths& paths,
     bool normalOnly
 ) {
     std::vector<BackgroundMusicTrackCandidate> tracks;
     std::unordered_set<std::string> seen;
     for (BackgroundMusicIniSource& source :
-            backgroundMusicIniSources(assetRootPath)) {
+            backgroundMusicIniSources(paths)) {
         IniFile& themeIni = source.ini;
         const IniFile::Section* themes = themeIni.getSection("Themes");
         if (themes == nullptr) {
@@ -1234,9 +1287,9 @@ std::vector<BackgroundMusicTrackCandidate> backgroundMusicTracks(
 }
 
 std::vector<BackgroundMusicTrackCandidate> normalBackgroundMusicTracks(
-    const std::string& assetRootPath
+    const ResolverPaths& paths
 ) {
-    return backgroundMusicTracks(assetRootPath, true);
+    return backgroundMusicTracks(paths, true);
 }
 
 AudioBackgroundMusicFaction soundtrackFactionForTrack(
@@ -1283,18 +1336,18 @@ AudioBackgroundMusicFaction soundtrackFactionForTrack(
     return AudioBackgroundMusicFaction::Yuri;
 }
 
-const std::vector<std::string>& themeMixPathCandidates(
-    const std::string& assetRootPath
+const std::vector<std::filesystem::path>& themeMixPathCandidates(
+    const ResolverPaths& paths
 ) {
-    static std::unordered_map<std::string, std::vector<std::string>> cache;
-    const std::string cacheKey = lowerAscii(assetRootPath);
+    static std::unordered_map<std::string, std::vector<std::filesystem::path>> cache;
+    const std::string cacheKey = lowerAscii(paths.rootKey());
     const auto cached = cache.find(cacheKey);
     if (cached != cache.end()) {
         return cached->second;
     }
 
     std::vector<std::filesystem::path> candidates;
-    const std::filesystem::path root(assetRootPath);
+    const std::filesystem::path root(paths.assetPath());
     candidates.push_back(root / "thememd.mix");
     candidates.push_back(root / "theme.mix");
     candidates.push_back(root / "ra2md" / "thememd.mix");
@@ -1308,24 +1361,23 @@ const std::vector<std::string>& themeMixPathCandidates(
         parent = parent.parent_path();
     }
 
-    std::vector<std::string> paths;
+    std::vector<std::filesystem::path> candidatesFound;
     std::unordered_set<std::string> seen;
     for (const std::filesystem::path& candidate : candidates) {
         if (!existingRegularFile(candidate)) {
             continue;
         }
-        const std::string path = pathString(candidate);
+        const std::string path = pathString(candidate, paths.native != nullptr);
         if (seen.insert(lowerAscii(path)).second) {
-            paths.push_back(path);
+            candidatesFound.push_back(normalizedAudioPath(candidate));
         }
     }
-    auto [inserted, _] = cache.emplace(cacheKey, std::move(paths));
+    auto [inserted, _] = cache.emplace(cacheKey, std::move(candidatesFound));
     return inserted->second;
 }
 
 AudioBackgroundMusicResolveResult resolveBackgroundMusicTrackToWave(
-    const std::string& assetRootPath,
-    const std::string& cacheRootPath,
+    const ResolverPaths& paths,
     const BackgroundMusicTrackCandidate& track
 ) {
     AudioBackgroundMusicResolveResult result;
@@ -1333,7 +1385,7 @@ AudioBackgroundMusicResolveResult resolveBackgroundMusicTrackToWave(
     result.themeId = track.themeId;
     result.soundName = track.soundName;
     result.normalTrack = track.normal;
-    const std::filesystem::path root(assetRootPath);
+    const std::filesystem::path root(paths.assetPath());
     const std::filesystem::path looseCandidates[] = {
         root / "thememd" / (track.soundName + ".wav"),
         root / "theme" / (track.soundName + ".wav"),
@@ -1347,7 +1399,7 @@ AudioBackgroundMusicResolveResult resolveBackgroundMusicTrackToWave(
         const std::string extension =
             lowerAscii(candidate.extension().string());
         std::vector<std::uint8_t> bytes;
-        if (!readBytesFromFile(candidate, bytes, result.errorMessage)) {
+        if (!readBytesFromFile(candidate, bytes, result.errorMessage, paths.native != nullptr)) {
             continue;
         }
         if (extension == ".wav") {
@@ -1356,9 +1408,10 @@ AudioBackgroundMusicResolveResult resolveBackgroundMusicTrackToWave(
                 continue;
             }
             result.success = true;
-            result.sourcePath = pathString(candidate);
+            result.sourcePath = pathString(candidate, paths.native != nullptr);
             result.sourceFormat = "theme wav";
             result.wavPath = result.sourcePath;
+            result.wavFilePath = normalizedAudioPath(candidate);
             return result;
         }
         AudioDecodeResult decoded = decodeAudToWave(bytes);
@@ -1366,14 +1419,14 @@ AudioBackgroundMusicResolveResult resolveBackgroundMusicTrackToWave(
             result.errorMessage = decoded.errorMessage;
             continue;
         }
-        if (cacheRootPath.empty()) {
+        if (paths.cacheEmpty()) {
             result.errorMessage = "A cache root is required to decode theme AUD files.";
             return result;
         }
         const std::filesystem::path cachePath = cachePathForSample(
-            cacheRootPath,
+            paths,
             "music",
-            pathString(candidate),
+            pathCacheIdentity(candidate, paths),
             track.soundName,
             0,
             static_cast<std::uint32_t>(bytes.size()),
@@ -1381,20 +1434,21 @@ AudioBackgroundMusicResolveResult resolveBackgroundMusicTrackToWave(
         );
         const bool cached = nonEmptyFile(cachePath);
         if (!cached
-            && !writeBytesToFile(cachePath, decoded.wavBytes, result.errorMessage)) {
+            && !writeBytesToFile(cachePath, decoded.wavBytes, result.errorMessage, paths.native != nullptr)) {
             return result;
         }
         result.success = true;
         result.fromCache = cached;
         result.decoded = true;
-        result.sourcePath = pathString(candidate);
+        result.sourcePath = pathString(candidate, paths.native != nullptr);
         result.sourceFormat = decoded.sourceFormat;
-        result.wavPath = pathString(cachePath);
+        result.wavPath = pathString(cachePath, paths.native != nullptr);
+        result.wavFilePath = normalizedAudioPath(cachePath);
         return result;
     }
 
-    for (const std::string& mixPath : themeMixPathCandidates(assetRootPath)) {
-        const MixArchive* archive = loadCachedAudioMixArchive(mixPath);
+    for (const std::filesystem::path& mixPath : themeMixPathCandidates(paths)) {
+        const MixArchive* archive = loadCachedAudioMixArchive(mixPath, paths);
         if (archive == nullptr) {
             continue;
         }
@@ -1407,15 +1461,15 @@ AudioBackgroundMusicResolveResult resolveBackgroundMusicTrackToWave(
             if (entry == nullptr) {
                 continue;
             }
-            if (cacheRootPath.empty()) {
+            if (paths.cacheEmpty()) {
                 result.errorMessage =
                     "A cache root is required to extract theme MIX audio.";
                 return result;
             }
             const std::filesystem::path cachePath = cachePathForSample(
-                cacheRootPath,
+                paths,
                 "mixmusic",
-                mixPath + "|" + fileName,
+                pathCacheIdentity(mixPath, paths) + "|" + fileName,
                 track.soundName,
                 entry->offset,
                 entry->size,
@@ -1425,11 +1479,12 @@ AudioBackgroundMusicResolveResult resolveBackgroundMusicTrackToWave(
                 result.success = true;
                 result.fromCache = true;
                 result.decoded = aud;
-                result.sourcePath = mixPath + "|" + fileName;
+                result.sourcePath = pathString(mixPath, paths.native != nullptr) + "|" + fileName;
                 result.sourceFormat = aud
                     ? "theme mix aud cached wav"
                     : "theme mix wav cached";
-                result.wavPath = pathString(cachePath);
+                result.wavPath = pathString(cachePath, paths.native != nullptr);
+        result.wavFilePath = normalizedAudioPath(cachePath);
                 return result;
             }
 
@@ -1453,14 +1508,15 @@ AudioBackgroundMusicResolveResult resolveBackgroundMusicTrackToWave(
                 }
                 wavBytes = std::move(bytes);
             }
-            if (!writeBytesToFile(cachePath, wavBytes, result.errorMessage)) {
+            if (!writeBytesToFile(cachePath, wavBytes, result.errorMessage, paths.native != nullptr)) {
                 return result;
             }
             result.success = true;
             result.decoded = aud;
-            result.sourcePath = mixPath + "|" + fileName;
+            result.sourcePath = pathString(mixPath, paths.native != nullptr) + "|" + fileName;
             result.sourceFormat = aud ? "theme mix aud" : "theme mix wav";
-            result.wavPath = pathString(cachePath);
+            result.wavPath = pathString(cachePath, paths.native != nullptr);
+        result.wavFilePath = normalizedAudioPath(cachePath);
             return result;
         }
     }
@@ -1472,13 +1528,13 @@ AudioBackgroundMusicResolveResult resolveBackgroundMusicTrackToWave(
     return result;
 }
 
-std::vector<std::string> voiceCsfPathCandidates(
-    const std::string& assetRootPath,
+std::vector<std::filesystem::path> voiceCsfPathCandidates(
+    const ResolverPaths& paths,
     const std::string& campaignSourceId
 ) {
     std::vector<std::filesystem::path> candidates;
-    const std::filesystem::path root(assetRootPath);
-    if (!assetRootPath.empty()) {
+    const std::filesystem::path root(paths.assetPath());
+    if (!paths.assetEmpty()) {
         candidates.push_back(root / "langmd" / "ra2md.csf");
         candidates.push_back(root / "language" / "ra2.csf");
         candidates.push_back(root / "GameMD" / "ra2md.csf");
@@ -1499,7 +1555,7 @@ std::vector<std::string> voiceCsfPathCandidates(
         candidates.push_back(cwd / "RedAlert2" / "Game" / "ra2.csf");
     }
 
-    std::vector<std::string> paths;
+    std::vector<std::filesystem::path> candidatesFound;
     std::set<std::string> seen;
     const std::string sourceId =
         normalizeAudioCampaignSourceId(campaignSourceId);
@@ -1518,21 +1574,21 @@ std::vector<std::string> voiceCsfPathCandidates(
             continue;
         }
 
-        const std::string path = pathString(candidate);
+        const std::string path = pathString(candidate, paths.native != nullptr);
         if (seen.insert(lowerAscii(path)).second) {
-            paths.push_back(path);
+            candidatesFound.push_back(normalizedAudioPath(candidate));
         }
     }
-    return paths;
+    return candidatesFound;
 }
 
-std::vector<std::string> voiceMixPathCandidates(
-    const std::string& assetRootPath,
+std::vector<std::filesystem::path> voiceMixPathCandidates(
+    const ResolverPaths& paths,
     const std::string& campaignSourceId
 ) {
     std::vector<std::filesystem::path> candidates;
-    const std::filesystem::path root(assetRootPath);
-    if (!assetRootPath.empty()) {
+    const std::filesystem::path root(paths.assetPath());
+    if (!paths.assetEmpty()) {
         candidates.push_back(root / "langmd" / "langmd.mix");
         candidates.push_back(root / "language" / "language.mix");
         candidates.push_back(root / "ra2md" / "langmd.mix");
@@ -1555,7 +1611,7 @@ std::vector<std::string> voiceMixPathCandidates(
     candidates.push_back(cwd / "RedAlert2" / "GameMD" / "language.mix");
     candidates.push_back(cwd / "RedAlert2" / "Game" / "language.mix");
 
-    std::vector<std::string> paths;
+    std::vector<std::filesystem::path> candidatesFound;
     std::set<std::string> seen;
     const std::string sourceId =
         normalizeAudioCampaignSourceId(campaignSourceId);
@@ -1574,23 +1630,24 @@ std::vector<std::string> voiceMixPathCandidates(
             continue;
         }
 
-        const std::string path = pathString(candidate);
+        const std::string path = pathString(candidate, paths.native != nullptr);
         if (seen.insert(lowerAscii(path)).second) {
-            paths.push_back(path);
+            candidatesFound.push_back(normalizedAudioPath(candidate));
         }
     }
-    return paths;
+    return candidatesFound;
 }
 
 std::vector<AudioIndexedSample> scanVoxLabelSamples(
-    const std::vector<std::string>& paths
+    const std::vector<std::filesystem::path>& filePaths,
+    const ResolverPaths& paths
 ) {
     std::vector<AudioIndexedSample> labels;
     std::unordered_set<std::string> seen;
-    for (const std::string& path : paths) {
+    for (const std::filesystem::path& path : filePaths) {
         std::vector<std::uint8_t> bytes;
         std::string errorMessage;
-        if (!readBytesFromFile(path, bytes, errorMessage)) {
+        if (!readBytesFromFile(path, bytes, errorMessage, paths.native != nullptr)) {
             continue;
         }
 
@@ -1623,7 +1680,7 @@ std::vector<AudioIndexedSample> scanVoxLabelSamples(
 
             AudioIndexedSample sample;
             sample.name = label;
-            sample.sourceMixPath = path;
+            sample.sourceMixPath = pathString(path, paths.native != nullptr);
             sample.offset = static_cast<std::uint32_t>(
                 std::min<std::size_t>(
                     index,
@@ -1637,12 +1694,12 @@ std::vector<AudioIndexedSample> scanVoxLabelSamples(
 }
 
 const std::vector<AudioIndexedSample>& loadVoxLabelSamples(
-    const std::string& assetRootPath,
+    const ResolverPaths& paths,
     const std::string& campaignSourceId
 ) {
     static std::unordered_map<std::string, std::vector<AudioIndexedSample>> cache;
     const std::string cacheKey = audioSourceCacheKey(
-        assetRootPath,
+        paths,
         campaignSourceId
     );
     const auto cached = cache.find(cacheKey);
@@ -1652,14 +1709,14 @@ const std::vector<AudioIndexedSample>& loadVoxLabelSamples(
 
     std::vector<AudioIndexedSample> labels =
         scanVoxLabelSamples(voiceCsfPathCandidates(
-            assetRootPath,
+            paths,
             campaignSourceId
-        ));
+        ), paths);
     if (labels.empty()) {
         labels = scanVoxLabelSamples(voiceMixPathCandidates(
-            assetRootPath,
+            paths,
             campaignSourceId
-        ));
+        ), paths);
     }
 
     auto [inserted, _] = cache.emplace(cacheKey, std::move(labels));
@@ -1771,13 +1828,14 @@ std::string normalizeAudioSampleName(const std::string& sampleName) {
     return isNullAudioSampleName(value) ? "" : value;
 }
 
-AudioBackgroundMusicResolveResult resolveBackgroundMusicToWave(
-    const std::string& assetRootPath,
-    const std::string& cacheRootPath,
+namespace {
+
+AudioBackgroundMusicResolveResult resolveBackgroundMusicToWaveImpl(
+    const ResolverPaths& paths,
     const std::vector<std::string>& preferredThemeIds
 ) {
     std::vector<BackgroundMusicTrackCandidate> tracks =
-        normalBackgroundMusicTracks(assetRootPath);
+        normalBackgroundMusicTracks(paths);
     AudioBackgroundMusicResolveResult result;
     if (tracks.empty()) {
         result.errorMessage =
@@ -1806,8 +1864,7 @@ AudioBackgroundMusicResolveResult resolveBackgroundMusicToWave(
     std::string lastError;
     for (const std::size_t index : order) {
         result = resolveBackgroundMusicTrackToWave(
-            assetRootPath,
-            cacheRootPath,
+            paths,
             tracks[index]
         );
         if (result.success) {
@@ -1821,8 +1878,8 @@ AudioBackgroundMusicResolveResult resolveBackgroundMusicToWave(
     return result;
 }
 
-std::vector<std::string> collectBackgroundMusicThemeIds(
-    const std::string& assetRootPath,
+std::vector<std::string> collectBackgroundMusicThemeIdsImpl(
+    const ResolverPaths& paths,
     AudioBackgroundMusicFaction faction
 ) {
     std::vector<std::string> themeIds;
@@ -1830,7 +1887,7 @@ std::vector<std::string> collectBackgroundMusicThemeIds(
         "brainfreeze", "deceiver", "trancelvania", "bullykit"
     };
     for (const BackgroundMusicTrackCandidate& track :
-            normalBackgroundMusicTracks(assetRootPath)) {
+            normalBackgroundMusicTracks(paths)) {
         const std::string normalized =
             lowerAscii(trimAscii(track.themeId));
         const bool included = faction == AudioBackgroundMusicFaction::Any
@@ -1844,21 +1901,19 @@ std::vector<std::string> collectBackgroundMusicThemeIds(
     return themeIds;
 }
 
-AudioBackgroundMusicResolveResult resolveBackgroundMusicThemeToWave(
-    const std::string& assetRootPath,
-    const std::string& cacheRootPath,
+AudioBackgroundMusicResolveResult resolveBackgroundMusicThemeToWaveImpl(
+    const ResolverPaths& paths,
     const std::string& themeId
 ) {
     const std::string normalized = lowerAscii(trimAscii(themeId));
     // Explicit lookup is also used for authored front-end phases such as
     // INTRO/LOADING/SCORE/CREDITS, whose retail entries are Normal=no.
     for (const BackgroundMusicTrackCandidate& track :
-            backgroundMusicTracks(assetRootPath, false)) {
+            backgroundMusicTracks(paths, false)) {
         if (lowerAscii(trimAscii(track.themeId)) == normalized
             || lowerAscii(trimAscii(track.soundName)) == normalized) {
             return resolveBackgroundMusicTrackToWave(
-                assetRootPath,
-                cacheRootPath,
+                paths,
                 track
             );
         }
@@ -1870,13 +1925,13 @@ AudioBackgroundMusicResolveResult resolveBackgroundMusicThemeToWave(
     return result;
 }
 
-std::vector<AudioIndexedSample> collectIndexedAudioSamples(
-    const std::string& assetRootPath,
+std::vector<AudioIndexedSample> collectIndexedAudioSamplesImpl(
+    const ResolverPaths& paths,
     const std::string& campaignSourceId
 ) {
     std::vector<AudioIndexedSample> samples;
     for (const AudioBagLibrary& library : loadAudioBagLibraries(
-            assetRootPath,
+            paths,
             campaignSourceId
         )) {
         for (const auto& [name, entry] : library.entriesByName) {
@@ -1894,16 +1949,14 @@ std::vector<AudioIndexedSample> collectIndexedAudioSamples(
     return samples;
 }
 
-AudioSampleResolveResult resolveAudioSampleToWave(
-    const std::string& assetRootPath,
-    const std::string& cacheRootPath,
+AudioSampleResolveResult resolveAudioSampleToWaveImpl(
+    const ResolverPaths& paths,
     const std::string& sampleName,
     const std::string& campaignSourceId
 ) {
     AudioSampleResolveResult looseResult =
         resolveLooseAudioFile(
-            assetRootPath,
-            cacheRootPath,
+            paths,
             sampleName,
             campaignSourceId
         );
@@ -1913,8 +1966,7 @@ AudioSampleResolveResult resolveAudioSampleToWave(
 
     AudioSampleResolveResult mixLooseResult =
         resolveMixLooseAudioFile(
-            assetRootPath,
-            cacheRootPath,
+            paths,
             sampleName,
             campaignSourceId
         );
@@ -1931,7 +1983,7 @@ AudioSampleResolveResult resolveAudioSampleToWave(
     }
 
     for (const AudioBagLibrary& library : loadAudioBagLibraries(
-            assetRootPath,
+            paths,
             campaignSourceId
         )) {
         const auto entryIt = library.entriesByName.find(result.normalizedName);
@@ -1952,9 +2004,9 @@ AudioSampleResolveResult resolveAudioSampleToWave(
         // their header-as-audio PCM payload.
         const std::string codecTag = imaAdpcm ? "ima_block_v4" : "pcm_v3";
         const std::filesystem::path cachePath = cachePathForSample(
-            cacheRootPath,
+            paths,
             "bag",
-            library.mixPath,
+            library.cacheIdentity,
             result.normalizedName,
             entry.offset,
             entry.size,
@@ -1968,7 +2020,8 @@ AudioSampleResolveResult resolveAudioSampleToWave(
             result.sourceFormat = imaAdpcm
                 ? "idx/bag ima-adpcm cached wav"
                 : "idx/bag pcm cached wav";
-            result.wavPath = pathString(cachePath);
+            result.wavPath = pathString(cachePath, paths.native != nullptr);
+            result.wavFilePath = normalizedAudioPath(cachePath);
             result.sampleRate = entry.sampleRate;
             result.bitsPerSample = imaAdpcm
                 ? 16
@@ -1985,6 +2038,7 @@ AudioSampleResolveResult resolveAudioSampleToWave(
 
         std::vector<std::uint8_t> sourceBytes;
         if (!readFileSlice(
+                library.filePath,
                 library.mixPath,
                 library.bagAbsoluteOffset + entry.offset,
                 entry.size,
@@ -1999,14 +2053,15 @@ AudioSampleResolveResult resolveAudioSampleToWave(
             return result;
         }
 
-        if (!writeBytesToFile(cachePath, decoded.wavBytes, result.errorMessage)) {
+        if (!writeBytesToFile(cachePath, decoded.wavBytes, result.errorMessage, paths.native != nullptr)) {
             return result;
         }
 
         result.success = true;
         result.sourcePath = library.mixPath;
         result.sourceFormat = decoded.sourceFormat;
-        result.wavPath = pathString(cachePath);
+        result.wavPath = pathString(cachePath, paths.native != nullptr);
+            result.wavFilePath = normalizedAudioPath(cachePath);
         result.decoded = true;
         result.sampleRate = decoded.sampleRate;
         result.bitsPerSample = decoded.bitsPerSample;
@@ -2016,7 +2071,7 @@ AudioSampleResolveResult resolveAudioSampleToWave(
     }
 
     for (const AudioIndexedSample& sample : loadVoxLabelSamples(
-            assetRootPath,
+            paths,
             campaignSourceId
         )) {
         if (sample.name != result.normalizedName) {
@@ -2035,6 +2090,39 @@ AudioSampleResolveResult resolveAudioSampleToWave(
         "Audio sample was not found in loose files, audio.idx/audio.bag, "
         "or langmd/language VOX labels.";
     return result;
+}
+
+} // namespace
+
+std::vector<AudioIndexedSample> collectIndexedAudioSamples(const std::string& assetRootPath, const std::string& campaignSourceId) {
+    return collectIndexedAudioSamplesImpl({nullptr, &assetRootPath, nullptr}, campaignSourceId);
+}
+std::vector<AudioIndexedSample> collectIndexedAudioSamplesFromPaths(const AudioSampleResolverPaths& paths, const std::string& campaignSourceId) {
+    return collectIndexedAudioSamplesImpl({&paths, nullptr, nullptr}, campaignSourceId);
+}
+AudioSampleResolveResult resolveAudioSampleToWave(const std::string& assetRootPath, const std::string& cacheRootPath, const std::string& sampleName, const std::string& campaignSourceId) {
+    return resolveAudioSampleToWaveImpl({nullptr, &assetRootPath, &cacheRootPath}, sampleName, campaignSourceId);
+}
+AudioSampleResolveResult resolveAudioSampleToWaveFromPaths(const AudioSampleResolverPaths& paths, const std::string& sampleName, const std::string& campaignSourceId) {
+    return resolveAudioSampleToWaveImpl({&paths, nullptr, nullptr}, sampleName, campaignSourceId);
+}
+AudioBackgroundMusicResolveResult resolveBackgroundMusicToWave(const std::string& assetRootPath, const std::string& cacheRootPath, const std::vector<std::string>& preferredThemeIds) {
+    return resolveBackgroundMusicToWaveImpl({nullptr, &assetRootPath, &cacheRootPath}, preferredThemeIds);
+}
+AudioBackgroundMusicResolveResult resolveBackgroundMusicToWaveFromPaths(const AudioSampleResolverPaths& paths, const std::vector<std::string>& preferredThemeIds) {
+    return resolveBackgroundMusicToWaveImpl({&paths, nullptr, nullptr}, preferredThemeIds);
+}
+std::vector<std::string> collectBackgroundMusicThemeIds(const std::string& assetRootPath, AudioBackgroundMusicFaction faction) {
+    return collectBackgroundMusicThemeIdsImpl({nullptr, &assetRootPath, nullptr}, faction);
+}
+std::vector<std::string> collectBackgroundMusicThemeIdsFromPaths(const AudioSampleResolverPaths& paths, AudioBackgroundMusicFaction faction) {
+    return collectBackgroundMusicThemeIdsImpl({&paths, nullptr, nullptr}, faction);
+}
+AudioBackgroundMusicResolveResult resolveBackgroundMusicThemeToWave(const std::string& assetRootPath, const std::string& cacheRootPath, const std::string& themeId) {
+    return resolveBackgroundMusicThemeToWaveImpl({nullptr, &assetRootPath, &cacheRootPath}, themeId);
+}
+AudioBackgroundMusicResolveResult resolveBackgroundMusicThemeToWaveFromPaths(const AudioSampleResolverPaths& paths, const std::string& themeId) {
+    return resolveBackgroundMusicThemeToWaveImpl({&paths, nullptr, nullptr}, themeId);
 }
 
 AudioDecodeSmokeReport runAudioDecodeSmoke(
@@ -2091,11 +2179,10 @@ AudioDecodeSmokeReport runAudioDecodeSmoke(
     }
 
     for (const BackgroundMusicTrackCandidate& track :
-            normalBackgroundMusicTracks(assetRootPath)) {
+            normalBackgroundMusicTracks({nullptr, &assetRootPath, &cacheRootPath})) {
         AudioBackgroundMusicResolveResult result =
             resolveBackgroundMusicTrackToWave(
-                assetRootPath,
-                cacheRootPath,
+                {nullptr, &assetRootPath, &cacheRootPath},
                 track
             );
         ++report.attemptedMusicTracks;

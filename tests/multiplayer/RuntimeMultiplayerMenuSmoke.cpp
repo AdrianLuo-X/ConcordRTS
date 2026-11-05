@@ -1,3 +1,5 @@
+#include <array>
+#include "ui/network/private/RuntimeLanMenuSecureSource.h"
 #include "ui/network/RuntimeMultiplayerMenu.h"
 #include "data/campaign/CooperativeScenarioDatabase.h"
 #include "core/io/IniFile.h"
@@ -6,6 +8,7 @@
 #include "network/maps/RuntimeMultiplayerCompatibilityFingerprint.h"
 #include "network/maps/RuntimeMultiplayerMapCache.h"
 
+#include "RuntimeMultiplayerSmokeRetention.h"
 #include <algorithm>
 #include <chrono>
 #include <cctype>
@@ -70,6 +73,7 @@ struct FixtureFiles {
     fs::path teamPath;
 
     ~FixtureFiles() {
+        if (runtimeMultiplayerSmokeRetainArtifacts()) return;
         std::error_code ignored;
         fs::remove(mapPath, ignored);
         fs::remove(teamPath, ignored);
@@ -225,12 +229,22 @@ void testCompatibilityManifest(
     );
 
     std::error_code removeError;
-    fs::remove(fixture.teamPath, removeError);
+    // A new owned authority root lacks mpteammd.ini from creation. Preserve the
+    // original missing-mode transaction/assertions without deleting any material.
+    const fs::path missingRoot = fixture.root / "missing-team-authority";
+    fs::create_directories(missingRoot, removeError);
+    for (const fs::path& source : {fixture.rulesPath, fixture.artPath,
+             fixture.modesPath, fixture.battlePath}) {
+        if (removeError) break;
+        fs::copy_file(source, missingRoot / source.filename(), removeError);
+    }
+    RuntimeConfig missingConfig = config;
+    missingConfig.localDataRootPath = missingRoot.string();
     RuntimeMultiplayerCompatibility unchanged = original;
     context.expect(
         !removeError
             && !makeRuntimeMultiplayerMenuCompatibility(
-                config,
+                missingConfig,
                 unchanged,
                 error
             )
@@ -503,6 +517,7 @@ void testJoinOptionsAndResultOwnership(
     );
 }
 
+#include "RuntimeLanMenuSecureSourceSmoke.inl"
 #include "RuntimeMultiplayerCooperativeMenuSmoke.inl"
 #include "RuntimeRandomMapLanMenuSmoke.inl"
 #include "RuntimeMultiplayerMapCacheSmoke.inl"
@@ -510,6 +525,11 @@ void testJoinOptionsAndResultOwnership(
 } // namespace
 
 int main(int argc, char** argv) {
+    if (argc == 2 && std::string(argv[1]) == "--map-cache-only") {
+        SmokeContext context;
+        testDownloadedMapResolution(context);
+        return context.failures == 0 ? 0 : 1;
+    }
     if (argc == 3 && std::string(argv[1]) == "--map-cache-reparse") return testMapCacheReparse(argv[2]);
     if (argc == 3 && std::string(argv[1]) == "--random-map-peer") return testRandomMapPeerRecreation(argv[2]);
     SmokeContext context;
@@ -518,6 +538,7 @@ int main(int argc, char** argv) {
         return context.failures == 0 ? 0 : 1;
     }
     testEndpointAndSecureIds(context);
+    testLanSecureSourceContract(context);
     FixtureFiles fixture = makeFixture(context);
     const RuntimeConfig config = fixtureConfig(fixture);
     RuntimeMultiplayerCompatibility compatibility;

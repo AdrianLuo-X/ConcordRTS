@@ -24,7 +24,7 @@ bool runRuntimeDiskDrainRenderContractCheck(const RuntimeMapRenderContext& conte
     const int interval = runtimeAnimationFrameDelayTicks(art, probe.fixedTickHz);
     for (int column = 0; column < columns; ++column) {
         std::fill(pixels.begin(),pixels.end(),background);
-        const auto center = runtimeObjectBodyAnchorForRender(*source,viewport,probe,camera);
+        const auto center = runtimeObjectBodyAnchorForRenderWin32(*source,viewport,probe,camera);
         if (!tryDrawVoxelSprite(nullptr,viewport,*source,center,probe,camera,*cache)) return fail("original disc VXL missing");
         const auto before = pixels;
         auto actor = initial; actor.totalTicks = column * interval + 1; actor.remainingTicks = 1;

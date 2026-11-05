@@ -3,10 +3,10 @@
 
 namespace RuntimePathSnapshotConditionalQueriesContractDetail {
 struct Observation {
-    const RuntimeWindowState* expected=nullptr;
+    const RuntimeProductionHostState* expected=nullptr;
     bool foreign=false;
     std::vector<RuntimePathSnapshotConditionalQueryStats> calls;
-    static void observe(void* raw,const RuntimeWindowState& state,const RuntimePathSnapshotConditionalQueryStats& stats) {
+    static void observe(void* raw,const RuntimeProductionHostState& state,const RuntimePathSnapshotConditionalQueryStats& stats) {
         auto& out=*static_cast<Observation*>(raw);
         out.foreign|=out.expected!=&state;
         out.calls.push_back(stats);

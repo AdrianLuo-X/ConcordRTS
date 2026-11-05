@@ -20,6 +20,8 @@
 #include <windows.h>
 #include <bcrypt.h>
 #include <wincrypt.h>
+#include "network/transport/private/RuntimeInternetTlsCertificateWin32.h"
+#include "network/internet/private/RuntimeInternetServiceCertificateFactoryWin32.h"
 #pragma comment(lib, "ws2_32.lib")
 #pragma comment(lib, "crypt32.lib")
 #pragma comment(lib, "advapi32.lib")
@@ -291,6 +293,12 @@ public:
 
     PCCERT_CONTEXT get() const noexcept { return certificate_; }
     HCERTCHAINENGINE chainEngine() const noexcept { return chainEngine_; }
+    RuntimeInternetTlsServerCertificate serverCertificate() const noexcept {
+        return tlsBinding_.serverCertificate();
+    }
+    RuntimeInternetTlsPeerTrust peerTrust() const noexcept {
+        return tlsBinding_.peerTrust();
+    }
 
 private:
     void reset() noexcept {
@@ -333,6 +341,7 @@ private:
     PCCERT_CONTEXT certificate_ = nullptr;
     HCERTSTORE rootStore_ = nullptr;
     HCERTCHAINENGINE chainEngine_ = nullptr;
+    RuntimeInternetTlsCertificateInterop tlsBinding_{certificate_, chainEngine_};
 };
 
 RuntimeInternetAuthenticatedTcpStreamIdentity identityFor(
@@ -531,6 +540,9 @@ bool waitForPlaintextRejection(
     return false;
 }
 
+#include "RuntimeInternetTlsCertificateBorrowSmoke.inl"
+#include "RuntimeInternetServiceCredentialCertificateSmoke.inl"
+
 } // namespace
 #endif
 
@@ -549,7 +561,7 @@ int main() {
     RuntimeInternetTlsServerConfig serverConfig;
     serverConfig.bindScope = RuntimeInternetTlsBindScope::LoopbackIpv4;
     serverConfig.maximumConnections = 16;
-    serverConfig.nativeCertificateContext = certificate.get();
+    serverConfig.serverCertificate = certificate.serverCertificate();
     smoke.expect(server.open(serverConfig, error), error);
     if (!server.isOpen()) return 1;
 
@@ -568,7 +580,7 @@ int main() {
     RuntimeInternetTlsSha256 pin = certificate.sha256(error);
     smoke.expect(error.empty(), error);
     clientConfig.leafCertificateSha256 = pin;
-    clientConfig.nativeCertificateChainEngine = certificate.chainEngine();
+    clientConfig.peerTrust = certificate.peerTrust();
 
     ConnectedPair connected;
     smoke.expect(
@@ -638,6 +650,8 @@ int main() {
 
     smoke.expect(waitForPlaintextRejection(server, error), error);
     server.close();
+    runTlsCertificateBorrowSmoke(smoke, certificate);
+    runServiceCredentialCertificateSmoke(smoke, certificate);
 
     if (smoke.failures == 0) {
         std::cout

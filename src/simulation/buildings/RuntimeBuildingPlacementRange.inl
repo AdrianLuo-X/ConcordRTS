@@ -1,10 +1,10 @@
 // Sidebar construction only. MCV deployment, scripted spawns and initial-base
 // setup use the physical foundation check without requiring a pre-existing base.
 bool runtimeBuildingPlacementAnchorEligible(
-    const RuntimeWindowState& state,
+    const RuntimeProductionHostState& state,
     const WorldObjectInstance& anchor,
     const std::string& placementOwner,
-    bool placingWall = false
+    bool placingWall
 ) {
     if (!anchor.alive || anchor.health <= 0 || anchor.rubble
         || anchor.kind != WorldObjectKind::Structure
@@ -35,10 +35,10 @@ bool runtimeBuildingPlacementAnchorEligible(
 }
 
 bool runtimeBuildingPlacementInRange(
-    const RuntimeWindowState& state,
+    const RuntimeProductionHostState& state,
     const RuntimeBuildCatalogItem& item,
     const RuntimeCellPoint& cell,
-    const std::string& placementOwner = {}
+    const std::string& placementOwner
 ) {
     if (item.kind != RuntimeBuildKind::Building && item.kind != RuntimeBuildKind::Defense)
         return false;

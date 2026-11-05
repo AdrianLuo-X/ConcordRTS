@@ -352,6 +352,27 @@ foreach ($test in $ctestData.tests) {
             }
         }
     }
+    # Exact Main-font reference wrapper only; existing runner mapping is unchanged.
+    if ($null -eq $targetName -and $null -ne $registration -and $null -ne $command -and
+        $command.Count -eq 6 -and [IO.Path]::IsPathRooted($command[0]) -and
+        (Get-AbsolutePath $command[0] $buildRoot) -ieq (Get-AbsolutePath $cache.CMAKE_COMMAND $buildRoot) -and
+        $command[4] -ceq '-P' -and [IO.Path]::IsPathRooted($command[5]) -and
+        (Get-AbsolutePath $command[5] $buildRoot) -ieq (Join-Path $projectRoot 'cmake/RunMainBitmapTextReference.cmake')) {
+        $declaredReferences = @($registration.commandTokens | Where-Object { $_ -ceq '-DREFERENCE_EXECUTABLE=$<TARGET_FILE:concord_main_bitmap_text_native_contract>' })
+        $actualReferences = @($command | Where-Object { $_ -cmatch '^-DREFERENCE_EXECUTABLE=(.+)$' })
+        $referenceTarget = 'concord_main_bitmap_text_native_contract'
+        if ($declaredReferences.Count -eq 1 -and $actualReferences.Count -eq 1 -and
+            $targets.ContainsKey($referenceTarget) -and $targets[$referenceTarget].type -ceq 'EXECUTABLE') {
+            $actualReference = $actualReferences[0].Substring('-DREFERENCE_EXECUTABLE='.Length)
+            $expectedReference = $targets[$referenceTarget].executableArtifact
+            if ([IO.Path]::IsPathRooted($actualReference) -and $null -ne $expectedReference -and
+                (Get-AbsolutePath $actualReference $buildRoot) -ieq (Get-AbsolutePath $expectedReference $buildRoot)) {
+                $targetName = $referenceTarget
+                $wrappedExecutableArtifact = Get-AbsolutePath $actualReference $buildRoot
+                $targetEvidence = 'reviewed-main-font-reference-runner-and-exact-TARGET_FILE'
+            }
+        }
+    }
     if ($null -eq $targetName) { $unresolved.Add($test.name) }
     $properties = [ordered]@{}
     foreach ($property in $test.properties) { $properties[$property.name] = $property.value }

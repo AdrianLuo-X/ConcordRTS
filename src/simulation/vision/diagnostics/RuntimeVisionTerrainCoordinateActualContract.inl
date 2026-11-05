@@ -15,7 +15,7 @@ bool runRuntimeVisionTerrainCoordinateActualContract(const RuntimeConfig& config
         &assets->art,&assets->rules,&assets->mapFacts);
     if(!assets->report.success || !assets->report.rulesLoaded || !assets->report.artLoaded)
         return fail("stock assets unavailable");
-    const auto prepare=[&](RuntimeWindowState& state,std::vector<int>& ids) {
+    const auto prepare=[&](RuntimeProductionHostState& state,std::vector<int>& ids) {
         state.config=config; state.report=assets->report; state.rules=assets->rules;
         state.art=assets->art; state.theater=assets->theater;
         state.rulesLoaded=assets->report.rulesLoaded; state.artLoaded=assets->report.artLoaded;
@@ -119,7 +119,7 @@ bool runRuntimeVisionTerrainCoordinateActualContract(const RuntimeConfig& config
     // native states, not partially seeded parser/grinder scratch fixtures.
     // Distinct same-count layouts make stale pointer/count-only reuse visible.
     for(int boundary=0;boundary<4;++boundary) {
-        std::array<std::array<std::unique_ptr<RuntimeWindowState>,2>,2> states;
+        std::array<std::array<std::unique_ptr<RuntimeProductionHostState>,2>,2> states;
         for(int branch=0;branch<2;++branch) for(int role=0;role<2;++role) {
             RuntimeVisionTerrainCoordinateReferenceScope reference(branch==0);
             states[branch][role]=std::make_unique<RuntimeWindowState>();

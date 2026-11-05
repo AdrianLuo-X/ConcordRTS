@@ -116,7 +116,7 @@ std::string snapshot(const RuntimeWindowState& value) {
         << value.projectedObjectsCacheCameraX << ',' << value.projectedObjectsCacheCameraY << ','
         << value.projectedObjectsCacheTileWidth << ',' << value.projectedObjectsCacheTileHeight << ';';
     result << ";projectionRows=" << value.projectedObjectsCache.size() << ';';
-    const auto rect = [&](RECT row) { result << row.left << ',' << row.top << ',' << row.right << ',' << row.bottom << ';'; };
+    const auto rect = [&](const auto& row) { result << row.left << ',' << row.top << ',' << row.right << ',' << row.bottom << ';'; };
     const auto spans = [&](const auto& rows) { for (const auto& row : rows) result << row.y << ',' << row.left << ',' << row.right << ';'; result << '|'; };
     for (const auto& row : value.projectedObjectsCache) {
         int objectIdentity = row.object ? -2 : -1;
@@ -601,7 +601,7 @@ bool runRuntimeCursorSmokeProbe(RuntimeWindowState& stock, std::ostream& output)
         invalidateRuntimeObjectProjectionCache(state);
         if (!placeCursorByMovingOwnWindow(window, {100, 100}, 800, 600)) return;
         RECT client{}; if (!need(GetClientRect(window.handle, &client) != FALSE, "fresh post-load geometry")) return;
-        state.cameraClampViewport = runtimeMapViewport(client); clampRuntimeMapCamera(state, state.cameraClampViewport);
+        state.cameraClampViewport = runtimeRenderPlacementPixelRect(runtimeMapViewport(client)); clampRuntimeMapCameraToPixels(state, state.cameraClampViewport);
         send(HTCLIENT); ++ordinaryLoads;
     });
     // Every item is queued, naturally produced, legally placed and fully built.

@@ -23,7 +23,7 @@ bool runRuntimeInitiateFlameRenderContractCheck(
     const RECT viewport{0, 0, width, height};
     const auto* target = findRuntimeSpecialRenderObject(world, phases.front().targetObjectId);
     if (target) {
-        const auto center = runtimeObjectBodyAnchorForRender(*target, viewport, probe, camera);
+        const auto center = runtimeObjectBodyAnchorForRenderWin32(*target, viewport, probe, camera);
         const bool drawn = target->kind == WorldObjectKind::Unit
             ? tryDrawVoxelSprite(nullptr, viewport, *target, center, probe, camera, *cache)
             : tryDrawObjectShpSprite(nullptr, viewport, *target, center, probe, camera, *cache);

@@ -348,7 +348,7 @@ LRESULT CALLBACK inputCancellationDirectWindowProc(
                 // The world and these refreshed snapshots are immutable until
                 // both map and interaction drawing have finished. Share exact
                 // body geometry within this paint only; never across ticks.
-                RuntimeGeometryQueryScope paintGeometryScope(state->world, mapViewport,
+                RuntimeGeometryQueryScope paintGeometryScope(state->world, runtimeRenderPlacementPixelRect(mapViewport),
                     renderContext, state->camera, state->renderCache, false);
                 const auto mapStart = std::chrono::steady_clock::now();
                 state->renderStats = drawRuntimeMap(

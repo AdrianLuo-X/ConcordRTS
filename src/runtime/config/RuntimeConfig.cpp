@@ -1,13 +1,10 @@
 #include "runtime/config/RuntimeConfig.h"
 
 #include "core/io/IniFile.h"
+#include "core/io/RuntimeExecutableDirectory.h"
+#include "runtime/config/RuntimeConfigPaths.h"
 #include "runtime/campaign/RuntimeCampaignDataSource.h"
 #include "ui/input/RuntimePlayerCommands.h"
-
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
 
 #include <algorithm>
 #include <cctype>
@@ -40,114 +37,13 @@ int choosePositiveInt(int overrideValue, int value) {
     return overrideValue > 0 ? overrideValue : value;
 }
 
-bool pathExists(const std::filesystem::path& path) {
-    std::error_code errorCode;
-    return std::filesystem::exists(path, errorCode);
-}
-
-bool isRuntimeProjectRoot(const std::filesystem::path& path) {
-    return pathExists(path / "local_data")
-        && pathExists(path / "CMakeLists.txt")
-        && (pathExists(path / "RedAlert2") || pathExists(path / ".git"));
-}
-
-void addPathAncestors(
-    std::vector<std::filesystem::path>& candidates,
-    std::filesystem::path path
-) {
-    if (path.empty()) {
-        return;
-    }
-
-    std::error_code errorCode;
-    path = std::filesystem::weakly_canonical(path, errorCode);
-    if (errorCode) {
-        path = path.lexically_normal();
-    }
-
-    while (!path.empty()) {
-        candidates.push_back(path);
-        const std::filesystem::path parent = path.parent_path();
-        if (parent.empty() || parent == path) {
-            break;
-        }
-        path = parent;
-    }
-}
-
-std::filesystem::path executableDirectory() {
-    std::wstring buffer(MAX_PATH, L'\0');
-    DWORD length = GetModuleFileNameW(
-        nullptr,
-        buffer.data(),
-        static_cast<DWORD>(buffer.size())
-    );
-
-    while (length == buffer.size()) {
-        buffer.resize(buffer.size() * 2);
-        length = GetModuleFileNameW(
-            nullptr,
-            buffer.data(),
-            static_cast<DWORD>(buffer.size())
-        );
-    }
-
-    if (length == 0) {
-        return std::filesystem::current_path();
-    }
-
-    buffer.resize(length);
-    return std::filesystem::path(buffer).parent_path();
-}
-
-std::filesystem::path discoverRuntimeProjectRoot() {
-    std::vector<std::filesystem::path> candidates;
-
-    std::error_code errorCode;
-    addPathAncestors(candidates, std::filesystem::current_path(errorCode));
-    addPathAncestors(candidates, executableDirectory());
-
-    for (const std::filesystem::path& candidate : candidates) {
-        if (isRuntimeProjectRoot(candidate)) {
-            return candidate;
-        }
-    }
-
-    if (!candidates.empty()) {
-        return candidates.front();
-    }
-
-    return std::filesystem::current_path();
-}
-
-std::string pathString(const std::filesystem::path& path) {
-    std::error_code errorCode;
-    const std::filesystem::path canonical =
-        std::filesystem::weakly_canonical(path, errorCode);
-    return (errorCode ? path.lexically_normal() : canonical).generic_string();
-}
-
 std::string resolveRuntimePath(
     const std::string& value,
     const std::filesystem::path& projectRoot
 ) {
-    if (value.empty()) {
-        return "";
-    }
-
-    const std::filesystem::path path(value);
-    if (path.is_absolute()) {
-        return pathString(path);
-    }
-
-    const std::filesystem::path currentCandidate =
-        std::filesystem::current_path() / path;
-    if (pathExists(currentCandidate)) {
-        return pathString(currentCandidate);
-    }
-
-    const std::filesystem::path projectCandidate = projectRoot / path;
-    return pathString(projectCandidate);
+    if (value.empty()) return "";
+    return runtimeConfigLegacyPathString(runtimeResolveConfigPath(
+        std::filesystem::path(value), projectRoot, std::filesystem::current_path()));
 }
 
 std::string toLowerAsciiLocal(std::string value) {
@@ -232,16 +128,18 @@ int parseRuntimePercent(const std::string& value, int fallback) {
 
 RuntimeConfig loadRuntimeConfig(const RuntimeConfigOverrides& overrides) {
     RuntimeConfig config;
-    const std::filesystem::path projectRoot = discoverRuntimeProjectRoot();
-    config.configPath = resolveRuntimePath(
-        chooseString(overrides.configPath, config.configPath),
-        projectRoot
-    );
+    std::error_code currentDirectoryError;
+    const std::filesystem::path projectRoot = runtimeConfigProjectRoot(
+        std::filesystem::current_path(currentDirectoryError), runtimeExecutableDirectory());
+    const std::filesystem::path configFile = runtimeResolveConfigPath(
+        std::filesystem::path(chooseString(overrides.configPath, config.configPath)),
+        projectRoot, std::filesystem::current_path());
+    config.configPath = runtimeConfigLegacyPathString(configFile);
 
     std::error_code errorCode;
-    if (std::filesystem::exists(config.configPath, errorCode)) {
+    if (std::filesystem::exists(configFile, errorCode)) {
         IniFile ini;
-        if (ini.loadFromFile(config.configPath)) {
+        if (ini.loadFromPath(configFile, config.configPath)) {
             config.resourceRootPath =
                 ini.getValue("Runtime", "ResourceRoot", config.resourceRootPath);
             config.localDataRootPath =

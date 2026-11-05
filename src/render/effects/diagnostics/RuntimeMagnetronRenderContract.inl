@@ -55,7 +55,7 @@ bool runRuntimeMagnetronRenderContractCheck(const RuntimeMapRenderContext& conte
     auto probe=context;
     probe.vision=nullptr; probe.surfacePixels=pixels.data(); probe.surfaceWidth=width; probe.surfaceHeight=height;
     probe.fixedTickHz=30; probe.animationTick=18;
-    std::unordered_map<std::string,COLORREF> colors{{"yuricountry",RGB(220,45,45)}, {"americans",RGB(45,85,220)}};
+    RuntimeOwnerRemapColorTable colors{{"yuricountry",RGB(220,45,45)}, {"americans",RGB(45,85,220)}};
     probe.ownerRemapColors=&colors;
     const RECT viewport{0,0,width,height};
     struct NativePixel { COLORREF input; int strength; COLORREF output; };
@@ -150,7 +150,7 @@ bool runRuntimeMagnetronRenderContractCheck(const RuntimeMapRenderContext& conte
         for(int y=-8; y<=8; ++y) for(int x=-36; x<=36; ++x)
             if(x*x/1296.0+y*y/64.0<=1.0) blendSurfacePixelWithTint(probe,ground.x+x,ground.y+y,RGB(25,35,18),110);
         for(const auto& object:world.getObjects()) {
-            const auto origin=runtimeObjectBodyAnchorForRender(object,viewport,probe,camera);
+            const auto origin=runtimeObjectBodyAnchorForRenderWin32(object,viewport,probe,camera);
             if(!tryDrawVoxelSprite(nullptr,viewport,object,origin,probe,camera,*cache))
                 return fail("original " + object.type + " voxel missing");
         }

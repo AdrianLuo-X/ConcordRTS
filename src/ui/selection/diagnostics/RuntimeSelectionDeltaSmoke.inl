@@ -176,7 +176,7 @@ bool runRuntimeSelectionDeltaSmoke(const RuntimeConfig& config, std::string& err
         previousHash = rules.getDetailRulesHash();
         const RECT bounds = runtimeUnitSelectionBoundsForAnchor({100,100});
         if (bounds.bottom - bounds.top != 40 || bounds.right - bounds.left != 36) return fail("extreme bounds overflow");
-        RuntimeProjectedObject extreme; extreme.selectionBaseBounds = extreme.selectionBounds = bounds;
+        RuntimeProjectedObject extreme; extreme.selectionBaseBounds = extreme.selectionBounds = runtimeRenderPlacementPixelRect(bounds);
         extreme.healthPixelOffsetY = expected;
         const auto health = runtimeUnitHealthFrame(extreme);
         const LONG expectedTop = static_cast<LONG>(std::clamp<long long>(62LL + expected,
@@ -210,7 +210,7 @@ bool runRuntimeSelectionDeltaSmoke(const RuntimeConfig& config, std::string& err
         object.kind=WorldObjectKind::Infantry;object.owner=s.economy.owner;object.alive=true;
         const auto* type=findRuntimeUnitType(s.rules,object);object.health=std::max(1,type->strength*healthPercent/100);
         RuntimeProjectedObject base; base.object=&object;base.observerKind=object.kind;base.observerType=object.type;
-        base.center=base.renderCenter={128,130};base.selectionBaseBounds=base.selectionBounds=runtimeUnitSelectionBoundsForAnchor(base.center);
+        base.center=base.renderCenter={128,130};base.selectionBaseBounds=base.selectionBounds=runtimeRenderPlacementPixelRect(runtimeUnitSelectionBoundsForAnchor(runtimeRenderPlacementNativePoint(base.center)));
         auto shifted=base;shifted.healthPixelOffsetY=examples[index].second;
         const auto original=drawHealth(base);const auto actual=drawHealth(shifted);
         std::vector<std::uint32_t> expected(width*height,0x00242c30U);
@@ -240,7 +240,7 @@ bool runRuntimeSelectionDeltaSmoke(const RuntimeConfig& config, std::string& err
         if(!cargo.available || cargo.totalUnits!=1){cleanup();return fail("FV authored capacity unavailable");}
         RuntimeProjectedObject base; base.object=&object; base.observerKind=object.kind; base.observerType=object.type;
         base.center=base.renderCenter={128,130};
-        base.selectionBaseBounds=base.selectionBounds=runtimeUnitSelectionBoundsForAnchor(base.center);
+        base.selectionBaseBounds=base.selectionBounds=runtimeRenderPlacementPixelRect(runtimeUnitSelectionBoundsForAnchor(runtimeRenderPlacementNativePoint(base.center)));
         auto shifted=base; shifted.healthPixelOffsetY=-12;
         const int resourcesBefore=s.lastSelectedCargoPipResourceDraws;
         const auto original=drawHealth(base); const auto actual=drawHealth(shifted);

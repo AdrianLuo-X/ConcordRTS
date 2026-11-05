@@ -12,7 +12,7 @@
 #include <unordered_map>
 #include <utility>
 
-using RuntimeRadarRulesColorTable = std::unordered_map<std::string, COLORREF>;
+using RuntimeRadarRulesColorTable = RuntimeOwnerRemapColorTable;
 
 struct RuntimeRadarRulesColorsMemoSummary {
     std::uint64_t queries = 0, hits = 0, readCalls = 0, parseCalls = 0, buildCalls = 0;

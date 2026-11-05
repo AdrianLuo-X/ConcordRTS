@@ -166,10 +166,10 @@ bool runRuntimeTransportMotionContinuitySmoke(const RuntimeConfig& config, std::
             auto context=runtimeTerrainMetadataContext(s);context.rules=&s.rules;context.art=&s.art;
             context.palettePath=runtimePalettePath(s.config,s.report.map);context.structurePalettePath=runtimeStructurePalettePath(s.config,s.report.map);
             context.structureRootPath=runtimeStructureRootPath(s.config,s.report.map);context.animationTick=s.tick;
-            anchor=runtimeObjectWorldRenderPlacement(*o,s.world,viewport,context,s.camera,s.renderCache).center;
+            anchor=runtimeRenderPlacementNative(runtimeObjectWorldRenderPlacementWin32(*o,s.world,viewport,context,s.camera,s.renderCache)).center;
             invalidateRuntimeObjectProjectionCache(s);const auto& projected=runtimeProjectedObjectsForViewport(s,viewport);
             const auto it=std::find_if(projected.begin(),projected.end(),[&](const auto& q){return q.object&&q.object->instanceId==id;});
-            if(it==projected.end())return fail(label+" exposed passenger missing from actual picking projection");pick=it->renderCenter;
+            if(it==projected.end())return fail(label+" exposed passenger missing from actual picking projection");pick=runtimeRenderPlacementNativePoint(it->renderCenter);
             const POINT independent{viewport.left+int(std::lround((p.x-p.y)*s.camera.tileWidth/2.0))-s.camera.worldOffsetX,
                 viewport.top+int(std::lround((p.x+p.y)*s.camera.tileHeight/2.0-p.z*s.camera.tileHeight/2.0))-s.camera.worldOffsetY};
             if((anchor.x!=independent.x||anchor.y!=independent.y||pick.x!=anchor.x||pick.y!=anchor.y)

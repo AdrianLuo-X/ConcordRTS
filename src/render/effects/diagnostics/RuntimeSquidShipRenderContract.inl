@@ -28,7 +28,7 @@ bool runRuntimeSquidShipRenderContractCheck(const RuntimeMapRenderContext& conte
     auto probe=context; probe.vision=nullptr; probe.fixedTickHz=30;
     probe.surfacePixels=pixels.data(); probe.surfaceWidth=width; probe.surfaceHeight=height;
     probe.stableRenderConfiguration=true; probe.impactActors=nullptr;
-    std::unordered_map<std::string,COLORREF> colors{{"russians",RGB(210,25,35)}, {"americans",RGB(245,220,45)}};
+    RuntimeOwnerRemapColorTable colors{{"russians",RGB(210,25,35)}, {"americans",RGB(245,220,45)}};
     probe.ownerRemapColors=&colors;
     std::vector<SpecialMechanismRenderSnapshot> links(1);
     auto& link=links[0]; link.kind="parasite"; link.phase="organic";
@@ -49,7 +49,7 @@ bool runRuntimeSquidShipRenderContractCheck(const RuntimeMapRenderContext& conte
         std::fill(sheet.begin(),sheet.end(),background);
         for (int direction=0;direction<8;++direction) {
             host.facing=worldObjectFacingFromMapFacing(direction*32); host.turretFacing=host.facing;
-            const POINT center=runtimeObjectBodyAnchorForRender(host,viewport,probe,camera);
+            const POINT center=runtimeObjectBodyAnchorForRenderWin32(host,viewport,probe,camera);
             probe.specialMechanismSnapshots=nullptr;
             std::fill(pixels.begin(),pixels.end(),background);
             RuntimeVoxelDrawResult flatDraw;

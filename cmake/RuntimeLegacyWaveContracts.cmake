@@ -1,0 +1,17 @@
+# Original EVA and ShellMusic native slots; no policy/decoder ownership.
+include_guard(GLOBAL)
+concord_add_profiled_leaf(concord_legacy_wave_unsupported src/audio/backend/RuntimeUnsupportedLegacyWaveDevice.cpp concord_runtime Runtime)
+concord_add_profiled_leaf(concord_legacy_wave_unsupported_contract src/audio/backend/RuntimeUnsupportedLegacyWaveDevice.cpp concord_runtime_match_score_contract Contract)
+if(WIN32 AND NOT CONCORD_PORTABLE_CORE)
+ concord_add_profiled_leaf(concord_legacy_wave_win32 src/audio/backend/win32/RuntimeLegacyWaveDeviceWin32.cpp concord_runtime Runtime)
+ concord_add_profiled_leaf(concord_legacy_wave_win32_contract src/audio/backend/win32/RuntimeLegacyWaveDeviceWin32.cpp concord_runtime_match_score_contract Contract)
+ target_link_libraries(concord_legacy_wave_win32 PRIVATE concord_legacy_wave_unsupported)
+ target_link_libraries(concord_legacy_wave_win32_contract PRIVATE concord_legacy_wave_unsupported_contract winmm)
+ target_link_libraries(concord_runtime PRIVATE concord_legacy_wave_win32)
+endif()
+add_subdirectory(tests/audio/legacy_wave)
+
+# Runtime already owns winmm; only the standalone native probe needs it here.
+if(TARGET concord_legacy_wave_native_runtime)
+ target_link_libraries(concord_legacy_wave_native_runtime PRIVATE winmm)
+endif()

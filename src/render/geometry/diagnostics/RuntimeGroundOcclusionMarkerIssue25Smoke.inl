@@ -406,7 +406,7 @@ bool runRuntimeGroundOcclusionMarkerIssue25Smoke(const RuntimeConfig& config, st
                 : runtimeGroundVehicleUsesBuildingDepth(mobile, state.world, view, *cache);
             if (!qualified) return fail("real TMP/MapFacts ground qualification rejected");
             std::unordered_map<int, std::vector<RuntimeSpriteHitSpan>> visible;
-            if (!resolveRuntimeBuildingVisibleHitSpans(state.world, viewport, view, state.camera,
+            if (!resolveRuntimeBuildingVisibleHitSpansWin32(state.world, viewport, view, state.camera,
                     *cache, visible) || !visible.contains(mobileId) || !visible.contains(buildingId))
                 return fail("actor did not enter production building depth");
 
@@ -498,7 +498,7 @@ bool runRuntimeGroundOcclusionMarkerIssue25Smoke(const RuntimeConfig& config, st
                         ? runtimeGroundInfantryUsesBuildingDepth(actor, state.world, controlView, controlCache)
                         : runtimeGroundVehicleUsesBuildingDepth(actor, state.world, controlView, controlCache);
                     std::unordered_map<int, std::vector<RuntimeSpriteHitSpan>> participants;
-                    if (!admitted || !resolveRuntimeBuildingVisibleHitSpans(state.world, viewport,
+                    if (!admitted || !resolveRuntimeBuildingVisibleHitSpansWin32(state.world, viewport,
                             controlView, state.camera, controlCache, participants)
                         || !participants.contains(mobileId) || !participants.contains(buildingId))
                         return fail(controlLabel + " lacks real production depth participation");
@@ -753,7 +753,7 @@ bool runRuntimeGroundOcclusionMarkerIssue25Smoke(const RuntimeConfig& config, st
                     ? runtimeGroundInfantryUsesBuildingDepth(chronoActor, state.world, view, *chronoCache)
                     : runtimeGroundVehicleUsesBuildingDepth(chronoActor, state.world, view, *chronoCache);
                 std::unordered_map<int, std::vector<RuntimeSpriteHitSpan>> normalParticipants;
-                if (!chronoNormal || !resolveRuntimeBuildingVisibleHitSpans(state.world, viewport,
+                if (!chronoNormal || !resolveRuntimeBuildingVisibleHitSpansWin32(state.world, viewport,
                         view, state.camera, *chronoCache, normalParticipants)
                     || !normalParticipants.contains(mobileId) || !normalParticipants.contains(buildingId))
                     return fail(chronoType + " normal body must participate before hidden control");
@@ -816,7 +816,7 @@ bool runRuntimeGroundOcclusionMarkerIssue25Smoke(const RuntimeConfig& config, st
                     auto hiddenView = view;
                     hiddenView.specialMechanismSnapshots = &state.specialMechanismRenderSnapshots;
                     std::unordered_map<int, std::vector<RuntimeSpriteHitSpan>> hiddenBefore, hiddenAfter;
-                    if (!resolveRuntimeBuildingVisibleHitSpans(state.world, viewport, hiddenView,
+                    if (!resolveRuntimeBuildingVisibleHitSpansWin32(state.world, viewport, hiddenView,
                             state.camera, *chronoCache, hiddenBefore)
                         || hiddenBefore.contains(mobileId) || !hiddenBefore.contains(buildingId))
                         return fail("hidden body published a pre-paint depth participant");
@@ -840,7 +840,7 @@ bool runRuntimeGroundOcclusionMarkerIssue25Smoke(const RuntimeConfig& config, st
                     const int onPixels = difference(on.second, absent.second);
                     invalidateRuntimeObjectProjectionCache(state);
                     const auto projectedAfter = runtimeProjectedObjectsForViewport(state, viewport);
-                    if (!resolveRuntimeBuildingVisibleHitSpans(state.world, viewport, hiddenView,
+                    if (!resolveRuntimeBuildingVisibleHitSpansWin32(state.world, viewport, hiddenView,
                             state.camera, *chronoCache, hiddenAfter))
                         return fail("hidden post-paint depth resolution");
                     int beforeClicks = 0, afterClicks = 0;

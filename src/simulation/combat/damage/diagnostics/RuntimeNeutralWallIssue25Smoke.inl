@@ -346,7 +346,7 @@ bool runRuntimeNeutralWallIssue25Smoke(const RuntimeConfig& config,std::string& 
             prepare(false);
             const auto beforeProjected=runtimeProjectedObjectsForViewport(s,viewport);
             std::vector<int> before(static_cast<std::size_t>(Width)*Height,-2);
-            for(const auto& item:beforeProjected){RECT clip{};if(!IntersectRect(&clip,&item.spriteBounds,&viewport))continue;
+            for(const auto& item:beforeProjected){RECT clip{};if(!runtimeProjectedIntersectRect(clip,item.spriteBounds,viewport))continue;
                 for(int y=clip.top;y<clip.bottom;++y)for(int x=clip.left;x<clip.right;++x){
                     const auto p=static_cast<std::size_t>(y)*Width+x;if(before[p]!=-2)continue;
                     const auto* hit=findProjectedObjectAtPoint(beforeProjected,POINT{x,y});

@@ -141,7 +141,7 @@ bool runRuntimeNeutralBuildingPaletteRenderContractCheck(
         auto cache=std::make_unique<RuntimeMapRenderCache>();auto context=input;
         context.vision=nullptr;context.lightingTint=nullptr;context.specialMechanismSnapshots=nullptr;
         context.mapFacts=nullptr;context.shadowsEnabled=false;context.animationTick=0;
-        std::unordered_map<std::string,COLORREF> ownerColors{{"colorgold",RGB(235,210,35)},{"colorblue",RGB(30,80,235)}};
+        RuntimeOwnerRemapColorTable ownerColors{{"colorgold",RGB(235,210,35)},{"colorblue",RGB(30,80,235)}};
         context.ownerRemapColors=&ownerColors;
         RuntimeMapCamera camera;camera.initialized=true;camera.tileWidth=60;camera.tileHeight=30;
         const auto theaterContext=[&](int snow){auto result=context;result.theater=&theaters[snow];

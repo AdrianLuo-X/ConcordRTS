@@ -59,7 +59,7 @@ std::string base64(const Bytes& bytes) {
 // initializes navigation and economy. It preserves loaded assets and UI handles.
 // All per-unit simulation systems remain enabled; only the source map's scripts,
 // starting army, opponents and random crate spawns are excluded from the fixture.
-bool prepareRuntimeMassMovementWorld(RuntimeWindowState& state, int unitCount,
+bool prepareRuntimeMassMovementWorld(RuntimeProductionHostState& state, int unitCount,
     std::vector<int>& unitIds, std::string& error, bool choke = false, bool mixed = false,
     bool battle = false, int mapWidth = 96, int mapHeight = 64, bool playerScene = false,
     bool mixedRoster = false, bool vehicleOnly = false, int vehicleRosterOffset = 0) {

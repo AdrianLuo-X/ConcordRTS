@@ -108,7 +108,7 @@ bool runRuntimeInfantrySubcellContinuitySmoke(const RuntimeConfig& config, std::
                 const POINT expected{viewport.left+int(std::llround((p[0]-p[1])*s.camera.tileWidth/2.0))-s.camera.worldOffsetX,
                     viewport.top+int(std::llround((p[0]+p[1]-level)*s.camera.tileHeight/2.0))-s.camera.worldOffsetY};
                 context.animationTick=s.tick;
-                const auto actual=runtimeObjectWorldRenderPlacement(o,s.world,viewport,context,s.camera,s.renderCache).center;
+                const auto actual=runtimeRenderPlacementNative(runtimeObjectWorldRenderPlacementWin32(o,s.world,viewport,context,s.camera,s.renderCache)).center;
                 const auto& projected=runtimeProjectedObjectsForViewport(s,viewport);
                 const auto it=std::find_if(projected.begin(),projected.end(),[&](const auto& p){return p.object&&p.object->instanceId==id;});
                 if(it==projected.end() || expected.x!=actual.x || expected.y!=actual.y
@@ -224,7 +224,7 @@ bool runRuntimeInfantrySubcellContinuitySmoke(const RuntimeConfig& config, std::
                 }
                 if(type.id=="E1"&&initial==3&&(moved==2||stopped&&localFrames==1)&&localFrames<2) {
                     RuntimeMobileSpriteBoundsProbe probe;
-                    const auto center=runtimeObjectBodyAnchorForRender(*current,viewport,context,s.camera);
+                    const auto center=runtimeObjectBodyAnchorForRenderWin32(*current,viewport,context,s.camera);
                     if(!verifyRuntimeMobileObjectSpriteBounds(*current,center,context,s.camera,s.renderCache,probe)
                         ||probe.renderedPixels<=0||probe.pixels.empty())return fail(scene+" actual original SHP unavailable");
                     if(!writeRuntimeSmokeBmp((root/(scene+"-frame"+std::to_string(localFrames)+".bmp")).string(),

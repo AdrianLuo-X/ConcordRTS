@@ -1,5 +1,5 @@
 std::optional<RuntimeCellPoint> s17OldFindRuntimeSlaveMinerDeployCellNearOre(
-    const RuntimeWindowState& state, const WorldObjectInstance& miner,
+    const RuntimeProductionHostState& state, const WorldObjectInstance& miner,
     const RuntimeCellPoint& ore,
     const RuntimeManualFormationMappedFilter* manualMappedFilter = nullptr
 ) {
@@ -61,7 +61,7 @@ std::optional<RuntimeCellPoint> s17OldFindRuntimeSlaveMinerDeployCellNearOre(
 }
 
 std::optional<RuntimeCellPoint> s17OldFindNearestRuntimeMobileSlaveMinerOreCell(
-    const RuntimeWindowState& state,
+    const RuntimeProductionHostState& state,
     const WorldObjectInstance& miner,
     int maxRadius,
     std::optional<RuntimeCellPoint>* deployCell = nullptr
@@ -158,7 +158,7 @@ std::optional<RuntimeCellPoint> s17OldFindNearestRuntimeMobileSlaveMinerOreCell(
 }
 
 std::optional<RuntimeBuildCatalogItem> s17OldRuntimeBuildItemForBuilding(
-    const RuntimeWindowState& state,
+    const RuntimeProductionHostState& state,
     const std::string& buildingId
 ) {
     const BuildingType* building =
@@ -199,7 +199,7 @@ std::optional<RuntimeBuildCatalogItem> s17OldRuntimeBuildItemForBuilding(
 }
 
 bool s17OldDeployRuntimeMcv(
-    RuntimeWindowState& state,
+    RuntimeProductionHostState& state,
     int objectId,
     bool selectResult,
     std::optional<RuntimeCellPoint> requestedCell
@@ -323,7 +323,7 @@ bool s17OldDeployRuntimeMcv(
     return true;
 }
 
-bool s17OldAdvanceRuntimeMobileSlaveMinerEconomy(RuntimeWindowState& state) {
+bool s17OldAdvanceRuntimeMobileSlaveMinerEconomy(RuntimeProductionHostState& state) {
     RuntimePerfTraceScope trace("s17OldAdvanceRuntimeMobileSlaveMinerEconomy", state.tick);
     const int scanInterval = std::max(1, std::min(
         runtimeRuleFramesToTicks(state.rules.getSlaveMinerKickFrameDelay(), state.config.fixedTickHz), state.config.fixedTickHz / 2));
@@ -430,7 +430,7 @@ bool s17OldAdvanceRuntimeMobileSlaveMinerEconomy(RuntimeWindowState& state) {
 // again here; its net balance is committed after both slave paths finish.
 class S17OldRuntimeComputerMiningScope {
 public:
-    S17OldRuntimeComputerMiningScope(RuntimeWindowState& state, const std::string& owner,
+    S17OldRuntimeComputerMiningScope(RuntimeProductionHostState& state, const std::string& owner,
         const RuntimeEconomyState* ordinaryWork = nullptr)
         : state_(state), owner_(runtimeRepairDepotCanonicalOwnerId(state, owner)),
           startingCredits_(runtimeRepairDepotCreditBalance(state, owner)),
@@ -490,7 +490,7 @@ public:
         }
     }
 private:
-    RuntimeWindowState& state_;
+    RuntimeProductionHostState& state_;
     std::string owner_;
     int startingCredits_;
     RuntimeComputerMiningState& ledger_;
@@ -503,7 +503,7 @@ private:
 
 // The old enclosing Scope committed a partial ordinary balance during stack
 // unwinding too. Preserve that synchronous owner-account boundary on failure.
-void s17OldCommitRuntimeComputerMiningWorkAfterOrdinaryFailure(RuntimeWindowState& state,
+void s17OldCommitRuntimeComputerMiningWorkAfterOrdinaryFailure(RuntimeProductionHostState& state,
     const std::string& owner, const RuntimeEconomyState& work, int startingCredits) {
     const std::string key = runtimeRepairDepotCanonicalOwnerId(state, owner);
     auto& ledger = state.computerMiningByOwner[key];
@@ -526,7 +526,7 @@ void s17OldCommitRuntimeComputerMiningWorkAfterOrdinaryFailure(RuntimeWindowStat
 // player's economy or technology tree during ordinary computer harvesting.
 class S17OldRuntimeComputerMiningFeedbackScope {
 public:
-    explicit S17OldRuntimeComputerMiningFeedbackScope(RuntimeWindowState& state)
+    explicit S17OldRuntimeComputerMiningFeedbackScope(RuntimeProductionHostState& state)
         : state_(state), interaction_(state.interactionStatus), simulation_(state.simulationStatus),
           command_(state.lastCommand), human_(state.humanHouseScopeActive),
           remote_(state.remoteHumanHouseScopeActive), computer_(state.computerMiningScopeActive),
@@ -543,13 +543,13 @@ public:
     S17OldRuntimeComputerMiningFeedbackScope(const S17OldRuntimeComputerMiningFeedbackScope&) = delete;
     S17OldRuntimeComputerMiningFeedbackScope& operator=(const S17OldRuntimeComputerMiningFeedbackScope&) = delete;
 private:
-    RuntimeWindowState& state_;
+    RuntimeProductionHostState& state_;
     std::string interaction_, simulation_;
     decltype(RuntimeWindowState::lastCommand) command_;
     bool human_, remote_, computer_, suppress_;
 };
 
-bool s17OldAdvanceRuntimeComputerMining(RuntimeWindowState& state) {
+bool s17OldAdvanceRuntimeComputerMining(RuntimeProductionHostState& state) {
     if (!state.rulesLoaded || state.humanHouseScopeActive
         || state.skirmishMatchFinished) return false;
     std::vector<std::string> owners;

@@ -281,11 +281,11 @@ void drawRuntimePlayerHotkeyOverlay(HDC dc, const RECT& client, RuntimeWindowSta
     const RECT viewport = runtimeMapViewport(client);
     drawRuntimePlayerWaypoints(dc, viewport, state);
     const int saved = SaveDC(dc);
-    HFONT font = CreateFontW(-18,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,
-        OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Microsoft YaHei");
-    SelectObject(dc,font); SetBkMode(dc,TRANSPARENT);
+    concord::ui::HudSystemFontWin32 font;
+    font.initialize(concord::ui::HudSystemFontRole::NoticeAndHotkeys);
+    SelectObject(dc,font.nativeFont()); SetBkMode(dc,TRANSPARENT);
     const auto line = [&](int x, int y, const std::wstring& text, COLORREF color = RGB(235,240,245)) {
-        SetTextColor(dc,color); TextOutW(dc,x,y,text.c_str(),static_cast<int>(text.size()));
+        SetTextColor(dc,color); font.textOut(dc,x,y,std::wstring_view(text));
     };
     const auto panel = [&](RECT bounds) {
         HBRUSH background = CreateSolidBrush(RGB(19,29,39)); FillRect(dc,&bounds,background); DeleteObject(background);
@@ -300,7 +300,7 @@ void drawRuntimePlayerHotkeyOverlay(HDC dc, const RECT& client, RuntimeWindowSta
         if (y + 25 > viewport.bottom) break;
         const std::wstring text = (entry.allies ? L"[盟友] " : L"") + widenUtf8(entry.owner + ": " + entry.text);
         RECT bounds{viewport.left+10,y,std::min(viewport.right-10,viewport.left+850L),y+25}; panel(bounds);
-        SetTextColor(dc,RGB(235,240,245)); DrawTextW(dc,text.c_str(),-1,&bounds,DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        SetTextColor(dc,RGB(235,240,245)); font.drawText(dc,concord::ui::HudSystemWideTextRequest{text.c_str(),-1,{bounds.left,bounds.top,bounds.right,bounds.bottom},DT_LEFT|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX});
         y += 27;
     }
     if (state.playerLocalCommands.showCoordinates && state.mouseClientPointValid) {
@@ -313,10 +313,10 @@ void drawRuntimePlayerHotkeyOverlay(HDC dc, const RECT& client, RuntimeWindowSta
     if (ui.chatOpen) {
         RECT box{viewport.left+12,viewport.bottom-50,viewport.right-12,viewport.bottom-12}; panel(box);
         std::wstring text = (ui.beaconEditing ? L"[信标文字] " : ui.chatAllies ? L"[盟友] " : L"[所有人] ") + runtimeChatTextDraftToWide(ui.chatDraft) + L"▏";
-        SetTextColor(dc,RGB(255,239,169)); DrawTextW(dc,text.c_str(),-1,&box,DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        SetTextColor(dc,RGB(255,239,169)); font.drawText(dc,concord::ui::HudSystemWideTextRequest{text.c_str(),-1,{box.left,box.top,box.right,box.bottom},DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX});
     } else if (ui.beaconTargeting) line(viewport.left+16,viewport.bottom-40,L"点击地图放置信标 · 右键或 Esc 取消",RGB(255,220,64));
     else if (ui.selectedBeacon) line(viewport.left+16,viewport.bottom-40,
         runtimeKeyboardKeyName(runtimeMenuKeyboardBindingCode(state,"ChatToAll",VK_RETURN))+L" 编辑信标文字 · "
         +runtimeKeyboardKeyName(runtimeMenuKeyboardBindingCode(state,"DeleteBeacon",VK_DELETE))+L" 删除信标",RGB(255,220,64));
-    RestoreDC(dc,saved); DeleteObject(font);
+    RestoreDC(dc,saved); font.reset();
 }

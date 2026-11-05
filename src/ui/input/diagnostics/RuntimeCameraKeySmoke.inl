@@ -34,8 +34,8 @@ bool runRuntimeCameraKeySmokeProbe(RuntimeWindowState& stock,std::ostream& outpu
     if(!expect(static_cast<bool>(trace),"trace file"))return false;
     const auto hexText=[](const std::string& value){std::ostringstream s;for(unsigned char b:value)
         s<<std::hex<<std::setfill('0')<<std::setw(2)<<static_cast<unsigned>(b);return s.str();};
-    const auto rectText=[](const RECT& r){std::ostringstream s;s<<r.left<<','<<r.top<<','<<r.right<<','<<r.bottom;return s.str();};
-    const auto pointText=[](const POINT& p){return std::to_string(p.x)+","+std::to_string(p.y);};
+    const auto rectText=[](const auto& r){std::ostringstream s;s<<r.left<<','<<r.top<<','<<r.right<<','<<r.bottom;return s.str();};
+    const auto pointText=[](const auto& p){return std::to_string(p.x)+","+std::to_string(p.y);};
     const auto projectionState=[&](const RuntimeWindowState& state){
         std::ostringstream s;s<<std::setprecision(17);
         s<<"valid="<<state.projectedObjectsCacheValid<<";viewport="<<rectText(state.projectedObjectsCacheViewport)
@@ -314,8 +314,8 @@ bool runRuntimeCameraKeySmokeProbe(RuntimeWindowState& stock,std::ostream& outpu
         }
         if(resize){
             for(HWND window:{ow.window,dw.window,nw.window})if(!SetWindowPos(window,nullptr,0,0,800,600,SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE))return false;
-            if(!expect(EqualRect(&old.cameraClampViewport,&initialViewport)&&EqualRect(&direct.cameraClampViewport,&initialViewport)
-                &&EqualRect(&native.cameraClampViewport,&initialViewport),label+" resize alone does not establish new clamp viewport"))return false;
+            if(!expect(runtimeProjectedEqualRect(old.cameraClampViewport,initialViewport)&&runtimeProjectedEqualRect(direct.cameraClampViewport,initialViewport)
+                &&runtimeProjectedEqualRect(native.cameraClampViewport,initialViewport),label+" resize alone does not establish new clamp viewport"))return false;
             ++resizeCases;
         }
         if(!expect(fullState(old)==fullState(direct)&&fullState(old)==fullState(native),label+" full entry state"))return false;
@@ -352,7 +352,7 @@ bool runRuntimeCameraKeySmokeProbe(RuntimeWindowState& stock,std::ostream& outpu
             label+" failed center guard resets initialized only; non-arrow retains follow"))return false;
         if(resize){
             RECT actual{};GetClientRect(nw.window,&actual);const auto expected=runtimeMapViewport(actual);
-            if(!expect(EqualRect(&native.cameraClampViewport,&expected),label+" CenterView uses late resized client"))return false;
+            if(!expect(runtimeProjectedEqualRect(native.cameraClampViewport,expected),label+" CenterView uses late resized client"))return false;
         }
         if(mode==11){if(!expect(terrainLevelAtRuntimeCell(native,native.economy.skirmishStartCell.x,native.economy.skirmishStartCell.y)==4,
                 label+" real native terrain-height query sees authored level4"))return false;++heightCases;}
@@ -441,7 +441,7 @@ bool runRuntimeCameraKeySmokeProbe(RuntimeWindowState& stock,std::ostream& outpu
         RECT actual{};GetClientRect(window.window,&actual);const RECT expected=runtimeMapViewport(actual);
         if(!expect(state.uiClock==&clock&&state.tick==21&&clock.reads==reads+1&&authorityState(state)==before&&witness.captures==0
             &&!state.playerLocalCommands.cameraFollow&&state.camera.initialized&&!state.projectedObjectsCacheValid
-            &&EqualRect(&state.cameraClampViewport,&expected),"first camera key after load uses fresh root and late current client with zero authority"))return false;
+            &&runtimeProjectedEqualRect(state.cameraClampViewport,expected),"first camera key after load uses fresh root and late current client with zero authority"))return false;
         trace<<"load tick=21 particleTick="<<state.particles.currentTick()<<" sourceSame=1 freshRoot=1 captures=0 state="<<hexText(fullState(state))<<'\n';
         sourceReads+=clock.reads;
     }

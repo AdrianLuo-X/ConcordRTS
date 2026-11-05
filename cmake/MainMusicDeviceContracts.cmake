@@ -1,0 +1,12 @@
+# Main's original native commands; existing MenuMusicDevice base stays unchanged.
+include_guard(GLOBAL)
+concord_add_profiled_leaf(concord_main_music_unsupported src/audio/menu/RuntimeUnsupportedMainMenuMusicDevice.cpp concord_runtime Runtime)
+concord_add_profiled_leaf(concord_main_music_unsupported_contract src/audio/menu/RuntimeUnsupportedMainMenuMusicDevice.cpp concord_runtime_match_score_contract Contract)
+if(WIN32 AND NOT CONCORD_PORTABLE_CORE)
+ concord_add_profiled_leaf(concord_main_music_win32 src/audio/menu/win32/RuntimeMainMenuMusicWin32.cpp concord_runtime Runtime)
+ concord_add_profiled_leaf(concord_main_music_win32_contract src/audio/menu/win32/RuntimeMainMenuMusicWin32.cpp concord_runtime_match_score_contract Contract)
+ target_link_libraries(concord_main_music_win32 PRIVATE concord_main_music_unsupported)
+ target_link_libraries(concord_main_music_win32_contract PRIVATE concord_main_music_unsupported_contract winmm)
+ target_link_libraries(concord_runtime PRIVATE concord_main_music_win32)
+endif()
+add_subdirectory(tests/audio/main_music_device)

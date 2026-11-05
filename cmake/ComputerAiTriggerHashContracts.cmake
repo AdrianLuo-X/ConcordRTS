@@ -1,0 +1,8 @@
+include_guard(GLOBAL)
+include("${CMAKE_CURRENT_LIST_DIR}/ProfiledLeaf.cmake")
+concord_add_profiled_leaf(concord_computer_ai_trigger_hash_runtime_leaf
+    src/simulation/ai/RuntimeComputerAiTriggerHash.cpp concord_runtime Runtime)
+concord_add_profiled_leaf(concord_computer_ai_trigger_hash_contract_leaf
+    src/simulation/ai/RuntimeComputerAiTriggerHash.cpp concord_computer_mining_codec_contract Contract)
+target_link_libraries(concord_runtime PRIVATE concord_computer_ai_trigger_hash_runtime_leaf)
+add_subdirectory(tests/infrastructure/ai_trigger_hash)

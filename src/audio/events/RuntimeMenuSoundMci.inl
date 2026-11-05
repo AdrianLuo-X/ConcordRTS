@@ -1,39 +1,22 @@
 struct RuntimeMenuSoundMciBackend {
-    static std::wstring alias(std::size_t channel) {
-        return L"concord_menu_effect_" + std::to_wstring(channel);
-    }
-    std::optional<bool> isPlaying(std::size_t channel) const {
-        wchar_t status[32]{};
-        const auto command = L"status " + alias(channel) + L" mode";
-        if (mciSendStringW(command.c_str(), status, static_cast<UINT>(std::size(status)), nullptr) != 0)
-            return std::nullopt;
-        return std::wstring(status) == L"playing";
-    }
-    bool open(std::size_t channel, const std::wstring& path) const {
-        const auto command = L"open \"" + path + L"\" type waveaudio alias " + alias(channel);
-        const auto shareable = command + L" shareable";
-        return mciSendStringW(shareable.c_str(), nullptr, 0, nullptr) == 0
-            || mciSendStringW(command.c_str(), nullptr, 0, nullptr) == 0;
-    }
-    bool playFromStart(std::size_t channel) const {
-        const auto command = L"play " + alias(channel) + L" from 0";
-        return mciSendStringW(command.c_str(), nullptr, 0, nullptr) == 0;
-    }
-    void close(std::size_t channel) const {
-        const auto command = L"close " + alias(channel);
-        (void)mciSendStringW(command.c_str(), nullptr, 0, nullptr);
-    }
+    std::unique_ptr<concord::audio::MenuSoundDevice> device=makeRuntimeMenuSoundDevice();
+    std::optional<bool> isPlaying(std::size_t channel) const {return device->isPlaying(channel);}
+    bool open(std::size_t channel,const std::wstring& path) const {return device->open(channel,path);}
+    bool playFromStart(std::size_t channel) const {return device->playFromStart(channel);}
+    void close(std::size_t channel) const {device->close(channel);}
 };
 
 struct RuntimeMenuSoundPlayback {
     RuntimeMenuSoundPool<32> pool;
     RuntimeMenuSoundMciBackend backend;
-    ULONGLONG nextCollect = 0;
+    // Borrowed provider outlives this playback owner; the default is immutable.
+    const RuntimeUiClock* clock = &runtimeWin32UiClock();
+    std::uint64_t nextCollect = 0;
 
     ~RuntimeMenuSoundPlayback() { pool.closeAll(backend); }
     void play(const std::wstring& path) { (void)pool.play(path, backend); }
     void collect() {
-        const auto now = GetTickCount64();
+        const auto now = clock->nowMs();
         if (now < nextCollect) return;
         nextCollect = now + 100;
         pool.collect(backend);

@@ -20,7 +20,7 @@ bool runRuntimeObserverSelectionSmoke(RuntimeWindowState& state, int objectId,
         return item.object && item.object->instanceId == objectId;
     });
     if (view == projected.end()) return fail("actor was not projected");
-    const RECT bounds = view->bounds;
+    const RECT bounds = runtimeRenderPlacementNativeRect(view->bounds);
     std::optional<POINT> hit;
     for (int y = std::max(viewport.top, bounds.top); y < std::min(viewport.bottom, bounds.bottom) && !hit; ++y)
         for (int x = std::max(viewport.left, bounds.left); x < std::min(viewport.right, bounds.right); ++x) {

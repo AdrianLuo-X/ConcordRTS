@@ -1,32 +1,20 @@
 #pragma once
 
 #include "runtime/config/RuntimeConfig.h"
+#include "runtime/contracts/RuntimeMainMenuResult.h"
+#include "runtime/window/RuntimeWindowId.h"
 
 #include <string>
 
 // Result returned by the Yuri's Revenge shell front-end. The campaign and
 // skirmish pages stay in the same hosted shell and process; the caller owns
 // the mode-specific setup page that follows the result.
-enum class RuntimeMainMenuResult {
-    Exit,
-    Campaign,
-    LoadGame,
-    Skirmish,
-    Network,
-    Internet
-};
-
-enum class RuntimeMainMenuStartPage {
-    Home,
-    SinglePlayer
-};
-
 // Options are committed back to config only when the player chooses Apply, so
 // the following setup page and game session receive the selected values.
 RuntimeMainMenuResult runRuntimeMainMenu(
     RuntimeConfig& config,
     RuntimeMainMenuStartPage startPage = RuntimeMainMenuStartPage::Home,
-    void* hostWindow = nullptr
+    RuntimeWindowId hostWindow = {}
 );
 
 // Resolves the shell resources and creates the next child page while the
@@ -34,7 +22,7 @@ RuntimeMainMenuResult runRuntimeMainMenu(
 // shared by Main Menu and Skirmish; null retains standalone smoke/dev use.
 void prewarmRuntimeMainMenu(
     const RuntimeConfig& config,
-    void* hostWindow = nullptr
+    RuntimeWindowId hostWindow = {}
 );
 
 // Renders the complete 800x600 shell without creating a window. Besides the
@@ -55,13 +43,18 @@ int runRuntimeMainMenuSmokeTest(
 // audio track and keeps it synchronized through Bink's playback clock. The
 // voice-volume percentage is clamped to 0..100; zero uses the muted
 // helper path without opening an audio device.
+// Existing callers default to their native narrow code page. Resolver references
+// opt into UTF-8 without adding another opaque window-handle entry point.
+enum class RuntimeBinkMovieReferenceEncoding { NativeCodePage, Utf8 };
+
 bool runRuntimeBinkVideo(
     const RuntimeConfig& config,
-    void* hostWindow,
+    RuntimeWindowId hostWindow,
     const std::string& moviePath,
     std::string& errorMessage,
     int voiceVolumePercent,
-    bool campaignMovie = false
+    bool campaignMovie = false,
+    RuntimeBinkMovieReferenceEncoding referenceEncoding = RuntimeBinkMovieReferenceEncoding::NativeCodePage
 );
 
 // Finite native campaign-video keyboard/footer probe; existing player and original short BIK.

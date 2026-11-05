@@ -16,6 +16,8 @@
 #include <windows.h>
 #include <bcrypt.h>
 #include <wincrypt.h>
+#include "network/transport/private/RuntimeInternetTlsCertificateWin32.h"
+#include "network/internet/private/RuntimeInternetServiceCertificateFactoryWin32.h"
 #endif
 
 namespace {
@@ -725,6 +727,7 @@ bool loadRuntimeInternetServiceHostConfig(
 struct RuntimeInternetServiceCertificateContext::Impl {
 #ifdef _WIN32
     PCCERT_CONTEXT context = nullptr;
+    RuntimeInternetTlsCertificateInterop tlsBinding{context};
 
     ~Impl() {
         if (context != nullptr) CertFreeCertificateContext(context);
@@ -749,22 +752,91 @@ RuntimeInternetServiceCertificateContext::operator=(
     RuntimeInternetServiceCertificateContext&&
 ) noexcept = default;
 
-const void* RuntimeInternetServiceCertificateContext::
-nativeCertificateContext() const noexcept {
+RuntimeInternetTlsServerCertificate RuntimeInternetServiceCertificateContext::
+serverCertificate() const noexcept {
 #ifdef _WIN32
-    return impl_ ? impl_->context : nullptr;
+    return impl_ ? impl_->tlsBinding.serverCertificate()
+                 : RuntimeInternetTlsServerCertificate{};
 #else
-    return nullptr;
+    return {};
 #endif
 }
 
 bool RuntimeInternetServiceCertificateContext::valid() const noexcept {
-    return nativeCertificateContext() != nullptr;
+    return !serverCertificate().empty();
 }
 
 void RuntimeInternetServiceCertificateContext::reset() {
     impl_ = std::make_unique<Impl>();
 }
+
+#ifdef _WIN32
+bool RuntimeInternetServiceCertificateFactory::selectFromOwnedStore(
+    RuntimeCertificateStoreWin32 store,
+    const std::array<std::uint8_t, 20U>& thumbprint,
+    RuntimeInternetServiceCertificateContext& certificate,
+    std::string& errorMessage
+) {
+    errorMessage.clear();
+    if (!store) {
+        return fail(errorMessage, "server certificate store could not be opened");
+    }
+    // Production already reset its destination before validating/opening the
+    // store. Private callers must supply that same empty, initialized owner.
+    if (!certificate.impl_ || certificate.impl_->context != nullptr) {
+        store.reset();
+        return fail(errorMessage, "certificate destination must be empty");
+    }
+    PCCERT_CONTEXT selected = nullptr;
+    std::size_t matches = 0U;
+    PCCERT_CONTEXT current = nullptr;
+    while ((current = CertEnumCertificatesInStore(store.get(), current)) != nullptr) {
+        if (!sameThumbprint(current, thumbprint)) continue;
+        ++matches;
+        if (selected == nullptr) {
+            selected = CertDuplicateCertificateContext(current);
+        }
+    }
+    store.reset();
+    if (matches != 1U || selected == nullptr) {
+        if (selected != nullptr) CertFreeCertificateContext(selected);
+        return fail(
+            errorMessage,
+            matches == 0U
+                ? "server certificate thumbprint was not found"
+                : "server certificate thumbprint is not unique"
+        );
+    }
+    certificate.impl_->context = selected;
+    return true;
+}
+
+bool RuntimeInternetServiceCredentialPrimitives::hash(
+    std::span<const std::uint8_t> credential,
+    std::array<std::uint8_t, 32U>& digest
+) noexcept {
+    return credentialSha256(credential, digest);
+}
+
+bool RuntimeInternetServiceCredentialPrimitives::equal(
+    std::span<const std::uint8_t> first,
+    std::span<const std::uint8_t> second
+) noexcept {
+    return constantTimeDigestEqual(first, second);
+}
+
+void RuntimeInternetServiceCredentialPrimitives::clear(
+    std::array<std::uint8_t, 32U>& bytes
+) noexcept {
+    secureClear(bytes);
+}
+
+void RuntimeInternetServiceCredentialPrimitives::clear(
+    std::vector<std::uint8_t>& bytes
+) noexcept {
+    secureClear(bytes);
+}
+#endif
 
 bool loadRuntimeInternetServiceCertificate(
     const RuntimeInternetServiceCertificateSelection& selection,
@@ -803,28 +875,10 @@ bool loadRuntimeInternetServiceCertificate(
     if (store == nullptr) {
         return fail(errorMessage, "server certificate store could not be opened");
     }
-    PCCERT_CONTEXT selected = nullptr;
-    std::size_t matches = 0U;
-    PCCERT_CONTEXT current = nullptr;
-    while ((current = CertEnumCertificatesInStore(store, current)) != nullptr) {
-        if (!sameThumbprint(current, selection.sha1Thumbprint)) continue;
-        ++matches;
-        if (selected == nullptr) {
-            selected = CertDuplicateCertificateContext(current);
-        }
-    }
-    CertCloseStore(store, 0U);
-    if (matches != 1U || selected == nullptr) {
-        if (selected != nullptr) CertFreeCertificateContext(selected);
-        return fail(
-            errorMessage,
-            matches == 0U
-                ? "server certificate thumbprint was not found"
-                : "server certificate thumbprint is not unique"
-        );
-    }
-    certificate.impl_->context = selected;
-    return true;
+    return RuntimeInternetServiceCertificateFactory::selectFromOwnedStore(
+        RuntimeCertificateStoreWin32(store), selection.sha1Thumbprint,
+        certificate, errorMessage
+    );
 #else
     (void)selection;
     return fail(

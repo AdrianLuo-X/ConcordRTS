@@ -93,7 +93,7 @@ bool runRuntimeVehicleBodyRenderContractCheck(
             probe.specialMechanismSnapshots=(row==1 || row==2) ? &links : nullptr;
             probe.impactActors=row==3 ? &impacts : nullptr;
             links[0].progress=row==1 ? 1 : 10; probe.animationTick=links[0].progress;
-            const POINT center=runtimeObjectBodyAnchorForRender(object,viewport,probe,camera);
+            const POINT center=runtimeObjectBodyAnchorForRenderWin32(object,viewport,probe,camera);
             drawRuntimeWorldObjectShadow(nullptr,viewport,object,center,probe,camera,*cache,true);
             RuntimeVoxelDrawResult drawn;
             if (!tryDrawVoxelSprite(nullptr,viewport,object,center,probe,camera,*cache,&drawn)
@@ -118,7 +118,7 @@ bool runRuntimeVehicleBodyRenderContractCheck(
                 std::fill(pixels.begin(),pixels.end(),background);
                 links[0].progress=frame*4; probe.animationTick=frame*4;
                 links[0].expireTick=(probe.animationTick/120+1)*120;
-                const POINT center=runtimeObjectBodyAnchorForRender(object,viewport,probe,camera);
+                const POINT center=runtimeObjectBodyAnchorForRenderWin32(object,viewport,probe,camera);
                 drawRuntimeWorldObjectShadow(nullptr,viewport,object,center,probe,camera,*cache,true);
                 if (!tryDrawVoxelSprite(nullptr,viewport,object,center,probe,camera,*cache))
                     return fail("motion sequence draw failed");

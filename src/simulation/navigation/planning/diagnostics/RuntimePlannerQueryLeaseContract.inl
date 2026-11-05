@@ -1,6 +1,9 @@
 // Include after RuntimePlannerCellPassabilityContract.inl. Reuse its actual
 // authored rules/world fixture and full authoritative writer, not a toy graph.
 namespace {
+}
+
+namespace concord::runtime::session_detail {
 struct RuntimePlannerQueryLeaseContractAccess {
     static std::unique_ptr<RuntimePlannerCellPassabilityReadOnlyLease> make(
         RuntimePlannerCellPassabilityScope& scope, const RuntimeWindowState& state,
@@ -10,6 +13,10 @@ struct RuntimePlannerQueryLeaseContractAccess {
             new RuntimePlannerCellPassabilityReadOnlyLease(&scope,state,mover,terrain,occupancy,true));
     }
 };
+}
+
+namespace {
+
 } // namespace
 
 bool runRuntimePlannerQueryLeaseContract(const RuntimeConfig& config,std::string& error) {

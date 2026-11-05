@@ -90,7 +90,7 @@ bool runRuntimeCrateFeedbackSaveSmoke(
     const auto step = [](RuntimeWindowState& state) {
         RuntimeSnapshotActiveStateScope scope(state); ++state.tick; advanceRuntimeSimulation(state, false);
     };
-    const auto exactHash = [&](RuntimeWindowState& state) {
+    const auto exactHash = [&](RuntimeProductionHostState& state) {
         RuntimeSnapshotActiveStateScope scope(state);
         return runtimeMultiplayerAuthoritativeStateHash(state, error);
     };

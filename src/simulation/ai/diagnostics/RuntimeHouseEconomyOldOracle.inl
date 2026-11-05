@@ -1,4 +1,4 @@
-bool s16OldAdvanceRuntimeHarvesterEconomy(RuntimeWindowState& state) {
+bool s16OldAdvanceRuntimeHarvesterEconomy(RuntimeProductionHostState& state) {
     RuntimePerfTraceScope trace("s16OldAdvanceRuntimeHarvesterEconomy", state.tick);
     const std::string currentOwner =
         runtimeCanonicalHumanHouseOwner(state.economy.owner);
@@ -676,7 +676,7 @@ bool s16OldAdvanceRuntimeHarvesterEconomy(RuntimeWindowState& state) {
 // short-lived facade, including when a slave miner deploys or repacks.
 class S16OldRuntimeComputerMiningScope {
 public:
-    S16OldRuntimeComputerMiningScope(RuntimeWindowState& state, const std::string& owner)
+    S16OldRuntimeComputerMiningScope(RuntimeProductionHostState& state, const std::string& owner)
         : state_(state), owner_(runtimeRepairDepotCanonicalOwnerId(state, owner)),
           startingCredits_(runtimeRepairDepotCreditBalance(state, owner)),
           ledger_(state.computerMiningByOwner[owner_]),
@@ -734,7 +734,7 @@ public:
         }
     }
 private:
-    RuntimeWindowState& state_;
+    RuntimeProductionHostState& state_;
     std::string owner_;
     int startingCredits_;
     RuntimeComputerMiningState& ledger_;
@@ -745,7 +745,7 @@ private:
     bool techTreeLoaded_, suppressAudio_;
 };
 
-bool s16OldAdvanceRuntimeComputerMining(RuntimeWindowState& state) {
+bool s16OldAdvanceRuntimeComputerMining(RuntimeProductionHostState& state) {
     if (!state.rulesLoaded || state.humanHouseScopeActive
         || state.skirmishMatchFinished) return false;
     std::vector<std::string> owners;

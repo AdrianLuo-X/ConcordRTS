@@ -85,7 +85,7 @@ bool runRuntimeGeometryQueryContractCheck(std::string& error) {
     }
     const auto* previous = RuntimeGeometryQueryFrame::active;
     {
-        RuntimeGeometryQueryScope batch(world, viewport, context, camera, cache);
+        RuntimeGeometryQueryScope batch(world, runtimeRenderPlacementPixelRect(viewport), context, camera, cache);
         auto copied = context; copied.chaosBodyTint = true; copied.airstrikeBodyColorAdd = 17;
         for (std::size_t index = 0; index < objects.size(); ++index) {
             const auto* result = runtimeGeometryMetadataForObject(objects[index], copied);
@@ -98,7 +98,7 @@ bool runRuntimeGeometryQueryContractCheck(std::string& error) {
         if (runtimeGeometryMetadataForObject(objects[0], mismatched)) return fail("changed rules matched");
         const auto* outer = RuntimeGeometryQueryFrame::active;
         try {
-            RuntimeGeometryQueryScope nested(world, viewport, mismatched, camera, otherCache);
+            RuntimeGeometryQueryScope nested(world, runtimeRenderPlacementPixelRect(viewport), mismatched, camera, otherCache);
             if (RuntimeGeometryQueryFrame::active == outer) return fail("nested scope did not activate");
             throw 1;
         } catch (int) {}
@@ -139,7 +139,7 @@ bool runRuntimeGeometryQueryContractCheck(std::string& error) {
     snapshots[0].objectId = 5; context.assetRootPath = "changed-root";
     const auto changed = runtimeGeometryMetadataReference(objects[5], context);
     {
-        RuntimeGeometryQueryScope batch(world, viewport, context, camera, cache);
+        RuntimeGeometryQueryScope batch(world, runtimeRenderPlacementPixelRect(viewport), context, camera, cache);
         const auto* result = runtimeGeometryMetadataForObject(objects[5], context);
         RuntimeVoxelCacheEntry* stale = nullptr;
         if (!result || !runtimeGeometryMetadataEqualForContract(changed, *result)
@@ -165,7 +165,7 @@ bool runRuntimeGeometryAssetContractCheck(const GameWorld& world,
         RECT bounds{}, canvas{};
         int layers = 0;
         std::vector<RuntimeSpriteHitSpan> spans, foreground;
-        RuntimeObjectWorldRenderPlacement placement;
+        RuntimeNativeRenderPlacementWin32 placement;
     };
     RuntimeMapRenderContext context = sourceContext;
     context.stableRenderConfiguration = true;
@@ -200,11 +200,12 @@ bool runRuntimeGeometryAssetContractCheck(const GameWorld& world,
     const auto capture = [&](const WorldObjectInstance& object) {
         Result result;
         const POINT center{200 + object.x * 2, 240 + object.y * 3};
-        result.placement = runtimeObjectWorldRenderPlacement(object, world, viewport, context, camera, cache);
+        result.placement = runtimeRenderPlacementNative(runtimeObjectWorldRenderPlacementWin32(object, world, viewport, context, camera, cache));
         if (object.kind == WorldObjectKind::Structure) {
             RuntimeStructureSpriteGeometry geometry;
-            result.resolved = resolveRuntimeStructureSpriteGeometry(object, center, context, camera, cache, geometry);
-            result.bounds = geometry.bounds; result.layers = geometry.layerCount;
+            result.resolved = resolveRuntimeStructureSpriteGeometryWin32(object, center, context, camera, cache, geometry);
+            result.bounds = {geometry.bounds.left, geometry.bounds.top,
+                geometry.bounds.right, geometry.bounds.bottom}; result.layers = geometry.layerCount;
             result.spans = std::move(geometry.hitSpans); result.foreground = std::move(geometry.foregroundHitSpans);
         } else {
             RuntimeSpriteGeometryCapture geometry;
@@ -217,7 +218,7 @@ bool runRuntimeGeometryAssetContractCheck(const GameWorld& world,
     std::vector<Result> direct;
     for (const auto& object : probes) direct.push_back(capture(object));
     {
-        RuntimeGeometryQueryScope batch(world, viewport, context, camera, cache);
+        RuntimeGeometryQueryScope batch(world, runtimeRenderPlacementPixelRect(viewport), context, camera, cache);
         for (std::size_t index = 0; index < probes.size(); ++index) {
             const auto actual = capture(probes[index]);
             const auto& expected = direct[index];

@@ -297,8 +297,8 @@ bool draw(GameWorld& world, const WorldObjectInstance& object, RuntimeMapRenderC
     std::fill(pixels.begin(), pixels.end(), background);
     probe.surfacePixels = pixels.data(); probe.surfaceWidth = width; probe.surfaceHeight = height;
     const RECT viewport{0,0,width,height};
-    RuntimeGeometryQueryScope geometry(world, viewport, probe, camera, cache);
-    const auto center = runtimeObjectBodyAnchorForRender(object, viewport, probe, camera);
+    RuntimeGeometryQueryScope geometry(world, runtimeRenderPlacementPixelRect(viewport), probe, camera, cache);
+    const auto center = runtimeObjectBodyAnchorForRenderWin32(object, viewport, probe, camera);
     return tryDrawVoxelSprite(nullptr, viewport, object, center, probe, camera, cache, &result);
 }
 bool reference(const WorldObjectInstance& object, RuntimeMapRenderContext probe,
@@ -309,7 +309,7 @@ bool reference(const WorldObjectInstance& object, RuntimeMapRenderContext probe,
     std::fill(pixels.begin(), pixels.end(), background);
     probe.surfacePixels = pixels.data(); probe.surfaceWidth = width; probe.surfaceHeight = height;
     const RECT viewport{0,0,width,height};
-    const auto center = runtimeObjectBodyAnchorForRender(object, viewport, probe, camera);
+    const auto center = runtimeObjectBodyAnchorForRenderWin32(object, viewport, probe, camera);
     POINT paint = runtimeVoxelModelDrawCenter(center, camera);
     const auto sizing = runtimeVxlRasterSizingForOwner(object.type);
     paint.y -= LONG(std::lround(lift * fit * runtimeVxlProjectionParamsForSizing(sizing).heightYScale));

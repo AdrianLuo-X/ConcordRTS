@@ -80,7 +80,7 @@ bool runRuntimeCombatantSelectionSmoke(const RuntimeConfig& config, std::string&
         return view.object && view.object->instanceId == 5;
     });
     if (miner == projected.end()) return fail("miner projection unavailable");
-    const RECT bounds = miner->bounds;
+    const RECT bounds = runtimeRenderPlacementNativeRect(miner->bounds);
     const POINT point{(bounds.left+bounds.right)/2,(bounds.top+bounds.bottom)/2};
     const auto* picked = findProjectedObjectAtPoint(projected,point);
     if (!picked || !picked->object || picked->object->instanceId != 5) return fail("miner mouse fixture overlap");

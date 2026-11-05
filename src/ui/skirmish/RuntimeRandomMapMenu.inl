@@ -42,7 +42,7 @@ void updateRandomMapNameWindow(MenuState& state) {
         SetPropW(state.randomNameWindow,L"ConcordRandomMapNameProc",reinterpret_cast<HANDLE>(original));
         SetWindowLongPtrW(state.randomNameWindow,GWLP_WNDPROC,reinterpret_cast<LONG_PTR>(randomMapNameWindowProc));
         SendMessageW(state.randomNameWindow,EM_SETLIMITTEXT,60,0);
-        SendMessageW(state.randomNameWindow,WM_SETFONT,reinterpret_cast<WPARAM>(state.normalFont),FALSE);
+        state.systemFonts.bindNativeControl(state.randomNameWindow,concord::ui::SkirmishSystemFontRole::Normal);
     }
     SetWindowPos(state.randomNameWindow,nullptr,
         state.viewLeft+138*state.viewWidth/kBaseWidth,state.viewTop+508*state.viewHeight/kBaseHeight,

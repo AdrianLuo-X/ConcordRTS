@@ -161,10 +161,10 @@ static bool runRuntimePaintBuildingDepthReuseContractCheck(std::string& error) {
     if (!EqualRect(&diagnostic.viewport, &viewport) || diagnostic.pixels.size() != query.pixels.size())
         return fail("background-sentinel diagnostic was cropped");
     {
-        RuntimeGeometryQueryScope outer(world, viewport, context, camera, cache);
+        RuntimeGeometryQueryScope outer(world, runtimeRenderPlacementPixelRect(viewport), context, camera, cache);
         auto* owner = RuntimeGeometryQueryFrame::active;
         {
-            RuntimeGeometryQueryScope map(world, viewport, context, camera, cache);
+            RuntimeGeometryQueryScope map(world, runtimeRenderPlacementPixelRect(viewport), context, camera, cache);
             if (runtimePaintBuildingDepthMemo(world, viewport, context, camera, cache) != owner)
                 return fail("compatible publisher did not share owner");
             publishRuntimePaintBuildingVisibleHitSpans(*owner, paint, context.animationTick, cache);
@@ -243,7 +243,7 @@ static bool runRuntimePaintBuildingDepthReuseContractCheck(std::string& error) {
             || actual.size() != 1 || !actual.contains(999) || !actual.at(999).empty())
             return fail("empty compact scene lost participant contract");
     }
-    RuntimeGeometryQueryScope nextPaint(world, viewport, context, camera, cache);
+    RuntimeGeometryQueryScope nextPaint(world, runtimeRenderPlacementPixelRect(viewport), context, camera, cache);
     RuntimeBuildingVisibleHitSpans actual;
     if (findRuntimePaintBuildingVisibleHitSpans(world, viewport, context, camera, cache, actual))
         return fail("result escaped paint lifetime");
@@ -370,6 +370,9 @@ static bool runRuntimePaintBuildingDepthReuseAssetContractCheck(const GameWorld&
         const auto projected = projectCell(anchor, camera);
         camera.worldOffsetX = projected.x - (viewport.right - viewport.left) / 2;
         camera.worldOffsetY = projected.y - 160;
+        // Include original terrain/map-fact wall owners in the offscreen fixture.
+        // Moving only synthetic objects leaves those real map layers in view.
+        if (variant == 6) camera.worldOffsetX = camera.worldOffsetY = -1000000;
         // Compare the complete original path, all accelerated paths, and the
         // original copies alone with every other acceleration still enabled.
         for (int pass = 0; pass != 3; ++pass) {
@@ -382,7 +385,7 @@ static bool runRuntimePaintBuildingDepthReuseAssetContractCheck(const GameWorld&
             RuntimeMapRenderCache& cache = fast ? optimized : reference;
             const auto recordsBefore = cache.geometryBuildingDepthPaintRecords;
             const auto hitsBefore = cache.geometryBuildingDepthMemoHits;
-            RuntimeGeometryQueryScope paint(world, viewport, context, camera, cache);
+            RuntimeGeometryQueryScope paint(world, runtimeRenderPlacementPixelRect(viewport), context, camera, cache);
             std::fill_n(pixels, static_cast<std::size_t>(width) * height, 0xa1407199U);
             auto drawCamera = camera;
             drawRuntimeMap(dc, viewport, world, context, drawCamera, cache);
@@ -391,7 +394,7 @@ static bool runRuntimePaintBuildingDepthReuseAssetContractCheck(const GameWorld&
             else if (!std::equal(expectedPixels.begin(), expectedPixels.end(), pixels))
                 return fail("map pixels differ on variant " + std::to_string(variant));
             RuntimeBuildingVisibleHitSpans actual;
-            const bool result = resolveRuntimeBuildingVisibleHitSpans(world, viewport, context, camera, cache, actual);
+            const bool result = resolveRuntimeBuildingVisibleHitSpansWin32(world, viewport, context, camera, cache, actual);
             if (!fast) { expectedResult = result; expectedSpans = actual; }
             else {
                 if (result != expectedResult || !runtimeBuildingVisibleHitSpansEqualForContract(actual, expectedSpans))
@@ -407,7 +410,7 @@ static bool runRuntimePaintBuildingDepthReuseAssetContractCheck(const GameWorld&
                 RuntimeBuildingVisibleHitSpans direct;
                 {
                     RuntimePaintBuildingDepthReferenceScope bypass(true);
-                    const bool directResult = resolveRuntimeBuildingVisibleHitSpans(world, viewport, context, camera, cache, direct);
+                    const bool directResult = resolveRuntimeBuildingVisibleHitSpansWin32(world, viewport, context, camera, cache, direct);
                     if (result != directResult || !runtimeBuildingVisibleHitSpansEqualForContract(actual, direct))
                         return fail("independent original replay differs");
                 }
@@ -418,7 +421,23 @@ static bool runRuntimePaintBuildingDepthReuseAssetContractCheck(const GameWorld&
                     return fail("naval/air eligibility changed");
                 if (variant == 4 && actual.contains(baseline[0].instanceId))
                     return fail("active collapse retained normal depth participation");
-                if (variant == 6 && !actual.empty()) return fail("offscreen scene lost valid empty result");
+                if (variant == 6 && !actual.empty()) {
+                    std::ostringstream detail;
+                    detail << "offscreen scene lost valid empty result"
+                        << " pass=" << pass << " groundEligible=" << groundEligible
+                        << " anchor=" << ground.x << ',' << ground.y << ',' << ground.level
+                        << " queryCamera=" << camera.worldOffsetX << ',' << camera.worldOffsetY
+                        << " drawCamera=" << drawCamera.worldOffsetX << ',' << drawCamera.worldOffsetY
+                        << " bufferPixels=" << cache.lastBuildingDepthBufferPixels;
+                    for (const auto& [id, spans] : actual) {
+                        detail << " object=" << id << " spans=" << spans.size();
+                        if (!spans.empty()) detail << " first=" << spans.front().y << ',' << spans.front().left << ',' << spans.front().right;
+                        for (const auto& object : world.getObjects()) if (object.instanceId == id)
+                            detail << " type=" << object.type << " xy=" << object.x << ',' << object.y
+                                << " render=" << object.hasRenderPosition << ',' << object.renderX << ',' << object.renderY;
+                    }
+                    return fail(detail.str());
+                }
                 if (variant == 6 && cache.lastBuildingDepthBufferPixels != 0)
                     return fail("offscreen structure scene retained whole viewport buffer");
             }
@@ -427,7 +446,7 @@ static bool runRuntimePaintBuildingDepthReuseAssetContractCheck(const GameWorld&
         const auto hits = optimized.geometryBuildingDepthMemoHits;
         {
             RuntimePaintBuildingDepthReferenceScope normal(false);
-            resolveRuntimeBuildingVisibleHitSpans(world, viewport, context, camera, optimized, afterPaint);
+            resolveRuntimeBuildingVisibleHitSpansWin32(world, viewport, context, camera, optimized, afterPaint);
         }
         if (optimized.geometryBuildingDepthMemoHits != hits
             || !runtimeBuildingVisibleHitSpansEqualForContract(afterPaint, expectedSpans))

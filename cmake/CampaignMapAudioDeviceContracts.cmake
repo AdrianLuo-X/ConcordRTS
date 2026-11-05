@@ -1,0 +1,12 @@
+# Campaign original two map voice/effect slots; no music player added.
+include_guard(GLOBAL)
+concord_add_profiled_leaf(concord_campaign_map_audio_unsupported src/audio/menu/RuntimeUnsupportedCampaignMapAudioDevice.cpp concord_runtime Runtime)
+concord_add_profiled_leaf(concord_campaign_map_audio_unsupported_contract src/audio/menu/RuntimeUnsupportedCampaignMapAudioDevice.cpp concord_runtime_match_score_contract Contract)
+if(WIN32 AND NOT CONCORD_PORTABLE_CORE)
+ concord_add_profiled_leaf(concord_campaign_map_audio_win32 src/audio/menu/win32/RuntimeCampaignMapAudioWin32.cpp concord_runtime Runtime)
+ concord_add_profiled_leaf(concord_campaign_map_audio_win32_contract src/audio/menu/win32/RuntimeCampaignMapAudioWin32.cpp concord_runtime_match_score_contract Contract)
+ target_link_libraries(concord_campaign_map_audio_win32 PRIVATE concord_campaign_map_audio_unsupported)
+ target_link_libraries(concord_campaign_map_audio_win32_contract PRIVATE concord_campaign_map_audio_unsupported_contract winmm)
+ target_link_libraries(concord_runtime PRIVATE concord_campaign_map_audio_win32)
+endif()
+add_subdirectory(tests/audio/campaign_map_audio)

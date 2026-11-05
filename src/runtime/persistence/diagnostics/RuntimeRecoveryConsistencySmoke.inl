@@ -1,15 +1,20 @@
 // Real host recovery entries over the same nonempty, deterministic fixture.
 // No socket, window, device, wall clock or alternate simulation is involved.
-#include "runtime/replay/RuntimeMatchReplayState.inl"
+#include "runtime/persistence/diagnostics/RuntimeRecoveryConsistencyFixture.inl"
 
-bool runRuntimeRecoveryConsistencySmoke(std::string& error) try {
+// Bind the shared private fixture only to the original native session here.
+
+
+
+template<class Session>
+bool runRuntimeRecoveryConsistencySmoke(std::string& error, std::uint32_t processId) try {
     const char* configured = std::getenv("CONCORD_RECOVERY_CONTRACT_OUTPUT");
     if (!configured || !*configured) { error = "recovery contract requires private output"; return false; }
     const std::filesystem::path parent(configured);
     std::filesystem::create_directories(parent);
     std::filesystem::path output;
     for (int suffix=0;suffix<10000;++suffix) {
-        auto candidate=parent/("run-"+std::to_string(GetCurrentProcessId())+"-"+std::to_string(suffix));
+        auto candidate=parent/("run-"+std::to_string(processId)+"-"+std::to_string(suffix));
         if (std::filesystem::create_directory(candidate)) { output=std::move(candidate); break; }
     }
     if (output.empty()) { error="recovery evidence directory exhausted"; return false; }
@@ -21,89 +26,8 @@ bool runRuntimeRecoveryConsistencySmoke(std::string& error) try {
         std::ofstream file(output / name, std::ios::binary); file << bytes; file.close();
         return need(static_cast<bool>(file), "evidence write " + name);
     };
-    const auto make = [&]() {
-        auto result = std::make_unique<RuntimeWindowState>();
-        auto& s = *result;
-        if (!configureRuntimeDetailSnapshotSmokeWorld(s, false, error)) return std::unique_ptr<RuntimeWindowState>{};
-        IniFile rules;
-        if (!rules.loadFromString(R"RECOVERY(
-[General]
-BuildSpeed=0.1
-[CombatDamage]
-C4Delay=0.01
-C4Warhead=RECOVERY_C4_WH
-[VehicleTypes]
-0=SNAPSHOT_TANK
-[InfantryTypes]
-0=RECOVERY_C4
-[BuildingTypes]
-0=DETAIL_FACTORY
-1=SNAPSHOT_LANDMARK
-[SNAPSHOT_LANDMARK]
-Strength=1000
-DestroyAnim=SNAPSHOT_COLLAPSE
-LeaveRubble=yes
-[SNAPSHOT_TANK]
-Strength=200
-Cost=100
-TechLevel=1
-Speed=6
-SpeedType=Track
-MovementZone=Normal
-[DETAIL_FACTORY]
-Strength=1000
-Cost=100
-TechLevel=1
-Factory=UnitType
-WeaponsFactory=yes
-Foundation=1x1
-[RECOVERY_C4]
-Strength=100
-Cost=100
-C4=yes
-Speed=4
-[RECOVERY_C4_WH]
-Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
-)RECOVERY") || !s.rules.loadFromIni(rules)) return std::unique_ptr<RuntimeWindowState>{};
-        s.config.defaultMapPath = "recovery-contract.map";
-        s.config.shortGame = false; s.config.crates = false; s.config.superweapons = false;
-        s.config.computerAiEnabled = false;
-        // One human is also the original legacy snapshot compatibility boundary.
-        s.config.playerSlots[1].human = false;
-        s.humanHouseAuthorities.resize(1);
-        s.economy=makeRuntimeMultiplayerSnapshotSmokeEconomy(s,"SkirmishPlayer1",9000);
-        s.runtimeSoundsEnabled = false; s.runtimeSuppressPlayerAudioFeedback = true;
-        s.runtimePreferencePersistenceEnabled = false;
-        s.wrecks.clear(); s.buildingCollapses.clear();
-        s.world.accessObjects().erase(std::remove_if(s.world.accessObjects().begin(),
-            s.world.accessObjects().end(), [](const auto& o) { return !o.alive; }), s.world.accessObjects().end());
-        s.computerMiningByOwner["skirmishplayer3"] = {12, 450, 3, 7, 2, 4};
-        s.economy.storedResourceUnits = 8; s.economy.storedResourceValue = 300;
-        s.economy.storedResourceGemUnits = 2; s.economy.resourceTrips = 5;
-        s.economy.skirmishStartApplied = true;
-        auto* source = addRuntimeObjectInstanceForOwner(s, "SkirmishPlayer1",
-            RuntimeBuildKind::Infantry, "RECOVERY_C4", {7, 12});
-        if (!source) return std::unique_ptr<RuntimeWindowState>{};
-        // Production/load use the tile centre for idle continuous coordinates.
-        clearRuntimeRenderPosition(*source);
-        // Local saves initialize this empty subsystem when materializing it.
-        ensureRuntimeRepairDepotsInitialized(s);
-        const int sourceId = source->instanceId;
-        ensureRuntimeSpecialMechanismsInitialized(s);
-        if (!s.specialMechanisms.tryPlantC4(s.world.getObjects(), s.rules, sourceId, 47,
-                s.tick, s.config.fixedTickHz, SpecialEventSink{}, error)) return std::unique_ptr<RuntimeWindowState>{};
-        initializeRuntimeNavigation(s); completeRuntimeWorldRefresh(s);
-        // Enter production through the actual stage; never invent partially
-        // paid counters that the original load validator correctly rejects.
-        ++s.tick; advanceRuntimeSimulation(s,false); completeRuntimeWorldRefresh(s);
-        // The stock snapshot fixture supplies empty subsystem clocks. Advance
-        // those to this checkpoint after warming the real production stage.
-        // Keep the separately recorded original SuperWeapon restore failure.
-        if (!s.superWeapons.alignEmptyStateTick(s.tick)
-            || !s.particles.alignEmptyStateTick(s.tick)) return std::unique_ptr<RuntimeWindowState>{};
-        return result;
-    };
-    const auto authority = [&](const RuntimeWindowState& s) {
+    const auto make = [&]() { return makeRuntimeRecoveryConsistencyFixture<Session>(error); };
+    const auto authority = [&](const Session& s) {
         std::string why; std::vector<std::pair<std::string,std::uint64_t>> domains;
         const auto full = runtimeStandaloneSimulationStateHash(s, why, &domains);
         if (!full || !why.empty()) throw std::runtime_error("full authority: " + why);
@@ -138,7 +62,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
         }
         return out.str();
     };
-    const auto whole = [&](const RuntimeWindowState& s) {
+    const auto whole = [&](const Session& s) {
         std::ostringstream out; std::string why;
         if (!writeRuntimeStateToStream(s, out, why) || !writeRuntimeMultiplayerSnapshotExtension(s, out, why))
             throw std::runtime_error("whole live state: " + why);
@@ -191,7 +115,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
     RuntimeMatchReplayHeader decoded; RuntimeMatchReplayRecord decodedReset;
     if (!reader.begin(replay,decoded,error) || !reader.next(decodedReset,error)
         || !need(decodedReset == reset, "real replay Reset envelope")) return false;
-    std::array<std::unique_ptr<RuntimeWindowState>,3> restored;
+    std::array<std::unique_ptr<Session>,3> restored;
     for (auto& state : restored) { state=make(); if (!state) return false; state->matchScores.clear(); state->computerMiningByOwner.clear(); }
     if (!loadRuntimeState(*restored[0],pathString(output/"seed-save-v14.ini"),error)) {
         error="local initial recovery: "+error; return false;
@@ -220,7 +144,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
     // and a real C4 deadline. All full hashes and locating fields are retained.
     std::array<std::ostringstream,4> traces;
     for (int tick=0;tick<96;++tick) {
-        std::array<RuntimeWindowState*,4> states{source.get(),restored[0].get(),restored[1].get(),restored[2].get()};
+        std::array<Session*,4> states{source.get(),restored[0].get(),restored[1].get(),restored[2].get()};
         std::string reference;
         for (std::size_t route=0;route<states.size();++route) {
             auto& s=*states[route];

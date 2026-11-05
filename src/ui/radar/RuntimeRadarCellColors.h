@@ -1,6 +1,6 @@
 #pragma once
 
-#include "render/core/RuntimeMapRenderer.h"
+#include "render/core/RuntimeMapColorValues.h"
 
 #include <cstddef>
 #include <cstdlib>
@@ -64,7 +64,7 @@ class RuntimeRadarCellColors {
     static constexpr std::size_t side = 512;
     static constexpr unsigned char presentBit = 1, resourceBit = 2;
     struct Dense {
-        COLORREF colors[side * side];
+        RuntimeMapColorValue colors[side * side];
         unsigned char flags[side * side]{};
     };
 public:
@@ -80,7 +80,7 @@ public:
         if (runtimeRadarCellColorsObserver)
             runtimeRadarCellColorsObserver(runtimeRadarCellColorsObserverContext, reference_, denseBytes());
     }
-    void setColor(int key, COLORREF color) {
+    void setColor(int key, RuntimeMapColorValue color) {
         const std::size_t index = denseIndex(key);
         if (dense_ && index < side * side) {
             dense_->colors[index] = color;
@@ -97,7 +97,7 @@ public:
             fallbackResources_.insert(key);
         }
     }
-    bool findColor(int key, COLORREF& color) const {
+    bool findColor(int key, RuntimeMapColorValue& color) const {
         const std::size_t index = denseIndex(key);
         if (dense_ && index < side * side) {
             if (!(dense_->flags[index] & presentBit)) return false;
@@ -127,6 +127,6 @@ private:
     }
     bool reference_;
     std::unique_ptr<Dense> dense_;
-    std::unordered_map<int, COLORREF> fallbackColors_;
+    std::unordered_map<int, RuntimeMapColorValue> fallbackColors_;
     std::unordered_set<int> fallbackResources_;
 };

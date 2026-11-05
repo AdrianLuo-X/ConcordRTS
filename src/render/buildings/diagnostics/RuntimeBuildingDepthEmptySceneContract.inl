@@ -106,7 +106,7 @@ static bool runRuntimeEmptyBuildingDepthAssetContractCheck(
     struct BodyResult {
         bool resolved = false;
         RECT bounds{};
-        RuntimeObjectWorldRenderPlacement placement;
+        RuntimeNativeRenderPlacementWin32 placement;
     };
     std::vector<BodyResult> expectedBodies;
     std::vector<std::uint32_t> expectedPixels;
@@ -127,7 +127,7 @@ static bool runRuntimeEmptyBuildingDepthAssetContractCheck(
             camera.worldOffsetX = -(viewport.right - viewport.left) / 2;
             camera.worldOffsetY = -80;
             std::fill_n(pixels, pixelCount, 0xa1407199U);
-            RuntimeGeometryQueryScope paint(world, viewport, context, camera, cache);
+            RuntimeGeometryQueryScope paint(world, runtimeRenderPlacementPixelRect(viewport), context, camera, cache);
             drawRuntimeMap(dc, viewport, world, context, camera, cache);
             GdiFlush();
             if (!fast) expectedPixels.assign(pixels, pixels + pixelCount);
@@ -137,8 +137,8 @@ static bool runRuntimeEmptyBuildingDepthAssetContractCheck(
             for (std::size_t index = 0; index < world.getObjects().size(); ++index) {
                 const auto& object = world.getObjects()[index];
                 BodyResult actual;
-                actual.placement = runtimeObjectWorldRenderPlacement(object, world, viewport, context, camera, cache);
-                actual.resolved = resolveRuntimeMobileObjectSpriteBounds(object, actual.placement.center,
+                actual.placement = runtimeRenderPlacementNative(runtimeObjectWorldRenderPlacementWin32(object, world, viewport, context, camera, cache));
+                actual.resolved = resolveRuntimeMobileObjectSpriteBoundsWin32(object, actual.placement.center,
                     context, camera, cache, actual.bounds);
                 if (!fast) expectedBodies.push_back(actual);
                 else {
@@ -154,7 +154,7 @@ static bool runRuntimeEmptyBuildingDepthAssetContractCheck(
                 }
             }
             std::unordered_map<int, std::vector<RuntimeSpriteHitSpan>> visible;
-            const bool visibleResult = resolveRuntimeBuildingVisibleHitSpans(world, viewport, context, camera, cache, visible);
+            const bool visibleResult = resolveRuntimeBuildingVisibleHitSpansWin32(world, viewport, context, camera, cache, visible);
             if (!visible.empty()) return fail("mobile-only scene produced building hit spans");
             if (!fast) expectedVisibleResult = visibleResult;
             else if (visibleResult != expectedVisibleResult) return fail("empty visible-span return contract differs");

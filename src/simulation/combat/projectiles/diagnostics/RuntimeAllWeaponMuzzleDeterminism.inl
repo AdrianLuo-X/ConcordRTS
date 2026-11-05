@@ -51,13 +51,13 @@ for (const std::string type : {"HTNK", "SHK", "ORCA", "BFRT"}) {
         const auto& visible=port?*port->host:pose;
         const auto flh=port?port->flh:runtimeWeaponFireFlh(s,shooter,profile,runtimeArtTypeForObject(s,shooter)).value_or(RuntimeWeaponFireFlh{});
         const RECT viewport{0,0,1024,768};
-        const auto placement=runtimeObjectWorldRenderPlacement(visible,s.world,viewport,view,s.camera,s.renderCache);
+        const auto placement=runtimeRenderPlacementNative(runtimeObjectWorldRenderPlacementWin32(visible,s.world,viewport,view,s.camera,s.renderCache));
         POINT physical{};
-        const bool resolved=(!port && resolveRuntimeInfantryWeaponMuzzlePoint(visible,placement.center,view,s.camera,s.renderCache,physical))
-            || resolveRuntimeVoxelWeaponMuzzlePoint(visible,placement.center,view,s.camera,s.renderCache,
+        const bool resolved=(!port && resolveRuntimeInfantryWeaponMuzzlePointWin32(visible,placement.center,view,s.camera,s.renderCache,physical))
+            || resolveRuntimeVoxelWeaponMuzzlePointWin32(visible,placement.center,view,s.camera,s.renderCache,
                 flh.forwardLeptons,flh.lateralLeptons,flh.heightLeptons,
                 port?std::max(0,visible.facing):s.projectiles.front().attackerFacing,physical,!port);
-        const auto displayed=runtimeProjectileActorScreenPoint(makeRuntimeProjectileRenderActor(s.projectiles.front()),viewport,s.camera);
+        const auto displayed=runtimeProjectileActorScreenPointWin32(makeRuntimeProjectileRenderActor(s.projectiles.front()),viewport,s.camera);
         if (!resolved || std::abs(displayed.x-physical.x)>1 || std::abs(displayed.y-physical.y)>1)
             failures.push_back(type+": real native source at zoom="+std::to_string(width)
                 +" delta="+std::to_string(displayed.x-physical.x)+","+std::to_string(displayed.y-physical.y));

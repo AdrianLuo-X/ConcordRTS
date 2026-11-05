@@ -233,4 +233,9 @@ if (WIN32)
 endif()
 
 
+include("${CMAKE_CURRENT_LIST_DIR}/ComputerTacticsCodecContracts.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/SuperWeaponDiagnosticLibraries.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/LoadTransactionContracts.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/ComputerAiTriggerHashContracts.cmake")
+
 concord_finalize_compiler_contract()

@@ -178,7 +178,7 @@ bool runRuntimeVisionTerrainCoordinateBatchActualContract(const RuntimeConfig& c
         &assets->art,&assets->rules,&assets->mapFacts);
     if(!assets->report.success || !assets->report.rulesLoaded || !assets->report.artLoaded)
         return fail("actual stock assets unavailable");
-    const auto prepare=[&](RuntimeWindowState& state,std::vector<int>& ids) {
+    const auto prepare=[&](RuntimeProductionHostState& state,std::vector<int>& ids) {
         state.config=config; state.report=assets->report; state.rules=assets->rules;
         state.art=assets->art; state.theater=assets->theater;
         state.rulesLoaded=assets->report.rulesLoaded; state.artLoaded=assets->report.artLoaded;
@@ -272,7 +272,7 @@ bool runRuntimeVisionTerrainCoordinateBatchActualContract(const RuntimeConfig& c
     // Four real world commits and their rollback direction. Nested same-world
     // batches plus a foreign scratch warm both sides before pre-swap hooks.
     for(int boundary=0;boundary<4;++boundary) {
-        std::array<std::array<std::unique_ptr<RuntimeWindowState>,2>,2> states;
+        std::array<std::array<std::unique_ptr<RuntimeProductionHostState>,2>,2> states;
         for(int branch=0;branch<2;++branch) for(int role=0;role<2;++role) {
             states[branch][role]=std::make_unique<RuntimeWindowState>();
             auto& state=*states[branch][role]; std::vector<int> ids;

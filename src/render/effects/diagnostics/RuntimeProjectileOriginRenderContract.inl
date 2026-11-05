@@ -46,11 +46,11 @@ bool runRuntimeTankArcRenderContractCheck(const RuntimeMapRenderContext& context
                 +std::lround(shot.sourceScreenOffsetX*weight)),
             static_cast<LONG>(std::llround((shot.currentX+shot.currentY-shot.currentLevel)*camera.tileHeight/2.0)-camera.worldOffsetY
                 +std::lround(shot.sourceScreenOffsetY*weight))};
-        const auto actual=runtimeProjectileActorScreenPoint(shot,viewport,camera);
+        const auto actual=runtimeProjectileActorScreenPointWin32(shot,viewport,camera);
         if (actual.x!=expected.x || actual.y!=expected.y) return fail("sprite separated from simulation position: "+shot.weaponId);
         if (tileWidth==60 && shot.arcing && !shot.high && !shot.veryHigh) {
             auto baseline=shot; baseline.currentLevel=shot.fromLevel+(shot.toLevel-shot.fromLevel)*shot.progress;
-            const int lift=runtimeProjectileActorScreenPoint(baseline,viewport,camera).y-actual.y;
+            const int lift=runtimeProjectileActorScreenPointWin32(baseline,viewport,camera).y-actual.y;
             if (lift<0 || lift>6) return fail("ordinary tank shell gained extra screen-space height");
             maxLift=std::max(maxLift,lift);
         }
@@ -115,7 +115,7 @@ bool runRuntimeProjectileOriginRenderContractCheck(
             ? tryDrawObjectShpSprite(nullptr, viewport, object, center, probe, camera, *cache, nullptr, &body)
             : tryDrawVoxelSprite(nullptr, viewport, object, center, probe, camera, *cache);
         if (!drawn) return fail(object.type + " body unavailable");
-        const POINT muzzle = runtimeProjectileActorScreenPoint(actors[i], viewport, camera);
+        const POINT muzzle = runtimeProjectileActorScreenPointWin32(actors[i], viewport, camera);
         if (object.kind == WorldObjectKind::Infantry
             && (muzzle.y < body.top - 4 || muzzle.y >= body.bottom - 2))
             return fail(object.type + " muzzle missed firing body at facing " + std::to_string(object.facing));
@@ -177,7 +177,7 @@ bool runRuntimeProjectileOriginRenderContractCheck(
             !=runtimeAnimPaletteForRender(probe,*cache)||source!="AnimPalette")return fail("flying debris lost animation palette");
     const auto savedCamera=camera;const auto* savedColors=probe.ownerRemapColors;
     camera.tileWidth=480;camera.tileHeight=240;
-    std::unordered_map<std::string,COLORREF> shellColors{{"russians",RGB(255,0,0)}};
+    RuntimeOwnerRemapColorTable shellColors{{"russians",RGB(255,0,0)}};
     probe.ownerRemapColors=&shellColors;
     std::fill(pixels.begin(),pixels.end(),background);
     drawRuntimeProjectileActors(nullptr,viewport,probe,camera,*cache,shellStats);
@@ -210,7 +210,7 @@ bool runRuntimeProjectileOriginRenderContractCheck(
     std::cout<<"Cannon palette: native gray/black pixels="<<grayPixels
         <<"; production render, owner-color independence, explicit overrides and debris passed\n";
 
-    std::unordered_map<std::string, COLORREF> colors{{"russians", RGB(20, 80, 240)}};
+    RuntimeOwnerRemapColorTable colors{{"russians", RGB(20, 80, 240)}};
     probe.ownerRemapColors = &colors;
     GameWorld missileWorld;
     WorldObjectInstance missile;

@@ -58,9 +58,9 @@ bool runRuntimeAirDamageSmokeRenderContractCheck(const RuntimeMapRenderContext& 
         int column=0;
         for(int tileWidth:{48,60,72}){
             RuntimeMapCamera camera;camera.initialized=true;camera.tileWidth=tileWidth;camera.tileHeight=tileWidth/2;
-            const auto uncentered=runtimeObjectBodyAnchorForRender(object,viewport,probe,camera);
+            const auto uncentered=runtimeObjectBodyAnchorForRenderWin32(object,viewport,probe,camera);
             camera.worldOffsetX=uncentered.x-width/2;camera.worldOffsetY=uncentered.y-155;
-            const POINT body=runtimeObjectBodyAnchorForRender(object,viewport,probe,camera);
+            const POINT body=runtimeObjectBodyAnchorForRenderWin32(object,viewport,probe,camera);
             // This expectation starts at the actual independent body renderer,
             // then adds the authored offset in world axes. It never calls the
             // smoke-origin or smoke-render-position implementation.
@@ -183,7 +183,7 @@ bool runRuntimeAirDamageSmokeRenderContractCheck(const RuntimeMapRenderContext& 
                 record.instanceId=object->instanceId;record.bodyVisible=record.airborneForeground=record.aircraft=true;
                 record.drawLevel=object->renderLevel;record.cellSum=object->renderX+object->renderY;
                 record.kindBias=objectKindSortBias(object->kind);record.sortPoint=runtimeObjectSortPoint(*object,{},camera);
-                record.center=runtimeObjectBodyAnchorForRender(*object,viewport,sceneContext,camera);bodies.push_back(record);}
+                record.center=runtimeObjectBodyAnchorForRenderWin32(*object,viewport,sceneContext,camera);bodies.push_back(record);}
             const std::vector<RuntimeWaterWakeActor> noWakes;
             const auto groundRecords=buildRuntimeGroundBodyDrawRecords(bodies,noWakes,0,camera,nullptr,&sceneContext,&puffs);
             const auto airRecords=buildRuntimeAirborneBodyDrawRecords(bodies,groundRecords);
@@ -212,7 +212,7 @@ bool runRuntimeAirDamageSmokeRenderContractCheck(const RuntimeMapRenderContext& 
                     auto projection=projectCellXY(snapshot.worldX,snapshot.worldY,snapshot.worldLevel,camera);
                     projection.y+=snapshot.screenOffsetY;RuntimeMapRenderStats stats;
                     drawRuntimeParticleSnapshot(surface.dc,viewport,sceneContext,camera,*sceneCache,snapshot,projection,stats);};
-                const auto body=[&](const WorldObjectInstance& object){const auto center=runtimeObjectBodyAnchorForRender(object,viewport,sceneContext,camera);
+                const auto body=[&](const WorldObjectInstance& object){const auto center=runtimeObjectBodyAnchorForRenderWin32(object,viewport,sceneContext,camera);
                     if(!tryDrawVoxelSprite(surface.dc,viewport,object,center,sceneContext,camera,*sceneCache)
                         &&!tryDrawObjectShpSprite(surface.dc,viewport,object,center,sceneContext,camera,*sceneCache))failure("depth fixture body missing");};
                 puff(groundPuff);if(order<0)puff(airPuff);body(rear);if(order==0)puff(airPuff);body(front);if(order>0)puff(airPuff);

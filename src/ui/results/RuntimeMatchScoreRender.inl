@@ -117,20 +117,25 @@ void drawRuntimeMatchScorePage(HDC dc, const RECT& clientRect, RuntimeWindowStat
         FillRect(dc, &button, brush); DeleteObject(brush);
         FrameRect(dc, &button, static_cast<HBRUSH>(GetStockObject(GRAY_BRUSH)));
     }
-    const auto& bitFont = runtimeResultBitFont(state);
+    const auto& bitFont = state.resultSystemFontQualification
+        ? *state.resultSystemFontQualification : runtimeResultBitFont(state);
     const double scale = std::min(static_cast<double>(clientRect.right - clientRect.left) / 800.0,
         static_cast<double>(clientRect.bottom - clientRect.top) / 600.0);
-    HFONT fallbackFont = bitFont.bytes.empty() ? CreateFontW(-std::max(9, static_cast<int>(std::lround(16 * scale))),
-        0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        NONANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Microsoft YaHei UI") : nullptr;
+    const int systemFontHeight=bitFont.bytes.empty()
+        ? -std::max(9, static_cast<int>(std::lround(16 * scale))) : 0;
+    concord::ui::MatchResultSystemFontWin32 systemFont;
+    if(bitFont.bytes.empty())systemFont.initialize(systemFontHeight);
     const auto draw = [&](const std::wstring& text, RECT base, COLORREF color, bool centered = false) {
-        if (!bitFont.bytes.empty()) { bitFont.draw(dc, clientRect, base, text, color, centered); return; }
+        if (!bitFont.bytes.empty()) { bitFont.draw(dc, clientRect, base, text, color, centered, state.resultBitmapTrace); return; }
         RECT rect = runtimeMatchScoreScaledRect(clientRect, base);
-        HGDIOBJ old = SelectObject(dc, fallbackFont);
-        SetTextColor(dc, color);
-        DrawTextW(dc, text.c_str(), static_cast<int>(text.size()), &rect,
-            (centered ? DT_CENTER : DT_LEFT) | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
-        SelectObject(dc, old);
+        if(state.resultSystemFontTrace)state.resultSystemFontTrace->push_back({text,
+            {clientRect.left,clientRect.top,clientRect.right,clientRect.bottom},
+            {base.left,base.top,base.right,base.bottom},{rect.left,rect.top,rect.right,rect.bottom},
+            systemFontHeight,color,
+            static_cast<std::uint32_t>((centered ? DT_CENTER : DT_LEFT) | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS)});
+        systemFont.draw(dc,concord::ui::MatchResultSystemWideTextRequest::fromPacked(text,
+            {rect.left,rect.top,rect.right,rect.bottom},
+            (centered ? DT_CENTER : DT_LEFT) | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS,color));
     };
     const COLORREF gold = RGB(255, 216, 102);
     draw(runtimeMenuLabel(state, state.config.multiplayerActive ? "GUI:MultiplayerScore" : "GUI:SkirmishScore",
@@ -177,6 +182,6 @@ void drawRuntimeMatchScorePage(HDC dc, const RECT& clientRect, RuntimeWindowStat
     }
     if (pageCount > 1) draw(L"← / →  " + std::to_wstring(state.resultPresentation.scorePage + 1)
         + L" / " + std::to_wstring(pageCount), RECT{12, 572, 620, 596}, gold);
-    if (fallbackFont) DeleteObject(fallbackFont);
+    systemFont.reset();
     RestoreDC(dc, saved);
 }

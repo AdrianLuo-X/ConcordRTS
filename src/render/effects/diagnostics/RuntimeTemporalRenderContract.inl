@@ -52,7 +52,7 @@ bool runRuntimeTemporalRenderContractCheck(
     ray.color = context.rules->getAudioVisualValue("ChronoBeamColor");
     ray.hasBeamEndpoints = true;
     RECT firingBody{};
-    if (!resolveRuntimeObjectShpSpriteBounds(source, {0, 0}, probe, camera, *cache, firingBody))
+    if (!resolveRuntimeObjectShpSpriteBoundsWin32(source, {0, 0}, probe, camera, *cache, firingBody))
         return fail("infantry firing body unavailable");
     ray.sourceScreenOffsetY = (firingBody.top + firingBody.bottom) / 2;
     std::vector<SpecialMechanismRenderSnapshot> snapshots{ray};
@@ -68,7 +68,7 @@ bool runRuntimeTemporalRenderContractCheck(
     RECT sourceBounds{};
     const POINT sourceOrigin = screenPoint(runtimeObjectDrawPoint(source, {}, camera), viewport, camera);
     const POINT muzzle = runtimeTemporalBeamMuzzlePoint(ray, viewport, camera);
-    if (!resolveRuntimeObjectShpSpriteBounds(source, sourceOrigin, probe, camera, *cache, sourceBounds)
+    if (!resolveRuntimeObjectShpSpriteBoundsWin32(source, sourceOrigin, probe, camera, *cache, sourceBounds)
         || muzzle.y < sourceBounds.top || muzzle.y >= sourceBounds.bottom)
         return fail("beam muzzle missed the rendered infantry body: y=" + std::to_string(muzzle.y)
             + " body=" + std::to_string(sourceBounds.top) + ".." + std::to_string(sourceBounds.bottom));

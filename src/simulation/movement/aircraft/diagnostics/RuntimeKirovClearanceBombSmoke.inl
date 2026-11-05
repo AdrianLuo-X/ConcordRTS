@@ -355,8 +355,8 @@ bool runRuntimeKirovClearanceBombSmoke(RuntimeWindowState& live, std::string& er
             for (auto& r:replicas) {
                 auto& q=*r.state; const auto* actor=findObjectById(q,source); const auto body=physical(*actor);
                 const auto c=contextFor(q); const RECT viewport{0,0,800,600};
-                const auto unlifted=runtimeObjectBodyAnchorForRender(*actor,viewport,c,q.camera);
-                const auto placed=runtimeObjectWorldRenderPlacement(*actor,q.world,viewport,c,q.camera,q.renderCache);
+                const auto unlifted=runtimeObjectBodyAnchorForRenderWin32(*actor,viewport,c,q.camera);
+                const auto placed=runtimeRenderPlacementNative(runtimeObjectWorldRenderPlacementWin32(*actor,q.world,viewport,c,q.camera,q.renderCache));
                 const int lift=unlifted.y-placed.center.y;
                 const int expectedPixels=int(std::lround(actor->aircraftBuildingClearanceLevel*15.0));
                 if (placed.center.x!=unlifted.x || std::abs(lift-expectedPixels)>1)

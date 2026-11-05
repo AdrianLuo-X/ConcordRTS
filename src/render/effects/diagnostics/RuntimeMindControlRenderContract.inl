@@ -94,7 +94,7 @@ bool runRuntimeMindControlRenderContractCheck(
     const auto ringOnly = pixels;
     RECT targetBounds{};
     const POINT targetCenter = screenPoint(runtimeObjectDrawPoint(target, {}, camera), viewport, camera);
-    if (!resolveRuntimeObjectShpSpriteBounds(target, targetCenter, probe, camera, *cache, targetBounds))
+    if (!resolveRuntimeObjectShpSpriteBoundsWin32(target, targetCenter, probe, camera, *cache, targetBounds))
         return fail("control target bounds missing");
     for (int y = targetBounds.top; y < height; ++y) for (int x = 0; x < width; ++x) {
         if (ringOnly[y * width + x] != background)

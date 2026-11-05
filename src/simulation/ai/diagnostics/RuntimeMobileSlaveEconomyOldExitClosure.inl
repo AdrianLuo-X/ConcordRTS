@@ -1,5 +1,5 @@
 bool s17OldValidateRuntimePadAircraftProductionProjection(
-    const RuntimeWindowState& state,
+    const RuntimeProductionHostState& state,
     std::string& errorMessage
 ) {
     if (!validateRuntimeAircraftPadSlotCapacity(state, errorMessage)) {
@@ -188,7 +188,7 @@ bool s17OldValidateRuntimePadAircraftProductionProjection(
     return true;
 }
 
-bool s17OldDrainRuntimeObjectExitQueue(RuntimeWindowState& state) {
+bool s17OldDrainRuntimeObjectExitQueue(RuntimeProductionHostState& state) {
     if (state.drainingObjectExits) {
         return false;
     }

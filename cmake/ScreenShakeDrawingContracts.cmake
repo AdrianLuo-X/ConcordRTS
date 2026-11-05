@@ -1,0 +1,10 @@
+# W02004 reuse existing actual standard map ABI test and original shake fixtures.
+include_guard(GLOBAL)
+if(WIN32)
+ concord_add_profiled_leaf(concord_screen_shake_drawing_runtime_probe tools/diagnostics/p12/native/ScreenShakeDrawingWin32CompileProbe.cpp concord_runtime Runtime)
+ concord_add_profiled_leaf(concord_screen_shake_drawing_contract_probe tools/diagnostics/p12/native/ScreenShakeDrawingWin32CompileProbe.cpp concord_runtime_match_score_contract Contract)
+ if(CONCORD_MSVC_ABI)
+  target_compile_definitions(concord_screen_shake_drawing_runtime_probe PRIVATE _CRT_SECURE_NO_WARNINGS)
+  target_compile_definitions(concord_screen_shake_drawing_contract_probe PRIVATE _CRT_SECURE_NO_WARNINGS)
+ endif()
+endif()

@@ -182,6 +182,8 @@ bool runRuntimeSpawnedMissileSmokeProbe(RuntimeWindowState& live, std::string& e
         int finishedTick = -1;
         for (int step = 0; step < probe.config.fixedTickHz * 85; ++step) {
             ++probe.tick;
+            // Match the production effects-before-guard tick phase order.
+            advanceRuntimeEffects(probe);
             if (hasDefense) {
                 advanceRuntimeWeaponCooldowns(probe);
                 advanceRuntimeCombatBursts(probe);
@@ -205,7 +207,6 @@ bool runRuntimeSpawnedMissileSmokeProbe(RuntimeWindowState& live, std::string& e
                             && projectile.spawnTick == probe.tick) fired = true;
                 }
             }
-            advanceRuntimeEffects(probe);
             if (probe.tick < firstRelease && findObjectById(probe, 2)->health != targetHealth)
                 return fail("target damaged before the launch sequence completed");
             for (const auto& [id, m] : probe.specialMechanisms.spawnedMissiles()) {

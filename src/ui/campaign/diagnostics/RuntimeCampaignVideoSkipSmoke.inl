@@ -186,6 +186,7 @@ LRESULT CALLBACK issue23VideoHostProc(HWND window, UINT message, WPARAM wParam, 
 } // namespace
 
 bool runRuntimeCampaignVideoSkipSmoke(const RuntimeConfig& sourceConfig, std::string& errorMessage) {
+    if(const char* only=std::getenv("CONCORD_BINK_PARENT_IDENTITY_ONLY");only&&std::string(only)=="1")return runBinkParentIdentityOracle(sourceConfig,errorMessage);
     errorMessage.clear();
     const char* outputEnv = std::getenv("CONCORD_CAMPAIGN_VIDEO_SKIP_OUTPUT");
     if (!outputEnv || !*outputEnv) { errorMessage = "campaign video smoke requires private output"; return false; }
@@ -235,8 +236,9 @@ bool runRuntimeCampaignVideoSkipSmoke(const RuntimeConfig& sourceConfig, std::st
         if (!SetTimer(host, 231, 10, nullptr)) { errorMessage = "video driver timer failed"; issue23ActiveDriver = nullptr; return false; }
         std::string playbackError;
         // The preview intentionally exercises the public default scope, not an explicit false argument.
-        const bool result = campaign ? runRuntimeBinkVideo(config, host, movie.generic_string(), playbackError, 0, true)
-            : runRuntimeBinkVideo(config, host, movie.generic_string(), playbackError, 0);
+        const RuntimeWindowParentWin32 videoParent(host);
+        const bool result = campaign ? runRuntimeBinkVideo(config, videoParent.id(), movie.generic_string(), playbackError, 0, true)
+            : runRuntimeBinkVideo(config, videoParent.id(), movie.generic_string(), playbackError, 0);
         KillTimer(host, 231); SetWindowLongPtrW(host, GWLP_USERDATA, 0); issue23ActiveDriver = nullptr;
         const bool expectedSkip = actionMode == 0 || actionMode == 2;
         const bool childAbsent = FindWindowExW(host, nullptr, L"ConcordRTS.RuntimeBinkVideoPage", nullptr) == nullptr;

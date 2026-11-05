@@ -13,8 +13,8 @@ char lowerAsciiCharacter(char value) {
 }
 
 bool equalsAsciiIgnoreCase(
-    const std::string& left,
-    const std::string& right
+    std::string_view left,
+    std::string_view right
 ) {
     if (left.size() != right.size()) {
         return false;
@@ -120,6 +120,11 @@ std::string IniFile::removeComment(const std::string& line, bool stripSlashComme
 }
 
 bool IniFile::loadFromFile(const std::string& path) {
+    return loadFromFile(path, {});
+}
+
+bool IniFile::loadFromFile(const std::string& path,
+    std::span<const std::string_view> literalNumericSections) {
     std::ifstream file(path);
 
     if (!file.is_open()) {
@@ -129,10 +134,51 @@ bool IniFile::loadFromFile(const std::string& path) {
 
     std::ostringstream buffer;
     buffer << file.rdbuf();
+    return loadFromString(buffer.str(), literalNumericSections);
+}
+
+bool IniFile::loadFromPath(const std::filesystem::path& path) {
+    const std::u8string diagnostic = path.generic_u8string();
+    return loadFromPath(path, std::string_view(
+        reinterpret_cast<const char*>(diagnostic.data()), diagnostic.size()));
+}
+
+bool IniFile::loadFromPath(
+    const std::filesystem::path& path,
+    std::string_view diagnosticPath
+) {
+    std::ifstream file(path);
+    if (!file.is_open()) {
+        std::cerr << "Failed to open INI file: " << diagnosticPath << "\n";
+        return false;
+    }
+    std::ostringstream buffer;
+    buffer << file.rdbuf();
     return loadFromString(buffer.str());
 }
 
+bool IniFile::literalNumericRecord(const std::string& line, const std::string& section,
+    std::span<const std::string_view> literalNumericSections) {
+    if (literalNumericSections.empty()) return false;
+    const std::size_t equals = line.find('=');
+    if (equals == std::string::npos) return false;
+    const std::string key = trim(line.substr(0, equals));
+    if (key.empty()) return false;
+    for (char character : key) {
+        if (character < '0' || character > '9') return false;
+    }
+    for (std::string_view candidate : literalNumericSections) {
+        if (equalsAsciiIgnoreCase(section, candidate)) return true;
+    }
+    return false;
+}
+
 bool IniFile::loadFromString(const std::string& text) {
+    return loadFromString(text, {});
+}
+
+bool IniFile::loadFromString(const std::string& text,
+    std::span<const std::string_view> literalNumericSections) {
     sections_.clear();
 
     std::istringstream file(text);
@@ -161,7 +207,9 @@ bool IniFile::loadFromString(const std::string& text) {
             continue;
         }
 
-        line = trim(removeComment(line, !isPackedMapSection(currentSection)));
+        line = literalNumericRecord(line, currentSection, literalNumericSections)
+            ? trim(line)
+            : trim(removeComment(line, !isPackedMapSection(currentSection)));
         const auto equalsPos = line.find('=');
         if (equalsPos == std::string::npos) {
             continue;

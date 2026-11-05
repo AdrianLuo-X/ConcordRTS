@@ -30,7 +30,9 @@ public:
     RuntimeVoiceAudio(const RuntimeVoiceAudio&) = delete;
     RuntimeVoiceAudio& operator=(const RuntimeVoiceAudio&) = delete;
     bool ready() const;
-    long lastError() const;
+    // Native diagnostic code; Windows preserves the exact signed HRESULT bits.
+    // Existing ready/operation booleans retain their behavior.
+    std::int32_t lastError() const;
     bool open(std::uint64_t handle, const std::string& path);
     bool setMix(std::uint64_t handle, int gain16384, int pan16384);
     bool playFromStart(std::uint64_t handle, bool loop = false, bool continuousSequence = false);

@@ -50,7 +50,7 @@ bool runRuntimeMissileHoverSmoke(RuntimeWindowState& live,std::string& error) {
         SetWindowLongPtrW(window,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(&s));
         POINT point{};RECT bounds{};bool found=false;
         for(const auto& projected:runtimeProjectedObjectsForViewport(s,viewport))if(projected.object&&projected.object->instanceId==id){
-            bounds=projected.bounds;
+            bounds=runtimeRenderPlacementNativeRect(projected.bounds);
             const auto body=projected.spriteBounds;
             point={(body.left+body.right)/2,(body.top+body.bottom)/2};
             if(!runtimeRectEquals(projected.selectionBounds,body))return fail("health frame detached from missile body");

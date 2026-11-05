@@ -352,7 +352,7 @@ bool runRuntimeBuildingSelectionAlignmentSmoke(const RuntimeConfig& config, std:
             RuntimeStructureSelectionFrameGeometry frameGeometry;
             int selectionHeight = 0;
             if (projectedObject) {
-                sprite = projectedObject->spriteBounds;
+                sprite = runtimeRenderPlacementNativeRect(projectedObject->spriteBounds);
                 selectionHeight = runtimeStructureSelectionVerticalHeight(s, object);
                 frameGeometry = runtimeStructureSelectionFrameGeometry(runtimeStructureSelectionFootprintCenters(s, object, viewport),
                     projectedObject->footprintHalfWidth, projectedObject->footprintHalfHeight, selectionHeight);
@@ -386,13 +386,14 @@ bool runRuntimeBuildingSelectionAlignmentSmoke(const RuntimeConfig& config, std:
                         + " clipped=" + std::to_string(clipped) + " drawn=" + std::to_string(drew));
                 }
                 if (projectedObject) {
-                    for (const POINT point : projectedObject->footprintHitCenters) {
+                    for (const auto& pixel : projectedObject->footprintHitCenters) {
+                    const POINT point = runtimeRenderPlacementNativePoint(pixel);
                         const auto* hit = findProjectedObjectAtPoint(projected, point);
                         if (!hit || !hit->object || hit->object->instanceId != object.instanceId)
                             recordFailure(id, scene.name, "ground footprint center stopped selecting building");
                         ++footprintClicks;
                     }
-                    RECT extent = projectedObject->bounds;
+                    RECT extent = runtimeRenderPlacementNativeRect(projectedObject->bounds);
                     UnionRect(&extent, &extent, &actual);
                     for (const POINT point : {POINT{extent.left - 8, extent.top - 8},
                             POINT{extent.right + 8, extent.top - 8}, POINT{extent.left - 8, extent.bottom + 8},
@@ -415,7 +416,7 @@ bool runRuntimeBuildingSelectionAlignmentSmoke(const RuntimeConfig& config, std:
                             if (!clear) continue;
                             const POINT point{x, y};
                             for (const auto& foot : projectedObject->footprintHitCenters)
-                                if (pointInRuntimeIsoDiamond(point, foot, projectedObject->footprintHalfWidth + 3,
+                                if (pointInRuntimeIsoDiamond(point, runtimeRenderPlacementNativePoint(foot), projectedObject->footprintHalfWidth + 3,
                                         projectedObject->footprintHalfHeight + 3)) { clear = false; break; }
                             if (!clear) continue;
                             transparentPoints.push_back(point);
@@ -434,7 +435,7 @@ bool runRuntimeBuildingSelectionAlignmentSmoke(const RuntimeConfig& config, std:
                     const auto checkOverlap = [&](POINT point, bool opaque) {
                         RuntimeProjectedObject target;
                         target.object = &other;
-                        target.center = target.renderCenter = point;
+                        target.center = target.renderCenter = runtimeRenderPlacementPixelPoint(point);
                         target.bounds = target.spriteBounds = {point.x - 2, point.y - 2, point.x + 3, point.y + 3};
                         const std::vector<RuntimeProjectedObject> buildingInFront{target, *projectedObject};
                         const auto* behindHit = findProjectedObjectAtPoint(buildingInFront, point);
@@ -569,9 +570,9 @@ bool runRuntimeBuildingSelectionAlignmentSmoke(const RuntimeConfig& config, std:
             return item.object && item.object->instanceId == aircraft.instanceId;
         });
         const bool hasProjection = found != projected.end();
-        const auto placement = runtimeObjectWorldRenderPlacement(aircraft, s.world, viewport, context, s.camera, s.renderCache);
+        const auto placement = runtimeRenderPlacementNative(runtimeObjectWorldRenderPlacementWin32(aircraft, s.world, viewport, context, s.camera, s.renderCache));
         RECT fullBody{};
-        const bool bodyResolved = resolveRuntimeMobileObjectSpriteBounds(aircraft, placement.center,
+        const bool bodyResolved = resolveRuntimeMobileObjectSpriteBoundsWin32(aircraft, placement.center,
             context, s.camera, s.renderCache, fullBody);
         std::uint64_t pixels = 0, missed = 0;
         for (int y = 0; y < probeHeight; ++y) for (int x = 0; x < probeWidth; ++x) {
@@ -581,7 +582,7 @@ bool runRuntimeBuildingSelectionAlignmentSmoke(const RuntimeConfig& config, std:
             const POINT point{x, y};
             const auto* hit = findProjectedObjectAtPoint(projected, point);
             if (!hit || !hit->object || hit->object->instanceId != aircraft.instanceId
-                || !hasProjection || !PtInRect(&found->selectionBounds, point)) ++missed;
+                || !hasProjection || !runtimeProjectedPtInRect(found->selectionBounds, point)) ++missed;
         }
         std::uint64_t nativeOccludedPixels = 0;
         if (exiting && !closed && bodyResolved) {
@@ -591,7 +592,7 @@ bool runRuntimeBuildingSelectionAlignmentSmoke(const RuntimeConfig& config, std:
             if (producer != projected.end()) {
                 for (const auto& span : producer->structureForegroundHitSpans) {
                     if (span.y < fullBody.top || span.y >= fullBody.bottom) continue;
-                    for (LONG x = std::max(span.left, fullBody.left); x < std::min(span.right, fullBody.right); ++x) {
+                    for (LONG x = std::max<LONG>(span.left, fullBody.left); x < std::min<LONG>(span.right, fullBody.right); ++x) {
                         if (x < 0 || x >= probeWidth || span.y < 0 || span.y >= probeHeight) continue;
                         ++nativeOccludedPixels;
                         const auto index = static_cast<std::size_t>(span.y) * probeWidth + x;
@@ -611,7 +612,7 @@ bool runRuntimeBuildingSelectionAlignmentSmoke(const RuntimeConfig& config, std:
             recordFailure(aircraftId, phase, "world scene or original aircraft artwork did not render");
         if (missed) recordFailure(aircraftId, phase, "actual world pixels missed by selection: " + std::to_string(missed));
         if (!exiting) {
-            const POINT baseCenter = runtimeObjectBodyAnchorForRender(aircraft, viewport, context, s.camera);
+            const POINT baseCenter = runtimeObjectBodyAnchorForRenderWin32(aircraft, viewport, context, s.camera);
             if (pixels == 0 || !hasProjection
                 || baseCenter.y - placement.center.y != actualStats.aircraftMaxBuildingClearanceLiftPixels)
                 recordFailure(aircraftId, phase, "world overflight pixels or final compositor lift disagree with interaction");
@@ -717,8 +718,8 @@ bool runRuntimeBuildingSelectionAlignmentSmoke(const RuntimeConfig& config, std:
                     const auto* hit = findProjectedObjectAtPoint(projected, point);
                     if (!hit || !hit->object || hit->object->instanceId != tank.instanceId) ++tankMisses;
                     ++bunkerTankChecks;
-                } else if (PtInRect(&tankProjection->spriteBounds, point)
-                    && runtimeSpriteHitSpansContain(hostProjection->structureForegroundHitSpans, point)) {
+                } else if (runtimeProjectedPtInRect(tankProjection->spriteBounds, point)
+                    && runtimeSpriteHitSpansContainWin32(hostProjection->structureForegroundHitSpans, point)) {
                     const auto* hit = findProjectedObjectAtPoint(projected, point);
                     if (!hit || !hit->object || hit->object->instanceId != host.instanceId) ++frontMisses;
                     ++bunkerFrontChecks;

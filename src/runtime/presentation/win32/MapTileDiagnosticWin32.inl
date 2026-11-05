@@ -8,10 +8,10 @@
         const auto output=std::filesystem::path(directory.data()).lexically_normal();
         const auto pathText=output.wstring();
         const auto projectRoot=std::filesystem::current_path();
-        const auto allowedRoot=(projectRoot/L"build"/L"smoke"/L"frame-preparation").lexically_normal().wstring()+L"\\";
-        if(!std::filesystem::is_regular_file(projectRoot/L"CMakeLists.txt")
-            ||!std::filesystem::is_regular_file(projectRoot/L"src/runtime/host/RuntimeShell.cpp")
-            ||!pathText.starts_with(allowedRoot)||!std::filesystem::is_directory(output))return E_INVALIDARG;
+const auto allowedRoot=(projectRoot/L"build"/L"smoke"/L"frame-preparation").lexically_normal().wstring()+L"\\";
+if(!std::filesystem::is_regular_file(projectRoot/L"CMakeLists.txt")
+    ||!std::filesystem::is_regular_file(projectRoot/L"src/runtime/host/RuntimeShell.cpp")
+    ||!pathText.starts_with(allowedRoot)||!std::filesystem::is_directory(output))return E_INVALIDARG;
         const bool verify=GetEnvironmentVariableW(L"CONCORD_S43_TILE_VERIFY",nullptr,0)!=0;
         if(verify&&indices!=concord::render::referenceMapTiles(concord::render::snapshotMapTiles(f,deviceGeneration)))return E_FAIL;
         const auto trace=output/L"tiles.tsv";const bool header=!std::filesystem::exists(trace);

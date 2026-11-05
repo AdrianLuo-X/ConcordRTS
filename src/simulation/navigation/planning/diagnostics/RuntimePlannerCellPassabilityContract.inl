@@ -26,7 +26,7 @@ struct Authority {
     std::string serialized;
     bool operator==(const Authority&) const = default;
 };
-bool capture(const RuntimeWindowState& state, Authority& out, std::string& error) {
+bool capture(const RuntimeProductionHostState& state, Authority& out, std::string& error) {
     out.world = state.world.deterministicSimulationStateHash();
     out.subcells = state.subcells.stateHash(state.world.getObjects(), state.world.getTerrainObjects());
     out.gates = state.gates.stateHash(); out.repair = state.repairDepots.stateHash(); out.mag = state.magBeams.stateHash();

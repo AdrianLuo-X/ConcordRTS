@@ -1,3 +1,4 @@
+#include "network/transport/private/RuntimeTunnelPreludeSource.h"
 #include "network/transport/RuntimeInternetTcpTunnelProxy.h"
 
 #include "network/protocol/RuntimeMultiplayerProtocol.h"
@@ -21,9 +22,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#include <bcrypt.h>
 #pragma comment(lib, "ws2_32.lib")
-#pragma comment(lib, "bcrypt.lib")
 using RuntimeTunnelSocket = SOCKET;
 constexpr RuntimeTunnelSocket invalidTunnelSocket = INVALID_SOCKET;
 #else
@@ -31,7 +30,6 @@ constexpr RuntimeTunnelSocket invalidTunnelSocket = INVALID_SOCKET;
 #include <cerrno>
 #include <fcntl.h>
 #include <netinet/in.h>
-#include <random>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -168,21 +166,16 @@ bool identityMatchesRoute(
     return true;
 }
 
-bool fillRandom(std::span<std::uint8_t> bytes) {
-#ifdef _WIN32
-    return BCryptGenRandom(
-        nullptr,
-        bytes.data(),
-        static_cast<ULONG>(bytes.size()),
-        BCRYPT_USE_SYSTEM_PREFERRED_RNG
-    ) == 0;
-#else
-    std::random_device random;
-    for (std::uint8_t& byte : bytes) {
-        byte = static_cast<std::uint8_t>(random());
+class RuntimeTunnelSystemPreludeSource final : public runtime_tunnel_prelude_detail::Source {
+public:
+    RuntimeSecureBytesResult fill(std::span<std::uint8_t> output) noexcept override {
+        return fillRuntimeSecureBytes(output);
     }
-    return true;
-#endif
+};
+
+bool fillRandom(std::span<std::uint8_t> bytes) {
+    RuntimeTunnelSystemPreludeSource source;
+    return runtime_tunnel_prelude_detail::fill(bytes, source);
 }
 
 bool constantTimeEqual(
@@ -573,6 +566,17 @@ void releaseRelayRoute(const ActiveRelayRouteKey& key) noexcept {
 }
 
 } // namespace
+
+bool runtime_tunnel_prelude_detail::fill(std::span<std::uint8_t> bytes, Source& source) noexcept {
+    if (bytes.empty() || bytes.size() > runtimeSecureBytesMaximumRequest) return false;
+    const RuntimeSecureBytesResult result = source.fill(bytes);
+    if (!result.succeeded() || result.generated != bytes.size()) {
+        std::fill(bytes.begin(), bytes.end(), static_cast<std::uint8_t>(0U));
+        return false;
+    }
+    return true;
+}
+
 
 struct RuntimeInternetTcpTunnelProxy::Impl {
     enum class Mode { None, Host, Client };

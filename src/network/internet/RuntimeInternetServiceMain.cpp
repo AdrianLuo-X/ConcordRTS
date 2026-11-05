@@ -1,27 +1,16 @@
+#include "network/internet/RuntimeInternetServiceProcess.h"
+#include "network/internet/private/RuntimeInternetServiceRandomBytes.h"
 #include "network/internet/RuntimeInternetServiceHost.h"
 #include "network/internet/RuntimeInternetServiceHostConfig.h"
 
-#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <iostream>
 #include <limits>
 #include <string>
-#include <thread>
-
-#ifdef _WIN32
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#include <bcrypt.h>
-#endif
 
 namespace {
-
-std::atomic_bool stopRequested = false;
 
 std::uint64_t monotonicMilliseconds() noexcept {
     const auto elapsed = std::chrono::steady_clock::now().time_since_epoch();
@@ -31,41 +20,8 @@ std::uint64_t monotonicMilliseconds() noexcept {
 }
 
 bool secureRandomBytes(std::uint8_t* destination, std::size_t size) noexcept {
-#ifdef _WIN32
-    if ((destination == nullptr && size != 0U)
-        || size > static_cast<std::size_t>(
-            (std::numeric_limits<ULONG>::max)()
-        )) {
-        return false;
-    }
-    return BCryptGenRandom(
-        nullptr,
-        destination,
-        static_cast<ULONG>(size),
-        BCRYPT_USE_SYSTEM_PREFERRED_RNG
-    ) == 0;
-#else
-    (void)destination;
-    (void)size;
-    return false;
-#endif
+    return runtime_service_random_detail::fillDefault(destination, size);
 }
-
-#ifdef _WIN32
-BOOL WINAPI consoleControlHandler(DWORD event) noexcept {
-    switch (event) {
-    case CTRL_C_EVENT:
-    case CTRL_BREAK_EVENT:
-    case CTRL_CLOSE_EVENT:
-    case CTRL_LOGOFF_EVENT:
-    case CTRL_SHUTDOWN_EVENT:
-        stopRequested.store(true, std::memory_order_relaxed);
-        return TRUE;
-    default:
-        return FALSE;
-    }
-}
-#endif
 
 RuntimeInternetServiceHostConfig makeHostConfig(
     const RuntimeInternetServiceHostDeploymentConfig& deployment,
@@ -76,8 +32,8 @@ RuntimeInternetServiceHostConfig makeHostConfig(
     config.tls.port = deployment.listenPort;
     config.tls.bindScope = deployment.listenScope;
     config.tls.maximumConnections = runtimeInternetTlsMaximumConnections;
-    config.tls.nativeCertificateContext =
-        certificate.nativeCertificateContext();
+    config.tls.serverCertificate =
+        certificate.serverCertificate();
 
     config.coordinator.serviceId = deployment.serviceId;
     // This process deliberately has no UDP listener. A nonzero sentinel is
@@ -133,44 +89,9 @@ int runService(const std::filesystem::path& configPath) {
         deployment,
         certificate
     );
-    if (!host.open(std::move(hostConfig), error)) {
-        std::cerr << "Service startup error: " << error << '\n';
-        return 4;
-    }
-
-#ifdef _WIN32
-    if (!SetConsoleCtrlHandler(consoleControlHandler, TRUE)) {
-        std::cerr << "Service startup error: console control handler failed\n";
-        host.close();
-        return 5;
-    }
-#endif
-    stopRequested.store(false, std::memory_order_relaxed);
-    std::cout << "Internet service '" << deployment.serviceId
-              << "' listening on TCP port " << host.port()
-              << "; public relay " << deployment.publicRelayAddress
-              << ':' << host.port() << "; configured peers "
-              << deployment.credentials.size()
-              << "; community state "
-              << deployment.communityStatePath.string() << '\n';
-
-    int exitCode = 0;
-    while (!stopRequested.load(std::memory_order_relaxed)) {
-        RuntimeInternetServiceHostPollResult result = host.poll();
-        if (!result.succeeded) {
-            std::cerr << "Service runtime error: " << result.error << '\n';
-            exitCode = 6;
-            break;
-        }
-        if (!result.progressed) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(2));
-        }
-    }
-    host.close();
-#ifdef _WIN32
-    (void)SetConsoleCtrlHandler(consoleControlHandler, FALSE);
-#endif
-    return exitCode;
+    return runRuntimeInternetServiceProcess(
+        host, std::move(hostConfig), deployment
+    );
 }
 
 } // namespace

@@ -1,10 +1,8 @@
 #pragma once
-
-#include <windows.h>
-#include <cstddef>
-#include <cstdint>
+#include "ui/surface/RuntimeMenuPixelSurface.h"
+#include "render/core/RuntimeMapColorValues.h"
 #include <cstdlib>
-#include <limits>
+#include <cstdint>
 
 inline thread_local int runtimeRadarPixelStoreReferenceOverride = -1;
 inline bool runtimeRadarPixelStoreReference() noexcept {
@@ -39,119 +37,56 @@ struct RuntimeRadarPixelStoreSummary {
     bool flushSucceeded = false;
 };
 
-// Test-only observer. Normal rendering has no observer, no per-pixel clock,
-// allocation, global cache, or persistent borrowed bitmap pointer.
-struct RuntimeRadarPixelStoreObserver {
-    void* context = nullptr;
-    void (*prepare)(void*, HDC, HBITMAP, int, int) noexcept = nullptr;
-    void (*finish)(void*, const RuntimeRadarPixelStoreSummary&) noexcept = nullptr;
-};
-inline thread_local const RuntimeRadarPixelStoreObserver* runtimeRadarPixelStoreObserver = nullptr;
-class RuntimeRadarPixelStoreObserverScope {
+// Synchronous borrowed CPU pixels only. The native adapter proves ownership
+// and finishes previous device writes before it prepares this direct view.
+class RuntimeRadarPixelWriter {
 public:
-    explicit RuntimeRadarPixelStoreObserverScope(RuntimeRadarPixelStoreObserver observer) noexcept
-        : previous_(runtimeRadarPixelStoreObserver), observer_(observer) {
-        runtimeRadarPixelStoreObserver = &observer_;
-    }
-    ~RuntimeRadarPixelStoreObserverScope() noexcept { runtimeRadarPixelStoreObserver = previous_; }
-    RuntimeRadarPixelStoreObserverScope(const RuntimeRadarPixelStoreObserverScope&) = delete;
-    RuntimeRadarPixelStoreObserverScope& operator=(const RuntimeRadarPixelStoreObserverScope&) = delete;
-private:
-    const RuntimeRadarPixelStoreObserver* previous_;
-    RuntimeRadarPixelStoreObserver observer_;
-};
-
-// Own RuntimeBackBuffer only. Construct immediately after the existing
-// FillRect/DeleteObject; the private DC/bitmap/mapping/clip must then remain
-// unchanged until this writer dies at the end of the radar rebuild block.
-// knownTopDownOwned must record the caller's successful negative-height DIB
-// creation, not a direction inferred from GetObject's normalized header.
-class RuntimeRadarPixelStore {
-public:
-    RuntimeRadarPixelStore(HDC dc, HBITMAP bitmap, void* pixels, int width, int height,
-        bool knownTopDownOwned,
-        bool reference = runtimeRadarPixelStoreReference()) noexcept
-        : dc_(dc), pixels_(static_cast<std::uint32_t*>(pixels)), width_(width), height_(height),
-          observer_(runtimeRadarPixelStoreObserver) {
-        summary_.reference = reference;
-        if (observer_ && observer_->prepare)
-            observer_->prepare(observer_->context, dc, bitmap, width, height);
-        if (reference) return; // The reference preserves the old GDI batching.
-        summary_.standardDib = isStandardDib(dc, bitmap, pixels, width, height, knownTopDownOwned);
-        if (!summary_.standardDib) return;
-        // Flush once before any CPU access. This synchronizes the unchanged
-        // FillRect and any earlier queued GDI writes to this same DIB.
+    explicit RuntimeRadarPixelWriter(concord::ui::MenuPixelSurfaceView dimensions,
+        bool reference = false) noexcept : surface_(dimensions) { summary_.reference = reference; }
+    RuntimeRadarPixelWriter(const RuntimeRadarPixelWriter&) = delete;
+    RuntimeRadarPixelWriter& operator=(const RuntimeRadarPixelWriter&) = delete;
+    // One preparation, before any store. A fallback ends direct access forever.
+    bool prepareDirect(concord::ui::MenuPixelSurfaceView surface, bool flushed) noexcept {
+        if (prepared_ || summary_.stores != 0 || summary_.reference) return false;
+        prepared_ = true;
+        if (!surface.valid() || surface.width != surface_.width
+            || surface.height != surface_.height) return false;
+        surface_ = surface;
+        summary_.standardDib = true;
         summary_.flushCalls = 1;
-        summary_.flushSucceeded = GdiFlush() != FALSE;
-        summary_.directEnabled = summary_.flushSucceeded;
+        summary_.flushSucceeded = flushed;
+        summary_.directEnabled = flushed;
+        return flushed;
     }
-    ~RuntimeRadarPixelStore() noexcept {
-        if (observer_ && observer_->finish) observer_->finish(observer_->context, summary_);
-    }
-    RuntimeRadarPixelStore(const RuntimeRadarPixelStore&) = delete;
-    RuntimeRadarPixelStore& operator=(const RuntimeRadarPixelStore&) = delete;
-
-    BOOL store(int x, int y, COLORREF color) noexcept {
+    template<class NativeStore>
+    std::int32_t store(std::int32_t x, std::int32_t y, RuntimeMapColorValue color,
+        NativeStore&& nativeStore) noexcept {
         ++summary_.stores;
-        const bool rgb = (color & 0xFF000000UL) == 0;
-        const bool inside = x >= 0 && y >= 0 && x < width_ && y < height_;
+        const bool rgb = (color & 0xFF000000U) == 0;
+        const bool inside = x >= 0 && y >= 0 && x < surface_.width && y < surface_.height;
         if (!rgb) ++summary_.nonRgbStores;
         if (!inside) ++summary_.outsideStores;
         if (summary_.directEnabled && rgb && inside) {
-            const auto packed = (static_cast<std::uint32_t>(GetRValue(color)) << 16U)
-                | (static_cast<std::uint32_t>(GetGValue(color)) << 8U)
-                | static_cast<std::uint32_t>(GetBValue(color));
-            pixels_[static_cast<std::size_t>(y) * static_cast<std::size_t>(width_)
-                + static_cast<std::size_t>(x)] = packed;
+            // Same original little-endian packed write, expressed as BGRA8 bytes
+            // so the standard surface representation is endian-independent.
+            const auto offset = static_cast<std::size_t>(y) * surface_.rowStride
+                + static_cast<std::size_t>(x) * 4;
+            surface_.bytes[offset] = static_cast<unsigned char>((color >> 16U) & 0xffU);
+            surface_.bytes[offset + 1] = static_cast<unsigned char>((color >> 8U) & 0xffU);
+            surface_.bytes[offset + 2] = static_cast<unsigned char>(color & 0xffU);
+            surface_.bytes[offset + 3] = 0;
             ++summary_.directStores;
-            return TRUE;
+            return 1;
         }
         ++summary_.gdiStores;
-        const BOOL result = SetPixelV(dc_, x, y, color);
-        // A per-call fallback can enqueue a native write before a later CPU
-        // store. Permanently use the native path for the rest of this scope,
-        // so there is never an unsynchronized CPU/GDI mixture or second flush.
+        const std::int32_t result = nativeStore(x, y, color);
         summary_.directEnabled = false;
+        prepared_ = true;
         return result;
     }
     const RuntimeRadarPixelStoreSummary& summary() const noexcept { return summary_; }
-
 private:
-    static bool isStandardDib(HDC dc, HBITMAP bitmap, const void* pixels,
-        int width, int height, bool knownTopDownOwned) noexcept {
-        // GetObject normalizes DIBSECTION.biHeight to positive on Windows;
-        // it cannot establish scan-line orientation. The mandatory caller
-        // evidence comes only from this own DIB's negative-height creation.
-        if (!knownTopDownOwned || !dc || !bitmap || !pixels || width <= 0 || height <= 0
-            || static_cast<std::uint64_t>(width) * 4U
-                > static_cast<std::uint64_t>((std::numeric_limits<LONG>::max)())
-            || static_cast<std::uint64_t>(width) * static_cast<std::uint64_t>(height)
-                > (std::numeric_limits<std::size_t>::max)() / sizeof(std::uint32_t)
-            || GetCurrentObject(dc, OBJ_BITMAP) != bitmap
-            || GetMapMode(dc) != MM_TEXT || GetGraphicsMode(dc) != GM_COMPATIBLE
-            || GetLayout(dc) != 0
-            || SetICMMode(dc, ICM_QUERY) != ICM_OFF) return false;
-        POINT window{}, viewport{};
-        RECT clip{};
-        if (!GetWindowOrgEx(dc, &window) || !GetViewportOrgEx(dc, &viewport)
-            || window.x != 0 || window.y != 0 || viewport.x != 0 || viewport.y != 0
-            || GetClipBox(dc, &clip) != SIMPLEREGION
-            || clip.left != 0 || clip.top != 0 || clip.right != width || clip.bottom != height)
-            return false;
-        DIBSECTION dib{};
-        return GetObjectW(bitmap, sizeof(dib), &dib) == sizeof(dib)
-            && dib.dsBm.bmBits == pixels && dib.dsBm.bmWidth == width && dib.dsBm.bmHeight == height
-            && dib.dsBm.bmWidthBytes == width * 4 && dib.dsBm.bmPlanes == 1 && dib.dsBm.bmBitsPixel == 32
-            && dib.dsBmih.biSize == sizeof(BITMAPINFOHEADER)
-            && dib.dsBmih.biWidth == width
-            && (dib.dsBmih.biHeight == height || dib.dsBmih.biHeight == -height)
-            && dib.dsBmih.biPlanes == 1 && dib.dsBmih.biBitCount == 32
-            && dib.dsBmih.biCompression == BI_RGB
-            && dib.dsBmih.biClrUsed == 0 && dib.dshSection == nullptr && dib.dsOffset == 0;
-    }
-    HDC dc_;
-    std::uint32_t* pixels_;
-    int width_, height_;
-    const RuntimeRadarPixelStoreObserver* observer_;
+    concord::ui::MenuPixelSurfaceView surface_;
     RuntimeRadarPixelStoreSummary summary_;
+    bool prepared_ = false;
 };
