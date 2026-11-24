@@ -2,15 +2,10 @@ const std::vector<RuntimePaletteColor>* runtimeBuildingCustomPaletteForRender(
     const WorldObjectInstance& object, const RuntimeMapRenderContext& context, RuntimeMapRenderCache& cache
 ) {
     const auto* art = findArtTypeForObject(object, context);
-    if (!art || art->palette.empty()) return nullptr;
-    // Original building Palette is a prefix (Palette=lib -> libtem.pal).
-    if (std::filesystem::path(art->palette).extension().empty()) {
-        const auto candidates = runtimeUnitPaletteCandidates(context);
-        const auto& ordinary = candidates.back();
-        if (const auto* palette = runtimeNamedPaletteForRender(context, cache, art->palette + ordinary.substr(4)))
-            return palette;
-    }
-    return runtimeNamedPaletteForRender(context, cache, art->palette);
+    if (!art) return nullptr;
+    return concord::render::resolveRuntimeBuildingCustomPalette(art->palette,
+        [&] { return runtimeUnitPaletteCandidates(context); },
+        [&](const std::string& name) { return runtimeNamedPaletteForRender(context, cache, name); });
 }
 
 bool drawRuntimeBuildingCollapse(
@@ -20,11 +15,12 @@ bool drawRuntimeBuildingCollapse(
     RuntimeMapRenderStats& stats, bool shadowPass
 ) {
     const auto* art = context.art ? context.art->findArtType(collapse.animId) : nullptr;
-    const bool splitShadow = art && art->shadow;
-    const int frame = runtimeBuildingCollapseFrame(collapse, context.animationTick, context.fixedTickHz);
-    if (shadowPass) {
-        if (!splitShadow) return false;
-        const auto* sprite = loadRuntimeAuxiliaryShpSpriteFromCache(collapse.animId, frame, context, cache, true);
+    const auto appearance = concord::render::runtimeBuildingCollapseAppearance(
+        collapse, art && art->shadow, context.animationTick, context.fixedTickHz, shadowPass);
+    using concord::render::RuntimeBuildingCollapseLayer;
+    if (appearance.layer == RuntimeBuildingCollapseLayer::Hidden) return false;
+    if (appearance.layer == RuntimeBuildingCollapseLayer::Shadow) {
+        const auto* sprite = loadRuntimeAuxiliaryShpSpriteFromCache(collapse.animId, appearance.frame, context, cache, true);
         if (!sprite || !sprite->hasShadowFrame) return false;
         const POINT anchor = runtimeAuxiliaryShpAdjustedCenter(center, camera, sprite->shadowImage, 0, 0, true);
         int pixels = 0;
@@ -37,9 +33,9 @@ bool drawRuntimeBuildingCollapse(
     const auto* customPalette = runtimeBuildingCustomPaletteForRender(object, context, cache);
     const bool drawn = customPalette
         ? drawRuntimeAuxiliaryShpSpriteWithPalette(dc, viewport, center, context, camera, cache,
-            collapse.animId, frame, *customPalette, 0, 0, splitShadow, false, RGB(255, 255, 255), 255, true)
+            collapse.animId, appearance.frame, *customPalette, 0, 0, appearance.splitShadow, false, RGB(255, 255, 255), 255, true)
         : drawRuntimeAuxiliaryShpSprite(dc, viewport, center, context, camera, cache,
-            collapse.animId, frame, 0, 0, splitShadow, false, false, RGB(255, 255, 255), nullptr, true);
+            collapse.animId, appearance.frame, 0, 0, appearance.splitShadow, false, false, RGB(255, 255, 255), nullptr, true);
     if (!drawn) {
         ++stats.buildingCollapseMissing; return false;
     }

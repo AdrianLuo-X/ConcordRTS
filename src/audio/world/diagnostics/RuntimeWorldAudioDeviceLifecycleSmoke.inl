@@ -81,7 +81,7 @@ bool runRuntimeWorldAudioDeviceLifecycleSmoke(const RuntimeConfig& config, std::
         require(s.runtimeVoiceAudio->ready(), "actual native verification graph required, output muted");
         s.runtimeSoundsEnabled = true; auto* const session = s.runtimeVoiceAudio.get();
         applyRuntimeWorldAudioBackendActions(s, playActions);
-        require(s.runtimeWorldAudioBackendBindings.size() == 1 && session->voiceCount() == 1
+        require(s.worldAudioBackend.bindings().size() == 1 && session->voiceCount() == 1
             && session->isPlaying(play.handleId).value_or(false), "actual producer reaches one real playing native voice");
         const auto deadline = GetTickCount64() + 3000;
         while (session->probe(play.handleId).samplesPlayed < 1024 && GetTickCount64() < deadline) Sleep(5);
@@ -139,25 +139,61 @@ bool runRuntimeWorldAudioDeviceLifecycleSmoke(const RuntimeConfig& config, std::
             std::cout << "World postcommit detail: authority=" << committedHash << " expected=" << hash
                 << " domain=" << s.worldAudio.stateHash() << " expectedDomain=" << domain
                 << " tick=" << s.tick << " expectedTick=" << tick << " sameSession=" << (s.runtimeVoiceAudio.get() == session)
-                << " nativeVoices=" << session->voiceCount() << " bindings=" << s.runtimeWorldAudioBackendBindings.size() << '\n';
+                << " nativeVoices=" << session->voiceCount() << " bindings=" << s.worldAudioBackend.bindings().size() << '\n';
             require(s.runtimeVoiceAudio.get() == session && session->voiceCount() == 0
-                && s.runtimeWorldAudioBackendBindings.empty(), "postcommit resource failure releases original native PCM");
+                && s.worldAudioBackend.bindings().empty(), "postcommit resource failure releases original native PCM");
             require(s.tick == tick && s.worldAudio.stateHash() == domain, "postcommit original World audio domain unchanged");
             require(committedHash == hash, "postcommit complete authority unchanged; compare explicit full traces");
         }
         require(loadRuntimeState(s, savePath, why), "ordinary load after sharing denial released: " + why);
         require(s.runtimeVoiceAudio.get() == session && session->voiceCount() == 1
-            && s.runtimeWorldAudioBackendBindings.size() == 1 && session->queuedBuffers(play.handleId) <= 1,
+            && s.worldAudioBackend.bindings().size() == 1 && session->queuedBuffers(play.handleId) <= 1,
             "same original session recreates loop; original four-buffer owner was destroyed");
         listen(); advanceRuntimeSpatialAudioMixes(s);
         require(session->isPlaying(play.handleId).value_or(false) && session->queuedBuffers(play.handleId) == 1
             && authority() == hash && s.tick == tick && s.worldAudio.stateHash() == domain,
             "restored real native loop follows original listener policy without advancing authority");
+        // H003 private integration: keep every original lifecycle assertion and
+        // reuse the complete existing native Bink EOF/skip/cleanup oracle.
+        if (const char* movie = std::getenv("CONCORD_WORLD_AUDIO_MOVIE_REHYDRATE");
+            movie && std::string(movie) == "1") {
+            const auto beforeMovieSave = serialized();
+            require(trace("authority-before-movie.trace") == hash, "full authority before actual video");
+            stopRuntimeWorldAudioBackend(s);
+            require(s.runtimeVoiceAudio.get() == session && session->voiceCount() == 0
+                && s.worldAudioBackend.bindings().empty() && s.tick == tick
+                && authority() == hash && serialized() == beforeMovieSave,
+                "original movie stop closes local PCM without advancing or saving native state");
+            std::string movieError;
+            const bool videoPassed = runRuntimeCampaignVideoSkipSmoke(s.config, movieError);
+            require(videoPassed, "complete original native video oracle: " + movieError);
+            require(session->voiceCount() == 0 && s.worldAudioBackend.bindings().empty()
+                && authority() == hash && s.tick == tick && serialized() == beforeMovieSave,
+                "actual video EOF/skip leaves original world authority paused and local PCM closed");
+            applyRuntimeWorldAudioBackendActions(s,
+                s.worldAudio.rehydrateActions(runtimeWorldAudioContext(s), s.tick));
+            advanceRuntimeSpatialAudioMixes(s);
+            require(s.runtimeVoiceAudio.get() == session && session->voiceCount() == 1
+                && s.worldAudioBackend.bindings().size() == 1
+                && session->queuedBuffers(play.handleId) == 1
+                && session->isPlaying(play.handleId).value_or(false),
+                "same original native session rehydrates exactly one loop after actual video");
+            const auto resumedDeadline = GetTickCount64() + 3000;
+            while (session->probe(play.handleId).samplesPlayed < 1024 && GetTickCount64() < resumedDeadline) Sleep(5);
+            require(session->probe(play.handleId).samplesPlayed >= 1024
+                && session->probe(play.handleId).masterVolume == 0
+                && authority() == hash && s.tick == tick && serialized() == beforeMovieSave,
+                "rehydrated muted native PCM progresses while full authority/save/tick remain exact");
+            require(trace("authority-after-movie.trace") == hash, "full authority after actual video");
+            std::cout << "World audio movie integration: originalVideoCases=3 playbacks=4 EOFs=2 skips=2"
+                << " localStop=1 sameNativeSession=1 nativeLoopRehydrate=1 PCMProgress=1"
+                << " tickUnchanged=1 fullSaveExact=1 authority=" << hash << '\n';
+        }
         RuntimeWorldAudioStopRequest stop; stop.handleId = play.handleId; stop.requestToken = "P08-explicit-stop";
         const auto stopped = s.worldAudio.stopAt(runtimeWorldAudioContext(s), stop, tick);
         require(stopped.accepted && !stopped.actions.empty(), "same real domain stop request");
         applyRuntimeWorldAudioBackendActions(s, stopped.actions);
-        require(session->voiceCount() == 0 && s.runtimeWorldAudioBackendBindings.empty(), "domain stop disposes all native loop PCM");
+        require(session->voiceCount() == 0 && s.worldAudioBackend.bindings().empty(), "domain stop disposes all native loop PCM");
         const RuntimeWorldAudioSoundSpec* finite = nullptr;
         for (const auto& value : s.worldAudioCatalog.sounds()) if (!value.loop && !value.predelay
             && value.delayMinMilliseconds == 0 && value.delayMaxMilliseconds == 0
@@ -173,10 +209,10 @@ bool runRuntimeWorldAudioDeviceLifecycleSmoke(const RuntimeConfig& config, std::
         while (session->isPlaying(finitePlay.handleId).value_or(false) && GetTickCount64() < end) Sleep(10);
         require(!session->isPlaying(finitePlay.handleId).value_or(true), "original finite WAV ends naturally, no forced stop");
         reapRuntimeWorldAudioBackendBindings(s);
-        require(session->voiceCount() == 0 && s.runtimeWorldAudioBackendBindings.empty() && authority() == finiteHash,
+        require(session->voiceCount() == 0 && s.worldAudioBackend.bindings().empty() && authority() == finiteHash,
             "original reap disposes finite PCM without authority mutation");
         stopRuntimeSfxPlayback(s); stopRuntimeWorldAudioBackend(s); stopRuntimeWorldAudioBackend(s);
-        require(session->voiceCount() == 0 && s.runtimeWorldAudioBackendBindings.empty(), "repeat shutdown is empty");
+        require(session->voiceCount() == 0 && s.worldAudioBackend.bindings().empty(), "repeat shutdown is empty");
         s.runtimeVoiceAudio.reset(); s.runtimeVoiceAudio = std::make_unique<RuntimeVoiceAudio>(true);
         require(s.runtimeVoiceAudio->ready() && s.runtimeVoiceAudio->voiceCount() == 0, "real native session destructor/reentry");
         std::cout << "World audio device lifecycle: checks=" << checks << " failures=0 skipped=0 productionPrimeTicks=1 tick=" << tick

@@ -95,6 +95,17 @@ bool runRuntimeVirusFriendlyGasSmoke(RuntimeWindowState& live, std::string& erro
         for (int y=44;y<=84;++y) for (int x=44;x<=84;++x) {
             TerrainCell c; c.x=x; c.y=y; c.cellIndex512=y*512+x; c.tileIndex=c.subTileIndex=0; s.world.accessTerrainCells().push_back(c);
         }
+        // Save validation still reads the stock source map. Keep its wall
+        // identities with the destroyed state used by this flat test playfield.
+        if (!resetRuntimeOverlayWallsForSavedProjection(s, error)) {
+            fail("flat map wall projection: " + error);
+            return decltype(box){};
+        }
+        for (auto& cell : s.world.accessTerrainCells()) {
+            if (cell.overlayWall.health < 0) continue;
+            cell.overlayWall.health = 0;
+            clearRuntimeOverlayWallSprite(cell);
+        }
         initializeRuntimeNavigation(s); ensureRuntimeSubcellsInitialized(s); ensureRuntimeSpecialMechanismsInitialized(s);
         ensureRuntimeSuperWeaponsInitialized(s); ensureRuntimeLightingInitialized(s);
         s.particles.reset(hz); s.particlesInitialized = s.particles.alignEmptyStateTick(s.tick); facade(s,"YuriCountry"); return box;
@@ -123,17 +134,19 @@ bool runRuntimeVirusFriendlyGasSmoke(RuntimeWindowState& live, std::string& erro
     int passed=0,totalGunImpacts=0,totalPulses=0,ordinarySaves=0,canonicalSaves=0,contractCount=0;
     for (int hz : {30,60}) for (const std::string relation : {"own","ally","enemy"}) {
         label=relation+'-'+std::to_string(hz); if (!filter.empty() && filter!=label) continue;
-        stage="native stock fixture"; observationError.clear(); auto box=make(hz); auto& s=*box; RuntimeSnapshotActiveStateScope active(s);
+        stage="native stock fixture"; observationError.clear(); auto box=make(hz);
+        if (!box) return false;
+        auto& s=*box; RuntimeSnapshotActiveStateScope active(s);
         const bool representative=relation=="own";
         const std::string owner=relation=="own"?"YuriCountry":relation=="ally"?"Russians":"Americans";
         if (!resourceValid(s) || !runtimeOwnersAreAllied(s,"YuriCountry","Russians") || runtimeOwnersAreAllied(s,"YuriCountry","Americans"))
             return fail("stock clock/team/context initialization");
         const int source=add(s,"VIRUS",RuntimeBuildKind::Infantry,{55,64},"YuriCountry");
-        const int hull=add(s,"LCRF",RuntimeBuildKind::Unit,{54,63},"YuriCountry");
+        const int hull=add(s,"LCRF",RuntimeBuildKind::Unit,{56,64},"YuriCountry");
         const int victim=add(s,"E1",RuntimeBuildKind::Infantry,{64,64},"Americans");
         if (source<0 || hull<0 || victim<0 || hp(s,source)!=100 || hp(s,hull)!=300 || hp(s,victim)!=125)
             return fail("registered full-health source, amphibious transport and enemy victim");
-        const auto* transport=findObjectById(s,hull);
+        auto* transport=findMutableObjectById(s,hull);
         if (!transport || !runtimeAmphibiousTransport(s,*transport) || runtimeTransportProfileForObject(s,*transport).passengerCapacity!=12
             || runtimeTransportPassengerSizeLimit(s,*transport)!=6) return fail("stock LCRF boarding capabilities");
         struct Tracked { int id; std::string role; };
@@ -257,6 +270,27 @@ bool runRuntimeVirusFriendlyGasSmoke(RuntimeWindowState& live, std::string& erro
             || death->owner!="Americans" || death->deferredParticleOwner!="YuriCountry") return fail("original swelling/frame21 source attribution");
         stage="real UI source boarding"; s.selectedObjectIds={source};
         if (!dispatchRuntimeSelectionCommandFromUi(s,RuntimeMultiplayerGameplayCommandType::Stop)) return fail("source Stop rejected");
+        // Keep the stopped hull centered in its own cell. The attacking source
+        // begins the boarding check from a stopped pose in the adjacent cell.
+        auto* passenger = findMutableObjectById(s, source);
+        const auto* stoppedHull = findObjectById(s, hull);
+        if (!passenger || !stoppedHull) return fail("adjacent boarding fixtures missing");
+        const auto access = runtimeCellPointForObject(*passenger);
+        const auto hullCell = runtimeCellPointForObject(*stoppedHull);
+        if (hullCell.x != access.x + 1 || hullCell.y != access.y)
+            return fail("boarding fixtures no longer use adjacent ground cells");
+        auto initial = runtimeTransportMotionBody(*passenger);
+        const auto destination = runtimeTransportMotionBody(*stoppedHull);
+        initial.x = access.x + 0.49;
+        initial.y = destination.y;
+        restoreRuntimeTransportMotionBody(*passenger, initial);
+        refreshRuntimeObjectOccupancyAfterLocalChange(s);
+        const auto entry = runtimeTransportEntryCell(s, *passenger, *stoppedHull);
+        const auto duration = runtimeTransportMotionTransferTicks(s, *passenger, access,
+            std::hypot(destination.x - initial.x, destination.y - initial.y));
+        if (!entry || *entry != access || !duration || *duration + 2 > hz)
+            return fail("adjacent ground pose does not support the original one-second board: "
+                + describe(s, source) + " hull=" + describe(s, hull));
         if (!dispatchRuntimeTargetOrderFromUi(s,RuntimeMultiplayerGameplayTargetOrderKind::Primary,runtimeCellPointForObject(*findObjectById(s,hull)),findObjectById(s,hull))
             || !s.pendingTransportTargets.contains(source) || s.pendingTransportTargets.at(source)!=hull)
             return fail("source Primary did not queue original transport: "+describe(s,source)+" status="+s.interactionStatus);

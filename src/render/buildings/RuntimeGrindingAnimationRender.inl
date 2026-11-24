@@ -1,18 +1,12 @@
 const RuntimeImpactRenderActor* runtimeGrindingAnimationForBuilding(
     const WorldObjectInstance& object, const RuntimeMapRenderContext& context
 ) {
-    if (context.impactActors) for (const auto& actor:*context.impactActors)
-        if (actor.renderIntent=="grinderCycle" && actor.targetObjectId==object.instanceId
-            && actor.remainingTicks>0) return &actor;
-    return nullptr;
+    if (!context.impactActors) return nullptr;
+    return concord::render::selectRuntimeGrindingAnimation(
+        object.instanceId, std::span<const RuntimeImpactRenderActor>{*context.impactActors});
 }
 
 int runtimeGrindingAnimationFrame(const RuntimeImpactRenderActor& cycle, const ArtType* art, int hz) {
-    if (cycle.frameIndex>=0) return cycle.frameIndex;
-    if (!art) return 0;
-    const int start=art->hasAnimationStart ? art->animationStart
-        : (art->hasAnimationLoopStart ? art->animationLoopStart : 0);
-    const int end=art->hasAnimationLoopEnd ? std::max(start+1,art->animationLoopEnd) : start+1;
-    const int delay=runtimeAnimationFrameDelayTicks(art,hz);
-    return std::clamp(start+(cycle.totalTicks-cycle.remainingTicks)/delay,start,end-1);
+    return concord::render::selectRuntimeGrindingAnimationFrame(cycle.frameIndex,
+        cycle.totalTicks, cycle.remainingTicks, art, hz, runtimeAnimationFrameDelayTicks);
 }

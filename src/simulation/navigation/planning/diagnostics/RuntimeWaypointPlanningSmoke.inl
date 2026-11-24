@@ -82,7 +82,7 @@ AffectsAllies=no
         if (!restored.restore(encoded, error) || restored.serialize() != encoded)
             return fail("held plan did not survive save/restore");
         state.playerCommands = std::move(restored);
-        const auto p = runtimePlayerWaypointScreenPoint(state, viewport, state.playerCommands.waypoints.routes.at(1).points[1]);
+        const auto p = runtimePlayerWaypointScreenPoint(state, state.camera, viewport, state.playerCommands.waypoints.routes.at(1).points[1]);
         state.selectedObjectIds.clear();
         if (!p || !handleRuntimePlayerWaypointClick(state, viewport, *p)
             || state.playerLocalCommands.selectedWaypoint != removedId
@@ -113,7 +113,7 @@ AffectsAllies=no
             || !point(state, 1, 8, 5) || !point(state, 1, 20, 5)
             || !point(state, 1, 20, 11) || !point(state, 1, 8, 11)) return fail("patrol creation");
         const auto loopId = state.playerCommands.waypoints.routes.at(1).points[1].id;
-        const auto p = runtimePlayerWaypointScreenPoint(state, viewport, state.playerCommands.waypoints.routes.at(1).points[1]);
+        const auto p = runtimePlayerWaypointScreenPoint(state, state.camera, viewport, state.playerCommands.waypoints.routes.at(1).points[1]);
         if (!p || !handleRuntimePlayerWaypointClick(state, viewport, *p)
             || state.playerCommands.waypoints.routes.at(1).loopStart != loopId) return fail("click did not close the patrol loop");
         if (const char* imagePath = std::getenv("CONCORD_WAYPOINT_SMOKE_IMAGE")) {
@@ -125,7 +125,10 @@ AffectsAllies=no
             if (!dc || !bitmap || !pixels) return fail("waypoint overlay render surface");
             auto previous = SelectObject(dc, bitmap);
             std::fill_n(static_cast<std::uint32_t*>(pixels), 1280 * 720, 0x0029352b);
-            drawRuntimePlayerWaypoints(dc, viewport, state); GdiFlush();
+            drawRuntimePlayerWaypoints(dc, viewport, state, state.camera, state.selectedObjectIds,
+                state.playerLocalCommands, !state.playerCommunication.chatOpen
+                    && !state.playerCommunication.diplomacyOpen);
+            GdiFlush();
             const bool saved = writeRuntimeSmokeBmp(imagePath, pixels, 1280, 720, error);
             SelectObject(dc, previous); DeleteObject(bitmap); DeleteDC(dc);
             if (!saved) return fail("waypoint overlay capture");

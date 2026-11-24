@@ -2,6 +2,7 @@
 #include "network/internet/RuntimeInternetLobbyFlow.h"
 #include "network/maps/RuntimeMultiplayerCompatibilityFingerprint.h"
 #include "network/lobby/RuntimeRoomPassword.h"
+#include "../multiplayer/RuntimeMultiplayerSmokeRetention.h"
 
 #include <algorithm>
 #include <chrono>
@@ -2989,8 +2990,10 @@ int main() {
     testLateRoomListTransactions(context, fingerprint);
     testBoundButNotAdmitted(context, fingerprint);
     testCommunitySharesLobbyTransport(context);
-    std::error_code ignored;
-    std::filesystem::remove(mapPath, ignored);
+    if (!runtimeMultiplayerSmokeRetainArtifacts()) {
+        std::error_code ignored;
+        std::filesystem::remove(mapPath, ignored);
+    }
     if (context.failures != 0) {
         std::cerr << context.failures
                   << " Runtime Internet lobby flow smoke checks failed\n";

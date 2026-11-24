@@ -5,6 +5,41 @@ bool runRuntimeBarracksCrowdSmoke(const RuntimeConfig& config,std::string& error
     auto assets=std::make_unique<RuntimeWindowState>();assets->config=config;
     assets->report=buildRuntimeStartupReport(config,&assets->world,&assets->theater,&assets->art,&assets->rules,&assets->mapFacts);
     if(!assets->report.success)return fail("native resources");
+    assets->theaterLoaded = true;
+    const auto metadata = runtimeTerrainMetadataContext(*assets);
+    std::unordered_map<int, int> flatGroundLevels;
+    for (const auto& cell : assets->world.getTerrainCells()) {
+        const auto surface = runtimeNavigationTerrainInfoForCell(*assets, cell, metadata);
+        if (surface.passable && surface.kind == RuntimeTerrainKind::Land)
+            flatGroundLevels.emplace(runtimeCellKey(cell.x, cell.y), runtimeEffectiveTerrainLevel(cell));
+    }
+    const auto qualifies = [&](const RuntimeCellPoint& center) {
+        const auto base = flatGroundLevels.find(runtimeCellKey(center.x, center.y));
+        if (base == flatGroundLevels.end()) return false;
+        const auto onFlatGround = [&](int x, int y) {
+            const auto found = flatGroundLevels.find(runtimeCellKey(x, y));
+            return found != flatGroundLevels.end() && found->second == base->second;
+        };
+        for (int dy = -7; dy <= 7; ++dy)
+            for (int dx = -7; dx <= 7; ++dx)
+                if (!onFlatGround(center.x + dx, center.y + dy)) return false;
+        for (int dy = -9; dy <= -7; ++dy)
+            for (int dx = -9; dx <= -7; ++dx)
+                if (!onFlatGround(center.x + dx, center.y + dy)) return false;
+        return true;
+    };
+    RuntimeCellPoint factoryCell{112, 215};
+    if (!qualifies(factoryCell)) {
+        const auto& mapCells = assets->world.getTerrainCells();
+        const auto found = std::find_if(mapCells.begin(), mapCells.end(),
+            [&](const auto& cell) { return qualifies({cell.x, cell.y}); });
+        if (found == mapCells.end()) return fail("native map lacks a flat barracks and power-plant test area");
+        factoryCell = {found->x, found->y};
+    }
+    const RuntimeCellPoint powerCell{factoryCell.x - 9, factoryCell.y - 9};
+    const RuntimeCellPoint cameraCell{factoryCell.x + 2, factoryCell.y + 4};
+    std::cout << "Barracks crowd stock terrain: factory=" << factoryCell.x << ',' << factoryCell.y
+              << " power=" << powerCell.x << ',' << powerCell.y << '\n';
     int cases=0,totalProduced=0,farthest=0,saves=0,paired=0;
     for(const auto& types:std::array<std::array<const char*,4>,3>{{
         {{"GAPILE","E1","Americans","GAPOWR"}},{{"NAHAND","E2","Russians","NAPOWR"}},{{"YABRCK","INIT","YuriCountry","YAPOWR"}}
@@ -16,22 +51,43 @@ bool runRuntimeBarracksCrowdSmoke(const RuntimeConfig& config,std::string& error
         s.config.startingUnits=0;s.config.gameMode="Battle";s.config.gameModeRulesOverride.clear();
         s.world=assets->world;s.world.accessObjects().clear();s.world.accessTerrainObjects().clear();s.world.accessSmudges().clear();
         auto& cells=s.world.accessTerrainCells();
-        cells.erase(std::remove_if(cells.begin(),cells.end(),[](const auto& c){return c.x<92||c.x>140||c.y<198||c.y>244;}),cells.end());
+        cells.erase(std::remove_if(cells.begin(), cells.end(), [&](const auto& cell) {
+            return cell.x < factoryCell.x - 20 || cell.x > factoryCell.x + 28
+                || cell.y < factoryCell.y - 17 || cell.y > factoryCell.y + 29;
+        }), cells.end());
         s.report=assets->report;s.rules=assets->rules;s.art=assets->art;s.theater=assets->theater;
         s.rulesLoaded=s.artLoaded=s.theaterLoaded=true;s.runtimeSoundsEnabled=s.runtimePreferencePersistenceEnabled=false;
         s.runtimeSuppressPlayerAudioFeedback=true;s.economy.owner=types[2];s.economy.credits=1000000;s.economy.skirmishStartApplied=true;
         initializeRuntimeLocalProductionLanes(s.economy);s.triggers.loaded=s.triggers.bootstrapComplete=true;s.visionEnabled=false;
         s.terrainByCell=buildRuntimeTerrainLookup(s.world);initializeRuntimeNavigation(s);
-        auto* factory=addRuntimeObjectInstance(s,RuntimeBuildKind::Building,types[0],{112,215});
-        if(!factory)return fail("native barracks");const int factoryId=factory->instanceId;
-        if(!addRuntimeObjectInstance(s,RuntimeBuildKind::Building,types[3],{103,206}))return fail("power plant");
+        auto* factory = addRuntimeObjectInstance(s, RuntimeBuildKind::Building, types[0], factoryCell);
+        if (!factory) return fail("native barracks");
+        const int factoryId = factory->instanceId;
+        factory->buildAnimTicksTotal = factory->buildAnimTicksRemaining = 0;
+        auto* power = addRuntimeObjectInstance(s, RuntimeBuildKind::Building, types[3], powerCell);
+        if (!power) return fail("power plant");
+        power->buildAnimTicksTotal = power->buildAnimTicksRemaining = 0;
         s.structureFootprints=buildRuntimeStructureFootprints(s);rebuildRuntimeEconomyPower(s);refreshRuntimeObjectOccupancyAfterLocalChange(s);
         RuntimeBuildCatalogItem item;item.kind=RuntimeBuildKind::Infantry;item.typeId=types[1];item.requiredFactory="InfantryType";
         const auto* native=findRuntimeUnitTypeById(s.rules,item.typeId);if(!native)return fail("native infantry");
         item.cost=native->cost;item.buildTicks=runtimeBaseBuildTimeTicks(s,item);s.economy.catalog={item};
-        const auto spawn=findRuntimeProductionSpawnForOwner(s,item,s.economy.owner,false);if(!spawn)return fail("native exit");
+        const auto spawn=findRuntimeProductionSpawnForOwner(s,item,s.economy.owner,false);
+        if(!spawn) {
+            const auto* barracks = findObjectById(s, factoryId);
+            if (!barracks) return fail("native exit: barracks missing before production");
+            std::ostringstream detail;
+            detail << "native exit: factory=" << barracks->type << " at=" << barracks->x << ',' << barracks->y
+                   << " powered=" << barracks->poweredOperational
+                   << " buildupTicks=" << barracks->buildAnimTicksRemaining << '/' << barracks->buildAnimTicksTotal
+                   << " terrainCells=" << cells.size();
+            const auto footprint = runtimeStructureFootprintCellsForObject(s, *barracks);
+            for (const auto& cell : footprint)
+                detail << " foundation=" << cell.x << ',' << cell.y << ':'
+                       << (s.terrainByCell.contains(runtimeCellKey(cell.x,cell.y)) ? "terrain" : "missing");
+            return fail(detail.str());
+        }
         const auto door=spawn->cell;
-        const auto capture=[&](const char* suffix){return root.empty()||hz!=30||drawRuntimeStateOffscreenAtCell(s,{114,219},960,720,error,root+"/"+scene+"-"+suffix+".bmp",false).has_value();};
+        const auto capture=[&](const char* suffix){return root.empty()||hz!=30||drawRuntimeStateOffscreenAtCell(s,cameraCell,960,720,error,root+"/"+scene+"-"+suffix+".bmp",false).has_value();};
         int queued=0,lastCompletion=0,lastCount=0,maxDistance=0;bool savedCrowd=false;
         constexpr int targetCount=96;
         for(int n=0;n<hz*400 && s.economy.completedInfantry<targetCount;++n) {
@@ -87,7 +143,29 @@ bool runRuntimeBarracksCrowdSmoke(const RuntimeConfig& config,std::string& error
                 }
                 savedCrowd=true;lastCount=s.economy.completedInfantry;lastCompletion=s.tick;
             }
-            if(s.tick-lastCompletion>hz*15) {capture("stalled");return fail("production stalled at "+std::to_string(lastCount)+" status="+s.economy.status);}
+            if (s.tick - lastCompletion > hz * 15) {
+                capture("stalled");
+                std::ostringstream detail;
+                detail << "production stalled at " << lastCount << " status=" << s.economy.status
+                       << " door=" << door.x << ',' << door.y << " tick=" << s.tick;
+                for (const auto& actor : s.world.getObjects()) {
+                    if (!actor.alive || actor.kind != WorldObjectKind::Infantry
+                        || std::abs(actor.x - door.x) > 4 || std::abs(actor.y - door.y) > 4) continue;
+                    const auto offset = worldObjectSubCellOffset(actor);
+                    detail << " [id=" << actor.instanceId << " at=" << actor.x << ',' << actor.y
+                           << " body=" << runtimeObjectRenderX(actor) + offset.x << ','
+                           << runtimeObjectRenderY(actor) + offset.y << " slot=" << actor.subCell;
+                    const auto order = s.behaviors.find(actor.instanceId);
+                    if (order != s.behaviors.end()) {
+                        const auto& move = order->second;
+                        detail << " goal=" << move.moveTarget.x << ',' << move.moveTarget.y
+                               << " state=" << static_cast<int>(move.state)
+                               << " path=" << move.path.size() << " cooldown=" << move.moveCooldownTicks;
+                    }
+                    detail << ']';
+                }
+                return fail(detail.str());
+            }
         }
         if(s.economy.completedInfantry!=targetCount||s.economy.credits!=1000000-targetCount*item.cost||maxDistance<5)
             return fail("bulk queue count/payment/distance");

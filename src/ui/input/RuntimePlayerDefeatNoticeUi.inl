@@ -1,5 +1,5 @@
 // Local presentation only; the notice core owns admission and expiration.
-std::wstring runtimePlayerDefeatNoticeText(const RuntimeWindowState& state,
+std::wstring runtimePlayerDefeatNoticeText(const RuntimeProductionHostState& state,
     const std::string& owner) {
     const std::string ownerKey=runtimeCanonicalHumanHouseOwner(owner);
     std::wstring name;
@@ -60,12 +60,12 @@ std::wstring runtimePlayerDefeatNoticeFitText(HDC dc,const std::wstring& text,in
     return name.substr(0,boundaries[low])+ending;
 }
 
-int runtimePlayerDefeatNoticeVisibleLineCount(const RuntimeWindowState& state,
+int runtimePlayerDefeatNoticeVisibleLineCount(std::span<const RuntimePlayerDefeatNotice> notices,
     const RECT& viewport,std::uint64_t nowMs) {
     if(viewport.right-viewport.left<=20) return 0;
     LONG top=viewport.top+12;
     int count=0;
-    for(const auto& notice:state.playerDefeatNotices.lines) {
+    for(const auto& notice:notices) {
         if(notice.untilMs<=nowMs) continue;
         if(top+25>viewport.bottom) break;
         ++count;top+=27;
@@ -73,16 +73,17 @@ int runtimePlayerDefeatNoticeVisibleLineCount(const RuntimeWindowState& state,
     return count;
 }
 
-int runtimePlayerDefeatNoticeStackHeight(const RuntimeWindowState& state,
+int runtimePlayerDefeatNoticeStackHeight(std::span<const RuntimePlayerDefeatNotice> notices,
     const RECT& viewport,std::uint64_t nowMs) {
-    return runtimePlayerDefeatNoticeVisibleLineCount(state,viewport,nowMs)*27;
+    return runtimePlayerDefeatNoticeVisibleLineCount(notices,viewport,nowMs)*27;
 }
 
 void drawRuntimePlayerDefeatNotices(HDC dc,RuntimeWindowState& state,const RECT& clientRect) {
-    if(state.playerDefeatNotices.lines.empty()) return;
+    const auto& notices = state.playerDefeatNotices.lines;
+    if(notices.empty()) return;
     const RECT viewport=runtimeMapViewport(clientRect);
     const std::uint64_t now=runtimeUiClockNow(state);
-    const int rowCount=runtimePlayerDefeatNoticeVisibleLineCount(state,viewport,now);
+    const int rowCount=runtimePlayerDefeatNoticeVisibleLineCount(notices,viewport,now);
     if(rowCount==0) return;
     const LONG left=viewport.left+10,right=viewport.right-10;
     LONG top=viewport.top+12;
@@ -95,7 +96,7 @@ void drawRuntimePlayerDefeatNotices(HDC dc,RuntimeWindowState& state,const RECT&
     IntersectClipRect(dc,viewport.left,viewport.top,viewport.right,viewport.bottom);
     constexpr UINT flags=DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX;
     int rendered=0;
-    for(const auto& notice:state.playerDefeatNotices.lines) {
+    for(const auto& notice:notices) {
         if(notice.untilMs<=now) continue;
         if(rendered==rowCount) break;
         const auto text=runtimePlayerDefeatNoticeFitText(dc,

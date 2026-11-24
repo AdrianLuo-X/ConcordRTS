@@ -1,5 +1,8 @@
 #include "assets/inspection/AssetInspector.h"
+#include "assets/inspection/AssetInspectionReportText.h"
+#include "assets/codecs/RuntimeTmpCodec.h"
 #include "assets/codecs/PalDecoder.h"
+#include "assets/codecs/VoxelMetadataCodec.h"
 
 #include "data/art/ArtDatabase.h"
 #include "core/io/IniFile.h"
@@ -27,35 +30,22 @@
 
 namespace {
 
+using concord::assets::inspection::addField;
+using concord::assets::inspection::CapabilityProbeReportState;
+using concord::assets::inspection::getInspectionField;
+using concord::assets::inspection::joinStrings;
+using concord::assets::inspection::summarizeInspection;
+using concord::assets::inspection::yesNo;
+
 struct RgbColor {
     unsigned char red = 0;
     unsigned char green = 0;
     unsigned char blue = 0;
 };
 
-struct VxlMetadata {
-    std::string signature;
-    unsigned int headerValue0 = 0;
-    unsigned int sectionCount = 0;
-    unsigned int sectionCountMirror = 0;
-    unsigned int bodySize = 0;
-    unsigned int paletteMarker = 0;
-    unsigned int embeddedPaletteMaxChannel = 0;
-    std::size_t embeddedPaletteOffset = 0;
-    std::size_t sectionTableOffset = 0;
-    std::size_t sectionRecordBytes = 0;
-    std::vector<std::string> sectionNames;
-};
+using concord::assets::voxel::inspection::VxlMetadata;
 
-struct HvaMetadata {
-    std::string path;
-    unsigned int frameCount = 0;
-    unsigned int sectionCount = 0;
-    std::size_t matrixDataOffset = 0;
-    std::size_t expectedFileBytes = 0;
-    std::vector<std::string> sectionNames;
-    std::vector<float> firstMatrix;
-};
+using concord::assets::voxel::inspection::HvaMetadata;
 
 struct TheaterTileMetadata {
     std::string layout;
@@ -131,22 +121,6 @@ std::string formatUint64Hex(std::uint64_t value, int width) {
            << std::setfill('0')
            << value;
     return output.str();
-}
-
-void addField(
-    AssetInspectionReport& report,
-    const std::string& name,
-    const std::string& value
-) {
-    report.fields.push_back({name, value});
-}
-
-void addField(
-    AssetInspectionReport& report,
-    const std::string& name,
-    unsigned long long value
-) {
-    addField(report, name, std::to_string(value));
 }
 
 bool loadBytes(const std::string& path, std::vector<unsigned char>& bytes, std::string& errorMessage) {
@@ -260,10 +234,6 @@ std::string formatMatrixRow(const std::vector<float>& matrix, std::size_t row) {
         + ", " + formatFloat(matrix[offset + 1])
         + ", " + formatFloat(matrix[offset + 2])
         + ", " + formatFloat(matrix[offset + 3]);
-}
-
-std::string yesNo(bool value) {
-    return value ? "yes" : "no";
 }
 
 bool checkedAdd(std::size_t left, std::size_t right, std::size_t& result) {
@@ -611,72 +581,7 @@ void inspectShp(AssetInspectionReport& report, const std::vector<unsigned char>&
     }
 }
 
-bool parseVxlMetadata(
-    const std::vector<unsigned char>& bytes,
-    VxlMetadata& metadata,
-    std::string& errorMessage
-) {
-    constexpr std::size_t signatureBytes = 16;
-    constexpr std::size_t fixedHeaderBytes = 34;
-    constexpr std::size_t embeddedPaletteBytes = 768;
-    constexpr std::size_t sectionNameBytes = 16;
-    constexpr std::size_t sectionRecordBytes = 28;
-
-    if (bytes.size() < fixedHeaderBytes + embeddedPaletteBytes) {
-        errorMessage = "VXL file is too small for the fixed header and embedded palette.";
-        return false;
-    }
-
-    metadata.signature = readAscii(bytes, 0, signatureBytes);
-    metadata.headerValue0 = readUInt32(bytes, 16);
-    metadata.sectionCount = readUInt32(bytes, 20);
-    metadata.sectionCountMirror = readUInt32(bytes, 24);
-    metadata.bodySize = readUInt32(bytes, 28);
-    metadata.paletteMarker = readUInt16(bytes, 32);
-    metadata.embeddedPaletteOffset = fixedHeaderBytes;
-    metadata.sectionTableOffset = fixedHeaderBytes + embeddedPaletteBytes;
-    metadata.sectionRecordBytes = sectionRecordBytes;
-
-    if (metadata.sectionCount > 1024) {
-        errorMessage = "VXL section count is unreasonably large.";
-        return false;
-    }
-
-    for (std::size_t i = 0; i < embeddedPaletteBytes; ++i) {
-        metadata.embeddedPaletteMaxChannel = std::max(
-            metadata.embeddedPaletteMaxChannel,
-            static_cast<unsigned int>(bytes[metadata.embeddedPaletteOffset + i])
-        );
-    }
-
-    std::size_t sectionNameTableBytes = 0;
-    if (!checkedMul(static_cast<std::size_t>(metadata.sectionCount), sectionRecordBytes, sectionNameTableBytes)) {
-        errorMessage = "VXL section table size overflowed.";
-        return false;
-    }
-
-    std::size_t sectionNameTableEnd = 0;
-    if (!checkedAdd(metadata.sectionTableOffset, sectionNameTableBytes, sectionNameTableEnd)) {
-        errorMessage = "VXL section name table offset overflowed.";
-        return false;
-    }
-
-    if (sectionNameTableEnd > bytes.size()) {
-        errorMessage = "VXL file is too small for the declared section table.";
-        return false;
-    }
-
-    metadata.sectionNames.clear();
-    metadata.sectionNames.reserve(metadata.sectionCount);
-
-    for (std::size_t i = 0; i < metadata.sectionCount; ++i) {
-        const std::size_t nameOffset = metadata.sectionTableOffset + (i * sectionRecordBytes);
-        metadata.sectionNames.push_back(readAscii(bytes, nameOffset, sectionNameBytes));
-    }
-
-    return true;
-}
-
+using concord::assets::voxel::inspection::parseVxlMetadata;
 void inspectVxl(AssetInspectionReport& report, const std::vector<unsigned char>& bytes) {
     report.kind = "VXL voxel";
 
@@ -709,93 +614,7 @@ void inspectVxl(AssetInspectionReport& report, const std::vector<unsigned char>&
     }
 }
 
-bool parseHvaMetadata(
-    const std::vector<unsigned char>& bytes,
-    HvaMetadata& metadata,
-    std::string& errorMessage
-) {
-    constexpr std::size_t pathBytes = 16;
-    constexpr std::size_t fixedHeaderBytes = 24;
-    constexpr std::size_t sectionNameBytes = 16;
-    constexpr std::size_t matrixFloatCount = 12;
-    constexpr std::size_t matrixBytes = matrixFloatCount * 4;
-
-    if (bytes.size() < fixedHeaderBytes) {
-        errorMessage = "HVA file is too small for a fixed header.";
-        return false;
-    }
-
-    metadata.path = readAscii(bytes, 0, pathBytes);
-    metadata.frameCount = readUInt32(bytes, 16);
-    metadata.sectionCount = readUInt32(bytes, 20);
-
-    if (metadata.frameCount > 100000 || metadata.sectionCount > 1024) {
-        errorMessage = "HVA frame count or section count is unreasonably large.";
-        return false;
-    }
-
-    std::size_t sectionNameTableBytes = 0;
-    if (!checkedMul(static_cast<std::size_t>(metadata.sectionCount), sectionNameBytes, sectionNameTableBytes)) {
-        errorMessage = "HVA section name table size overflowed.";
-        return false;
-    }
-
-    if (!checkedAdd(fixedHeaderBytes, sectionNameTableBytes, metadata.matrixDataOffset)) {
-        errorMessage = "HVA matrix data offset overflowed.";
-        return false;
-    }
-
-    if (metadata.matrixDataOffset > bytes.size()) {
-        errorMessage = "HVA file is too small for the declared section name table.";
-        return false;
-    }
-
-    metadata.sectionNames.clear();
-    metadata.sectionNames.reserve(metadata.sectionCount);
-
-    for (std::size_t i = 0; i < metadata.sectionCount; ++i) {
-        const std::size_t nameOffset = fixedHeaderBytes + (i * sectionNameBytes);
-        metadata.sectionNames.push_back(readAscii(bytes, nameOffset, sectionNameBytes));
-    }
-
-    std::size_t matrixCount = 0;
-    if (!checkedMul(
-            static_cast<std::size_t>(metadata.frameCount),
-            static_cast<std::size_t>(metadata.sectionCount),
-            matrixCount
-        )) {
-        errorMessage = "HVA matrix count overflowed.";
-        return false;
-    }
-
-    std::size_t allMatrixBytes = 0;
-    if (!checkedMul(matrixCount, matrixBytes, allMatrixBytes)) {
-        errorMessage = "HVA matrix byte count overflowed.";
-        return false;
-    }
-
-    if (!checkedAdd(metadata.matrixDataOffset, allMatrixBytes, metadata.expectedFileBytes)) {
-        errorMessage = "HVA expected file size overflowed.";
-        return false;
-    }
-
-    if (metadata.expectedFileBytes > bytes.size()) {
-        errorMessage = "HVA file is too small for the declared matrix data.";
-        return false;
-    }
-
-    metadata.firstMatrix.clear();
-    if (matrixCount > 0) {
-        metadata.firstMatrix.reserve(matrixFloatCount);
-
-        for (std::size_t i = 0; i < matrixFloatCount; ++i) {
-            metadata.firstMatrix.push_back(readFloat32(bytes, metadata.matrixDataOffset + (i * 4)));
-        }
-    }
-
-    return true;
-}
-
+using concord::assets::voxel::inspection::parseHvaMetadata;
 void inspectHva(AssetInspectionReport& report, const std::vector<unsigned char>& bytes) {
     report.kind = "HVA animation";
 
@@ -1413,67 +1232,7 @@ bool decodeRawTmpFormat3PixelsForExport(
     std::vector<unsigned char>& pixels,
     std::string& errorMessage
 ) {
-    if (dataOffset >= dataEnd || dataEnd > bytes.size()) {
-        errorMessage = "TMP raw image data bounds are invalid.";
-        return false;
-    }
-
-    pixels.assign(
-        static_cast<std::size_t>(width) * static_cast<std::size_t>(height),
-        0
-    );
-
-    std::size_t cursor = dataOffset;
-    for (unsigned int y = 0; y < height; ++y) {
-        if (cursor + 2 > dataEnd) {
-            errorMessage = "TMP raw format 3 row table ended early.";
-            return false;
-        }
-
-        const std::size_t rowStart = cursor;
-        const std::size_t rowLength = readUInt16(bytes, cursor);
-        if (rowLength < 2) {
-            errorMessage = "TMP raw format 3 row has an invalid length.";
-            return false;
-        }
-
-        const std::size_t rowEnd = rowStart + rowLength;
-        if (rowEnd < rowStart || rowEnd > dataEnd) {
-            errorMessage = "TMP raw format 3 row extends past the image record.";
-            return false;
-        }
-
-        cursor += 2;
-        unsigned int x = 0;
-        while (cursor < rowEnd) {
-            const unsigned char value = bytes[cursor++];
-            if (value != 0) {
-                if (x >= width) {
-                    errorMessage = "TMP raw format 3 row contains too many opaque pixels.";
-                    return false;
-                }
-
-                pixels[(static_cast<std::size_t>(y) * width) + x] = value;
-                ++x;
-                continue;
-            }
-
-            if (cursor >= rowEnd) {
-                errorMessage = "TMP raw format 3 transparent run is truncated.";
-                return false;
-            }
-
-            unsigned int runLength = bytes[cursor++];
-            if (x + runLength > width) {
-                runLength = width - x;
-            }
-            x += runLength;
-        }
-
-        cursor = rowEnd;
-    }
-
-    return true;
+    return ::decodeRuntimeTmpFormat3Pixels(bytes, dataOffset, dataEnd, width, height, pixels, errorMessage);
 }
 
 bool exportRawTmpFirstTileToPpm(
@@ -1630,14 +1389,9 @@ struct CapabilityReportState {
     bool verbose = false;
     std::unordered_map<std::string, CapabilityDecodeCacheEntry> decodeCache;
     std::unordered_map<std::string, CapabilityResolvedResource> resolutionCache;
-    std::set<std::string> summaryProblemKeys;
+    CapabilityProbeReportState probeReport;
     unsigned int requiredResourceCount = 0;
-    unsigned int presentDecodableCount = 0;
-    unsigned int presentUnsupportedCount = 0;
-    unsigned int missingCount = 0;
     unsigned int logicalCount = 0;
-    unsigned int suppressedDetailCount = 0;
-    unsigned int suppressedDuplicateProblemCount = 0;
     unsigned int resourceIndexHits = 0;
     unsigned int resourceIndexMisses = 0;
     unsigned int resolutionCacheHits = 0;
@@ -1827,24 +1581,6 @@ CapabilityOptions parseCapabilityOptions(const std::string& path) {
     const std::string ui = toLower(readParameter("ui"));
     options.includeUi = ui.empty() || ui == "1" || ui == "yes" || ui == "true";
     return options;
-}
-
-std::string joinStrings(
-    const std::vector<std::string>& values,
-    const std::string& separator = ","
-) {
-    if (values.empty()) {
-        return "(none)";
-    }
-
-    std::ostringstream output;
-    for (std::size_t i = 0; i < values.size(); ++i) {
-        if (i > 0) {
-            output << separator;
-        }
-        output << values[i];
-    }
-    return output.str();
 }
 
 void addUniqueString(std::vector<std::string>& values, const std::string& value) {
@@ -2172,18 +1908,6 @@ CapabilityResourceIndexBuild buildCapabilityResourceIndex(
     };
 }
 
-std::string getInspectionField(
-    const AssetInspectionReport& report,
-    const std::string& name
-) {
-    for (const AssetField& field : report.fields) {
-        if (field.name == name) {
-            return field.value;
-        }
-    }
-    return "";
-}
-
 bool inspectionHasUnsupportedWarning(const AssetInspectionReport& report) {
     if (!report.success) {
         return true;
@@ -2206,72 +1930,6 @@ bool inspectionHasUnsupportedWarning(const AssetInspectionReport& report) {
     return false;
 }
 
-std::string summarizeInspection(const AssetInspectionReport& report) {
-    if (!report.success) {
-        return "decode=fail " + report.errorMessage;
-    }
-
-    std::ostringstream output;
-    output << "decode=ok kind=" << report.kind << " bytes=" << report.fileSize;
-
-    if (report.extension == ".shp") {
-        output << " frameCount=" << getInspectionField(report, "frameCount")
-               << " visibleMainFrames=" << getInspectionField(report, "visibleMainFrames")
-               << " globalSize="
-               << getInspectionField(report, "width")
-               << "x" << getInspectionField(report, "height")
-               << " firstOffset="
-               << getInspectionField(report, "firstFrameOffsetX")
-               << "," << getInspectionField(report, "firstFrameOffsetY")
-               << " firstSize="
-               << getInspectionField(report, "firstFrameWidth")
-               << "x" << getInspectionField(report, "firstFrameHeight")
-               << " firstFormat=" << getInspectionField(report, "firstFrameFormat")
-               << " format0Frames=" << getInspectionField(report, "format0Frames")
-               << " format0Raw="
-               << getInspectionField(report, "format0RawDecodeStatus")
-               << " rawValidated="
-               << getInspectionField(report, "format0RawValidatedFrames")
-               << " unsupportedFormatFrames=" << getInspectionField(report, "unsupportedFormatFrames")
-               << " decoderSupport=" << getInspectionField(report, "decoderSupport");
-    } else if (report.extension == ".vxl") {
-        output << " sections=" << getInspectionField(report, "sectionNames");
-    } else if (report.extension == ".hva") {
-        output << " frames=" << getInspectionField(report, "frameCount")
-               << " sections=" << getInspectionField(report, "sectionNames");
-    } else if (report.extension == ".pal") {
-        output << " colors=" << getInspectionField(report, "colorCount");
-    } else if (report.extension == ".pcx") {
-        output << " size="
-               << getInspectionField(report, "width")
-               << "x" << getInspectionField(report, "height")
-               << " bpp=" << getInspectionField(report, "bitsPerPixel")
-               << " planes=" << getInspectionField(report, "colorPlanes")
-               << " bytesPerLine=" << getInspectionField(report, "bytesPerLine")
-               << " vgaPalette=" << getInspectionField(report, "hasTrailingVgaPalette")
-               << " rle=" << getInspectionField(report, "pcxRleDecodeStatus")
-               << " decoderSupport=" << getInspectionField(report, "decoderSupport");
-    } else if (
-        report.extension == ".tmp"
-        || report.extension == ".tem"
-        || report.extension == ".sno"
-        || report.extension == ".urb"
-        || report.extension == ".des"
-        || report.extension == ".lun"
-        || report.extension == ".ubn"
-    ) {
-        output << " layout=" << getInspectionField(report, "layout")
-               << " slots=" << getInspectionField(report, "slotCount")
-               << " present=" << getInspectionField(report, "presentTileCount");
-    }
-
-    if (!report.warnings.empty()) {
-        output << " warnings=" << joinStrings(report.warnings, " | ");
-    }
-
-    return output.str();
-}
-
 bool paletteStatusIsUnsupported(const std::string& paletteStatus) {
     const std::string lower = toLower(paletteStatus);
     return lower.find("undetermined") != std::string::npos
@@ -2286,7 +1944,7 @@ void appendCapabilityDetail(
     if (state.verbose) {
         state.report.warnings.push_back(line);
     } else {
-        ++state.suppressedDetailCount;
+        ++state.probeReport.suppressedDetailCount;
     }
 }
 
@@ -2342,56 +2000,13 @@ void appendCapabilityProbeLine(
     const CapabilityProbe& probe,
     bool countForCoreCoverage = true
 ) {
-    const std::string category = !probe.found
-        ? "[missing]"
-        : (probe.unsupported ? "[exists-unsupported]" : "[exists-decodable]");
-
-    if (countForCoreCoverage) {
-        if (!probe.found) {
-            ++state.missingCount;
-        } else if (probe.unsupported) {
-            ++state.presentUnsupportedCount;
-        } else {
-            ++state.presentDecodableCount;
-        }
-    }
-
-    if (!state.verbose && probe.found && !probe.unsupported) {
-        ++state.suppressedDetailCount;
-        return;
-    }
-
-    if (!state.verbose) {
-        const std::string problemKey =
-            category
-            + "|"
-            + (probe.source.empty() ? probe.candidateSummary : probe.source)
-            + "|"
-            + probe.decodeSummary
-            + "|"
-            + probe.paletteStatus;
-        if (!state.summaryProblemKeys.insert(problemKey).second) {
-            ++state.suppressedDuplicateProblemCount;
-            return;
-        }
-    }
-
-    state.report.warnings.push_back(
-        category
-        + " "
-        + probe.label
-        + " noReexportNeeded="
-        + (probe.found || !countForCoreCoverage ? "yes" : "no")
-        + " candidates="
-        + probe.candidateSummary
-        + " source="
-        + (probe.source.empty() ? "missing" : probe.source)
-        + " "
-        + probe.decodeSummary
-        + " palette="
-        + (probe.paletteStatus.empty() ? "not-applicable" : probe.paletteStatus)
-        + " coreResource="
-        + yesNo(countForCoreCoverage)
+    concord::assets::inspection::appendCapabilityProbeLine(
+        state.report.warnings,
+        state.probeReport,
+        {probe.found, probe.unsupported, probe.label, probe.candidateSummary,
+         probe.source, probe.decodeSummary, probe.paletteStatus},
+        state.verbose,
+        countForCoreCoverage
     );
 }
 
@@ -4462,7 +4077,7 @@ void appendMapFactsCapability(
             || !facts.bridgeCellOffsets.empty()
             || !facts.waterCellOffsets.empty()
             || !facts.structureAnchors.empty()) {
-            ++state.suppressedDetailCount;
+            ++state.probeReport.suppressedDetailCount;
         }
         return;
     }
@@ -4822,16 +4437,11 @@ AssetInspectionReport inspectCapabilityReport(const std::string& path) {
     report.success = true;
 
     const CapabilityOptions options = parseCapabilityOptions(path);
-    addField(report, "rulesPath", options.rulesPath.empty() ? "(missing)" : options.rulesPath);
-    addField(report, "artPath", options.artPath.empty() ? "(missing)" : options.artPath);
-    addField(report, "assetRootPath", options.assetRootPath.empty() ? "(missing)" : options.assetRootPath);
-    addField(report, "mapPath", options.mapPath.empty() ? "(not requested)" : options.mapPath);
-    addField(report, "theaterIniPath", options.theaterIniPath.empty() ? "(not requested)" : options.theaterIniPath);
-    addField(report, "tileRootPath", options.tileRootPath.empty() ? "(not requested)" : options.tileRootPath);
-    addField(report, "reportMode", options.reportMode);
-    addField(report, "theater", options.theater);
-    addField(report, "objects", joinStrings(options.objectIds));
-    addField(report, "includeUi", yesNo(options.includeUi));
+    concord::assets::inspection::appendCapabilityReportInputs(report, {
+        options.rulesPath, options.artPath, options.assetRootPath, options.mapPath,
+        options.theaterIniPath, options.tileRootPath, options.reportMode, options.theater,
+        options.objectIds, options.includeUi
+    });
 
     if (options.rulesPath.empty() || options.artPath.empty() || options.assetRootPath.empty()) {
         report.success = false;
@@ -4871,31 +4481,12 @@ AssetInspectionReport inspectCapabilityReport(const std::string& path) {
     const CapabilityResourceIndexBuild indexBuild =
         buildCapabilityResourceIndex(options.assetRootPath);
     const CapabilityResourceIndex& index = *indexBuild.index;
-    addField(report, "looseResourceNames", static_cast<unsigned long long>(index.filesByName.size()));
-    addField(report, "resourceIndexLooseResources", static_cast<unsigned long long>(index.looseResourceCount));
-    addField(report, "mixArchives", static_cast<unsigned long long>(index.mixArchives.size()));
-    addField(report, "resourceIndexMixPathEntries", static_cast<unsigned long long>(index.mixArchiveByPath.size()));
-    addField(report, "resourceIndexMixEntryRefs", static_cast<unsigned long long>(index.mixEntryRefCount));
-    addField(report, "resourceIndexMixHashBuckets", static_cast<unsigned long long>(index.mixEntriesById.size()));
-    addField(report, "resourceIndexProcessCacheHit", yesNo(indexBuild.processCacheHit));
-    addField(report, "resourceIndexProcessCacheEntries", static_cast<unsigned long long>(indexBuild.processCacheEntries));
-    addField(report, "resourceIndexCacheKey", indexBuild.cacheKey);
-    addField(report, "resourceIndexCacheStatus", indexBuild.cacheStatus);
-    addField(
-        report,
-        "performanceColdPath",
-        "assetRoot recursive scan and MIX directory indexing happen once per CLI process; decode/resolution caches are per capability report; no persistent cache is written"
-    );
-    addField(
-        report,
-        "summaryDecodePolicy",
-        options.verbose
-            ? "verbose reports every probed resource; unique source bytes still decode once"
-            : "summary suppresses decodable detail; unique source bytes decode once only when needed for coverage or unsupported classification"
-    );
-    for (const std::string& warning : index.warnings) {
-        report.warnings.push_back("[index-warning] " + warning);
-    }
+    concord::assets::inspection::appendCapabilityIndexReport(report, {
+        index.filesByName.size(), index.looseResourceCount, index.mixArchives.size(),
+        index.mixArchiveByPath.size(), index.mixEntryRefCount, index.mixEntriesById.size(),
+        indexBuild.processCacheHit, indexBuild.processCacheEntries, indexBuild.cacheKey,
+        indexBuild.cacheStatus, options.verbose, index.warnings
+    });
 
     const std::vector<ArtObjectLink> links = art.buildLinks(rules);
     const std::vector<MapStructureFootprintOverride> footprintOverrides =
@@ -4951,73 +4542,12 @@ AssetInspectionReport inspectCapabilityReport(const std::string& path) {
     appendUiCoverageFields(state);
     appendEvaAudioCapability(state);
 
-    addField(report, "requiredResources", state.requiredResourceCount);
-    addField(report, "resourcesPresentDecodable", state.presentDecodableCount);
-    addField(report, "resourcesPresentUnsupportedOrPalette", state.presentUnsupportedCount);
-    addField(report, "resourcesMissing", state.missingCount);
-    addField(report, "logicalReferences", state.logicalCount);
-    addField(report, "suppressedSummaryDetails", state.suppressedDetailCount);
-    addField(report, "suppressedDuplicateProblems", state.suppressedDuplicateProblemCount);
-    addField(report, "resourceIndexHits", state.resourceIndexHits);
-    addField(report, "resourceIndexMisses", state.resourceIndexMisses);
-    addField(report, "resolutionCacheEntries", static_cast<unsigned long long>(state.resolutionCache.size()));
-    addField(report, "resolutionCacheHits", state.resolutionCacheHits);
-    addField(report, "resolutionCacheMisses", state.resolutionCacheMisses);
-    addField(report, "decodeCacheEntries", static_cast<unsigned long long>(state.decodeCache.size()));
-    addField(report, "decodeCacheHits", state.decodeCacheHits);
-    addField(report, "decodeCacheMisses", state.decodeCacheMisses);
-    const unsigned int covered =
-        state.presentDecodableCount + state.presentUnsupportedCount;
-    const unsigned int percent =
-        state.requiredResourceCount == 0
-            ? 100U
-            : (covered * 100U) / state.requiredResourceCount;
-    addField(report, "capabilityResourceCoverage", std::to_string(covered)
-        + "/"
-        + std::to_string(state.requiredResourceCount)
-        + " ("
-        + std::to_string(percent)
-        + "% present, including decoder/palette gaps)"
-    );
-    addField(
-        report,
-        "mixReexportNeeded",
-        state.missingCount == 0
-            ? "no for inspected resources"
-            : "only for resources listed under [missing], after checking optional/logical cases"
-    );
-    report.warnings.push_back(
-        "[capability-summary] mode="
-        + options.reportMode
-        + " resources="
-        + std::to_string(covered)
-        + "/"
-        + std::to_string(state.requiredResourceCount)
-        + " unsupported="
-        + std::to_string(state.presentUnsupportedCount)
-        + " missing="
-        + std::to_string(state.missingCount)
-        + " decodeCache="
-        + std::to_string(state.decodeCacheHits)
-        + "/"
-        + std::to_string(state.decodeCacheHits + state.decodeCacheMisses)
-        + " decodeCacheEntries="
-        + std::to_string(state.decodeCache.size())
-        + " resolutionCache="
-        + std::to_string(state.resolutionCacheHits)
-        + "/"
-        + std::to_string(state.resolutionCacheHits + state.resolutionCacheMisses)
-        + " resolutionCacheEntries="
-        + std::to_string(state.resolutionCache.size())
-        + " indexHits="
-        + std::to_string(state.resourceIndexHits)
-        + " processIndexCache="
-        + (indexBuild.processCacheHit ? "hit" : "miss")
-        + " suppressedDuplicateProblems="
-        + std::to_string(state.suppressedDuplicateProblemCount)
-        + " noReexportNeeded="
-        + (state.missingCount == 0 ? "yes" : "check-missing")
-    );
+    concord::assets::inspection::appendCapabilityReportCoverage(report, state.probeReport, {
+        state.requiredResourceCount, state.logicalCount, state.resourceIndexHits, state.resourceIndexMisses,
+        state.resolutionCache.size(), state.resolutionCacheHits, state.resolutionCacheMisses,
+        state.decodeCache.size(), state.decodeCacheHits, state.decodeCacheMisses,
+        indexBuild.processCacheHit
+    }, options.reportMode);
 
     return report;
 }

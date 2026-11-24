@@ -142,6 +142,29 @@ bool runRuntimeFutureVoxelBootstrapAssetContractCheck(const RuntimeMapRenderCont
         || stats.maximumTransientReadBytes > limits.maximumTransientReadBytes
         || !runtimeFutureVoxelBootstrapContractSeedPreserved(seed, warmed))
         return fail("actual future SREF positive source/raster/admission coverage was not exercised");
+    if (!seed.mixArchivePaths.empty()) {
+        const auto ordinarySource = warmed.voxelSourcesByImage.find(runtimeFutureVoxelBootstrapSourceKey(bodyImage, context));
+        if (ordinarySource == warmed.voxelSourcesByImage.end()) return fail("stock bootstrap omitted its body source");
+        auto mixed = seed;
+        const auto fileName = fileNameForVxlImageId(bodyImage);
+        mixed.looseResourceIndexBuilt = true;
+        mixed.looseResourceIndexRootPath = context.assetRootPath;
+        mixed.looseResourcePathsByName[toLowerAscii(fileName)] =
+            (std::filesystem::path(context.assetRootPath) / "__FUTURE_UNUSED_LOOSE_ALIAS__.vxl").string();
+        RuntimeFutureVoxelBootstrapStats archiveStats;
+        RuntimeFutureVoxelBootstrapState archiveState{
+            context, context, mixed, limits, archiveStats, std::chrono::steady_clock::now()};
+        runtimeFutureVoxelBootstrapContractSnapshot(archiveState);
+        std::vector<unsigned char> archiveBytes;
+        std::string archiveSource, archiveError;
+        if (!runtimeFutureVoxelBootstrapRead(archiveState, fileName, archiveBytes, archiveSource, archiveError)
+            || archiveBytes != ordinarySource->second.vxlBytes
+            || archiveSource != ordinarySource->second.metadata.vxlPath
+            || archiveStats.sourceReads != 1 || !archiveState.looseLookups.empty())
+            return fail("stock priority consults a lower-priority loose voxel copy");
+        std::cout << "[RenderSmokeFutureVoxelArchivePriority] stockArchiveWins=yes payloadBytes="
+            << archiveBytes.size() << '\n';
+    }
     std::size_t cases = 0, bodyHits = 0, partHits = 0, shadows = 0;
     for (int facing = 0; facing < 32; ++facing) {
         auto* expected = loadRuntimeVoxelImageFromCacheUnbatched(bodyImage, "SREF", facing, context, original,

@@ -426,6 +426,29 @@ bool runRuntimeMcvCompactGroupSmoke(const RuntimeConfig& config,std::string& err
         }
         if(midway)for(int layer=0;layer<2;++layer)if(capacity[layer]&&midwayArrivals[layer].radius>minimumRadius(capacity[layer]))
             problem(layer?"midmove_air_final_spread":"midmove_ground_final_spread");
+        if (!problems.empty()) {
+            for (int branch = 0; branch < (midway ? 3 : 2); ++branch) {
+                const auto& state = branch == 2 ? *midway : branch == 1 ? *resumed : s;
+                for (const auto* actor : ownMembers(state)) {
+                    const auto order = state.behaviors.find(actor->instanceId);
+                    std::cout << "MCV compact movement: " << label << " branch=" << branch
+                              << " tick=" << state.tick << " actor=" << actor->instanceId
+                              << " type=" << actor->type << " cell=" << actor->x << ',' << actor->y
+                              << " body=" << runtimeObjectRenderX(*actor) << ',' << runtimeObjectRenderY(*actor);
+                    if (order != state.behaviors.end()) {
+                        const auto& move = order->second;
+                        std::cout << " goal=" << move.moveTarget.x << ',' << move.moveTarget.y
+                                  << " state=" << static_cast<int>(move.state)
+                                  << " pathPending=" << move.pathRequestPending
+                                  << " path=" << move.path.size()
+                                  << " ignored=" << move.pendingIgnoredObjectIds.size()
+                                  << " renderTicks=" << move.renderMoveTicksRemaining
+                                  << '/' << move.renderMoveTicksTotal;
+                    }
+                    std::cout << '\n';
+                }
+            }
+        }
         std::string result="PASS";if(!problems.empty()){result.clear();for(const auto& p:problems){if(!result.empty())result+=';';result+=p;}
             ++failed;if(firstFailure.empty())firstFailure=label+": "+result;}
         for(int id:ids){const auto* object=findObjectById(s,currentIds[id]);if(!object)continue;

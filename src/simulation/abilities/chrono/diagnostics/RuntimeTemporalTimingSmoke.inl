@@ -5,7 +5,9 @@ bool runRuntimeTemporalTimingSmokeProbe(RuntimeWindowState& live, std::string& e
     };
     IniFile stockIni;
     RulesDatabase stockRules;
-    if (!stockIni.loadFromFile(live.report.rulesPath) || !stockRules.loadFromIni(stockIni))
+    const RuntimeIniSource stockSource = resolveRuntimeIniSource(live.config, RuntimeCampaignIniKind::Rules);
+    if (stockSource.displayPath != live.report.rulesPath) return fail("stock rules source differs from startup");
+    if (!stockSource.load(stockIni) || !stockRules.loadFromIni(stockIni))
         return fail("original rules could not be loaded");
     const auto fixture = [&](int hz, int rank, const std::string& targetType,
                              int attackers, bool wounded = false) {

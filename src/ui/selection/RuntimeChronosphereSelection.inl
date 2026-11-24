@@ -2,7 +2,7 @@
 // Its original SHP loops independently of mouse position and world effects.
 
 
-void clearRuntimeLocalChronosphereMarker(RuntimeWindowState& state) {
+void clearRuntimeLocalChronosphereMarker(RuntimeProductionHostState& state) {
     stopRuntimeChronosphereSelectionAudio(state);
     if (!state.localChronosphereMarker) return;
     state.localChronosphereMarker.reset();
@@ -10,7 +10,7 @@ void clearRuntimeLocalChronosphereMarker(RuntimeWindowState& state) {
 }
 
 void beginRuntimeLocalChronosphereMarker(
-    RuntimeWindowState& state, const std::string& weaponId, RuntimeCellPoint cell
+    RuntimeProductionHostState& state, const std::string& weaponId, RuntimeCellPoint cell
 ) {
     const auto* rule = state.rules.findSuperWeaponType(weaponId);
     if (!rule || rule->placementAnim.empty()

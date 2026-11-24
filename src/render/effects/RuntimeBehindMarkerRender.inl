@@ -18,7 +18,7 @@ void drawRuntimeBehindMarkers(HDC dc, const RECT& viewport,
     const int animationFrame = selectRuntimeAuxiliaryAnimationFrame(context, art, first->frameCount, false);
     for (const auto& unit : frame.candidates) {
         if (!runtimeBehindMarkerCandidateCovered(unit)) continue;
-        if (drawRuntimeAuxiliaryShpSpriteWithPalette(dc, viewport, unit.center,
+        if (drawRuntimeAuxiliaryShpSpriteWithPalette(dc, viewport, runtimeRenderPlacementNativePoint(unit.center),
                 context, camera, cache, imageId, animationFrame, *palette,
                 0, 0, false, false, RGB(255, 255, 255), 255, true)) {
             ++stats.behindMarkerSprites;

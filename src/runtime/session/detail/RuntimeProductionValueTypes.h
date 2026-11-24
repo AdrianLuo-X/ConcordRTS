@@ -1,4 +1,9 @@
 #pragma once
+#include "simulation/effects/RuntimeImpactEffectValues.h"
+#include "simulation/lifecycle/RuntimeObjectExitValues.h"
+#include "simulation/projectiles/RuntimeProjectileValues.h"
+#include "simulation/ai/RuntimeComputerAiState.h"
+#include "simulation/production/RuntimeBuildCatalogItem.h"
 #include "RuntimeSessionGeometry.h"
 #include "audio/backend/RuntimeVoiceAudio.h"
 #include <algorithm>
@@ -28,6 +33,7 @@
 #include "audio/events/RuntimeTurretSoundAudio.h"
 #include "audio/spatial/RuntimeSpatialAudio.h"
 #include "audio/world/RuntimeWorldAudioSystem.h"
+#include "audio/world/RuntimeWorldAudioBackendSession.h"
 #include "core/results/RuntimeMatchScore.h"
 #include "data/rules/TechTreeAnalyzer.h"
 #include "network/cooperative/RuntimeCooperativeSessionSystem.h"
@@ -183,152 +189,9 @@ struct RuntimeCampaignScoreState {
     RuntimeUiTimeMs presentationStartedAtMs = 0;
 };
 
-enum class RuntimeProjectileLifecycleState {
-    Spawned,
-    Traveling,
-    Impacting,
-    Expired
-};
 
-struct RuntimeProjectileEffect {
-    RuntimeVoxelDebrisState voxelDebris;
-    bool homingInitialized = false;
-    double homingYaw = 0.0;
-    double homingPitch = 0.0;
-    int actorId = -1;
-    int parentActorId = -1;
-    int generation = 0;
-    int attackerObjectId = -1;
-    int targetObjectId = -1;
-    int sourceAnchorObjectId = -1;
-    std::string owner;
-    RuntimeCellPoint fromCell;
-    RuntimeCellPoint toCell;
-    RuntimeCellPoint currentCell;
-    bool hasSourcePosition = false;
-    double sourceX = 0.0;
-    double sourceY = 0.0;
-    double sourceZ = 0.0;
-    int sourceScreenOffsetX = 0;
-    int sourceScreenOffsetY = 0;
-    int sourceNativeFixedX = 0;
-    int sourceNativeFixedY = 0;
-    bool hasTargetPosition = false;
-    double targetX = 0.0;
-    double targetY = 0.0;
-    double targetZ = 0.0;
-    int fromLevel = 0;
-    int toLevel = 0;
-    int currentLevel = 0;
-    int attackerFacing = -1;
-    int targetFacing = -1;
-    int spawnTick = 0;
-    int impactTick = 0;
-    int elapsedTicks = 0;
-    int damage = 0;
-    // Snapshot at fire time. The shooter may promote or die while a
-    // projectile is in flight; neither may retroactively change its damage.
-    double veteranDamageMultiplier = 1.0;
-    bool spawnedMissileDamage = false;
-    int spawnedMissileBaseDamage = 0;
-    int totalTicks = 1;
-    int remainingTicks = 1;
-    RuntimeProjectileLifecycleState lifecycle =
-        RuntimeProjectileLifecycleState::Spawned;
-    std::string lifecycleState = "Spawned";
-    std::string renderIntent = "projectile";
-    std::string weaponId;
-    std::string weaponSlot;
-    std::string projectileId;
-    std::string projectileImageId;
-    std::string warheadId;
-    std::string weaponAnimId;
-    std::string impactAnimId;
-    std::string trailerAnimId;
-    std::string trailerIntentId;
-    std::string warheadImpactIntentId;
-    std::string reportSoundId;
-    bool arcing = false;
-    bool vertical = false;
-    int acceleration = 0;
-    bool high = false;
-    bool veryHigh = false;
-    bool shadow = false;
-    bool animates = false;
-    bool aa = false;
-    bool ag = true;
-    int cluster = 0;
-    bool bright = false;
-    bool laser = false;
-    bool houseColorLaser = false;
-    bool electricBolt = false;
-    bool alternateElectricColor = false;
-    std::string electricColor;
-    bool shrapnel = false;
-    bool shrapnelReleased = false;
-    int laserDuration = 0;
-    int laserThickness = 1;
-    double cellSpread = 0.0;
-    double percentAtMax = 0.0;
-    bool affectsAllies = false;
-    bool affectsEnemies = true;
-    std::string particleId;
-    double progress = 0.0;
-    double currentX = 0.0;
-    double currentY = 0.0;
-    double currentZ = 0.0;
-    double speedCellsPerTick = 0.0;
-    int rot = 0;
-    // Value-only provenance for projectiles emitted by DeathWeapon. Ordinary
-    // projectiles keep all three fields at zero. Derived shrapnel/debris keeps
-    // the originating request so a later death continues the same cascade.
-    std::uint64_t deathWeaponCascadeId = 0;
-    std::uint64_t deathWeaponRequestId = 0;
-    std::uint32_t deathWeaponCascadeDepth = 0;
-    // Schema 3 appends immutable launch attribution and reserved causal
-    // markers. Keep this tail value-only: impact consumers must never infer
-    // a vanished source from a current world pointer.
-    int launchSourceKind = -1;
-    std::string launchSourceType;
-    bool launchSourceAuthoredAircraft = false;
-    bool launchSourceValidated = false;
-    int airstrikeStrikeId = 0;
-    int airstrikePlaneToken = 0;
-    bool particleDamagePulse = false;
-    bool suppressWarheadParticleSpawn = false;
-};
 
-enum class RuntimeObjectExitKind : std::uint8_t {
-    Destroyed = 0,
-    TemporalDestroyed,
-    Sold,
-    Consumed,
-    TransformSource,
-    ScriptRemoved
-};
 
-struct RuntimeObjectExitRequest {
-    int objectId = -1;
-    RuntimeObjectExitKind kind = RuntimeObjectExitKind::Destroyed;
-    int tick = -1;
-    std::string mission;
-    std::string reason;
-    int sourceObjectId = -1;
-    std::string sourceOwner;
-    RuntimeDeathWeaponCause deathWeaponCause;
-    bool suppressDeathWeapon = false;
-    bool destructionEffectsSpawned = false;
-    // Local presentation only; pending exits are drained before save/hash.
-    bool unitDeathSoundRequested = false;
-    bool unitDeathSoundHandled = false;
-    std::optional<RuntimeSpatialAudioPosition> unitDeathSoundPosition;
-    bool suppressCrew = false;
-    bool c4Explosion = false;
-    std::string warheadId;
-    // Module damage callbacks can mark the victim inactive before the host
-    // drains its exit. Preserve that it was alive for this lethal hit.
-    bool wasAliveBeforeDamage = false;
-};
 
 struct RuntimeDeferredBridgeCollapse {
     std::unordered_set<int> cells;
@@ -337,67 +200,7 @@ struct RuntimeDeferredBridgeCollapse {
     RuntimeDeathWeaponCause deathWeaponCause;
 };
 
-struct RuntimeImpactEffect {
-    int projectileActorId = -1;
-    int attackerObjectId = -1;
-    int targetObjectId = -1;
-    bool targetIsStructure = false;
-    std::string owner;
-    RuntimeCellPoint cell;
-    int level = 0;
-    bool hasWorldPosition = false;
-    double worldX = 0.0;
-    double worldY = 0.0;
-    double worldLevel = 0.0;
-    int screenOffsetX = 0;
-    int screenOffsetY = 0;
-    int nativeFixedX = 0;
-    int nativeFixedY = 0;
-    bool bodyCenterAnchored = false;
-    RuntimeParticleAirbornePresentation bodyCenterPresentation{};
-    int bodyCenterSpriteOffsetY = 0;
-    int totalTicks = 8;
-    int remainingTicks = 8;
-    int radius = 10;
-    int frameIndex = -1;
-    int facing = -1;
-    // Last resolved owner position for a moving passenger's muzzle. Together
-    // with worldX/Y/Level it preserves the authored offset across snapshots.
-    double muzzleAnchorX = 0.0;
-    double muzzleAnchorY = 0.0;
-    double muzzleAnchorLevel = 0.0;
-    int muzzleFacing = -1;
-    int animationFrameCount = 0;
-    int animationFrameDelayTicks = 1;
-    int animationStartFrame = 0;
-    int animationLoopStartFrame = 0;
-    int animationLoopEndFrame = 0;
-    int animationLoopCount = 1;
-    int animationEndFrame = 0;
-    int animationSequenceSteps = 0;
-    int animationMidpointWidth = 0;
-    int animationMidpointHeight = 0;
-    int lastSmudgeMidpointStep = -1;
-    // Source ownership is independent of the victim's corpse remap color.
-    std::string deferredParticleAnimId;
-    std::string deferredParticleOwner;
-    int deferredParticleTicks = -1;
-    bool death = false;
-    std::string lifecycleState = "Impact";
-    std::string renderIntent = "impact";
-    std::string weaponId;
-    std::string weaponSlot;
-    std::string projectileId;
-    std::string projectileImageId;
-    std::string animId;
-    std::string warheadId;
-    std::string warheadImpactIntentId;
-    std::string trailerIntentId;
-    std::string particleId;
-    int damage = 0;
-    double cellSpread = 0.0;
-    bool bright = false;
-};
+// RuntimeImpactEffect is defined in the shared value header.
 
 enum class RuntimeWeaponSlot {
     None,
@@ -527,29 +330,7 @@ struct RuntimeCapabilityProfileCache {
     std::vector<std::string> recentMissionDiagnostics;
 };
 
-struct RuntimeBuildCatalogItem {
-    RuntimeBuildKind kind = RuntimeBuildKind::Building;
-    std::string typeId;
-    std::string label;
-    std::string owner;
-    std::string requiredHouses;
-    std::string forbiddenHouses;
-    std::string prerequisite;
-    std::string prerequisiteOverride;
-    std::string requiredFactory;
-    int cost = 0;
-    int buildTicks = 1;
-    int powerDelta = 0;
-    int techLevel = 0;
-    std::optional<int> buildLimit;
-    bool waterBound = false;
-    bool naval = false;
-    bool wall = false;
-    bool techTreeAllowed = true;
-    bool secretLabInjected = false;
-    std::string techTreeKind;
-    std::string techTreeBlockedReason;
-};
+using ::RuntimeBuildCatalogItem;
 
 enum class RuntimeHarvesterPhase {
     Idle,
@@ -669,35 +450,7 @@ struct RuntimeHumanHouseAuthority {
     bool remoteTechTreeLoaded = false;
 };
 
-struct RuntimeComputerAiState {
-    bool initialized = false;
-    std::string owner;
-    std::string country;
-    std::string difficulty = "Medium";
-    RuntimeCellPoint baseCenter;
-    int credits = 0;
-    int nextThinkTick = 0;
-    int nextIncomeTick = 0; // Legacy save field; real mining has no income deadline.
-    int nextBuildTick = 0;
-    int nextAttackTick = 0;
-    int nextRepairTick = 0;
-    int productionSerial = 0;
-    int incomeEarned = 0;
-    int creditsSpent = 0;
-    int structuresBuilt = 0;
-    int infantryBuilt = 0;
-    int unitsBuilt = 0;
-    int freeUnitsReceived = 0;
-    int attackWaves = 0;
-    int attacksOrdered = 0;
-    int defenseOrders = 0;
-    int tacticalOrders = 0;
-    int repairsPerformed = 0;
-    int stalledBuilds = 0;
-    int lastTargetObjectId = -1;
-    std::string lastBuildType;
-    std::string status = "waiting for skirmish start";
-};
+using ::RuntimeComputerAiState;
 
 struct RuntimeResultPresentationState {
     bool resigned = false;
@@ -1045,16 +798,7 @@ struct RuntimeActiveLightingToken {
     bool operator==(const RuntimeActiveLightingToken&) const = default;
 };
 
-struct RuntimeWorldAudioBackendBinding {
-    std::uint64_t handleId = 0;
-    std::uint64_t playbackOrder = 0;
-    int gainPermille = 0;
-    bool active = false;
-    RuntimeWorldAudioAction action;
-    RuntimeSpatialAudioPosition position;
-    int gain16384 = 0;
-    int pan16384 = 8192;
-};
+using RuntimeWorldAudioBackendBinding = concord::audio::RuntimeWorldAudioBackendBinding;
 
 struct RuntimeLocalChronosphereMarker {
     RuntimeImpactEffect animation;

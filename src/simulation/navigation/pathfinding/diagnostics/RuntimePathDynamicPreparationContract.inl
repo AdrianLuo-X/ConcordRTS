@@ -31,7 +31,7 @@ struct Route {
         sparse(route==0),batch(route==0),workset(route==0),preparation(route!=2) {}
 };
 struct Observation {
-    const void* expected=nullptr;
+    const RuntimeGameSessionState* expected=nullptr;
     bool foreign=false;
     std::vector<RuntimePathDynamicWorksetStats> calls;
     static void append(void* opaque,const void* state,const RuntimePathDynamicWorksetStats& value) {
@@ -40,7 +40,7 @@ struct Observation {
     }
 };
 struct PreparationObservation {
-    const void* expected=nullptr;bool foreign=false;
+    const RuntimeGameSessionState* expected=nullptr;bool foreign=false;
     std::vector<RuntimePathDynamicPreparationStats> calls;
     static void append(void* raw,const void* state,const RuntimePathDynamicPreparationStats& value) {
         auto& self=*static_cast<PreparationObservation*>(raw);self.foreign|=self.expected!=state;

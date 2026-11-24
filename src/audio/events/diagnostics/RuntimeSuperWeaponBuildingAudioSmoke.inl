@@ -41,8 +41,8 @@ bool runRuntimeSuperWeaponBuildingAudioSmoke(const RuntimeConfig& config,std::st
         const auto observe=[&](){advanceRuntimeSuperWeaponBuildingAudio(s,milliseconds);};
         const auto step=[&](){++s.tick;milliseconds=std::uint64_t(s.tick)*1000/hz;
             auto context=runtimeSuperWeaponContext(s);s.superWeapons.tick(context);observe();};
-        const auto count=[&](const std::string& event){return std::count_if(s.runtimeWorldAudioBackendActionHistory.begin(),
-            s.runtimeWorldAudioBackendActionHistory.end(),[&](const auto& a){return a.kind==RuntimeWorldAudioActionKind::Play && a.eventId==event;});};
+        const auto count=[&](const std::string& event){return std::count_if(s.worldAudioBackend.history().begin(),
+            s.worldAudioBackend.history().end(),[&](const auto& a){return a.kind==RuntimeWorldAudioActionKind::Play && a.eventId==event;});};
         step();
         for(int i=0;i<hz*1200;++i) {
             const auto* weapon=s.superWeapons.findSidebarSnapshot("Commander",building->superWeapon);
@@ -65,7 +65,7 @@ bool runRuntimeSuperWeaponBuildingAudioSmoke(const RuntimeConfig& config,std::st
         // Reconstruct a saved opening phase: no one-shot should be replayed.
         std::ostringstream saved;s.superWeapons.save(saved);IniFile ini;ini.loadFromString(saved.str());
         if(!s.superWeapons.load(ini,&error))return false;
-        s.superWeaponBuildingAudio={};s.runtimeWorldAudioBackendActionHistory.clear();observe();
+        s.superWeaponBuildingAudio={};s.worldAudioBackend.clearHistory();observe();
         if(count(wanted.opening)!=0)return fail("load replayed opening sound");
         for(int i=0;i<hz*8;++i)step();
         auto& source=s.superWeaponBuildingAudio.sources.at(1);
@@ -77,11 +77,11 @@ bool runRuntimeSuperWeaponBuildingAudioSmoke(const RuntimeConfig& config,std::st
             const auto* loop=s.worldAudioCatalog.find(wanted.loop);
             const auto controls=toLowerAsciiLocal(s.soundIni.getValue(wanted.loop,"Control",""));
             if(controls.find("attack")!=std::string::npos) {
-                const auto first=std::find_if(s.runtimeWorldAudioBackendActionHistory.begin(),
-                    s.runtimeWorldAudioBackendActionHistory.end(),[&](const auto& action) {
+                const auto first=std::find_if(s.worldAudioBackend.history().begin(),
+                    s.worldAudioBackend.history().end(),[&](const auto& action) {
                         return action.kind==RuntimeWorldAudioActionKind::Play && action.eventId==wanted.loop;
                     });
-                if(first==s.runtimeWorldAudioBackendActionHistory.end() || first->sampleName!=loop->samples.front())
+                if(first==s.worldAudioBackend.history().end() || first->sampleName!=loop->samples.front())
                     return fail("ready hum did not start with original attack sample");
             }
             for(const auto& sample:loop->samples) {
@@ -98,10 +98,10 @@ bool runRuntimeSuperWeaponBuildingAudioSmoke(const RuntimeConfig& config,std::st
             if(s.superWeaponBuildingAudio.sources.at(1).active)return fail("mute left hum active");
             s.runtimeSoundVolume=100;observe();
             // Rehydrate the loop without playing its attack or opening again.
-            s.superWeaponBuildingAudio={};s.runtimeWorldAudioBackendActionHistory.clear();observe();
+            s.superWeaponBuildingAudio={};s.worldAudioBackend.clearHistory();observe();
             if(count(wanted.loop)!=1 || count(wanted.opening)!=0)return fail("ready-loop rehydration");
             if(controls.find("attack")!=std::string::npos
-                && s.runtimeWorldAudioBackendActionHistory.back().sampleName==loop->samples.front())return fail("load repeated loop attack");
+                && s.worldAudioBackend.history().back().sampleName==loop->samples.front())return fail("load repeated loop attack");
         } else if(source.active || !source.event.empty())return fail("silo invented a ready loop");
         const auto authoritative=s.superWeapons.stateHash();const auto worldAudioHash=s.worldAudio.stateHash();
         milliseconds+=5000;observe();
@@ -115,13 +115,13 @@ bool runRuntimeSuperWeaponBuildingAudioSmoke(const RuntimeConfig& config,std::st
         observe();
         if(s.superWeaponBuildingAudio.sources.at(1).active)return fail("launch left ready hum active");
         if(*wanted.loop) {
-            if(!std::any_of(s.runtimeWorldAudioBackendActionHistory.begin(),s.runtimeWorldAudioBackendActionHistory.end(),
+            if(!std::any_of(s.worldAudioBackend.history().begin(),s.worldAudioBackend.history().end(),
                     [&](const auto& action){return action.kind==RuntimeWorldAudioActionKind::Stop
                         && action.handleId==runtimeSuperWeaponBuildingSoundHandle(1,1);}))return fail("launch did not stop backend hum");
             const auto controls=toLowerAsciiLocal(s.soundIni.getValue(wanted.loop,"Control",""));
             if(controls.find("decay")!=std::string::npos) {
                 const auto* loop=s.worldAudioCatalog.find(wanted.loop);
-                const auto& last=s.runtimeWorldAudioBackendActionHistory.back();
+                const auto& last=s.worldAudioBackend.history().back();
                 if(last.kind!=RuntimeWorldAudioActionKind::Play || last.eventId!=wanted.loop
                     || last.sampleName!=loop->samples.back())return fail("launch omitted original decay sample");
             }

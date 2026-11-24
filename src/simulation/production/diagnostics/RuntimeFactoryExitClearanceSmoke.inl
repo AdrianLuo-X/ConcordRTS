@@ -112,6 +112,28 @@ bool runRuntimeFactoryExitClearanceSmokeProbe(
         }
         return true;
     };
+    const auto primaryObjects = [](const RuntimeGameSessionState& state) {
+        std::set<int> ids;
+        const auto& parents = state.specialMechanisms.carrierParents();
+        const auto& children = state.specialMechanisms.carrierChildren();
+        for (const auto& object : state.world.getObjects()) {
+            const auto child = children.find(object.instanceId);
+            if (child != children.end()) {
+                const auto parent = parents.find(child->second.parentObjectId);
+                if (parent != parents.end()) {
+                    const auto slot = parent->second.childBySlot.find(child->second.slot);
+                    // Stock destroyers each create their own ASW, including the
+                    // blockers. An attached aircraft is not a paid hull.
+                    if (object.kind == WorldObjectKind::Unit && object.authoredAircraft
+                        && object.type == parent->second.childType && object.owner == parent->second.owner
+                        && slot != parent->second.childBySlot.end() && slot->second == object.instanceId
+                        && findObjectById(state, parent->first)) continue;
+                }
+            }
+            ids.insert(object.instanceId);
+        }
+        return ids;
+    };
     for (const auto& scenario : cases) {
         auto storage = setup(scenario);
         auto& state = *storage;
@@ -134,12 +156,33 @@ bool runRuntimeFactoryExitClearanceSmokeProbe(
             || state.behaviors.empty() || state.economy.credits != 12345) {
             return fail(std::string(scenario.factory) + " failed to request clearance without early spawn/payment");
         }
+        auto expectedObjects = primaryObjects(state);
+        if (expectedObjects.size() != originalSize) return fail("fixture started with an unexplained actor");
         for (std::uint64_t serial = 1; serial <= 2; ++serial) {
             bool completed = false;
+            int completionTick = -1;
+            int producedId = -1;
+            RuntimeCellPoint birth{-1, -1}, requestedExit{-1, -1};
             for (int tick = 0; tick < 600; ++tick) {
                 if (!step(state)) return fail("a yielding unit teleported");
                 if (!completed) {
                     completed = completeRuntimeProductionOrder(state, item, false, scenario.lane, serial);
+                    if (completed) {
+                        completionTick = state.tick;
+                        const auto afterProduction = primaryObjects(state);
+                        for (int id : afterProduction) {
+                            if (expectedObjects.contains(id)) continue;
+                            if (producedId != -1) return fail("one completed order produced multiple paid actors");
+                            producedId = id;
+                        }
+                        const auto* produced = findObjectById(state, producedId);
+                        if (!produced || produced->type != scenario.unit || produced->owner != "ProbeA")
+                            return fail("completed order did not produce the requested actor for its owner");
+                        expectedObjects.insert(producedId);
+                        birth = runtimeCellPointForObject(*produced);
+                        const auto order = state.behaviors.find(producedId);
+                        if (order != state.behaviors.end()) requestedExit = order->second.moveTarget;
+                    }
                 }
                 if (completed && state.factoryDeliveries.leases().empty()) {
                     bool moving = false;
@@ -150,17 +193,28 @@ bool runRuntimeFactoryExitClearanceSmokeProbe(
                 }
             }
             if (!completed || !state.factoryDeliveries.leases().empty()
-                || state.world.getObjects().size() != originalSize + serial
-                || state.economy.credits != 12345) {
-                return fail(std::string(scenario.factory) + " did not finish consecutive deliveries: " + state.economy.status);
+                || expectedObjects.size() != originalSize + serial
+                || primaryObjects(state) != expectedObjects || state.economy.credits != 12345) {
+                std::ostringstream detail;
+                detail << scenario.factory << " did not finish consecutive deliveries: " << state.economy.status
+                       << " serial=" << serial << " completed=" << completionTick << " tick=" << state.tick
+                       << " leases=" << state.factoryDeliveries.leases().size()
+                       << " actors=" << state.world.getObjects().size() << " primary=" << primaryObjects(state).size()
+                       << " expected=" << expectedObjects.size() << " credits=" << state.economy.credits;
+                return fail(detail.str());
             }
-            const auto& produced = state.world.getObjects().back();
+            const auto* completedActor = findObjectById(state, producedId);
+            if (!completedActor) return fail("the paid actor disappeared after egress");
+            const auto& produced = *completedActor;
             if (runtimeCellPointForObject(produced) == door || produced.renderMoveActive) {
                 std::ostringstream detail;
                 detail << scenario.factory << " produced unit did not walk out"
                        << " serial=" << serial << " tick=" << state.tick
+                       << " completed=" << completionTick << " simulation=" << state.simulationStatus
                        << " door=" << door.x << ',' << door.y
-                       << " produced=" << produced.instanceId;
+                       << " produced=" << produced.instanceId
+                       << " born=" << birth.x << ',' << birth.y
+                       << " originalExitGoal=" << requestedExit.x << ',' << requestedExit.y;
                 for (const auto& object : state.world.getObjects()) {
                     if (object.kind == WorldObjectKind::Structure) continue;
                     const auto offset = worldObjectSubCellOffset(object);

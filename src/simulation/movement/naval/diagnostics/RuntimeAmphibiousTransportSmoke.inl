@@ -35,12 +35,34 @@ bool runRuntimeAmphibiousTransportSmokeProbe(RuntimeWindowState& live, std::stri
         s.pathTerrainCache.valid = s.pathTerrainCache.dynamicValid = false;
         s.pathFailureCache.clear(); s.attackApproachCache.clear();
     };
-    const auto step = [](RuntimeWindowState& s) { ++s.tick; advanceRuntimeSimulation(s); };
-    const auto board = [&](RuntimeWindowState& s, int hostId, const std::vector<int>& passengers) {
+    const auto step = [](RuntimeProductionHostState& s) { ++s.tick; advanceRuntimeSimulation(s); };
+    const auto waitForUnload = [&](RuntimeProductionHostState& s, int hostId, const std::vector<int>& passengers) {
+        // The simulation accepts physical exits one at a time.
+        for (int t = 0; t < s.config.fixedTickHz * 40; ++t) {
+            step(s);
+            const auto* host = findObjectById(s, hostId);
+            if (host == nullptr) return false;
+            if (host->transportPassengerIds.empty() && std::all_of(passengers.begin(), passengers.end(),
+                [&](int id) {
+                    const auto* passenger = findObjectById(s, id);
+                    return passenger != nullptr && !passenger->renderMoveActive;
+                })) return true;
+        }
+        return false;
+    };
+    const auto unload = [&](RuntimeProductionHostState& s, int hostId) {
+        const auto* host = findObjectById(s, hostId);
+        if (host == nullptr) return false;
+        const auto passengers = host->transportPassengerIds;
+        return executeRuntimeSecondaryAction(s, hostId) && waitForUnload(s, hostId, passengers);
+    };
+    const auto board = [&](RuntimeWindowState& s, int hostId, const std::vector<int>& passengers,
+                           int waitSeconds = 40) {
         applySelection(s, passengers, false, false);
         const auto* host = findObjectById(s, hostId);
         if (host == nullptr || !queueRuntimeTargetAbility(s, *host)) return false;
-        for (int t = 0; t < s.config.fixedTickHz * 40 && !s.pendingTransportTargets.empty(); ++t) step(s);
+        for (int t = 0; t < s.config.fixedTickHz * waitSeconds && !s.pendingTransportTargets.empty(); ++t)
+            step(s);
         host = findObjectById(s, hostId);
         return host != nullptr && std::all_of(passengers.begin(), passengers.end(), [&](int id) {
             return std::find(host->transportPassengerIds.begin(), host->transportPassengerIds.end(), id)
@@ -61,7 +83,8 @@ bool runRuntimeAmphibiousTransportSmokeProbe(RuntimeWindowState& live, std::stri
         }
         return false;
     };
-    const auto savePath = pathString(std::filesystem::current_path() / "runtime_amphibious_transport_smoke.ini");
+    const auto savePath = pathString(std::filesystem::temp_directory_path()
+        / ("concord_amphibious_transport_smoke_" + std::to_string(GetCurrentProcessId()) + ".ini"));
     const auto roundTrip = [&](RuntimeWindowState& s) {
         return saveRuntimeState(s, savePath, error) && loadRuntimeState(s, savePath, error);
     };
@@ -108,7 +131,7 @@ bool runRuntimeAmphibiousTransportSmokeProbe(RuntimeWindowState& live, std::stri
             water(s); host = findMutableObjectById(s, hostId);
             if (!executeRuntimeSecondaryAction(s, hostId) || host->transportPassengerIds.size() != 4)
                 return fail("deep-water unload lost ground vehicles");
-            if (!move(s, hostId, {23, 16}) || !executeRuntimeSecondaryAction(s, hostId))
+            if (!move(s, hostId, {23, 16}) || !unload(s, hostId))
                 return fail("transport could not cross water and unload at destination");
             host = findMutableObjectById(s, hostId);
             if (!host->transportPassengerIds.empty()) return fail("shore unload left tanks aboard");
@@ -131,7 +154,11 @@ bool runRuntimeAmphibiousTransportSmokeProbe(RuntimeWindowState& live, std::stri
     std::vector<int> infantry;
     for (int i = 0; i < 12; ++i) infantry.push_back(add(s, RuntimeBuildKind::Infantry, "E1", {9 + i % 4, 12 + i / 4}));
     initializeRuntimeNavigation(s);
-    if (!board(s, hostId, infantry)) return fail("twelve infantry did not board");
+    // A full hold approaches in a group and transfers each passenger physically.
+    const auto boardingStartTick = s.tick;
+    if (!board(s, hostId, infantry, 50)) return fail("twelve infantry did not board");
+    std::cout << "Amphibious full infantry hold boarded after " << s.tick - boardingStartTick
+              << " simulation ticks.\n";
     if (!roundTrip(s)) return false;
     std::vector<int> blockers;
     for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) {
@@ -144,7 +171,32 @@ bool runRuntimeAmphibiousTransportSmokeProbe(RuntimeWindowState& live, std::stri
     for (std::size_t i = 0; i < blockers.size(); ++i)
         setRuntimeObjectCell(s, *findMutableObjectById(s, blockers[i]), {2 + static_cast<int>(i) * 2, 29});
     refreshRuntimeObjectOccupancyAfterLocalChange(s);
-    if (!executeRuntimeSecondaryAction(s, hostId)) return fail("unload did not resume after clearing the exit");
+    const auto fullInfantryManifest = findObjectById(s, hostId)->transportPassengerIds;
+    if (!unload(s, hostId)) {
+        const auto* ferry = findObjectById(s, hostId);
+        if (ferry == nullptr || !runtimeTransportUnloadingPending(s, *ferry))
+            return fail("unload did not resume after clearing the exit");
+        const auto pending = ferry->transportPassengerIds.size();
+        const auto hull = runtimeCellPointForObject(*ferry);
+        std::set<std::pair<int, int>> occupiedExits;
+        // A settled infantry body can still occupy the exit. Move only troops
+        // already ashore and let the accepted unload finish without reissuing it.
+        for (int id : fullInfantryManifest) {
+            const auto* passenger = findObjectById(s, id);
+            if (passenger == nullptr) continue;
+            if (passenger->renderMoveActive || passenger->subCell < 0
+                || !occupiedExits.emplace(passenger->cell, passenger->subCell).second)
+                return fail("ashore infantry did not occupy distinct settled exit subcells");
+            const RuntimeCellPoint outside{hull.x + 4 * (passenger->x - hull.x),
+                                           hull.y + 4 * (passenger->y - hull.y)};
+            applySelection(s, {id}, false, false);
+            issueRuntimeMoveCommand(s, outside);
+        }
+        if (occupiedExits.empty() || !waitForUnload(s, hostId, infantry))
+            return fail("unload did not resume after moving ashore infantry clear");
+        std::cout << "Amphibious full infantry hold completed pending unload "
+                  << pending << " after " << occupiedExits.size() << " ashore infantry cleared the exit.\n";
+    }
     if (!findObjectById(s, hostId)->transportPassengerIds.empty()) return fail("full infantry hold did not unload");
     std::set<std::pair<int, int>> infantrySlots;
     for (int id : infantry) {
@@ -175,7 +227,7 @@ bool runRuntimeAmphibiousTransportSmokeProbe(RuntimeWindowState& live, std::stri
         return fail("mixed infantry/MCV/loaded IFV boarding failed");
     boat = findMutableObjectById(n, boatId);
     if (runtimeTransportUsedSpace(n, *boat) != 12 || !roundTrip(n)) return fail("mixed hold save failed: " + error);
-    if (!move(n, boatId, {23, 23}) || !executeRuntimeSecondaryAction(n, boatId)) return fail("nested cargo transit failed");
+    if (!move(n, boatId, {23, 23}) || !unload(n, boatId)) return fail("nested cargo transit failed");
     const auto* ifv = findObjectById(n, ifvId);
     const auto* rider = findRuntimeObjectByIdIncludingInactive(n, riderId);
     if (ifv == nullptr || rider == nullptr || ifv->transportPassengerIds != std::vector<int>{riderId}
@@ -203,7 +255,7 @@ bool runRuntimeAmphibiousTransportSmokeProbe(RuntimeWindowState& live, std::stri
     if (!board(m, miningBoat, {minerId}) || !move(m, miningBoat, {16, 16}) || !roundTrip(m))
         return fail("laden ore miner transport/save failed: " + error);
     water(m);
-    if (!move(m, miningBoat, {23, 16}) || !executeRuntimeSecondaryAction(m, miningBoat))
+    if (!move(m, miningBoat, {23, 16}) || !unload(m, miningBoat))
         return fail("laden ore miner did not unload");
     const auto cargo = m.harvesterTasks.find(minerId);
     if (findObjectById(m, minerId) == nullptr || cargo == m.harvesterTasks.end()

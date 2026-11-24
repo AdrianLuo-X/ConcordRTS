@@ -13,7 +13,9 @@ foreach(_super_profile IN ITEMS runtime contract)
     concord_add_profiled_leaf(concord_superweapon_core_${_super_profile}_leaf
         src/simulation/superweapons/SuperWeaponSystem.cpp ${_super_owner} ${_super_abi})
     target_sources(concord_superweapon_core_${_super_profile}_leaf PRIVATE
-        src/simulation/superweapons/RuntimeChronosphereRelocation.cpp)
+        src/simulation/superweapons/RuntimeChronosphereRelocation.cpp
+        src/simulation/superweapons/RuntimeSupportFlightPersistence.cpp
+        src/simulation/superweapons/RuntimeSuperWeaponAiPolicy.cpp)
     concord_add_profiled_leaf(concord_superweapon_diagnostics_${_super_profile}_leaf
         src/simulation/superweapons/diagnostics/SuperWeaponSystemSmoke.cpp ${_super_owner} ${_super_abi})
     target_link_libraries(concord_superweapon_diagnostics_${_super_profile}_leaf PRIVATE
@@ -42,7 +44,7 @@ foreach(_super_profile IN ITEMS runtime contract)
         src/simulation/production/RuntimeFactoryDeliveryState.cpp ${_super_owner} ${_super_abi})
 endforeach()
 target_link_libraries(concord_superweapon_core_runtime_leaf PRIVATE
-    concord_world_core_runtime_leaf concord_superweapon_delivery_runtime_leaf)
+    concord_world_core_runtime_leaf concord_superweapon_delivery_runtime_leaf concord_ini_runtime_leaf)
 target_link_libraries(concord_superweapon_core_contract_leaf PRIVATE
-    concord_superweapon_rules_contract_leaf concord_superweapon_delivery_contract_leaf)
+    concord_superweapon_rules_contract_leaf concord_superweapon_delivery_contract_leaf concord_ini_contract_leaf)
 add_subdirectory(tests/infrastructure/superweapon_core)

@@ -1,4 +1,5 @@
 #pragma once
+#include "simulation/abilities/parasites/RuntimeParasiteStunState.h"
 #include "RuntimeProductionValueTypes.h"
 namespace concord::runtime::session_detail {
 struct RuntimeGameSessionState {
@@ -135,7 +136,7 @@ struct RuntimeGameSessionState {
     std::unordered_map<int, int> pendingOccupyTargets;
     std::unordered_map<int, int> pendingTransportTargets;
     std::unordered_map<int, RuntimeTimedBombIntent> pendingTimedBombIntents;
-    std::unordered_map<int, int> parasiteStunUntilTickByObject;
+    RuntimeParasiteStunState parasiteStunUntilTickByObject;
     std::unordered_map<int, RuntimeHarvesterTask> harvesterTasks;
     std::unordered_map<int, RuntimeSlaveMinerTask> slaveMinerTasks;
     std::unordered_map<int, int> slaveMinerRegenTicks;
@@ -276,11 +277,7 @@ struct RuntimeHostAudioState {
     RuntimeAircraftAuxAudioState aircraftAuxAudio;
     RuntimeTurretSoundAudioState turretSoundAudio;
     bool worldAudioInitialized = false;
-    std::unordered_map<std::uint64_t, RuntimeWorldAudioBackendBinding>
-        runtimeWorldAudioBackendBindings;
-    std::unordered_set<std::uint64_t> runtimeWorldAudioLimitEvictedHandles;
-    std::uint64_t runtimeSoundVoiceOrder = 0;
-    std::deque<RuntimeWorldAudioAction> runtimeWorldAudioBackendActionHistory;
+    concord::audio::RuntimeWorldAudioBackendSession worldAudioBackend;
     bool runtimeSoundsEnabled = false;
     int runtimeSoundEvents = 0;
     int runtimeEvaBusyUntilTick = 0;

@@ -43,7 +43,7 @@ bool runRuntimeAircraftAuxSmoke(const RuntimeConfig& config, std::string& error)
         std::ofstream flightLog(root + "/aux-flights.csv");
         flightLog << "hz,type,sortie,takeoffRequests,landingRequests,played,returned,rearmed\n";
         const auto capture = [&](RuntimeWindowState& s, const std::string& type) {
-            for (const auto& action : s.runtimeWorldAudioBackendActionHistory) {
+            for (const auto& action : s.worldAudioBackend.history()) {
                 if (action.kind != RuntimeWorldAudioActionKind::Play || (action.handleId >> 60) != 1) continue;
                 ++plays;
                 const auto found = std::find_if(s.aircraftAuxAudio.pending.begin(), s.aircraftAuxAudio.pending.end(), [&](const auto& p) {return p.action.handleId == action.handleId;});
@@ -59,18 +59,18 @@ bool runRuntimeAircraftAuxSmoke(const RuntimeConfig& config, std::string& error)
             }
         };
         const auto flush = [&](RuntimeWindowState& s, std::uint64_t& now, const std::string& type) {
-            s.runtimeWorldAudioBackendActionHistory.clear(); advanceRuntimeAircraftAuxAudio(s, now); capture(s, type);
+            s.worldAudioBackend.clearHistory(); advanceRuntimeAircraftAuxAudio(s, now); capture(s, type);
             int steps = 0;
             while (!s.aircraftAuxAudio.pending.empty()) {
                 require(++steps < 600, "one-shot did not terminate");
                 std::uint64_t next = (std::numeric_limits<std::uint64_t>::max)();
                 for (const auto& p : s.aircraftAuxAudio.pending) next = std::min(next, p.playing ? p.endMilliseconds : p.dueMilliseconds);
                 now = std::max(now + 1, next);
-                s.runtimeWorldAudioBackendActionHistory.clear(); advanceRuntimeAircraftAuxAudio(s, now); capture(s, type);
+                s.worldAudioBackend.clearHistory(); advanceRuntimeAircraftAuxAudio(s, now); capture(s, type);
             }
             for (int i = 0; i < 10; ++i) {
-                s.runtimeWorldAudioBackendActionHistory.clear(); advanceRuntimeAircraftAuxAudio(s, ++now);
-                require(s.runtimeWorldAudioBackendActionHistory.empty(), "finished one-shot restarted");
+                s.worldAudioBackend.clearHistory(); advanceRuntimeAircraftAuxAudio(s, ++now);
+                require(s.worldAudioBackend.history().empty(), "finished one-shot restarted");
             }
         };
         const auto requests = [](const RuntimeWindowState& s, bool takeoff) {
@@ -236,7 +236,7 @@ bool runRuntimeAircraftAuxSmoke(const RuntimeConfig& config, std::string& error)
         queueRuntimeAircraftAuxSound(s, *aircraft, false); advanceRuntimeAircraftAuxAudio(s, ++now);
         require(!s.aircraftAuxAudio.pending.empty(), "immediate landing event missing");
         s.runtimeSoundVolume = 0; advanceRuntimeAircraftAuxAudio(s, now);
-        require(s.aircraftAuxAudio.pending.empty() && s.runtimeWorldAudioBackendActionHistory.back().kind == RuntimeWorldAudioActionKind::Stop, "volume zero failed to stop playback"); ++boundaries;
+        require(s.aircraftAuxAudio.pending.empty() && s.worldAudioBackend.history().back().kind == RuntimeWorldAudioActionKind::Stop, "volume zero failed to stop playback"); ++boundaries;
         s.runtimeSoundVolume = 100;
         queueRuntimeAircraftAuxSound(s, *aircraft, true); stopRuntimeWorldAudioBackend(s);
         require(requests(s, true) == 0 && s.aircraftAuxAudio.pending.empty(), "backend reset retained event"); ++boundaries;

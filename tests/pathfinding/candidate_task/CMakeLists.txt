@@ -22,7 +22,9 @@ endif()
 add_executable(concord_path_goal_candidate_queue_differential
     ../PathGoalCandidateDifferential.cpp
     "${PROJECT_SOURCE_DIR}/src/simulation/navigation/pathfinding/PathGoalCandidates.cpp"
-    "${PROJECT_SOURCE_DIR}/src/simulation/navigation/pathfinding/PathRequestQueue.cpp")
+    "${PROJECT_SOURCE_DIR}/src/simulation/navigation/pathfinding/PathRequestQueue.cpp"
+    "${PROJECT_SOURCE_DIR}/src/simulation/navigation/pathfinding/PathRequestSearch.cpp"
+    "${PROJECT_SOURCE_DIR}/src/simulation/navigation/pathfinding/PathRequestFailureCache.cpp")
 target_include_directories(concord_path_goal_candidate_queue_differential PRIVATE "${PROJECT_SOURCE_DIR}/src")
 target_compile_definitions(concord_path_goal_candidate_queue_differential PRIVATE CONCORD_PATH_GOAL_CANDIDATE_TEST_OBSERVER
     "$<TARGET_GENEX_EVAL:concord_runtime,$<TARGET_PROPERTY:concord_runtime,COMPILE_DEFINITIONS>>")

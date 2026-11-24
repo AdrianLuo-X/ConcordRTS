@@ -692,3 +692,12 @@ bool loadRuntimeTmpTileBytes(
     return true;
 }
 
+
+
+bool decodeRuntimeTmpFormat3Pixels(
+    const std::vector<unsigned char>& bytes, std::size_t dataOffset, std::size_t dataEnd,
+    unsigned int width, unsigned int height, std::vector<unsigned char>& pixels,
+    std::string& errorMessage
+) {
+    return decodeRawTmpFormat3Pixels(bytes, dataOffset, dataEnd, width, height, pixels, errorMessage);
+}

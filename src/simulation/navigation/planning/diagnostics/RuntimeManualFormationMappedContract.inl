@@ -298,7 +298,8 @@ bool runRuntimeManualFormationMappedContract(const RuntimeConfig& config,std::st
         RuntimeMassMovementRejectSink rejects;
         {
             RuntimeSnapshotActiveStateScope active(*old);RuntimeManualFormationMappedReferenceScope reference(true);
-            RuntimeMassMovementRejectScope sink(old.get(),old->tick,&RuntimeMassMovementRejectSink::receive,&rejects);
+            RuntimeMassMovementRejectScope sink(static_cast<const RuntimeGameSessionState*>(old.get()),
+                old->tick, &RuntimeMassMovementRejectSink::receive, &rejects);
             applySelection(*old,oldIds,false,false);issueRuntimeMoveCommand(*old,click,&oldTargets);
         }
         bool witness=false;

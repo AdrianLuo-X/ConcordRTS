@@ -215,10 +215,15 @@ bool runtimeFutureVoxelBootstrapRead(RuntimeFutureVoxelBootstrapState& state,
     const std::string& fileName, std::vector<unsigned char>& bytes, std::string& source, std::string& error) {
     bytes.clear(); source.clear(); error.clear();
     if (!state.permit() || state.familyRefused) return false;
-    const auto lowerName = toLowerAscii(fileName);
-    const auto loose = state.live.looseResourcePathsByName.find(lowerName);
-    if (!state.recordLoose(lowerName, loose == state.live.looseResourcePathsByName.end() ? nullptr : &loose->second)) return false;
-    if (loose != state.live.looseResourcePathsByName.end()) {
+    if (state.mixPaths.empty()) {
+        const auto lowerName = toLowerAscii(fileName);
+        const auto& looseIndex = state.live.looseResourcePathsByName;
+        const auto loose = looseIndex.find(lowerName);
+        if (!state.recordLoose(lowerName, loose == looseIndex.end() ? nullptr : &loose->second)) return false;
+        if (loose == looseIndex.end()) {
+            error = "resource was not found in loose files or MIX archives: " + fileName;
+            return false;
+        }
         RuntimeFutureVoxelBootstrapOrigin before;
         if (!state.origin(loose->second, before)) return false;
         // The original binary reader's same opened stream determines the size
@@ -459,10 +464,14 @@ void prewarmRuntimeFutureNormalVoxelTypes(const std::vector<std::string>& typeId
         stats.unsupportedProfileSkipped = true; return;
     }
     if (runtimeVxlPaletteLookupEnabled() && !cache.voxelPaletteLookupLoadAttempted) { stats.paletteNotReadySkipped = true; return; }
+    // Match the ordinary voxel loader: stock archives own the choice whenever
+    // the current asset root has them. Standalone roots use their loose index.
     if (context.rules == nullptr || context.art == nullptr || context.assetRootPath.empty() || context.assetRootPath.size() > 4096U
-        || !cache.looseResourceIndexBuilt
-        || normalizedLowerPath(cache.looseResourceIndexRootPath) != normalizedLowerPath(context.assetRootPath)
-        || (cache.mixArchivePathsScanned && normalizedLowerPath(cache.mixArchiveRootPath) != normalizedLowerPath(context.assetRootPath))) {
+        || !cache.mixArchivePathsScanned
+        || normalizedLowerPath(cache.mixArchiveRootPath) != normalizedLowerPath(context.assetRootPath)
+        || (cache.mixArchivePaths.empty()
+            && (!cache.looseResourceIndexBuilt
+                || normalizedLowerPath(cache.looseResourceIndexRootPath) != normalizedLowerPath(context.assetRootPath)))) {
         stats.indexNotReadySkipped = true; return;
     }
     RuntimeFutureVoxelBootstrapLimits limits;

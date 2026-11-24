@@ -1,0 +1,10 @@
+# H003: original local World voice session; native device remains its own owner.
+include_guard(GLOBAL)
+include("${CMAKE_CURRENT_LIST_DIR}/ProfiledLeaf.cmake")
+concord_add_profiled_leaf(concord_world_audio_backend_session_contract_leaf
+    src/audio/world/RuntimeWorldAudioBackendSession.cpp concord_radar_cell_values_value_contract Contract)
+add_subdirectory(tests/audio/world_backend_session)
+add_test(NAME world_audio_backend_session_runtime_contract_test COMMAND concord_world_audio_backend_session_runtime_contract)
+add_test(NAME world_audio_backend_session_contract_contract_test COMMAND concord_world_audio_backend_session_contract_contract)
+set_tests_properties(world_audio_backend_session_runtime_contract_test world_audio_backend_session_contract_contract_test
+    PROPERTIES TIMEOUT 120 LABELS "world-audio-backend-session;standard-contract;no-assets")

@@ -137,6 +137,22 @@ bool testStorageSwap() {
         "empty-state commit must retain outgoing notice storage and suppression state");
     return ok;
 }
+
+bool testReset() {
+    RuntimePlayerDefeatNoticeState state;
+    state.lines = {{"owner1", 15000}, {"owner2", 16000}};
+    state.announcedOwners = {"owner1", "owner2", "expired-only"};
+    state.suppressExisting = true;
+    static_assert(noexcept(state.reset()));
+    state.reset();
+    bool ok = expect(state.lines.empty(), "reset must clear the visible notices");
+    ok &= expect(state.announcedOwners.empty(), "reset must forget all previously announced owners");
+    ok &= expect(!state.suppressExisting, "reset must return to normal notice admission");
+    state.reset();
+    ok &= expect(state.lines.empty() && state.announcedOwners.empty() && !state.suppressExisting,
+        "empty-state reset must be idempotent");
+    return ok;
+}
 #endif
 } // namespace
 
@@ -156,6 +172,7 @@ int main() {
 #if !defined(W001_LEGACY_PROBE)
     ok &= testDeadlines();
     ok &= testStorageSwap();
+    ok &= testReset();
 #endif
     if (!ok) return 1;
     std::cout << "Player defeat notice contract passed: checks=" << checks;

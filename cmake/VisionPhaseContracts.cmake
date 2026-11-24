@@ -20,6 +20,8 @@ function(concord_register_vision_phase_libraries runtime_owner contract_owner)
         target_link_libraries(concord_special_building_${_vision_profile}_leaf PRIVATE ${_vision_world})
         concord_add_profiled_leaf(concord_vision_${_vision_profile}_leaf
             src/simulation/vision/RuntimeVision.cpp ${_vision_owner} ${_vision_abi})
+        target_sources(concord_vision_${_vision_profile}_leaf PRIVATE
+            src/simulation/superweapons/RuntimeSuperWeaponVisionEffects.cpp)
         target_link_libraries(concord_vision_${_vision_profile}_leaf PRIVATE
             concord_special_building_${_vision_profile}_leaf ${_vision_world})
         concord_add_profiled_leaf(concord_vision_phase_${_vision_profile}_leaf

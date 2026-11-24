@@ -7,7 +7,9 @@ bool runRuntimeReactorExplosionSmoke(RuntimeWindowState& live, std::string& erro
     const char* output = std::getenv("CONCORD_REACTOR_EXPLOSION_OUTPUT");
     const std::string root = output ? output : "";
     IniFile stockIni; RulesDatabase stockRules;
-    if (!stockIni.loadFromFile(live.report.rulesPath) || !stockRules.loadFromIni(stockIni))
+    const RuntimeIniSource stockSource = resolveRuntimeIniSource(live.config, RuntimeCampaignIniKind::Rules);
+    if (stockSource.displayPath != live.report.rulesPath) return fail("stock rules source differs from startup");
+    if (!stockSource.load(stockIni) || !stockRules.loadFromIni(stockIni))
         return fail("stock rules unavailable");
     const auto* reactorRule = stockRules.findBuildingType("NANRCT");
     const auto* payloadRule = stockRules.findWeaponType("NukePayload");

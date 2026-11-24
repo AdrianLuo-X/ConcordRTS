@@ -1,9 +1,8 @@
-// Shared eligibility for the selected factory's mouse actions and rally marker.
-const WorldObjectInstance* runtimeSelectedUnitProductionFactory(const RuntimeWindowState& state) {
-    if (state.selectedObjectIds.size() != 1 || state.multiplayerLocalSpectator
-        || (!state.campaignMode && runtimeLocalObserver(state.config)))
-        return nullptr;
-    const auto* object = findObjectById(state, state.selectedObjectIds.front());
+const WorldObjectInstance* runtimeLocalUnitProductionFactory(
+    const RuntimeGameSessionState& state,
+    int factoryId
+) {
+    const auto* object = findObjectById(state, factoryId);
     if (!object || !object->alive || object->kind != WorldObjectKind::Structure
         || object->buildAnimTicksRemaining > 0 || runtimeGateObjectIsLimbo(*object)
         || runtimeCanonicalHumanHouseOwner(object->owner) != runtimeCanonicalHumanHouseOwner(state.economy.owner))
@@ -12,6 +11,14 @@ const WorldObjectInstance* runtimeSelectedUnitProductionFactory(const RuntimeWin
     if (!building) return nullptr;
     const auto category = toUpperAsciiLocal(building->factory);
     return category == "INFANTRYTYPE" || category == "UNITTYPE" || category == "AIRCRAFTTYPE" ? object : nullptr;
+}
+
+const WorldObjectInstance* runtimeSelectedUnitProductionFactory(const RuntimeWindowState& state) {
+    if (state.selectedObjectIds.size() != 1 || state.multiplayerLocalSpectator
+        || (!state.campaignMode && runtimeLocalObserver(state.config))) {
+        return nullptr;
+    }
+    return runtimeLocalUnitProductionFactory(state, state.selectedObjectIds.front());
 }
 
 bool runtimeSelectedFactoryCanSetRallyPoint(const RuntimeWindowState& state) {

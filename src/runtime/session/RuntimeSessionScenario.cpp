@@ -1,4 +1,13 @@
 #include "runtime/session/detail/RuntimeProductionOperations.h"
+#include "runtime/session/detail/RuntimeSkirmishOutcomeHostAdapter.h"
+#include "simulation/scenarios/RuntimeSkirmishOutcomePolicy.h"
+#include "simulation/ai/RuntimeComputerTacticSelection.h"
+#include "simulation/ai/RuntimeComputerTacticLifecycle.h"
+#include "simulation/ai/RuntimeComputerTacticReservations.h"
+#include "simulation/ai/RuntimeComputerTacticRecruitment.h"
+#include "simulation/ai/RuntimeComputerBasePlan.h"
+#include "simulation/ai/RuntimeComputerTacticProduction.h"
+#include "simulation/ai/RuntimeTeamGather.h"
 
 namespace concord::runtime::session_detail {
 
@@ -757,27 +766,9 @@ int runtimeComputerMiningDifficultyIndex(const std::string& difficulty) {
 
 bool runtimeComputerTacticReservesSuperWeapon(const RuntimeGameSessionState& state,
     const std::string& owner, const SuperWeaponRule* weapon) {
-    if (state.campaignMode || !weapon) return false;
-    const auto identity = toLowerAsciiLocal(weapon->id + " " + weapon->type);
-    const bool chrono = identity.find("chrono") != std::string::npos;
-    const bool iron = identity.find("ironcurtain") != std::string::npos;
-    if (!chrono && !iron) return false;
-    const auto house = state.triggers.computerTacticsByOwner.find(toLowerAsciiLocal(trimAsciiLocal(owner)));
-    if (house == state.triggers.computerTacticsByOwner.end()) return false;
-    for (const auto& [id, team] : house->second.teams) {
-        if (team.missionFinished) continue;
-        const auto type = state.triggers.teams.find(team.teamTypeId);
-        if (type == state.triggers.teams.end()) continue;
-        const auto script = state.triggers.scripts.find(type->second.scriptId);
-        if (script == state.triggers.scripts.end()) continue;
-        const auto mission = state.triggers.teamMissions.find(team.missionInstanceId);
-        const std::size_t start = mission == state.triggers.teamMissions.end() ? 0 : mission->second.stepIndex;
-        for (std::size_t step = start; step < script->second.steps.size(); ++step) {
-            const int action = script->second.steps[step].action;
-            if ((iron && action == 55) || (chrono && (action == 56 || action == 57))) return true;
-        }
-    }
-    return false;
+    return concord::simulation::ai::runtimeComputerTacticReservesSuperWeapon(
+        {state.campaignMode, state.triggers.computerTacticsByOwner, state.triggers.teams,
+         state.triggers.scripts, state.triggers.teamMissions}, owner, weapon);
 }
 
 std::string runtimeTriggerSuperWeaponId(
@@ -4077,6 +4068,43 @@ bool advanceRuntimeCooperativeOutcome(RuntimeProductionHostState& state) {
     return result.changed;
 }
 
+std::size_t RuntimeSkirmishOutcomeHostQueries::playerSlotCount() const {
+    return state.config.playerSlots.size();
+}
+
+std::string RuntimeSkirmishOutcomeHostQueries::ownerForSlot(std::size_t slot) const {
+    return runtimeSkirmishOwnerForSlot(slot);
+}
+
+bool RuntimeSkirmishOutcomeHostQueries::ownerDefeated(const std::string& owner) const {
+    return runtimeSkirmishOwnerDefeated(state, owner);
+}
+
+bool RuntimeSkirmishOutcomeHostQueries::ownersAreAllied(const std::string& first, const std::string& second) const {
+    return runtimeOwnersAreAllied(state, first, second);
+}
+
+bool RuntimeSkirmishOutcomeHostQueries::ownerIsNeutral(const std::string& owner) const {
+    return runtimeOwnerIsNeutralForAutoTarget(owner);
+}
+
+const std::vector<WorldObjectInstance>& RuntimeSkirmishOutcomeHostQueries::worldObjects() const {
+    return state.world.getObjects();
+}
+
+void RuntimeSkirmishOutcomeHostQueries::observeDefeatNotices() {
+    observeRuntimePlayerDefeatNotices(state);
+}
+
+void RuntimeSkirmishOutcomeHostQueries::finishSimulation() {
+    for (WorldObjectInstance& object : state.world.accessObjects()) {
+        if (object.renderMoveActive) {
+            clearRuntimeRenderPosition(object);
+        }
+    }
+    state.behaviors.clear();
+}
+
 bool advanceRuntimeSkirmishOutcome(RuntimeProductionHostState& state) {
     RuntimePerfTraceScope stageTrace("advanceRuntimeSkirmishOutcome", state.tick);
     if (state.cooperativeSession.active()) {
@@ -4089,88 +4117,16 @@ bool advanceRuntimeSkirmishOutcome(RuntimeProductionHostState& state) {
         observeRuntimePlayerDefeatNotices(state);
         return changed;
     }
-    if (state.campaignMode
-        || toUpperAsciiLocal(trimAsciiLocal(state.config.gameMode))
-            == "CAMPAIGNMISSION"
-        || state.skirmishMatchFinished
-        || state.skirmishCountryByOwner.empty()
-        || !state.economy.skirmishStartApplied
-        || state.tick < 5
-        || (state.tick % 10) != 0) {
-        return false;
-    }
-
-    observeRuntimePlayerDefeatNotices(state);
-    if (runtimeSkirmishOwnerDefeated(state, state.economy.owner)) {
-        state.skirmishMatchFinished = true;
-        state.skirmishVictory = false;
-        state.skirmishResult = "DEFEAT";
-    } else {
-        bool hostileSurvivor = false;
-        for (const auto& [ownerKey, country] : state.skirmishCountryByOwner) {
-            (void)country;
-            std::string owner;
-            for (std::size_t slotIndex = 0;
-                slotIndex < state.config.playerSlots.size();
-                ++slotIndex) {
-                const std::string candidate =
-                    runtimeSkirmishOwnerForSlot(slotIndex);
-                if (toLowerAsciiLocal(candidate) == ownerKey) {
-                    owner = candidate;
-                    break;
-                }
-            }
-            if (owner.empty()
-                || runtimeOwnersAreAllied(state, state.economy.owner, owner)
-                || runtimeSkirmishOwnerDefeated(state, owner)) {
-                continue;
-            }
-            hostileSurvivor = true;
-            break;
-        }
-        if (!hostileSurvivor
-            && toUpperAsciiLocal(trimAsciiLocal(state.config.gameMode))
-                == "COOPERATIVE") {
-            std::unordered_set<std::string> authoredOwners;
-            for (const WorldObjectInstance& object : state.world.getObjects()) {
-                if (!object.alive
-                    || runtimeOwnerIsNeutralForAutoTarget(object.owner)
-                    || object.owner == state.economy.owner
-                    || state.skirmishCountryByOwner.find(
-                        toLowerAsciiLocal(trimAsciiLocal(object.owner))
-                    ) != state.skirmishCountryByOwner.end()) {
-                    continue;
-                }
-                authoredOwners.insert(object.owner);
-            }
-            for (const std::string& owner : authoredOwners) {
-                if (!runtimeOwnersAreAllied(state, state.economy.owner, owner)
-                    && !runtimeSkirmishOwnerDefeated(state, owner)) {
-                    hostileSurvivor = true;
-                    break;
-                }
-            }
-        }
-        if (hostileSurvivor) {
-            return false;
-        }
-        state.skirmishMatchFinished = true;
-        state.skirmishVictory = true;
-        state.skirmishResult = "VICTORY";
-    }
-
-    state.economy.skirmishStatus =
-        state.skirmishResult
-        + std::string(state.config.shortGame ? " (short game)" : "");
-    state.economy.status = state.economy.skirmishStatus;
-    state.interactionStatus = state.economy.skirmishStatus;
-    for (WorldObjectInstance& object : state.world.accessObjects()) {
-        if (object.renderMoveActive) {
-            clearRuntimeRenderPosition(object);
-        }
-    }
-    state.behaviors.clear();
-    return true;
+    const runtime_skirmish_outcome::ReadInput input{
+        state.campaignMode, state.config.gameMode, state.skirmishCountryByOwner,
+        state.economy.skirmishStartApplied, state.tick, state.economy.owner,
+        state.config.shortGame};
+    const runtime_skirmish_outcome::WriteOutput output{
+        state.skirmishMatchFinished, state.skirmishVictory, state.skirmishResult,
+        state.economy.skirmishStatus, state.economy.status, state.interactionStatus};
+    RuntimeSkirmishOutcomeHostQueries queries{state};
+    return runtime_skirmish_outcome::advanceSinglePlayerSkirmishOutcome(
+        input, output, queries);
 }
 
 void finishRuntimeCampaignMission(
@@ -4659,16 +4615,33 @@ void advanceRuntimeAirstrikeSalvos(RuntimeProductionHostState& state) {
     }
 }
 
+class SessionTacticObjectReservationQueries final
+    : public concord::simulation::ai::RuntimeComputerTacticObjectReservationQueries {
+public:
+    explicit SessionTacticObjectReservationQueries(const RuntimeGameSessionState& state)
+        : state_(state) {}
+    bool pendingTransportTarget(int id) const override {
+        return state_.pendingTransportTargets.contains(id);
+    }
+    bool pendingEngineerCapture(int id) const override {
+        return state_.pendingEngineerCaptures.contains(id);
+    }
+    bool pendingOccupyTarget(int id) const override {
+        return state_.pendingOccupyTargets.contains(id);
+    }
+    const std::vector<RuntimeGrindingRelation>& grindingRelations() const override {
+        return state_.grinding.relations();
+    }
+    const std::map<std::string, RuntimeComputerTacticsState>& ownerTactics() const override {
+        return state_.triggers.computerTacticsByOwner;
+    }
+private:
+    const RuntimeGameSessionState& state_;
+};
+
 bool runtimeComputerTacticReservesObject(const RuntimeGameSessionState& state, int objectId) {
-    if (state.pendingTransportTargets.contains(objectId) || state.pendingEngineerCaptures.contains(objectId)
-        || state.pendingOccupyTargets.contains(objectId)) return true;
-    for (const auto& relation : state.grinding.relations())
-        if (relation.sourceId == objectId) return true;
-    for (const auto& [owner, tactics] : state.triggers.computerTacticsByOwner)
-        for (const auto& [id, team] : tactics.teams)
-            if (std::find(team.objectIds.begin(), team.objectIds.end(), objectId)
-                != team.objectIds.end()) return true;
-    return false;
+    const SessionTacticObjectReservationQueries queries(state);
+    return concord::simulation::ai::runtimeComputerTacticReservesObject(queries, objectId);
 }
 
 bool finishRuntimeComputerTacticMission(RuntimeGameSessionState& state,
@@ -5406,13 +5379,7 @@ bool unloadRuntimeTeamTransports(RuntimeProductionHostState& state,
 
 RuntimeCellPoint runtimeTeamHouseCenter(const RuntimeGameSessionState& state,
     const std::string& owner, RuntimeCellPoint fallback) {
-    long long x = 0, y = 0; int count = 0;
-    for (const auto& object : state.world.getObjects()) {
-        if (!object.alive || object.kind != WorldObjectKind::Structure
-            || toLowerAsciiLocal(object.owner) != toLowerAsciiLocal(owner)) continue;
-        x += object.x; y += object.y; ++count;
-    }
-    return count ? RuntimeCellPoint{static_cast<int>(x / count), static_cast<int>(y / count)} : fallback;
+    return simulation::ai::runtimeTeamHouseCenter(state.world.getObjects(), owner, fallback);
 }
 
 RuntimeTeamStepDisposition issueRuntimeTeamGather(RuntimeProductionHostState& state,
@@ -5430,16 +5397,9 @@ RuntimeTeamStepDisposition issueRuntimeTeamGather(RuntimeProductionHostState& st
     const auto enemyBase = enemy
         ? runtimeTeamHouseCenter(state, enemy->owner, runtimeCellPointForObject(*enemy)) : center;
     if (outsideEnemyBase && !enemy) return RuntimeTeamStepDisposition::Complete;
-    const auto origin = outsideEnemyBase ? enemyBase : ownBase;
-    const auto toward = outsideEnemyBase ? ownBase : enemyBase;
-    double dx = toward.x - origin.x, dy = toward.y - origin.y;
-    const double length = std::hypot(dx, dy);
-    if (length > 0.0) { dx /= length; dy /= length; }
-    else { dx = 1.0; dy = 0.0; }
     const int distance = state.rules.getComputerTacticsRules().safeDistance;
-    RuntimeCellPoint destination{origin.x + static_cast<int>(std::lround(dx * distance)),
-        origin.y + static_cast<int>(std::lround(dy * distance))};
-    if (!outsideEnemyBase && !hasOwnBase) destination = center;
+    const auto destination = simulation::ai::runtimeTeamGatherPoint(
+        center, ownBase, enemyBase, outsideEnemyBase, hasOwnBase, distance);
     const auto* leader = findObjectById(state, members.front());
     const auto passable = leader ? findRuntimePassableCellNear(state, *leader, destination, 10) : std::nullopt;
     if (!passable) return RuntimeTeamStepDisposition::Waiting;
@@ -9996,81 +9956,47 @@ std::optional<RuntimeBuildCatalogItem> runtimeComputerAiSelectStructureForRole(
     return std::nullopt;
 }
 
+class SessionBasePlanIdentityQueries final
+    : public concord::simulation::ai::RuntimeComputerBasePlanIdentityQueries {
+public:
+    int difficultyIndex(const std::string& value) const override { return runtimeComputerMiningDifficultyIndex(value); }
+    int planningSide(const std::string& value) const override { return runtimeBasePlanningSideForCountry(value); }
+};
+class SessionBasePlanQueries final
+    : public concord::simulation::ai::RuntimeComputerBasePlanQueries {
+public:
+    explicit SessionBasePlanQueries(const RuntimeGameSessionState& state) : state_(state) {}
+    const ComputerBaseBuildingRules& baseBuildingRules() const override { return state_.rules.getComputerBaseBuildingRules(); }
+    const ComputerMiningRules& miningRules() const override { return state_.rules.getComputerMiningRules(); }
+    int difficultyIndex(const std::string& value) const override { return identity_.difficultyIndex(value); }
+    int planningSide(const std::string& value) const override { return identity_.planningSide(value); }
+    const UnitType* unitTypeById(const std::string& id) const override { return findRuntimeUnitTypeById(state_.rules, id); }
+    bool ownerListAllowsHouse(const std::string& owners, const std::string& country) const override { return runtimeOwnerListAllowsHouse(owners, country); }
+private:
+    const RuntimeGameSessionState& state_;
+    const SessionBasePlanIdentityQueries identity_;
+};
+
 RuntimeComputerAiBaseTargets runtimeComputerAiBaseTargets(
     const RuntimeGameSessionState& state, const RuntimeComputerAiState& ai) {
-    RuntimeComputerAiBaseTargets targets;
-    const auto& rules = state.rules.getComputerBaseBuildingRules();
-    const int difficulty = runtimeComputerMiningDifficultyIndex(ai.difficulty);
-    switch (runtimeBasePlanningSideForCountry(ai.country)) {
-    case 0: targets.defenses = rules.alliedDefenseCounts[difficulty]; break;
-    case 1: targets.defenses = rules.sovietDefenseCounts[difficulty]; break;
-    case 2: targets.defenses = rules.thirdDefenseCounts[difficulty]; break;
-    default: break; // Retail 0x505C95 leaves an unknown planning side at zero.
-    }
-    // Retail 0x5059D6 checks the Owner mask of HarvesterUnit entries. The
-    // exception is not a hardcoded Yuri-country check: mods can change it.
-    targets.slaveRefineries = true;
-    for (const auto& typeId : rules.harvesterTypes) {
-        const auto* unit = findRuntimeUnitTypeById(state.rules, typeId);
-        if (unit != nullptr && runtimeOwnerListAllowsHouse(unit->owner, ai.country)) {
-            targets.slaveRefineries = false;
-            break;
-        }
-    }
-    // The first refinery is already present in the retail plan. Slave miners
-    // insert (AISlaveMinerNumber - 1); other houses insert AIExtraRefineries.
-    targets.refineries = targets.slaveRefineries
-        ? std::max(1, state.rules.getComputerMiningRules().slaveMinerNumber[difficulty])
-        : 1 + rules.extraRefineries[difficulty];
-    return targets;
+    const SessionBasePlanQueries queries(state);
+    return concord::simulation::ai::runtimeComputerAiBaseTargets(queries, ai);
 }
 
 std::vector<RuntimeComputerAiStructureRole> runtimeComputerAiBasePlan(
     const RuntimeComputerAiState& ai, const RuntimeComputerAiBaseTargets& targets) {
-    using Role = RuntimeComputerAiStructureRole;
-    // Keep the existing technology roles. Retail 0x505A8D inserts extra
-    // refineries after the first, and 0x505CF7 inserts defenses after index 3.
-    std::vector<Role> plan{Role::Power, Role::Refinery, Role::Barracks,
-        Role::VehicleFactory, Role::Radar, Role::Tech, Role::Superweapon};
-    std::uint64_t random = runtimeStableHashString("computer base plan/1");
-    runtimeStableHashMixString(random, toLowerAsciiLocal(trimAsciiLocal(ai.owner)));
-    runtimeStableHashMix(random, runtimeBasePlanningSideForCountry(ai.country));
-    runtimeStableHashMix(random, runtimeComputerMiningDifficultyIndex(ai.difficulty));
-    const auto insert = [&](Role role, std::size_t first, int serial) {
-        runtimeStableHashMix(random, serial);
-        const auto position = first + static_cast<std::size_t>(random % (plan.size() - first + 1));
-        plan.insert(plan.begin() + static_cast<std::ptrdiff_t>(position), role);
-    };
-    for (int i = 1; i < targets.refineries; ++i) insert(Role::Refinery, 2, i);
-    for (int i = 0; i < targets.defenses; ++i) insert(Role::Defense, 4, i);
-    return plan;
+    const SessionBasePlanIdentityQueries queries;
+    return concord::simulation::ai::runtimeComputerAiBasePlan(queries, ai, targets);
 }
 
 void appendRuntimeComputerAiBasePlanGoals(
     const RuntimeGameSessionState& state, const RuntimeComputerAiState& ai,
     const RuntimeComputerAiProfile& profile, const RuntimeComputerAiMetrics& metrics,
     std::vector<RuntimeComputerAiStructureRole>& goals) {
-    using Role = RuntimeComputerAiStructureRole;
-    const auto targets = runtimeComputerAiBaseTargets(state, ai);
-    // Mobile and deployed forms fill the same quota; moving a slave miner
-    // must not make the construction yard order an additional one.
-    std::array<int, 9> remaining{};
-    remaining[static_cast<std::size_t>(Role::Power)] = metrics.powerPlants;
-    remaining[static_cast<std::size_t>(Role::Refinery)] = targets.slaveRefineries
-        ? metrics.slaveMiners : metrics.ordinaryRefineries;
-    remaining[static_cast<std::size_t>(Role::Barracks)] = metrics.barracks;
-    remaining[static_cast<std::size_t>(Role::VehicleFactory)] = metrics.vehicleFactories;
-    remaining[static_cast<std::size_t>(Role::Radar)] = metrics.radars;
-    remaining[static_cast<std::size_t>(Role::Defense)] = metrics.defenses;
-    remaining[static_cast<std::size_t>(Role::Tech)] = metrics.techCenters;
-    remaining[static_cast<std::size_t>(Role::Superweapon)] = metrics.superweaponStructures;
-    for (const Role role : runtimeComputerAiBasePlan(ai, targets)) {
-        auto& count = remaining[static_cast<std::size_t>(role)];
-        if (count > 0) { --count; continue; }
-        if (role == Role::Superweapon && (!state.config.superweapons
-                || metrics.structures < 8 || metrics.combatUnits < profile.attackThreshold)) continue;
-        if (std::find(goals.begin(), goals.end(), role) == goals.end()) goals.push_back(role);
-    }
+    const SessionBasePlanQueries queries(state);
+    const concord::simulation::ai::RuntimeComputerBasePlanLimits limits{
+        state.config.superweapons, profile.attackThreshold};
+    concord::simulation::ai::appendRuntimeComputerAiBasePlanGoals(limits, queries, ai, metrics, goals);
 }
 
 std::optional<RuntimeBuildCatalogItem> runtimeComputerAiSelectStructure(
@@ -10621,114 +10547,72 @@ bool runtimeComputerAiBuildUnit(
     return true;
 }
 
+class SessionTacticProductionQueries final : public concord::simulation::ai::RuntimeComputerTacticProductionQueries {
+    const RuntimeGameSessionState& state_;
+public:
+    explicit SessionTacticProductionQueries(const RuntimeGameSessionState& state) : state_(state) {}
+    RuntimeAircraftProductionMatchInputBuild buildAircraftInput(const std::string& owner, std::optional<RuntimeAircraftProductionOrder> order) const override {
+        return buildRuntimeAircraftProductionMatchInputForOwner(state_, owner, std::move(order), nullptr, false);
+    }
+    RuntimeAircraftProductionMatchResult matchAircraftDocks(const RuntimeAircraftProductionMatchInput& input) const override { return runtimeMatchAircraftProductionDocks(input); }
+    const WorldObjectInstance* object(int id) const override { return findObjectById(state_, id); }
+    const BuildingType* buildingType(const std::string& id) const override { return findRuntimeBuildingTypeById(state_.rules, id); }
+    RuntimeProductionSpawn dockSpawn(const WorldObjectInstance& host, int index) const override { return runtimeAircraftDockSpawn(state_, host, index); }
+    bool itemAllowed(const RuntimeComputerAiState& ai, const RuntimeBuildCatalogItem& item) const override { return runtimeComputerAiItemAllowed(state_, ai, item); }
+    std::optional<RuntimeBuildCatalogItem> buildItem(const std::string& id, const std::string& owner) const override { return runtimeComputerAiBuildItem(state_, id, owner); }
+    const WorldObjectInstance* factoryAnchor(const RuntimeComputerAiState& ai, const RuntimeBuildCatalogItem& item) const override { return runtimeComputerAiFactoryAnchor(state_, ai, item); }
+};
+class SessionTacticQueueEffects final : public concord::simulation::ai::RuntimeComputerTacticQueueEffects {
+    RuntimeGameSessionState& state_;
+public:
+    explicit SessionTacticQueueEffects(RuntimeGameSessionState& state) : state_(state) {}
+    void spendStoredOre(const std::string& owner, int amount) override { spendRuntimeComputerStoredOre(state_, owner, amount); }
+};
+class SessionTacticCompletionEffects final : public concord::simulation::ai::RuntimeComputerTacticCompletionEffects {
+    RuntimeProductionHostState& state_;
+public:
+    explicit SessionTacticCompletionEffects(RuntimeProductionHostState& state) : state_(state) {}
+    bool buildUnit(RuntimeComputerAiState& ai, const RuntimeBuildCatalogItem& item, int* id) override { return runtimeComputerAiBuildUnit(state_, ai, item, id); }
+    void refreshDocks() override { (void)refreshRuntimeAircraftDockAssignments(state_); }
+    WorldObjectInstance* addObject(const std::string& owner, RuntimeBuildKind kind, const std::string& type, const RuntimeCellPoint& cell) override { return addRuntimeObjectInstanceForOwner(state_, owner, kind, type, cell); }
+    void applyVeterancy(WorldObjectInstance& object) override { applyRuntimeProducedObjectVeterancy(state_, object); }
+    void scaleAiHealth(const RuntimeComputerAiState& ai, WorldObjectInstance& object) override { scaleRuntimeComputerAiObjectHealth(state_, ai, object); }
+    void applyDockPose(WorldObjectInstance& object, const WorldObjectInstance& host, int index) override { (void)applyRuntimeAircraftDockPose(state_, object, host, index); }
+    void recordCompletedBuild(const std::string& owner, const RuntimeBuildCatalogItem& item) override { recordRuntimeCompletedBuild(state_, owner, item); }
+    void refreshOccupancy() override { refreshRuntimeObjectOccupancyAfterLocalChange(state_); }
+};
+
 int runtimeComputerTacticLane(const RuntimeBuildCatalogItem& item) {
-    return item.kind == RuntimeBuildKind::Infantry ? 0
-        : toUpperAsciiLocal(item.requiredFactory) == "AIRCRAFTTYPE" ? 2 : 1;
+    return concord::simulation::ai::runtimeComputerTacticLane(item);
 }
 
 std::optional<RuntimeProductionSpawn> runtimeComputerTacticAircraftSpawn(
     const RuntimeGameSessionState& state, const std::string& owner,
     const RuntimeBuildCatalogItem& item) {
-    RuntimeAircraftProductionOrder order;
-    order.serial = 1; order.typeId = item.typeId;
-    order.phase = RuntimeAircraftProductionOrderPhase::Prospective;
-    const auto build = buildRuntimeAircraftProductionMatchInputForOwner(
-        state, owner, order, nullptr, false);
-    if (build.error) return std::nullopt;
-    const auto match = runtimeMatchAircraftProductionDocks(build.input);
-    if (!match.feasible) return std::nullopt;
-    for (const auto& assignment : match.assignments) {
-        if (assignment.orderSerial != order.serial) continue;
-        const auto* host = findObjectById(state, assignment.hostId);
-        const auto* rule = host ? findRuntimeBuildingTypeById(state.rules, host->type) : nullptr;
-        if (host && rule && (!rule->powered || host->poweredOperational))
-            return runtimeAircraftDockSpawn(state, *host, assignment.dockIndex);
-    }
-    return std::nullopt;
+    const SessionTacticProductionQueries queries(state);
+    return concord::simulation::ai::runtimeComputerTacticAircraftSpawn(queries, owner, item);
 }
 
 bool completeRuntimeComputerTacticUnit(RuntimeProductionHostState& state,
     RuntimeComputerAiState& ai, const RuntimeBuildCatalogItem& item, int& producedId) {
-    producedId = -1;
-    if (runtimeComputerTacticLane(item) != 2)
-        return runtimeComputerAiBuildUnit(state, ai, item, &producedId);
-    refreshRuntimeAircraftDockAssignments(state);
-    const auto spawn = runtimeComputerTacticAircraftSpawn(state, ai.owner, item);
-    if (!spawn || !spawn->anchor) return false;
-    const int hostId = spawn->anchor->instanceId;
-    const int dockIndex = spawn->dockIndex;
-    auto* aircraft = addRuntimeObjectInstanceForOwner(
-        state, ai.owner, item.kind, item.typeId, spawn->cell);
-    if (!aircraft) return false;
-    producedId = aircraft->instanceId;
-    applyRuntimeProducedObjectVeterancy(state, *aircraft);
-    scaleRuntimeComputerAiObjectHealth(state, ai, *aircraft);
-    if (const auto* host = findObjectById(state, hostId))
-        applyRuntimeAircraftDockPose(state, *aircraft, *host, dockIndex);
-    recordRuntimeCompletedBuild(state, ai.owner, item);
-    ++ai.unitsBuilt;
-    ai.lastBuildType = item.typeId;
-    refreshRuntimeObjectOccupancyAfterLocalChange(state);
-    return true;
+    const SessionTacticProductionQueries queries(state);
+    SessionTacticCompletionEffects effects(state);
+    return concord::simulation::ai::completeRuntimeComputerTacticUnit(queries, effects, ai, item, producedId);
 }
 
 bool queueRuntimeComputerTacticProduction(RuntimeGameSessionState& state,
     RuntimeComputerAiState& ai, const RuntimeBuildCatalogItem& item,
     int teamInstanceId) {
-    auto& tactics = state.triggers.computerTacticsByOwner[
-        toLowerAsciiLocal(trimAsciiLocal(ai.owner))];
-    auto& order = tactics.production[runtimeComputerTacticLane(item)];
-    if (!order.typeId.empty() || ai.credits < item.cost
-        || !runtimeComputerAiItemAllowed(state, ai, item)) return false;
-    if (runtimeComputerTacticLane(item) == 2
-        && !runtimeComputerTacticAircraftSpawn(state, ai.owner, item)) return false;
-    order.teamInstanceId = teamInstanceId;
-    order.typeId = item.typeId;
-    order.remainingTicks = order.totalTicks = std::max(1, item.buildTicks);
-    order.paidCost = item.cost;
-    spendRuntimeComputerStoredOre(state, ai.owner, item.cost);
-    ai.credits -= item.cost;
-    ai.creditsSpent += item.cost;
-    ++ai.productionSerial;
-    ai.status = "building " + item.typeId;
-    return true;
+    const SessionTacticProductionQueries queries(state);
+    SessionTacticQueueEffects effects(state);
+    return concord::simulation::ai::queueRuntimeComputerTacticProduction(state.triggers.computerTacticsByOwner, queries, effects, ai, item, teamInstanceId);
 }
 
 bool advanceRuntimeComputerTacticProduction(RuntimeProductionHostState& state,
     RuntimeComputerAiState& ai, RuntimeComputerTacticsState& tactics) {
-    bool changed = false;
-    for (auto& order : tactics.production) {
-        if (order.typeId.empty()) continue;
-        const auto item = runtimeComputerAiBuildItem(state, order.typeId, ai.owner);
-        if (!item) continue;
-        // A destroyed/captured factory or lost prerequisite pauses a paid
-        // order. Completion waits for a real exit instead of losing its unit.
-        if (!runtimeComputerAiItemAllowed(state, ai, *item)) continue;
-        const auto* anchor = runtimeComputerAiFactoryAnchor(state, ai, *item);
-        const auto* building = anchor
-            ? findRuntimeBuildingTypeById(state.rules, anchor->type) : nullptr;
-        if (!anchor || !building || (building->powered && !anchor->poweredOperational)) continue;
-        if (runtimeComputerTacticLane(*item) == 2
-            && !runtimeComputerTacticAircraftSpawn(state, ai.owner, *item)) continue;
-        if (order.remainingTicks > 0) { --order.remainingTicks; changed = true; }
-        if (order.remainingTicks > 0) continue;
-        int objectId = -1;
-        if (!completeRuntimeComputerTacticUnit(state, ai, *item, objectId)) continue;
-        const auto team = tactics.teams.find(order.teamInstanceId);
-        if (team != tactics.teams.end()) {
-            team->second.objectIds.push_back(objectId);
-            if (team->second.launched) team->second.joiningObjectIds.push_back(objectId);
-            const auto missing = std::find_if(team->second.missingMembers.begin(),
-                team->second.missingMembers.end(), [&](const auto& type) {
-                    return toUpperAsciiLocal(type) == toUpperAsciiLocal(order.typeId);
-                });
-            if (missing != team->second.missingMembers.end()) team->second.missingMembers.erase(missing);
-            team->second.lastProgressTick = state.tick;
-        }
-        order = {};
-        changed = true;
-    }
-    return changed;
+    const SessionTacticProductionQueries queries(state);
+    SessionTacticCompletionEffects effects(state);
+    return concord::simulation::ai::advanceRuntimeComputerTacticProduction(state.tick, queries, effects, ai, tactics);
 }
 
 bool advanceRuntimeComputerAiProduction(
@@ -11474,441 +11358,233 @@ void ensureRuntimeComputerAiStates(RuntimeGameSessionState& state) {
     }
 }
 
-bool runtimeComputerTacticCompare(int actual, int expected, int comparator) {
-    switch (comparator) {
-    case 0: return actual < expected;
-    case 1: return actual <= expected;
-    case 2: return actual == expected;
-    case 3: return actual >= expected;
-    case 4: return actual > expected;
-    case 5: return actual != expected;
-    default: return false;
+namespace {
+namespace tactic_selection = concord::simulation::ai;
+class RuntimeComputerTacticReadAdapter final : public tactic_selection::RuntimeComputerTacticSelectionQueries {
+public:
+    explicit RuntimeComputerTacticReadAdapter(const RuntimeGameSessionState& state) : state_(state) {}
+    int tick() const override { return state_.tick; }
+    int fixedTickHz() const override { return state_.config.fixedTickHz; }
+    int techLevel() const override { return state_.economy.techLevel; }
+    bool superweaponsEnabled() const override { return state_.config.superweapons; }
+    const ComputerTacticsRules& rules() const override { return state_.rules.getComputerTacticsRules(); }
+    int difficultyIndex(const std::string& difficulty) const override {
+        return runtimeComputerMiningDifficultyIndex(difficulty);
     }
-}
-
-std::string runtimeComputerTacticEnemy(const RuntimeGameSessionState& state,
-    const RuntimeComputerAiState& ai) {
-    const WorldObjectInstance* best = nullptr;
-    double distance = std::numeric_limits<double>::max();
-    for (const auto& object : state.world.getObjects()) {
-        if (!object.alive || !runtimeOwnersAreHostileForAutoTarget(state, ai.owner, object.owner)) continue;
-        const double candidate = runtimeCellDistance(ai.baseCenter, runtimeCellPointForObject(object))
-            + (object.kind == WorldObjectKind::Structure ? 0.0 : 1000.0);
-        if (candidate < distance || (candidate == distance && best && object.instanceId < best->instanceId)) {
-            best = &object; distance = candidate;
-        }
+    int legacyScriptTicks(int ticks) const override { return runtimeLegacyScriptTicks(state_, ticks); }
+    int countrySide(const std::string& country) const override { return runtimeBasePlanningSideForCountry(country); }
+    const std::vector<WorldObjectInstance>& objects() const override { return state_.world.getObjects(); }
+    bool hostile(const std::string& owner, const std::string& target) const override {
+        return runtimeOwnersAreHostileForAutoTarget(state_, owner, target);
     }
-    return best ? best->owner : std::string{};
-}
-
-bool runtimeComputerTacticCondition(RuntimeGameSessionState& state,
-    const RuntimeComputerAiState& ai, const RuntimeCampaignAiTriggerDefinition& trigger,
-    const std::string& enemy) {
-    if (trigger.conditionType == -1) return true;
-    const auto compare = [&](int value) {
-        return runtimeComputerTacticCompare(value, trigger.conditionNumber, trigger.conditionComparator);
-    };
-    if (trigger.conditionType == 0 || trigger.conditionType == 1 || trigger.conditionType == 7) {
-        int count = 0;
-        for (const auto& object : state.world.getObjects()) {
-            if (!object.alive || toUpperAsciiLocal(object.type) != toUpperAsciiLocal(trigger.conditionObject)) continue;
-            if (trigger.conditionType == 7 ? runtimeOwnerIsNeutralForAutoTarget(object.owner)
-                : runtimeComputerAiOwnerMatches(object, trigger.conditionType == 1 ? ai.owner : enemy)) ++count;
-        }
-        return compare(count);
+    RuntimeCellPoint objectCell(const WorldObjectInstance& object) const override { return runtimeCellPointForObject(object); }
+    double cellDistance(const RuntimeCellPoint& first, const RuntimeCellPoint& second) const override {
+        return runtimeCellDistance(first, second);
     }
-    if (trigger.conditionType == 2 || trigger.conditionType == 3) {
-        int power = 0;
-        for (const auto& object : state.world.getObjects()) {
-            if (!object.alive || !runtimeComputerAiOwnerMatches(object, enemy)) continue;
-            if (const auto* building = findRuntimeBuildingTypeById(state.rules, object.type)) power += building->power;
-        }
-        return !enemy.empty() && (trigger.conditionType == 2 ? power < 0 : power >= 0);
+    bool neutral(const std::string& owner) const override { return runtimeOwnerIsNeutralForAutoTarget(owner); }
+    bool ownerMatches(const WorldObjectInstance& object, const std::string& owner) const override {
+        return runtimeComputerAiOwnerMatches(object, owner);
     }
-    if (trigger.conditionType == 4) {
-        const auto other = state.computerAiByOwner.find(toLowerAsciiLocal(trimAsciiLocal(enemy)));
-        if (other != state.computerAiByOwner.end()) return compare(other->second.credits);
-        // Human houses are independently authoritative, including remote peers.
-        for (const auto& authority : state.humanHouseAuthorities) {
+    std::optional<int> buildingPower(const std::string& type) const override {
+        const auto* building = findRuntimeBuildingTypeById(state_.rules, type);
+        return building ? std::optional<int>{building->power} : std::nullopt;
+    }
+    std::optional<int> enemyCredits(const std::string& enemy) const override {
+        const auto other = state_.computerAiByOwner.find(toLowerAsciiLocal(trimAsciiLocal(enemy)));
+        if (other != state_.computerAiByOwner.end()) return other->second.credits;
+        // Preserve human authority order, a missing remote economy, and the
+        // original case-sensitive local fallback without inventing an owner.
+        for (const auto& authority : state_.humanHouseAuthorities) {
             if (runtimeCanonicalHumanHouseOwner(enemy) != authority.canonicalOwner) continue;
-            if (authority.localFacade) return compare(state.economy.credits);
-            return authority.remoteEconomy && compare(authority.remoteEconomy->credits);
+            if (authority.localFacade) return state_.economy.credits;
+            return authority.remoteEconomy ? std::optional<int>{authority.remoteEconomy->credits} : std::nullopt;
         }
-        return enemy == state.economy.owner && compare(state.economy.credits);
+        return enemy == state_.economy.owner ? std::optional<int>{state_.economy.credits} : std::nullopt;
     }
-    if (trigger.conditionType == 5 || trigger.conditionType == 6) {
-        if (!state.config.superweapons) return false;
-        ensureRuntimeSuperWeaponsInitialized(state);
-        const std::string identity = trigger.conditionType == 5 ? "ironcurtain" : "chrono";
-        for (const auto& snapshot : state.superWeapons.sidebarSnapshots(ai.owner)) {
-            const auto key = toLowerAsciiLocal(snapshot.superWeaponId + " " + snapshot.name);
-            if (key.find(identity) != std::string::npos
-                && snapshot.state != SuperWeaponRuntimeState::Unavailable
-                && snapshot.progress >= state.rules.getComputerTacticsRules().minorSuperReadyPercent) return true;
-        }
+    const std::map<std::string, RuntimeTaskForce>& taskForces() const override { return state_.triggers.taskForces; }
+    const std::map<std::string, RuntimeScriptType>& scripts() const override { return state_.triggers.scripts; }
+    const std::vector<RuntimeCampaignAiTriggerDefinition>& triggers() const override { return state_.triggers.computerAiTriggers; }
+    const RuntimeTeamType* teamType(const std::string& id) const override { return findRuntimeTriggerTeamById(state_, id); }
+    std::optional<RuntimeBuildCatalogItem> buildItem(const std::string& id, const std::string& owner) const override {
+        return runtimeComputerAiBuildItem(state_, id, owner);
     }
-    return false;
+    bool itemAllowed(const RuntimeComputerAiState& ai, const RuntimeBuildCatalogItem& item) const override {
+        return runtimeComputerAiItemAllowed(state_, ai, item);
+    }
+private:
+    const RuntimeGameSessionState& state_;
+};
+class RuntimeComputerTacticEffectAdapter final : public tactic_selection::RuntimeComputerTacticSelectionEffects {
+public:
+    explicit RuntimeComputerTacticEffectAdapter(RuntimeGameSessionState& state) : state_(state) {}
+    void ensureSuperWeaponsInitialized() override { ensureRuntimeSuperWeaponsInitialized(state_); }
+    const std::vector<SuperWeaponSidebarSnapshot>& superWeaponSnapshots(const std::string& owner) override {
+        return state_.superWeapons.sidebarSnapshots(owner);
+    }
+private:
+    RuntimeGameSessionState& state_;
+};
 }
 
-bool runtimeComputerTacticTemplateBuildable(const RuntimeGameSessionState& state,
-    const RuntimeComputerAiState& ai, const RuntimeTeamType& team) {
-    const auto task = state.triggers.taskForces.find(team.taskForceId);
-    const auto script = state.triggers.scripts.find(team.scriptId);
-    if (team.max == 0 || task == state.triggers.taskForces.end() || task->second.members.empty()
-        || script == state.triggers.scripts.end() || script->second.steps.empty()) return false;
-    int size = 0;
-    for (const auto& member : task->second.members) {
-        const auto item = runtimeComputerAiBuildItem(state, member.unitId, ai.owner);
-        if (member.count <= 0 || member.count > 100 || !item
-            || item->kind == RuntimeBuildKind::Building || item->kind == RuntimeBuildKind::Defense
-            || !runtimeComputerAiItemAllowed(state, ai, *item)) return false;
-        size += member.count;
-    }
-    return size <= 256;
-}
 
-void reportRuntimeComputerTacticOutcome(RuntimeGameSessionState& state,
-    RuntimeComputerTacticsState& tactics, RuntimeComputerTacticTeam& team) {
-    if (team.secondary || team.outcomeReported) return;
-    team.outcomeReported = true;
-    const auto trigger = std::find_if(state.triggers.computerAiTriggers.begin(),
-        state.triggers.computerAiTriggers.end(), [&](const auto& item) { return item.id == team.triggerId; });
-    if (trigger == state.triggers.computerAiTriggers.end()) return;
-    auto [entry, inserted] = tactics.history.try_emplace(team.triggerId);
-    auto& history = entry->second;
-    if (inserted) history.weight = trigger->currentWeight;
-    const auto& rules = state.rules.getComputerTacticsRules();
-    // Retail applies the prior win/loss record, then records this outcome.
-    const double track = history.successes - 0.5 * (history.successes + history.failures);
-    const double delta = team.achievedGreatSuccess
-        ? rules.successWeightDelta + std::max(0.0, track)
-        : rules.failureWeightDelta + std::min(0.0, track * rules.trackRecordCoefficient);
-    history.weight = std::clamp(history.weight + delta, trigger->minimumWeight, trigger->maximumWeight);
-    if (team.achievedGreatSuccess) ++history.successes;
-    else ++history.failures;
-}
+
+
+
+
 
 bool selectRuntimeComputerTactic(RuntimeGameSessionState& state, RuntimeComputerAiState& ai,
     RuntimeComputerTacticsState& tactics) {
-    if (state.tick < tactics.nextTriggerTick) return false;
-    const auto& rules = state.rules.getComputerTacticsRules();
-    const int difficulty = runtimeComputerMiningDifficultyIndex(ai.difficulty);
-    const int delay = runtimeLegacyScriptTicks(state, rules.teamDelays[difficulty]);
-    tactics.nextTriggerTick = state.tick + delay;
-    const std::string enemy = runtimeComputerTacticEnemy(state, ai);
-    if (enemy.empty()) return false;
-    std::map<std::string, int> templateCounts;
-    int defenses = 0;
-    for (const auto& [id, team] : tactics.teams) {
-        ++templateCounts[team.teamTypeId];
-        if (team.baseDefense) ++defenses;
-    }
-    const bool needDefense = rules.useMinimumDefenseRule && defenses < rules.minimumDefensiveTeams[difficulty];
-    struct Choice { const RuntimeCampaignAiTriggerDefinition* trigger; double weight; bool defense; };
-    std::vector<Choice> choices;
-    bool defenseAvailable = false;
-    for (const auto& trigger : state.triggers.computerAiTriggers) {
-        if (!trigger.valid || !trigger.enabled || !trigger.availableInSkirmish
-            || !trigger.difficultyEnabled[2 - difficulty] || trigger.techLevel > state.economy.techLevel) continue;
-        const auto authoredOwner = toLowerAsciiLocal(trimAsciiLocal(trigger.owner));
-        if (authoredOwner != "<all>" && authoredOwner != "all"
-            && authoredOwner != toLowerAsciiLocal(ai.country)) continue;
-        if (trigger.side > 0 && trigger.side != runtimeBasePlanningSideForCountry(ai.country) + 1) continue;
-        const auto history = tactics.history.find(trigger.id);
-        const double weight = history == tactics.history.end() ? trigger.currentWeight : history->second.weight;
-        if (weight <= 0.0 || !runtimeComputerTacticCondition(state, ai, trigger, enemy)) continue;
-        const auto* primary = findRuntimeTriggerTeamById(state, trigger.primaryTeamId);
-        const auto secondaryId = toLowerAsciiLocal(trimAsciiLocal(trigger.secondaryTeamId));
-        const bool hasSecondary = !secondaryId.empty() && secondaryId != "<none>";
-        const auto* secondary = hasSecondary ? findRuntimeTriggerTeamById(state, trigger.secondaryTeamId) : nullptr;
-        if (!primary || (hasSecondary && !secondary)) continue;
-        std::map<std::string, int> addedCounts;
-        int addedDefenses = 0, added = 0;
-        bool buildable = true;
-        for (const auto* team : {primary, secondary}) {
-            if (!team) continue;
-            // Retail tests both templates against the pre-selection count,
-            // then CreateTeam checks Max again for each actual creation.
-            if ((team->max >= 0 && templateCounts[team->id] >= team->max)
-                || !runtimeComputerTacticTemplateBuildable(state, ai, *team)) buildable = false;
-            if (team->max >= 0 && templateCounts[team->id] + addedCounts[team->id] >= team->max) continue;
-            ++addedCounts[team->id];
-            ++added;
-            if (team->isBaseDefense || trigger.baseDefense) ++addedDefenses;
-        }
-        if (!buildable || static_cast<int>(tactics.teams.size()) + added > rules.totalTeamCap[difficulty]
-            || defenses + addedDefenses > rules.maximumDefensiveTeams[difficulty]) continue;
-        defenseAvailable |= addedDefenses > 0;
-        choices.push_back({&trigger, weight, addedDefenses > 0});
-    }
-    double total = 0.0;
-    for (const auto& choice : choices)
-        if (!needDefense || !defenseAvailable || choice.defense) total += choice.weight;
-    if (total <= 0.0) {
-        // Retry prerequisites during an opening, while preserving the authored
-        // interval between successful selections.
-        tactics.nextTriggerTick = state.tick + std::min(delay, std::max(1, state.config.fixedTickHz * 2));
-        return false;
-    }
-    const auto random = runtimeStableHashString(ai.owner + ":team:" + std::to_string(++tactics.selectionSerial)
-        + ":" + std::to_string(state.tick));
-    double roll = static_cast<double>(random % 1000000) / 1000000.0 * total;
-    const RuntimeCampaignAiTriggerDefinition* selected = nullptr;
-    for (const auto& choice : choices) {
-        if (needDefense && defenseAvailable && !choice.defense) continue;
-        selected = choice.trigger;
-        roll -= choice.weight;
-        if (roll < 0.0) break;
-    }
-    if (!selected) return false;
-    auto [record, inserted] = tactics.history.try_emplace(selected->id);
-    if (inserted) record->second.weight = selected->currentWeight;
-    ++record->second.executions;
-    for (bool secondary : {false, true}) {
-        const auto* type = findRuntimeTriggerTeamById(state,
-            secondary ? selected->secondaryTeamId : selected->primaryTeamId);
-        if (!type) continue;
-        if (type->max >= 0 && templateCounts[type->id] >= type->max) continue;
-        ++templateCounts[type->id];
-        RuntimeComputerTacticTeam team;
-        team.instanceId = tactics.nextTeamInstanceId++;
-        team.triggerId = selected->id; team.teamTypeId = type->id; team.targetOwner = enemy;
-        team.secondary = secondary; team.baseDefense = type->isBaseDefense || selected->baseDefense;
-        team.createdTick = team.lastProgressTick = state.tick;
-        for (const auto& member : state.triggers.taskForces.at(type->taskForceId).members)
-            for (int count = 0; count < member.count; ++count) team.missingMembers.push_back(member.unitId);
-        tactics.teams.emplace(team.instanceId, std::move(team));
-    }
-    ai.status = "assembling " + selected->name;
-    return true;
+    RuntimeComputerTacticReadAdapter queries(state);
+    RuntimeComputerTacticEffectAdapter effects(state);
+    return tactic_selection::selectRuntimeComputerTactic(queries, effects, ai, tactics);
 }
+
+class SessionTacticRecruitmentQueries final
+    : public concord::simulation::ai::RuntimeComputerTacticRecruitmentQueries {
+public:
+    explicit SessionTacticRecruitmentQueries(const RuntimeGameSessionState& state)
+        : state_(state), reservations_(state) {}
+    bool pendingTransportTarget(int id) const override { return reservations_.pendingTransportTarget(id); }
+    bool pendingEngineerCapture(int id) const override { return reservations_.pendingEngineerCapture(id); }
+    bool pendingOccupyTarget(int id) const override { return reservations_.pendingOccupyTarget(id); }
+    const std::vector<RuntimeGrindingRelation>& grindingRelations() const override { return reservations_.grindingRelations(); }
+    const std::map<std::string, RuntimeComputerTacticsState>& ownerTactics() const override { return reservations_.ownerTactics(); }
+    bool ownerMatches(const WorldObjectInstance& object, const std::string& owner) const override { return runtimeComputerAiOwnerMatches(object, owner); }
+    bool disabledByParasite(int id) const override { return runtimeObjectDisabledByParasite(state_, id); }
+    const UnitType* unitType(const WorldObjectInstance& object) const override { return findRuntimeUnitType(state_.rules, object); }
+    bool hasAttackAmmo(const WorldObjectInstance& object) const override { return runtimeObjectHasAttackAmmo(state_.rules, object); }
+    const RuntimeTaskForce* taskForce(const std::string& id) const override {
+        const auto found = state_.triggers.taskForces.find(id);
+        return found == state_.triggers.taskForces.end() ? nullptr : &found->second;
+    }
+    const RuntimeTeamType* teamType(const std::string& id) const override {
+        const auto found = state_.triggers.teams.find(id);
+        return found == state_.triggers.teams.end() ? nullptr : &found->second;
+    }
+    const std::vector<WorldObjectInstance>& objects() const override { return state_.world.getObjects(); }
+    RuntimeCellPoint objectCell(const WorldObjectInstance& object) const override { return runtimeCellPointForObject(object); }
+    double cellDistance(const RuntimeCellPoint& from, const RuntimeCellPoint& to) const override { return runtimeCellDistance(from, to); }
+    const WorldObjectInstance* object(int id) const override { return findObjectById(state_, id); }
+    RuntimeCellPoint missionCenter(const RuntimeTeamMissionState& mission) const override { return runtimeTeamMissionCenter(state_, mission); }
+private:
+    const RuntimeGameSessionState& state_;
+    const SessionTacticObjectReservationQueries reservations_;
+};
+class SessionTacticRecruitmentEffects final
+    : public concord::simulation::ai::RuntimeComputerTacticRecruitmentEffects {
+public:
+    explicit SessionTacticRecruitmentEffects(RuntimeProductionHostState& state) : state_(state) {}
+    void detachMember(int id) override { detachRuntimeObjectFromTeamMembership(state_, id); }
+    void eraseBehavior(int id) override { eraseRuntimeBehavior(state_, id); }
+    WorldObjectInstance* mutableObject(int id) override { return findMutableObjectById(state_, id); }
+    int issueTeamAttack(const std::vector<int>& ids, const WorldObjectInstance& object) override { return issueRuntimeTeamAttack(state_, ids, object); }
+    int issueTeamMove(const std::vector<int>& ids, const RuntimeCellPoint& cell) override { return issueRuntimeTeamMove(state_, ids, cell); }
+private:
+    RuntimeProductionHostState& state_;
+};
 
 int runtimeComputerTacticGroup(const RuntimeGameSessionState& state, const RuntimeTeamType& type) {
-    const auto task = state.triggers.taskForces.find(type.taskForceId);
-    return type.group == -1 && task != state.triggers.taskForces.end() ? task->second.group : type.group;
-}
-
-bool runtimeComputerTacticMemberPresent(const RuntimeGameSessionState& state,
-    const RuntimeComputerAiState& ai, int id) {
-    const auto* member = findRuntimeObjectByIdIncludingInactive(state, id);
-    return member && runtimeComputerAiOwnerMatches(*member, ai.owner)
-        && (member->alive || member->mission == "InsideTransport"
-            || runtimeObjectIsPendingTeamRejoinAfterLimbo(state, id));
-}
-
-void refreshRuntimeComputerTacticMissing(RuntimeGameSessionState& state,
-    RuntimeComputerTacticTeam& team, const RuntimeTeamType& type) {
-    if (team.launched && (!type.reinforce || team.objectIds.empty())) return;
-    const auto task = state.triggers.taskForces.find(type.taskForceId);
-    if (task == state.triggers.taskForces.end()) return;
-    std::map<std::string, int> counts;
-    for (int id : team.objectIds)
-        if (const auto* member = findRuntimeObjectByIdIncludingInactive(state, id))
-            ++counts[toUpperAsciiLocal(member->type)];
-    team.missingMembers.clear();
-    for (const auto& member : task->second.members) {
-        const auto key = toUpperAsciiLocal(member.unitId);
-        for (int i = 0; i < member.count; ++i) {
-            if (counts[key] > 0) --counts[key];
-            else team.missingMembers.push_back(member.unitId);
-        }
-    }
+    const SessionTacticRecruitmentQueries queries(state);
+    return concord::simulation::ai::runtimeComputerTacticGroup(queries, type);
 }
 
 bool runtimeComputerTacticMayRecruit(const RuntimeGameSessionState& state,
     const RuntimeComputerAiState& ai, const RuntimeComputerTacticTeam& team,
     const RuntimeTeamType& type, const WorldObjectInstance& object) {
-    if (!object.alive || object.health <= 0 || !runtimeComputerAiOwnerMatches(object, ai.owner)
-        || object.factoryExitHostId >= 0 || object.garrisonHostObjectId >= 0 || object.tankBunkerHostId >= 0
-        || runtimeObjectDisabledByParasite(state, object.instanceId)) return false;
-    // Retail's MissionControl forbids recruiting units during entry,
-    // unloading, harvesting and other committed interactions.
-    const auto mission = toLowerAsciiLocal(object.mission);
-    if (mission != "guard" && mission != "areaguard" && mission != "area guard"
-        && mission != "move" && mission != "attack" && mission != "secondaryfire" && mission != "dock"
-        && mission != "stop" && mission != "patrol" && mission != "hunt") return false;
-    if (state.pendingEngineerCaptures.contains(object.instanceId)
-        || state.pendingTransportTargets.contains(object.instanceId)
-        || state.pendingOccupyTargets.contains(object.instanceId)) return false;
-    for (const auto& relation : state.grinding.relations())
-        if (relation.sourceId == object.instanceId) return false;
-    if (const auto* unit = findRuntimeUnitType(state.rules, object); unit) {
-        if (unit->harvester || unit->resourceGatherer
-            || (unit->airportBound && (object.airborne || !runtimeObjectHasAttackAmmo(state.rules, object)))) return false;
-    }
-    bool assigned = false;
-    const int group = runtimeComputerTacticGroup(state, type);
-    for (const auto& [house, tactics] : state.triggers.computerTacticsByOwner)
-        for (const auto& [id, existing] : tactics.teams) {
-            if (std::find(existing.objectIds.begin(), existing.objectIds.end(), object.instanceId)
-                == existing.objectIds.end()) continue;
-            assigned = true;
-            if (&existing == &team || existing.teamTypeId == team.teamTypeId) return false;
-            const auto oldType = state.triggers.teams.find(existing.teamTypeId);
-            if (oldType == state.triggers.teams.end() || !oldType->second.recruitable
-                || oldType->second.priority >= type.priority) return false;
-            // A Recruiter may draw from another authored group. Default
-            // skirmish groups are -1; -2 explicitly accepts any group.
-            if (!type.recruiter && group != -2 && runtimeComputerTacticGroup(state, oldType->second) != group) return false;
-        }
-    if (!assigned && !type.recruiter && group != -2 && group != -1) return false;
-    return true;
+    const SessionTacticRecruitmentQueries queries(state);
+    return concord::simulation::ai::runtimeComputerTacticMayRecruit(queries, ai, team, type, object);
 }
 
 bool recruitRuntimeComputerTacticMembers(RuntimeProductionHostState& state,
     RuntimeComputerAiState& ai, RuntimeComputerTacticsState& tactics,
     RuntimeComputerTacticTeam& team, const RuntimeTeamType& type) {
-    std::map<std::string, int> inProduction;
-    for (const auto& order : tactics.production)
-        if (order.teamInstanceId == team.instanceId && !order.typeId.empty())
-            ++inProduction[toUpperAsciiLocal(order.typeId)];
-    bool changed = false;
-    for (auto missing = team.missingMembers.begin(); missing != team.missingMembers.end();) {
-        const auto key = toUpperAsciiLocal(*missing);
-        if (inProduction[key] > 0) { --inProduction[key]; ++missing; continue; }
-        int recruitId = -1; double bestDistance = std::numeric_limits<double>::max();
-        for (const auto& object : state.world.getObjects()) {
-            if (toUpperAsciiLocal(object.type) != key
-                || !runtimeComputerTacticMayRecruit(state, ai, team, type, object)) continue;
-            const double distance = runtimeCellDistance(ai.baseCenter, runtimeCellPointForObject(object));
-            if (distance < bestDistance || (distance == bestDistance && object.instanceId < recruitId)) {
-                recruitId = object.instanceId; bestDistance = distance;
-            }
-        }
-        if (recruitId < 0) { ++missing; continue; }
-        detachRuntimeObjectFromTeamMembership(state, recruitId);
-        eraseRuntimeBehavior(state, recruitId);
-        team.objectIds.push_back(recruitId);
-        if (team.launched) team.joiningObjectIds.push_back(recruitId);
-        if (auto* recruit = findMutableObjectById(state, recruitId)) recruit->mission = "Guard";
-        missing = team.missingMembers.erase(missing);
-        team.lastProgressTick = state.tick; changed = true;
-    }
-    return changed;
+    const concord::simulation::ai::RuntimeComputerTacticRecruitmentState data{
+        state.tick, state.triggers.teamMissions, state.triggers.scripts};
+    const SessionTacticRecruitmentQueries queries(state);
+    SessionTacticRecruitmentEffects effects(state);
+    return concord::simulation::ai::recruitRuntimeComputerTacticMembers(data, queries, effects, ai, tactics, team, type);
 }
 
 bool joinRuntimeComputerTacticReinforcements(RuntimeProductionHostState& state,
     RuntimeComputerTacticTeam& team, const RuntimeTeamType& type) {
-    bool changed = false;
-    for (auto next = team.joiningObjectIds.begin(); next != team.joiningObjectIds.end();) {
-        auto* member = findMutableObjectById(state, *next);
-        if (!member) { next = team.joiningObjectIds.erase(next); continue; }
-        if (member->factoryExitHostId >= 0 || member->mission == "FactoryExit") { ++next; continue; }
-        member->veterancy = std::max(member->veterancy, type.veteranLevel - 1);
-        const int memberId = member->instanceId;
-        RuntimeTeamMissionState companions;
-        for (int id : team.objectIds) if (id != memberId) companions.objectIds.push_back(id);
-        RuntimeCellPoint destination = runtimeTeamMissionCenter(state, companions);
-        bool ordered = false;
-        if (auto mission = state.triggers.teamMissions.find(team.missionInstanceId);
-            mission != state.triggers.teamMissions.end()) {
-            auto& current = mission->second;
-            if (std::find(current.objectIds.begin(), current.objectIds.end(), memberId) == current.objectIds.end())
-                current.objectIds.push_back(memberId);
-            const auto script = state.triggers.scripts.find(current.scriptId);
-            const int action = script != state.triggers.scripts.end() && current.stepIndex < script->second.steps.size()
-                ? script->second.steps[current.stepIndex].action : -1;
-            if (current.stepIssued && (action == 0 || action == 46))
-                if (const auto* target = findObjectById(state, current.targetObjectId))
-                    ordered = issueRuntimeTeamAttack(state, {memberId}, *target) > 0;
-            if (current.targetCell.x >= 0) destination = current.targetCell;
-        }
-        if (!ordered && destination.x >= 0) (void)issueRuntimeTeamMove(state, {memberId}, destination);
-        next = team.joiningObjectIds.erase(next); changed = true;
-    }
-    return changed;
+    const concord::simulation::ai::RuntimeComputerTacticRecruitmentState data{
+        state.tick, state.triggers.teamMissions, state.triggers.scripts};
+    const SessionTacticRecruitmentQueries queries(state);
+    SessionTacticRecruitmentEffects effects(state);
+    return concord::simulation::ai::joinRuntimeComputerTacticReinforcements(data, queries, effects, team, type);
 }
+
+namespace tactic_lifecycle = concord::simulation::ai;
+
+// Private assembly only. Each dependency calls its existing owner synchronously.
+class RuntimeComputerTacticLifecycleReadAdapter final
+    : public tactic_lifecycle::RuntimeComputerTacticLifecycleQueries {
+public:
+    explicit RuntimeComputerTacticLifecycleReadAdapter(const RuntimeGameSessionState& state)
+        : state_(state) {}
+    const ComputerTacticsRules& rules() const override { return state_.rules.getComputerTacticsRules(); }
+    const RuntimeTeamType* teamType(const std::string& id) const override { return findRuntimeTriggerTeamById(state_, id); }
+    const WorldObjectInstance* objectIncludingInactive(int id) const override { return findRuntimeObjectByIdIncludingInactive(state_, id); }
+    const WorldObjectInstance* object(int id) const override { return findObjectById(state_, id); }
+    bool ownerMatches(const WorldObjectInstance& object, const std::string& owner) const override { return runtimeComputerAiOwnerMatches(object, owner); }
+    bool pendingTeamRejoinAfterLimbo(int id) const override { return runtimeObjectIsPendingTeamRejoinAfterLimbo(state_, id); }
+    int legacyScriptTicks(int ticks) const override { return runtimeLegacyScriptTicks(state_, ticks); }
+    int difficultyIndex(const std::string& difficulty) const override { return runtimeComputerMiningDifficultyIndex(difficulty); }
+    RuntimeComputerAiMetrics metrics(const RuntimeComputerAiState& ai) const override { return runtimeComputerAiMetrics(state_, ai); }
+    std::optional<RuntimeBuildCatalogItem> neededHarvester(const RuntimeComputerAiState& ai, const RuntimeComputerAiMetrics& metrics) const override {
+        return runtimeComputerAiSelectNeededHarvester(state_, ai, metrics);
+    }
+    bool isMegawealthMode() const override { return runtimeIsMegawealthMode(state_); }
+    bool needsOilEngineer(const RuntimeComputerAiState& ai) const override { return runtimeComputerAiNeedsOilEngineer(state_, ai); }
+    std::optional<RuntimeBuildCatalogItem> selectEngineer(const RuntimeComputerAiState& ai) const override {
+        return runtimeComputerAiSelectUnitForRole(state_, ai, RuntimeComputerAiUnitRole::Engineer);
+    }
+    std::optional<RuntimeBuildCatalogItem> buildItem(const std::string& id, const std::string& owner) const override {
+        return runtimeComputerAiBuildItem(state_, id, owner);
+    }
+private:
+    const RuntimeGameSessionState& state_;
+};
+
+class RuntimeComputerTacticLifecycleEffectAdapter final
+    : public tactic_lifecycle::RuntimeComputerTacticLifecycleEffects {
+public:
+    explicit RuntimeComputerTacticLifecycleEffectAdapter(RuntimeProductionHostState& state)
+        : state_(state) {}
+    bool advanceProduction(RuntimeComputerAiState& ai, RuntimeComputerTacticsState& tactics) override {
+        return advanceRuntimeComputerTacticProduction(state_, ai, tactics);
+    }
+    bool joinReinforcements(RuntimeComputerTacticTeam& team, const RuntimeTeamType& type) override {
+        return joinRuntimeComputerTacticReinforcements(state_, team, type);
+    }
+    bool recruitMembers(RuntimeComputerAiState& ai, RuntimeComputerTacticsState& tactics,
+        RuntimeComputerTacticTeam& team, const RuntimeTeamType& type) override {
+        return recruitRuntimeComputerTacticMembers(state_, ai, tactics, team, type);
+    }
+    WorldObjectInstance* mutableObject(int id) override { return findMutableObjectById(state_, id); }
+    void issueTeamOrder(const RuntimeTeamType& type, const std::vector<int>& ids, const std::string& trigger, int team) override {
+        issueRuntimeTriggerTeamOrder(state_, type, ids, trigger, team);
+    }
+    bool select(RuntimeComputerAiState& ai, RuntimeComputerTacticsState& tactics) override {
+        return selectRuntimeComputerTactic(state_, ai, tactics);
+    }
+    bool queueProduction(RuntimeComputerAiState& ai, const RuntimeBuildCatalogItem& item, int team) override {
+        return queueRuntimeComputerTacticProduction(state_, ai, item, team);
+    }
+private:
+    RuntimeProductionHostState& state_;
+};
 
 bool advanceRuntimeComputerTactics(RuntimeProductionHostState& state, RuntimeComputerAiState& ai) {
-    if (state.triggers.computerAiTriggers.empty()) return false;
-    auto& tactics = state.triggers.computerTacticsByOwner[toLowerAsciiLocal(trimAsciiLocal(ai.owner))];
-    bool changed = advanceRuntimeComputerTacticProduction(state, ai, tactics);
-    // World scans and team selection need not run at the production tick rate.
-    if (state.tick < ai.nextThinkTick) return changed;
-    const auto& rules = state.rules.getComputerTacticsRules();
-    std::vector<int> finished;
-    for (auto& [id, team] : tactics.teams) {
-        const auto* type = findRuntimeTriggerTeamById(state, team.teamTypeId);
-        if (!type) { finished.push_back(id); continue; }
-        for (auto member = team.objectIds.begin(); member != team.objectIds.end();) {
-            if (runtimeComputerTacticMemberPresent(state, ai, *member)) { ++member; continue; }
-            std::erase(team.joiningObjectIds, *member);
-            member = team.objectIds.erase(member); changed = true;
-        }
-        if (team.launched) {
-            const auto mission = state.triggers.teamMissions.find(team.missionInstanceId);
-            if (mission != state.triggers.teamMissions.end())
-                team.achievedGreatSuccess |= mission->second.achievedGreatSuccess;
-            if (team.missionFinished && (!team.baseDefense || team.objectIds.empty())) {
-                finished.push_back(id); continue;
-            }
-            changed = joinRuntimeComputerTacticReinforcements(state, team, *type) || changed;
-            if (!type->reinforce || team.objectIds.empty()) continue;
-        }
-        const auto previousMissing = team.missingMembers;
-        refreshRuntimeComputerTacticMissing(state, team, *type);
-        changed = previousMissing != team.missingMembers || changed;
-        changed = recruitRuntimeComputerTacticMembers(state, ai, tactics, team, *type) || changed;
-        if (team.launched) continue;
-        if (team.missingMembers.empty() && !team.objectIds.empty()) {
-            bool exiting = false;
-            for (int objectId : team.objectIds) {
-                const auto* object = findObjectById(state, objectId);
-                if (object && (object->factoryExitHostId >= 0 || object->mission == "FactoryExit")) exiting = true;
-            }
-            if (!exiting) {
-                team.launched = true;
-                team.missionInstanceId = state.triggers.nextTeamMissionInstanceId;
-                auto launchType = *type; launchType.house = ai.owner;
-                for (int objectId : team.objectIds)
-                    if (auto* object = findMutableObjectById(state, objectId))
-                        object->veterancy = std::max(object->veterancy, type->veteranLevel - 1);
-                issueRuntimeTriggerTeamOrder(state, launchType, team.objectIds, team.triggerId, team.instanceId);
-                ++ai.attackWaves; ai.attacksOrdered += static_cast<int>(team.objectIds.size());
-                ai.status = "launched " + type->name; changed = true;
-            }
-        } else if (state.tick - team.lastProgressTick
-            > runtimeLegacyScriptTicks(state, rules.dissolveUnfilledTeamDelay)) finished.push_back(id);
-    }
-    for (int id : finished) {
-        auto found = tactics.teams.find(id);
-        if (found == tactics.teams.end()) continue;
-        reportRuntimeComputerTacticOutcome(state, tactics, found->second);
-        // A paid unit already in progress completes as a free-to-recruit unit.
-        for (auto& order : tactics.production) if (order.teamInstanceId == id) order.teamInstanceId = -1;
-        state.triggers.teamMissions.erase(found->second.missionInstanceId);
-        tactics.teams.erase(found); changed = true;
-    }
-    changed = selectRuntimeComputerTactic(state, ai, tactics) || changed;
-    // New teams first recruit available members; do not start an unnecessary
-    // paid unit merely because selection follows the maintenance pass.
-    for (auto& [id, team] : tactics.teams) if (team.createdTick == state.tick && !team.launched) {
-        if (const auto* type = findRuntimeTriggerTeamById(state, team.teamTypeId))
-            changed = recruitRuntimeComputerTacticMembers(state, ai, tactics, team, *type) || changed;
-    }
-
-    // Economic recovery shares the same factory queue and takes the next free
-    // slot before optional combat members. It never interrupts a paid order.
-    const auto metrics = runtimeComputerAiMetrics(state, ai);
-    auto economic = runtimeComputerAiSelectNeededHarvester(state, ai, metrics);
-    if (!economic && runtimeIsMegawealthMode(state) && runtimeComputerAiNeedsOilEngineer(state, ai))
-        economic = runtimeComputerAiSelectUnitForRole(state, ai, RuntimeComputerAiUnitRole::Engineer);
-    if (economic) changed = queueRuntimeComputerTacticProduction(state, ai, *economic) || changed;
-    std::vector<int> priority;
-    for (const auto& [id, team] : tactics.teams) if (!team.missingMembers.empty()) priority.push_back(id);
-    const int difficulty = runtimeComputerMiningDifficultyIndex(ai.difficulty);
-    const auto random = runtimeStableHashString(ai.owner + ":fill:" + std::to_string(state.tick));
-    if (!priority.empty() && random % 100 >= static_cast<unsigned>(rules.fillEarliestTeamProbability[difficulty]))
-        std::rotate(priority.begin(), priority.begin() + random % priority.size(), priority.end());
-    for (int id : priority) {
-        auto& team = tactics.teams.at(id);
-        for (const auto& missing : team.missingMembers) {
-            const auto item = runtimeComputerAiBuildItem(state, missing, ai.owner);
-            if (item) changed = queueRuntimeComputerTacticProduction(state, ai, *item, id) || changed;
-        }
-    }
-    return changed;
+    tactic_lifecycle::RuntimeComputerTacticLifecycleState values{
+        state.triggers.computerAiTriggers, state.triggers.computerTacticsByOwner,
+        state.triggers.taskForces, state.triggers.teamMissions,
+        state.triggers.nextTeamMissionInstanceId, state.tick};
+    RuntimeComputerTacticLifecycleReadAdapter queries(state);
+    RuntimeComputerTacticLifecycleEffectAdapter effects(state);
+    return tactic_lifecycle::advanceRuntimeComputerTactics(values, queries, effects, ai);
 }
+
 
 int runtimeComputerCaptureChoice(const ComputerTacticsRules& rules, int credits,
     bool lowPower, double healthRatio, unsigned roll, int teamOverride) {

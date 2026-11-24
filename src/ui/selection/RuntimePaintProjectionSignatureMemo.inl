@@ -48,7 +48,7 @@ public:
     inline static thread_local RuntimePaintProjectionSignatureScope* active = nullptr;
     // readonlyInputs=true is supplied only after all authority/snapshot refreshes
     // and for the closed, non-pumping map -> initial projection call chain.
-    explicit RuntimePaintProjectionSignatureScope(const RuntimeWindowState& state,
+    explicit RuntimePaintProjectionSignatureScope(const RuntimeGameSessionState& state,
         bool readonlyInputs = false) noexcept
         : previous_(active), state_(&state), enabled_(readonlyInputs && previous_ == nullptr
             && !runtimePaintProjectionSignatureReference()),
@@ -75,7 +75,7 @@ public:
         enabled_ = false;
         ready_ = false;
     }
-    bool accepts(const RuntimeWindowState& state) noexcept {
+    bool accepts(const RuntimeGameSessionState& state) noexcept {
         if (!enabled_ || state_ != &state || active != this) return false;
         // Defensive structural checks only. Same-address field writes/order
         // changes still require invalidate(), and are not inferred from these.
@@ -93,14 +93,14 @@ public:
         }
         return true;
     }
-    void publish(const RuntimeWindowState& state, unsigned long long signature) noexcept {
+    void publish(const RuntimeGameSessionState& state, unsigned long long signature) noexcept {
         if (!accepts(state)) return;
         signature_ = signature;
         ready_ = true;
         if (runtimePaintProjectionSignatureObservation)
             ++runtimePaintProjectionSignatureObservation->published;
     }
-    bool consume(const RuntimeWindowState& state, unsigned long long& signature) noexcept {
+    bool consume(const RuntimeGameSessionState& state, unsigned long long& signature) noexcept {
         if (!accepts(state) || !ready_) return false;
         signature = signature_;
         // No later UI/query can borrow this capture's result.
@@ -112,7 +112,7 @@ public:
     }
 private:
     RuntimePaintProjectionSignatureScope* previous_;
-    const RuntimeWindowState* state_;
+    const RuntimeGameSessionState* state_;
     bool enabled_;
     bool ready_ = false;
     unsigned long long signature_ = 0;

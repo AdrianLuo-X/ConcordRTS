@@ -13,3 +13,11 @@ bool loadRuntimeTmpTileBytes(
     RuntimeTmpTileFile& tileFile,
     std::string& errorMessage
 );
+
+#include <cstddef>
+// Reuse the existing raw Format3 decoder with its original error and partial-output contract.
+bool decodeRuntimeTmpFormat3Pixels(
+    const std::vector<unsigned char>& bytes, std::size_t dataOffset, std::size_t dataEnd,
+    unsigned int width, unsigned int height, std::vector<unsigned char>& pixels,
+    std::string& errorMessage
+);

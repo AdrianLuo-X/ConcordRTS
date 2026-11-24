@@ -13,7 +13,7 @@ int runtimeOccupantPipFrame(const std::string& authored) {
 }
 
 std::vector<int> runtimeGarrisonPipFrames(
-    const RuntimeWindowState& state, const WorldObjectInstance& host
+    const RuntimeGameSessionState& state, const WorldObjectInstance& host
 ) {
     const auto* building = findRuntimeBuildingType(state.rules, host);
     if (!host.alive || host.health <= 0 || host.rubble || building == nullptr) return {};

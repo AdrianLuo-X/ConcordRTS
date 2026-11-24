@@ -77,17 +77,3 @@ bool drawRuntimeHealthPipStripPixels(
     }
     return true;
 }
-
-bool drawRuntimeHealthPipStrip(
-    HDC dc,
-    RuntimeWindowState& state,
-    const RuntimeUiShpCacheEntry& image,
-    const std::vector<RuntimePaletteColor>& palette,
-    int left,
-    int top,
-    int fillPixels
-) {
-    if (runtimeHealthPipStripReference()) return false;
-    return drawRuntimeHealthPipStripPixels(image.image, palette, image.pcxFallback,
-        runtimePixelSurfaceTargetForDc(state, dc), left, top, fillPixels);
-}

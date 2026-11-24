@@ -74,7 +74,8 @@ bool runRuntimeAirDamageSmokeSmoke(const RuntimeConfig& config, std::string& err
                     const auto origin=emitter->origin;
                     // Compare translation and height deltas against the rendered
                     // pose, independently of the corrected origin helper.
-                    const double bodyLevel=object.renderMoveActive?object.renderLevel:double(object.level);
+                    // Both poses deliberately use a retained fractional body height.
+                    const double bodyLevel=object.renderLevel;
                     if(pose==1){
                         if(emitter->id!=producer)fail(label+" producer restarted");
                         if(std::abs((origin.x-prior.x)/256.0-(object.renderX-priorX))>1e-8

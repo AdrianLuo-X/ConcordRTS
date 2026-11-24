@@ -308,15 +308,23 @@ bool runRuntimeParasiteLeapExitSmoke(const RuntimeConfig& config, std::string& e
             if (bridge) {
                 // Both actors enter the stock overlay through their real path
                 // authorities. Neither onBridge nor XYZ is assigned by the test.
-                // Stage the source first so it cannot block the host's long
-                // path on the single-cell deck. Stop inside a real segment,
-                // then let the host walk to the free cell just behind it.
-                if (!move(s,sourceId,"Americans",{34,32})) return fail("real bridge source Move rejected");
+                // A stopped full-cell vehicle holds both cells touched by
+                // its fractional body. Approach from the far bank so the
+                // source holds cells 33/34, leaving the host's cell 32 free.
+                // All positions and bridge flags still come from real Moves.
+                if (!move(s,sourceId,"Americans",{50,32})) return fail("real bridge source far-bank Move rejected");
+                bool farBank=false;
+                for (int n=0;n<hz*20;++n) {
+                    step(s);const auto* a=findObjectById(s,sourceId);
+                    if (a && a->x==50 && !a->renderMoveActive && !fractional(*a)) { farBank=true;break; }
+                }
+                if (!farBank) return fail("bridge source Move never reached its real far bank: "+describe(findObjectById(s,sourceId)));
+                if (!move(s,sourceId,"Americans",{32,32})) return fail("real bridge source return Move rejected");
                 bool sourceEntered=false;
-                for (int n=0;n<hz*8;++n) {
+                for (int n=0;n<hz*20;++n) {
                     step(s);const auto* a=findObjectById(s,sourceId);
                     if (a && a->x==33 && a->onBridge && a->renderOnBridge && fractional(*a)
-                        && runtimeObjectRenderX(*a)>32.8 && runtimeObjectRenderX(*a)<33.0) { sourceEntered=true;break; }
+                        && runtimeObjectRenderX(*a)>33.0 && runtimeObjectRenderX(*a)<33.2) { sourceEntered=true;break; }
                 }
                 if (!sourceEntered) return fail("bridge source Move never supplied its real fractional deck pose: "+describe(findObjectById(s,sourceId)));
                 if (!stopSource()) return fail("real bridge source Stop rejected or snapped its actual pose");

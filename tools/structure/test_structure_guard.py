@@ -382,10 +382,10 @@ class GuardFixtures(unittest.TestCase):
 
     def test_menu_sound_private_factory_only_main_provider_and_native_test(self):
         native="audio/events/win32/RuntimeMenuSoundWin32.h";self.put("src/"+native,"struct Factory{};")
-        for caller in ("tests/audio/RuntimeMenuSfxClockContract.cpp","src/ui/skirmish/RuntimeSkirmishMenu.cpp","src/audio/events/win32/RuntimeMenuSoundWin32.cpp","tests/audio/menu_sfx_device/MenuSoundNativeContract.cpp"):
+        for caller in ("tests/audio/RuntimeMenuSfxClockContract.cpp","src/audio/events/win32/RuntimeMenuSoundPlaybackWin32.cpp","src/audio/events/win32/RuntimeMenuSoundWin32.cpp","tests/audio/menu_sfx_device/MenuSoundNativeContract.cpp"):
             self.put(caller,'#include "'+native+'"\n')
         self.assertNotIn("menu-sound-native-consumer",{f["rule"] for f in self.scan({"menu-sound-device":[]})["findings"]})
-        for caller in ("src/audio/menu/Public.h","src/core/io/Other.h"):
+        for caller in ("src/audio/menu/Public.h","src/core/io/Other.h","src/ui/skirmish/RuntimeSkirmishMenu.cpp"):
             self.put(caller,'#include "'+native+'"\n')
             self.assertIn("menu-sound-native-consumer",{f["rule"] for f in self.scan({"menu-sound-device":[]})["findings"]})
             self.put(caller,"struct Value{};")
@@ -2587,6 +2587,1598 @@ class GuardFixtures(unittest.TestCase):
         self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
         self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
         self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"open-transport-source": [path]})["findings"]})
+
+    def test_world_audio_backend_public_root_is_rejected(self):
+        path = "src/audio/world/RuntimeWorldAudioBackendSession.h"
+        self.put(path, "struct RuntimeWindowState; void mix(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"world-audio-backend-session": [path]})["findings"]})
+
+    def test_world_audio_backend_private_session_root_is_rejected(self):
+        path = "src/audio/world/RuntimeWorldAudioBackendSession.h"
+        self.put(path, "struct RuntimeProductionHostState; struct RuntimeGameSessionState; void mix(RuntimeProductionHostState&, RuntimeGameSessionState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"world-audio-backend-session": [path]})["findings"]})
+
+    def test_world_audio_backend_transitive_sdk_is_rejected(self):
+        path = "src/audio/world/RuntimeWorldAudioBackendSession.h"
+        self.put(path, '#include "audio/world/Helper.h"\n')
+        self.put("src/audio/world/Helper.h", "#include <xaudio2.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"world-audio-backend-session": [path]})["findings"]})
+
+    def test_world_audio_backend_erased_owner_is_rejected(self):
+        path = "src/audio/world/RuntimeWorldAudioBackendSession.h"
+        self.put(path, "struct Playback { void* root; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"world-audio-backend-session": [path]})["findings"]})
+
+    def test_world_audio_backend_host_edge_is_rejected(self):
+        path = "src/audio/world/RuntimeWorldAudioBackendSession.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"world-audio-backend-session": [path]})["findings"]})
+
+    def test_world_audio_backend_typed_voice_borrow_is_allowed(self):
+        path = "src/audio/world/RuntimeWorldAudioBackendSession.h"
+        self.put(path, "class RuntimeVoiceAudio; struct Playback { RuntimeVoiceAudio* audio(); };\n")
+        self.assertFalse([f for f in self.scan({"world-audio-backend-session": [path]})["findings"] if f["rule"].startswith("protected-")])
+
+    def test_computer_tactic_public_root_is_rejected(self):
+        path = "src/simulation/ai/RuntimeComputerTacticSelection.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"computer-tactic-selection": [path]})["findings"]})
+
+    def test_computer_tactic_private_roots_are_rejected(self):
+        path = "src/simulation/ai/RuntimeComputerTacticSelection.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"computer-tactic-selection": [path]})["findings"]})
+
+    def test_computer_tactic_erased_owner_is_rejected(self):
+        path = "src/simulation/ai/RuntimeComputerTacticSelection.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"computer-tactic-selection": [path]})["findings"]})
+
+    def test_computer_tactic_transitive_sdk_is_rejected(self):
+        path = "src/simulation/ai/RuntimeComputerTacticSelection.h"
+        self.put(path, '#include "simulation/ai/Helper.h"\n')
+        self.put("src/simulation/ai/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"computer-tactic-selection": [path]})["findings"]})
+
+    def test_computer_tactic_host_edge_is_rejected(self):
+        path = "src/simulation/ai/RuntimeComputerTacticSelection.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"computer-tactic-selection": [path]})["findings"]})
+
+    def test_computer_tactic_standard_state_borrow_is_allowed(self):
+        path = "src/simulation/ai/RuntimeComputerTacticSelection.h"
+        self.put(path, "struct RuntimeComputerTacticsState; struct Query { bool select(RuntimeComputerTacticsState&); };\n")
+        self.assertFalse([f for f in self.scan({"computer-tactic-selection": [path]})["findings"] if f["rule"].startswith("protected-")])
+
+    def test_computer_lifecycle_public_root_is_rejected(self):
+        path = "src/simulation/ai/RuntimeComputerTacticLifecycle.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"computer-tactic-lifecycle": [path]})["findings"]})
+
+    def test_computer_lifecycle_private_roots_are_rejected(self):
+        path = "src/simulation/ai/RuntimeComputerTacticLifecycle.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"computer-tactic-lifecycle": [path]})["findings"]})
+
+    def test_computer_lifecycle_erased_owner_is_rejected(self):
+        path = "src/simulation/ai/RuntimeComputerTacticLifecycle.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"computer-tactic-lifecycle": [path]})["findings"]})
+
+    def test_computer_lifecycle_transitive_sdk_is_rejected(self):
+        path = "src/simulation/ai/RuntimeComputerTacticLifecycle.h"
+        self.put(path, '#include "simulation/ai/Helper.h"\n')
+        self.put("src/simulation/ai/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"computer-tactic-lifecycle": [path]})["findings"]})
+
+    def test_computer_lifecycle_host_edge_is_rejected(self):
+        path = "src/simulation/ai/RuntimeComputerTacticLifecycle.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"computer-tactic-lifecycle": [path]})["findings"]})
+
+    def test_computer_lifecycle_standard_state_borrow_is_allowed(self):
+        path = "src/simulation/ai/RuntimeComputerTacticLifecycle.h"
+        self.put(path, "struct RuntimeComputerTacticsState; struct Query { bool select(RuntimeComputerTacticsState&); };\n")
+        self.assertFalse([f for f in self.scan({"computer-tactic-lifecycle": [path]})["findings"] if f["rule"].startswith("protected-")])
+
+    def test_computer_reservations_public_root_is_rejected(self):
+        path = "src/simulation/ai/RuntimeComputerTacticReservations.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"computer-tactic-reservations": [path]})["findings"]})
+
+    def test_computer_reservations_private_roots_are_rejected(self):
+        path = "src/simulation/ai/RuntimeComputerTacticReservations.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"computer-tactic-reservations": [path]})["findings"]})
+
+    def test_computer_reservations_erased_owner_is_rejected(self):
+        path = "src/simulation/ai/RuntimeComputerTacticReservations.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"computer-tactic-reservations": [path]})["findings"]})
+
+    def test_computer_reservations_transitive_sdk_is_rejected(self):
+        path = "src/simulation/ai/RuntimeComputerTacticReservations.h"
+        self.put(path, '#include "simulation/ai/Helper.h"\n')
+        self.put("src/simulation/ai/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"computer-tactic-reservations": [path]})["findings"]})
+
+    def test_computer_reservations_host_edge_is_rejected(self):
+        path = "src/simulation/ai/RuntimeComputerTacticReservations.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"computer-tactic-reservations": [path]})["findings"]})
+
+    def test_computer_reservations_standard_state_borrow_is_allowed(self):
+        path = "src/simulation/ai/RuntimeComputerTacticReservations.h"
+        self.put(path, "struct RuntimeComputerTacticsState; struct Query { bool select(RuntimeComputerTacticsState&); };\n")
+        self.assertFalse([f for f in self.scan({"computer-tactic-reservations": [path]})["findings"] if f["rule"].startswith("protected-")])
+
+    def test_computer_recruitment_public_root_is_rejected(self):
+        path = "src/simulation/ai/RuntimeComputerTacticRecruitment.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"computer-tactic-recruitment": [path]})["findings"]})
+
+    def test_computer_recruitment_private_roots_are_rejected(self):
+        path = "src/simulation/ai/RuntimeComputerTacticRecruitment.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"computer-tactic-recruitment": [path]})["findings"]})
+
+    def test_computer_recruitment_erased_owner_is_rejected(self):
+        path = "src/simulation/ai/RuntimeComputerTacticRecruitment.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"computer-tactic-recruitment": [path]})["findings"]})
+
+    def test_computer_recruitment_transitive_sdk_is_rejected(self):
+        path = "src/simulation/ai/RuntimeComputerTacticRecruitment.h"
+        self.put(path, '#include "simulation/ai/Helper.h"\n')
+        self.put("src/simulation/ai/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"computer-tactic-recruitment": [path]})["findings"]})
+
+    def test_computer_recruitment_host_edge_is_rejected(self):
+        path = "src/simulation/ai/RuntimeComputerTacticRecruitment.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"computer-tactic-recruitment": [path]})["findings"]})
+
+    def test_computer_recruitment_standard_state_borrow_is_allowed(self):
+        path = "src/simulation/ai/RuntimeComputerTacticRecruitment.h"
+        self.put(path, "struct RuntimeComputerTacticsState; struct Query { bool select(RuntimeComputerTacticsState&); };\n")
+        self.assertFalse([f for f in self.scan({"computer-tactic-recruitment": [path]})["findings"] if f["rule"].startswith("protected-")])
+
+    def test_computer_base_plan_public_root_is_rejected(self):
+        path = "src/simulation/ai/RuntimeComputerBasePlan.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"computer-base-plan": [path]})["findings"]})
+
+    def test_computer_base_plan_private_roots_are_rejected(self):
+        path = "src/simulation/ai/RuntimeComputerBasePlan.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"computer-base-plan": [path]})["findings"]})
+
+    def test_computer_base_plan_erased_owner_is_rejected(self):
+        path = "src/simulation/ai/RuntimeComputerBasePlan.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"computer-base-plan": [path]})["findings"]})
+
+    def test_computer_base_plan_transitive_sdk_is_rejected(self):
+        path = "src/simulation/ai/RuntimeComputerBasePlan.h"
+        self.put(path, '#include "simulation/ai/Helper.h"\n')
+        self.put("src/simulation/ai/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"computer-base-plan": [path]})["findings"]})
+
+    def test_computer_base_plan_host_edge_is_rejected(self):
+        path = "src/simulation/ai/RuntimeComputerBasePlan.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"computer-base-plan": [path]})["findings"]})
+
+    def test_computer_base_plan_standard_state_borrow_is_allowed(self):
+        path = "src/simulation/ai/RuntimeComputerBasePlan.h"
+        self.put(path, "struct RuntimeComputerTacticsState; struct Query { bool select(RuntimeComputerTacticsState&); };\n")
+        self.assertFalse([f for f in self.scan({"computer-base-plan": [path]})["findings"] if f["rule"].startswith("protected-")])
+
+    def test_computer_tactic_production_public_root_is_rejected(self):
+        path = "src/simulation/ai/RuntimeComputerTacticProduction.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"computer-tactic-production": [path]})["findings"]})
+
+    def test_computer_tactic_production_private_roots_are_rejected(self):
+        path = "src/simulation/ai/RuntimeComputerTacticProduction.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"computer-tactic-production": [path]})["findings"]})
+
+    def test_computer_tactic_production_erased_owner_is_rejected(self):
+        path = "src/simulation/ai/RuntimeComputerTacticProduction.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"computer-tactic-production": [path]})["findings"]})
+
+    def test_computer_tactic_production_transitive_sdk_is_rejected(self):
+        path = "src/simulation/ai/RuntimeComputerTacticProduction.h"
+        self.put(path, '#include "simulation/ai/Helper.h"\n')
+        self.put("src/simulation/ai/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"computer-tactic-production": [path]})["findings"]})
+
+    def test_computer_tactic_production_host_edge_is_rejected(self):
+        path = "src/simulation/ai/RuntimeComputerTacticProduction.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"computer-tactic-production": [path]})["findings"]})
+
+    def test_computer_tactic_production_standard_state_borrow_is_allowed(self):
+        path = "src/simulation/ai/RuntimeComputerTacticProduction.h"
+        self.put(path, "struct RuntimeComputerTacticsState; struct Query { bool select(RuntimeComputerTacticsState&); };\n")
+        self.assertFalse([f for f in self.scan({"computer-tactic-production": [path]})["findings"] if f["rule"].startswith("protected-")])
+
+    def test_nuclear_death_public_root_is_rejected(self):
+        path = "src/simulation/superweapons/RuntimeNuclearDeathDetonation.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"nuclear-death": [path]})["findings"]})
+
+    def test_nuclear_death_private_roots_are_rejected(self):
+        path = "src/simulation/superweapons/RuntimeNuclearDeathDetonation.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"nuclear-death": [path]})["findings"]})
+
+    def test_nuclear_death_erased_owner_is_rejected(self):
+        path = "src/simulation/superweapons/RuntimeNuclearDeathDetonation.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"nuclear-death": [path]})["findings"]})
+
+    def test_nuclear_death_transitive_sdk_is_rejected(self):
+        path = "src/simulation/superweapons/RuntimeNuclearDeathDetonation.h"
+        self.put(path, '#include "simulation/superweapons/Helper.h"\n')
+        self.put("src/simulation/superweapons/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"nuclear-death": [path]})["findings"]})
+
+    def test_nuclear_death_host_edge_is_rejected(self):
+        path = "src/simulation/superweapons/RuntimeNuclearDeathDetonation.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"nuclear-death": [path]})["findings"]})
+
+    def test_nuclear_death_standard_state_borrow_is_allowed(self):
+        path = "src/simulation/superweapons/RuntimeNuclearDeathDetonation.h"
+        self.put(path, "struct RuntimeProjectileEffect; struct Query { bool select(RuntimeProjectileEffect&); };\n")
+        self.assertFalse([f for f in self.scan({"nuclear-death": [path]})["findings"] if f["rule"].startswith("protected-")])
+
+    def test_mind_overload_effects_public_root_is_rejected(self):
+        path = "src/simulation/abilities/psionic/RuntimeMindControlOverloadEffects.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"mind-overload-effects": [path]})["findings"]})
+
+    def test_mind_overload_effects_private_roots_are_rejected(self):
+        path = "src/simulation/abilities/psionic/RuntimeMindControlOverloadEffects.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"mind-overload-effects": [path]})["findings"]})
+
+    def test_mind_overload_effects_erased_owner_is_rejected(self):
+        path = "src/simulation/abilities/psionic/RuntimeMindControlOverloadEffects.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"mind-overload-effects": [path]})["findings"]})
+
+    def test_mind_overload_effects_transitive_sdk_is_rejected(self):
+        path = "src/simulation/abilities/psionic/RuntimeMindControlOverloadEffects.h"
+        self.put(path, '#include "simulation/abilities/psionic/Helper.h"\n')
+        self.put("src/simulation/abilities/psionic/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"mind-overload-effects": [path]})["findings"]})
+
+    def test_mind_overload_effects_host_edge_is_rejected(self):
+        path = "src/simulation/abilities/psionic/RuntimeMindControlOverloadEffects.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"mind-overload-effects": [path]})["findings"]})
+
+    def test_mind_overload_effects_standard_state_borrow_is_allowed(self):
+        path = "src/simulation/abilities/psionic/RuntimeMindControlOverloadEffects.h"
+        self.put(path, "struct WorldObjectInstance; struct Query { bool select(WorldObjectInstance&); };\n")
+        self.assertFalse([f for f in self.scan({"mind-overload-effects": [path]})["findings"] if f["rule"].startswith("protected-")])
+
+    def test_dominator_control_completion_public_root_is_rejected(self):
+        path = "src/simulation/abilities/psionic/RuntimeDominatorControlCompletion.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"dominator-control-completion": [path]})["findings"]})
+
+    def test_dominator_control_completion_private_roots_are_rejected(self):
+        path = "src/simulation/abilities/psionic/RuntimeDominatorControlCompletion.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"dominator-control-completion": [path]})["findings"]})
+
+    def test_dominator_control_completion_erased_owner_is_rejected(self):
+        path = "src/simulation/abilities/psionic/RuntimeDominatorControlCompletion.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"dominator-control-completion": [path]})["findings"]})
+
+    def test_dominator_control_completion_transitive_sdk_is_rejected(self):
+        path = "src/simulation/abilities/psionic/RuntimeDominatorControlCompletion.h"
+        self.put(path, '#include "simulation/abilities/psionic/Helper.h"\n')
+        self.put("src/simulation/abilities/psionic/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"dominator-control-completion": [path]})["findings"]})
+
+    def test_dominator_control_completion_host_edge_is_rejected(self):
+        path = "src/simulation/abilities/psionic/RuntimeDominatorControlCompletion.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"dominator-control-completion": [path]})["findings"]})
+
+    def test_dominator_control_completion_standard_state_borrow_is_allowed(self):
+        path = "src/simulation/abilities/psionic/RuntimeDominatorControlCompletion.h"
+        self.put(path, "struct WorldObjectInstance; struct Query { bool select(WorldObjectInstance&); };\n")
+        self.assertFalse([f for f in self.scan({"dominator-control-completion": [path]})["findings"] if f["rule"].startswith("protected-")])
+
+    def test_support_flight_persistence_public_root_is_rejected(self):
+        path = "src/simulation/superweapons/RuntimeSupportFlightPersistence.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"support-flight-persistence": [path]})["findings"]})
+
+    def test_support_flight_persistence_private_roots_are_rejected(self):
+        path = "src/simulation/superweapons/RuntimeSupportFlightPersistence.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"support-flight-persistence": [path]})["findings"]})
+
+    def test_support_flight_persistence_erased_owner_is_rejected(self):
+        path = "src/simulation/superweapons/RuntimeSupportFlightPersistence.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"support-flight-persistence": [path]})["findings"]})
+
+    def test_support_flight_persistence_transitive_sdk_is_rejected(self):
+        path = "src/simulation/superweapons/RuntimeSupportFlightPersistence.h"
+        self.put(path, '#include "assets/Helper.h"\n')
+        self.put("src/assets/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"support-flight-persistence": [path]})["findings"]})
+
+    def test_support_flight_persistence_host_edge_is_rejected(self):
+        path = "src/simulation/superweapons/RuntimeSupportFlightPersistence.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"support-flight-persistence": [path]})["findings"]})
+
+    def test_support_flight_persistence_drawing_state_is_rejected(self):
+        path = "src/simulation/superweapons/RuntimeSupportFlightPersistence.h"
+        self.put(path, "struct RuntimeMapRenderCache; void select(RuntimeMapRenderCache&);\n")
+        self.assertIn("support-flight-persistence-drawing-state", {f["rule"] for f in self.scan({"support-flight-persistence": [path]})["findings"]})
+
+    def test_support_flight_persistence_standard_object_stream_borrow_is_allowed(self):
+        path = "src/simulation/superweapons/RuntimeSupportFlightPersistence.h"
+        self.put(path, "class RuntimeVisionSystem; struct SuperWeaponEvent; bool apply(bool, const SuperWeaponEvent&, RuntimeVisionSystem&);\n")
+        self.assertFalse([f for f in self.scan({"support-flight-persistence": [path]})["findings"] if f["rule"].startswith("protected-") or f["rule"] == "support-flight-persistence-drawing-state"])
+
+    def test_camouflage_stationary_public_root_is_rejected(self):
+        path = "src/simulation/abilities/unit_special/RuntimeCamouflageStationary.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"camouflage-stationary": [path]})["findings"]})
+
+    def test_camouflage_stationary_private_roots_are_rejected(self):
+        path = "src/simulation/abilities/unit_special/RuntimeCamouflageStationary.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"camouflage-stationary": [path]})["findings"]})
+
+    def test_camouflage_stationary_erased_owner_is_rejected(self):
+        path = "src/simulation/abilities/unit_special/RuntimeCamouflageStationary.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"camouflage-stationary": [path]})["findings"]})
+
+    def test_camouflage_stationary_transitive_sdk_is_rejected(self):
+        path = "src/simulation/abilities/unit_special/RuntimeCamouflageStationary.h"
+        self.put(path, '#include "assets/Helper.h"\n')
+        self.put("src/assets/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"camouflage-stationary": [path]})["findings"]})
+
+    def test_camouflage_stationary_host_edge_is_rejected(self):
+        path = "src/simulation/abilities/unit_special/RuntimeCamouflageStationary.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"camouflage-stationary": [path]})["findings"]})
+
+    def test_camouflage_stationary_drawing_state_is_rejected(self):
+        path = "src/simulation/abilities/unit_special/RuntimeCamouflageStationary.h"
+        self.put(path, "struct RuntimeMapRenderCache; void select(RuntimeMapRenderCache&);\n")
+        self.assertIn("camouflage-stationary-drawing-state", {f["rule"] for f in self.scan({"camouflage-stationary": [path]})["findings"]})
+
+    def test_camouflage_stationary_standard_typed_ports_are_allowed(self):
+        path = "src/simulation/abilities/unit_special/RuntimeCamouflageStationary.h"
+        self.put(path, "struct WorldObjectInstance; struct RuntimeObjectBehavior; struct Query { const WorldObjectInstance* findObject(int) const; const RuntimeObjectBehavior* findBehavior(int) const; };\n")
+        self.assertFalse([f for f in self.scan({"camouflage-stationary": [path]})["findings"] if f["rule"].startswith("protected-") or f["rule"] == "camouflage-stationary-drawing-state"])
+
+    def test_deployment_missions_public_root_is_rejected(self):
+        path = "src/simulation/movement/RuntimeDeploymentMissions.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"deployment-missions": [path]})["findings"]})
+
+    def test_deployment_missions_private_roots_are_rejected(self):
+        path = "src/simulation/movement/RuntimeDeploymentMissions.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"deployment-missions": [path]})["findings"]})
+
+    def test_deployment_missions_erased_owner_is_rejected(self):
+        path = "src/simulation/movement/RuntimeDeploymentMissions.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"deployment-missions": [path]})["findings"]})
+
+    def test_deployment_missions_transitive_sdk_is_rejected(self):
+        path = "src/simulation/movement/RuntimeDeploymentMissions.h"
+        self.put(path, '#include "assets/Helper.h"\n')
+        self.put("src/assets/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"deployment-missions": [path]})["findings"]})
+
+    def test_deployment_missions_host_edge_is_rejected(self):
+        path = "src/simulation/movement/RuntimeDeploymentMissions.h"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"deployment-missions": [path]})["findings"]})
+
+    def test_deployment_missions_drawing_state_is_rejected(self):
+        path = "src/simulation/movement/RuntimeDeploymentMissions.h"
+        self.put(path, "struct RuntimeMapRenderCache; void select(RuntimeMapRenderCache&);\n")
+        self.assertIn("deployment-missions-drawing-state", {f["rule"] for f in self.scan({"deployment-missions": [path]})["findings"]})
+
+    def test_deployment_missions_standard_typed_ports_are_allowed(self):
+        path = "src/simulation/movement/RuntimeDeploymentMissions.h"
+        self.put(path, "#include <string>\n bool pending(const std::string&);\n")
+        self.assertFalse([f for f in self.scan({"deployment-missions": [path]})["findings"] if f["rule"].startswith("protected-") or f["rule"] == "deployment-missions-drawing-state"])
+
+    def test_chrono_locomotion_policy_public_root_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoLocomotionPolicy.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"chrono-locomotion-policy": [path]})["findings"]})
+
+    def test_chrono_locomotion_policy_private_roots_are_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoLocomotionPolicy.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"chrono-locomotion-policy": [path]})["findings"]})
+
+    def test_chrono_locomotion_policy_erased_owner_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoLocomotionPolicy.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"chrono-locomotion-policy": [path]})["findings"]})
+
+    def test_chrono_locomotion_policy_transitive_sdk_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoLocomotionPolicy.h"
+        self.put(path, '#include "assets/Helper.h"\n')
+        self.put("src/assets/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"chrono-locomotion-policy": [path]})["findings"]})
+
+    def test_chrono_locomotion_policy_host_edge_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoLocomotionPolicy.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"chrono-locomotion-policy": [path]})["findings"]})
+
+    def test_chrono_locomotion_policy_drawing_state_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoLocomotionPolicy.h"
+        self.put(path, "struct RuntimeMapRenderCache; void select(RuntimeMapRenderCache&);\n")
+        self.assertIn("chrono-locomotion-policy-drawing-state", {f["rule"] for f in self.scan({"chrono-locomotion-policy": [path]})["findings"]})
+
+    def test_chrono_locomotion_policy_standard_typed_ports_are_allowed(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoLocomotionPolicy.h"
+        self.put(path, "struct WorldObjectInstance; struct RuntimeObjectBehavior; struct ChronoMoveState; struct Q { const WorldObjectInstance* object(int) const; const RuntimeObjectBehavior* behavior(int) const; const ChronoMoveState* chrono(int) const; };\n")
+        self.assertFalse([f for f in self.scan({"chrono-locomotion-policy": [path]})["findings"] if f["rule"].startswith("protected-") or f["rule"] == "chrono-locomotion-policy-drawing-state"])
+
+    def test_chrono_state_public_root_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoState.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"chrono-state": [path]})["findings"]})
+
+    def test_chrono_state_private_roots_are_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoState.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"chrono-state": [path]})["findings"]})
+
+    def test_chrono_state_erased_owner_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoState.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"chrono-state": [path]})["findings"]})
+
+    def test_chrono_state_transitive_sdk_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoState.h"
+        self.put(path, '#include "assets/Helper.h"\n')
+        self.put("src/assets/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"chrono-state": [path]})["findings"]})
+
+    def test_chrono_state_host_edge_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoState.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"chrono-state": [path]})["findings"]})
+
+    def test_chrono_state_drawing_state_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoState.h"
+        self.put(path, "struct RuntimeMapRenderCache; void select(RuntimeMapRenderCache&);\n")
+        self.assertIn("chrono-state-drawing-state", {f["rule"] for f in self.scan({"chrono-state": [path]})["findings"]})
+
+    def test_chrono_state_standard_typed_ports_are_allowed(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoState.h"
+        self.put(path, "struct WorldObjectInstance; struct RuntimeObjectBehavior; struct ChronoMoveState; struct Q { const WorldObjectInstance* object(int) const; const RuntimeObjectBehavior* behavior(int) const; const ChronoMoveState* chrono(int) const; };\n")
+        self.assertFalse([f for f in self.scan({"chrono-state": [path]})["findings"] if f["rule"].startswith("protected-") or f["rule"] == "chrono-state-drawing-state"])
+
+    def test_chrono_cell_occupancy_public_root_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoCellOccupancy.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"chrono-cell-occupancy": [path]})["findings"]})
+
+    def test_chrono_cell_occupancy_private_roots_are_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoCellOccupancy.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"chrono-cell-occupancy": [path]})["findings"]})
+
+    def test_chrono_cell_occupancy_erased_owner_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoCellOccupancy.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"chrono-cell-occupancy": [path]})["findings"]})
+
+    def test_chrono_cell_occupancy_transitive_sdk_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoCellOccupancy.h"
+        self.put(path, '#include "assets/Helper.h"\n')
+        self.put("src/assets/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"chrono-cell-occupancy": [path]})["findings"]})
+
+    def test_chrono_cell_occupancy_host_edge_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoCellOccupancy.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"chrono-cell-occupancy": [path]})["findings"]})
+
+    def test_chrono_cell_occupancy_drawing_state_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoCellOccupancy.h"
+        self.put(path, "struct RuntimeMapRenderCache; void select(RuntimeMapRenderCache&);\n")
+        self.assertIn("chrono-cell-occupancy-drawing-state", {f["rule"] for f in self.scan({"chrono-cell-occupancy": [path]})["findings"]})
+
+    def test_chrono_cell_occupancy_standard_typed_ports_are_allowed(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoCellOccupancy.h"
+        self.put(path, "struct WorldObjectInstance; struct RuntimeObjectBehavior; struct ChronoMoveState; struct Q { const WorldObjectInstance* object(int) const; const RuntimeObjectBehavior* behavior(int) const; const ChronoMoveState* chrono(int) const; };\n")
+        self.assertFalse([f for f in self.scan({"chrono-cell-occupancy": [path]})["findings"] if f["rule"].startswith("protected-") or f["rule"] == "chrono-cell-occupancy-drawing-state"])
+
+    def test_chrono_terrain_view_public_root_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoTerrainView.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"chrono-terrain-view": [path]})["findings"]})
+
+    def test_chrono_terrain_view_private_roots_are_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoTerrainView.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"chrono-terrain-view": [path]})["findings"]})
+
+    def test_chrono_terrain_view_erased_owner_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoTerrainView.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"chrono-terrain-view": [path]})["findings"]})
+
+    def test_chrono_terrain_view_transitive_sdk_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoTerrainView.h"
+        self.put(path, '#include "assets/Helper.h"\n')
+        self.put("src/assets/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"chrono-terrain-view": [path]})["findings"]})
+
+    def test_chrono_terrain_view_host_edge_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoTerrainView.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"chrono-terrain-view": [path]})["findings"]})
+
+    def test_chrono_terrain_view_drawing_state_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoTerrainView.h"
+        self.put(path, "struct RuntimeMapRenderCache; void select(RuntimeMapRenderCache&);\n")
+        self.assertIn("chrono-terrain-view-drawing-state", {f["rule"] for f in self.scan({"chrono-terrain-view": [path]})["findings"]})
+
+    def test_chrono_terrain_view_standard_typed_ports_are_allowed(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoTerrainView.h"
+        self.put(path, "struct WorldObjectInstance; struct RuntimeObjectBehavior; struct ChronoMoveState; struct Q { const WorldObjectInstance* object(int) const; const RuntimeObjectBehavior* behavior(int) const; const ChronoMoveState* chrono(int) const; };\n")
+        self.assertFalse([f for f in self.scan({"chrono-terrain-view": [path]})["findings"] if f["rule"].startswith("protected-") or f["rule"] == "chrono-terrain-view-drawing-state"])
+
+    def test_temporal_state_public_root_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeTemporalState.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"temporal-state": [path]})["findings"]})
+
+    def test_temporal_state_private_roots_are_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeTemporalState.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"temporal-state": [path]})["findings"]})
+
+    def test_temporal_state_erased_owner_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeTemporalState.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"temporal-state": [path]})["findings"]})
+
+    def test_temporal_state_transitive_sdk_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeTemporalState.h"
+        self.put(path, '#include "assets/Helper.h"\n')
+        self.put("src/assets/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"temporal-state": [path]})["findings"]})
+
+    def test_temporal_state_host_edge_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeTemporalState.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"temporal-state": [path]})["findings"]})
+
+    def test_temporal_state_drawing_state_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeTemporalState.h"
+        self.put(path, "struct RuntimeMapRenderCache; void select(RuntimeMapRenderCache&);\n")
+        self.assertIn("temporal-state-drawing-state", {f["rule"] for f in self.scan({"temporal-state": [path]})["findings"]})
+
+    def test_temporal_state_standard_typed_ports_are_allowed(self):
+        path = "src/simulation/abilities/chrono/RuntimeTemporalState.h"
+        self.put(path, "struct WorldObjectInstance; struct RuntimeObjectBehavior; struct ChronoMoveState; struct Q { const WorldObjectInstance* object(int) const; const RuntimeObjectBehavior* behavior(int) const; const ChronoMoveState* chrono(int) const; };\n")
+        self.assertFalse([f for f in self.scan({"temporal-state": [path]})["findings"] if f["rule"].startswith("protected-") or f["rule"] == "temporal-state-drawing-state"])
+
+    def test_temporal_state_special_aggregate_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeTemporalState.h"
+        self.put(path, '#include "simulation/abilities/unit_special/RuntimeSpecialMechanisms.h"\n')
+        self.put("src/simulation/abilities/unit_special/RuntimeSpecialMechanisms.h", "struct OriginalAggregate {};\n")
+        self.assertIn("temporal-special-aggregate", {f["rule"] for f in self.scan({"temporal-state": [path]})["findings"]})
+
+    def test_temporal_attack_policy_public_root_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeTemporalAttackPolicy.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"temporal-attack-policy": [path]})["findings"]})
+
+    def test_temporal_attack_policy_private_roots_are_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeTemporalAttackPolicy.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"temporal-attack-policy": [path]})["findings"]})
+
+    def test_temporal_attack_policy_erased_owner_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeTemporalAttackPolicy.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"temporal-attack-policy": [path]})["findings"]})
+
+    def test_temporal_attack_policy_transitive_sdk_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeTemporalAttackPolicy.h"
+        self.put(path, '#include "assets/Helper.h"\n')
+        self.put("src/assets/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"temporal-attack-policy": [path]})["findings"]})
+
+    def test_temporal_attack_policy_host_edge_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeTemporalAttackPolicy.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"temporal-attack-policy": [path]})["findings"]})
+
+    def test_temporal_attack_policy_drawing_state_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeTemporalAttackPolicy.h"
+        self.put(path, "struct RuntimeMapRenderCache; void select(RuntimeMapRenderCache&);\n")
+        self.assertIn("temporal-attack-policy-drawing-state", {f["rule"] for f in self.scan({"temporal-attack-policy": [path]})["findings"]})
+
+    def test_temporal_attack_policy_standard_typed_ports_are_allowed(self):
+        path = "src/simulation/abilities/chrono/RuntimeTemporalAttackPolicy.h"
+        self.put(path, "struct WorldObjectInstance; struct RuntimeObjectBehavior; struct ChronoMoveState; struct Q { const WorldObjectInstance* object(int) const; const RuntimeObjectBehavior* behavior(int) const; const ChronoMoveState* chrono(int) const; };\n")
+        self.assertFalse([f for f in self.scan({"temporal-attack-policy": [path]})["findings"] if f["rule"].startswith("protected-") or f["rule"] == "temporal-attack-policy-drawing-state"])
+
+    def test_temporal_attack_policy_special_aggregate_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeTemporalAttackPolicy.h"
+        self.put(path, '#include "simulation/abilities/unit_special/RuntimeSpecialMechanisms.h"\n')
+        self.put("src/simulation/abilities/unit_special/RuntimeSpecialMechanisms.h", "struct OriginalAggregate {};\n")
+        self.assertIn("temporal-special-aggregate", {f["rule"] for f in self.scan({"temporal-attack-policy": [path]})["findings"]})
+
+    def test_parasite_action_policy_public_root_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteActionPolicy.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"parasite-action-policy": [path]})["findings"]})
+
+    def test_parasite_action_policy_private_roots_are_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteActionPolicy.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"parasite-action-policy": [path]})["findings"]})
+
+    def test_parasite_action_policy_erased_owner_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteActionPolicy.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"parasite-action-policy": [path]})["findings"]})
+
+    def test_parasite_action_policy_transitive_sdk_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteActionPolicy.h"
+        self.put(path, '#include "assets/Helper.h"\n')
+        self.put("src/assets/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"parasite-action-policy": [path]})["findings"]})
+
+    def test_parasite_action_policy_host_edge_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteActionPolicy.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"parasite-action-policy": [path]})["findings"]})
+
+    def test_parasite_action_policy_drawing_state_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteActionPolicy.h"
+        self.put(path, "struct RuntimeMapRenderCache; void select(RuntimeMapRenderCache&);\n")
+        self.assertIn("parasite-action-policy-drawing-state", {f["rule"] for f in self.scan({"parasite-action-policy": [path]})["findings"]})
+
+    def test_parasite_action_policy_standard_typed_ports_are_allowed(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteActionPolicy.h"
+        self.put(path, "struct WorldObjectInstance; struct SpecialMechanismAction; struct Q { const WorldObjectInstance* findObject(int) const; };\n")
+        self.assertFalse([f for f in self.scan({"parasite-action-policy": [path]})["findings"] if f["rule"].startswith("protected-") or f["rule"] == "parasite-action-policy-drawing-state"])
+
+    def test_parasite_action_policy_special_aggregate_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteActionPolicy.h"
+        self.put(path, '#include "simulation/abilities/unit_special/RuntimeSpecialMechanisms.h"\n')
+        self.put("src/simulation/abilities/unit_special/RuntimeSpecialMechanisms.h", "struct OriginalAggregate {};\n")
+        self.assertIn("parasite-special-aggregate", {f["rule"] for f in self.scan({"parasite-action-policy": [path]})["findings"]})
+
+    def test_parasite_host_death_policy_public_root_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteHostDeathPolicy.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"parasite-host-death-policy": [path]})["findings"]})
+
+    def test_parasite_host_death_policy_private_roots_are_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteHostDeathPolicy.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"parasite-host-death-policy": [path]})["findings"]})
+
+    def test_parasite_host_death_policy_erased_owner_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteHostDeathPolicy.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"parasite-host-death-policy": [path]})["findings"]})
+
+    def test_parasite_host_death_policy_transitive_sdk_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteHostDeathPolicy.h"
+        self.put(path, '#include "assets/Helper.h"\n')
+        self.put("src/assets/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"parasite-host-death-policy": [path]})["findings"]})
+
+    def test_parasite_host_death_policy_host_edge_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteHostDeathPolicy.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"parasite-host-death-policy": [path]})["findings"]})
+
+    def test_parasite_host_death_policy_drawing_state_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteHostDeathPolicy.h"
+        self.put(path, "struct RuntimeMapRenderCache; void select(RuntimeMapRenderCache&);\n")
+        self.assertIn("parasite-host-death-policy-drawing-state", {f["rule"] for f in self.scan({"parasite-host-death-policy": [path]})["findings"]})
+
+    def test_parasite_host_death_policy_standard_typed_ports_are_allowed(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteHostDeathPolicy.h"
+        self.put(path, "struct WorldObjectInstance; struct SpecialMechanismAction; struct Q { const WorldObjectInstance* findObject(int) const; };\n")
+        self.assertFalse([f for f in self.scan({"parasite-host-death-policy": [path]})["findings"] if f["rule"].startswith("protected-") or f["rule"] == "parasite-host-death-policy-drawing-state"])
+
+    def test_parasite_host_death_policy_special_aggregate_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteHostDeathPolicy.h"
+        self.put(path, '#include "simulation/abilities/unit_special/RuntimeSpecialMechanisms.h"\n')
+        self.put("src/simulation/abilities/unit_special/RuntimeSpecialMechanisms.h", "struct OriginalAggregate {};\n")
+        self.assertIn("parasite-special-aggregate", {f["rule"] for f in self.scan({"parasite-host-death-policy": [path]})["findings"]})
+
+    def test_parasite_lifecycle_values_public_root_is_rejected(self):
+        path = "src/simulation/lifecycle/RuntimeObjectExitValues.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"parasite-lifecycle-values": [path]})["findings"]})
+
+    def test_parasite_lifecycle_values_private_roots_are_rejected(self):
+        path = "src/simulation/lifecycle/RuntimeObjectExitValues.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"parasite-lifecycle-values": [path]})["findings"]})
+
+    def test_parasite_lifecycle_values_erased_owner_is_rejected(self):
+        path = "src/simulation/lifecycle/RuntimeObjectExitValues.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"parasite-lifecycle-values": [path]})["findings"]})
+
+    def test_parasite_lifecycle_values_transitive_sdk_is_rejected(self):
+        path = "src/simulation/lifecycle/RuntimeObjectExitValues.h"
+        self.put(path, '#include "assets/Helper.h"\n')
+        self.put("src/assets/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"parasite-lifecycle-values": [path]})["findings"]})
+
+    def test_parasite_lifecycle_values_host_edge_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteActionResult.h"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"parasite-lifecycle-values": [path]})["findings"]})
+
+    def test_parasite_lifecycle_values_drawing_state_is_rejected(self):
+        path = "src/simulation/lifecycle/RuntimeObjectExitValues.h"
+        self.put(path, "struct RuntimeMapRenderCache; void select(RuntimeMapRenderCache&);\n")
+        self.assertIn("parasite-lifecycle-values-drawing-state", {f["rule"] for f in self.scan({"parasite-lifecycle-values": [path]})["findings"]})
+
+    def test_parasite_lifecycle_values_standard_owned_values_are_allowed(self):
+        path = "src/simulation/lifecycle/RuntimeObjectExitValues.h"
+        self.put(path, "namespace concord::runtime::session_detail { struct OwnedExitValue { int objectId=-1; bool handled=false; }; }\n")
+        self.assertFalse([f for f in self.scan({"parasite-lifecycle-values": [path]})["findings"] if f["rule"].startswith("protected-") or f["rule"] == "parasite-lifecycle-values-drawing-state"])
+
+    def test_parasite_lifecycle_values_special_aggregate_is_rejected(self):
+        path = "src/simulation/lifecycle/RuntimeObjectExitValues.h"
+        self.put(path, '#include "simulation/abilities/unit_special/RuntimeSpecialMechanisms.h"\n')
+        self.put("src/simulation/abilities/unit_special/RuntimeSpecialMechanisms.h", "struct OriginalAggregate {};\n")
+        self.assertIn("parasite-special-aggregate", {f["rule"] for f in self.scan({"parasite-lifecycle-values": [path]})["findings"]})
+
+    def test_parasite_atomic_policy_public_root_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteAtomicPolicy.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"parasite-atomic-policy": [path]})["findings"]})
+
+    def test_parasite_atomic_policy_private_roots_are_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteAtomicPolicy.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"parasite-atomic-policy": [path]})["findings"]})
+
+    def test_parasite_atomic_policy_erased_owner_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteAtomicPolicy.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"parasite-atomic-policy": [path]})["findings"]})
+
+    def test_parasite_atomic_policy_transitive_sdk_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteAtomicPolicy.h"
+        self.put(path, '#include "assets/Helper.h"\n')
+        self.put("src/assets/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"parasite-atomic-policy": [path]})["findings"]})
+
+    def test_parasite_atomic_policy_host_edge_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteAtomicPolicy.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"parasite-atomic-policy": [path]})["findings"]})
+
+    def test_parasite_atomic_policy_drawing_state_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteAtomicPolicy.h"
+        self.put(path, "struct RuntimeMapRenderCache; void select(RuntimeMapRenderCache&);\n")
+        self.assertIn("parasite-atomic-policy-drawing-state", {f["rule"] for f in self.scan({"parasite-atomic-policy": [path]})["findings"]})
+
+    def test_parasite_atomic_policy_standard_owned_values_are_allowed(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteAtomicPolicy.h"
+        self.put(path, "class OwnedStunState { int objectId=-1; int untilTick=0; };\n")
+        self.assertFalse([f for f in self.scan({"parasite-atomic-policy": [path]})["findings"] if f["rule"].startswith("protected-") or f["rule"] == "parasite-atomic-policy-drawing-state"])
+
+    def test_parasite_atomic_policy_special_aggregate_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteAtomicPolicy.h"
+        self.put(path, '#include "simulation/abilities/unit_special/RuntimeSpecialMechanisms.h"\n')
+        self.put("src/simulation/abilities/unit_special/RuntimeSpecialMechanisms.h", "struct OriginalAggregate {};\n")
+        self.assertIn("parasite-special-aggregate", {f["rule"] for f in self.scan({"parasite-atomic-policy": [path]})["findings"]})
+
+    def test_parasite_admission_policy_public_root_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteAdmissionPolicy.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"parasite-admission-policy": [path]})["findings"]})
+
+    def test_parasite_admission_policy_private_roots_are_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteAdmissionPolicy.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"parasite-admission-policy": [path]})["findings"]})
+
+    def test_parasite_admission_policy_erased_owner_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteAdmissionPolicy.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"parasite-admission-policy": [path]})["findings"]})
+
+    def test_parasite_admission_policy_transitive_sdk_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteAdmissionPolicy.h"
+        self.put(path, '#include "assets/Helper.h"\n')
+        self.put("src/assets/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"parasite-admission-policy": [path]})["findings"]})
+
+    def test_parasite_admission_policy_host_edge_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteAdmissionPolicy.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"parasite-admission-policy": [path]})["findings"]})
+
+    def test_parasite_admission_policy_drawing_state_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteAdmissionPolicy.h"
+        self.put(path, "struct RuntimeMapRenderCache; void select(RuntimeMapRenderCache&);\n")
+        self.assertIn("parasite-admission-policy-drawing-state", {f["rule"] for f in self.scan({"parasite-admission-policy": [path]})["findings"]})
+
+    def test_parasite_admission_policy_standard_owned_values_are_allowed(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteAdmissionPolicy.h"
+        self.put(path, "class OwnedStunState { int objectId=-1; int untilTick=0; };\n")
+        self.assertFalse([f for f in self.scan({"parasite-admission-policy": [path]})["findings"] if f["rule"].startswith("protected-") or f["rule"] == "parasite-admission-policy-drawing-state"])
+
+    def test_parasite_admission_policy_special_aggregate_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteAdmissionPolicy.h"
+        self.put(path, '#include "simulation/abilities/unit_special/RuntimeSpecialMechanisms.h"\n')
+        self.put("src/simulation/abilities/unit_special/RuntimeSpecialMechanisms.h", "struct OriginalAggregate {};\n")
+        self.assertIn("parasite-special-aggregate", {f["rule"] for f in self.scan({"parasite-admission-policy": [path]})["findings"]})
+
+    def test_parasite_launch_policy_public_root_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteLaunchPolicy.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"parasite-launch-policy": [path]})["findings"]})
+
+    def test_parasite_launch_policy_private_roots_are_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteLaunchPolicy.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"parasite-launch-policy": [path]})["findings"]})
+
+    def test_parasite_launch_policy_erased_owner_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteLaunchPolicy.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"parasite-launch-policy": [path]})["findings"]})
+
+    def test_parasite_launch_policy_transitive_sdk_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteLaunchPolicy.h"
+        self.put(path, '#include "assets/Helper.h"\n')
+        self.put("src/assets/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"parasite-launch-policy": [path]})["findings"]})
+
+    def test_parasite_launch_policy_host_edge_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteLaunchPolicy.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"parasite-launch-policy": [path]})["findings"]})
+
+    def test_parasite_launch_policy_drawing_state_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteLaunchPolicy.h"
+        self.put(path, "struct RuntimeMapRenderCache; void select(RuntimeMapRenderCache&);\n")
+        self.assertIn("parasite-launch-policy-drawing-state", {f["rule"] for f in self.scan({"parasite-launch-policy": [path]})["findings"]})
+
+    def test_parasite_launch_policy_standard_owned_values_are_allowed(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteLaunchPolicy.h"
+        self.put(path, "class OwnedStunState { int objectId=-1; int untilTick=0; };\n")
+        self.assertFalse([f for f in self.scan({"parasite-launch-policy": [path]})["findings"] if f["rule"].startswith("protected-") or f["rule"] == "parasite-launch-policy-drawing-state"])
+
+    def test_parasite_launch_policy_special_aggregate_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteLaunchPolicy.h"
+        self.put(path, '#include "simulation/abilities/unit_special/RuntimeSpecialMechanisms.h"\n')
+        self.put("src/simulation/abilities/unit_special/RuntimeSpecialMechanisms.h", "struct OriginalAggregate {};\n")
+        self.assertIn("parasite-special-aggregate", {f["rule"] for f in self.scan({"parasite-launch-policy": [path]})["findings"]})
+
+    def test_parasite_impact_policy_public_root_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteImpactPolicy.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"parasite-impact-policy": [path]})["findings"]})
+
+    def test_parasite_impact_policy_private_roots_are_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteImpactPolicy.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"parasite-impact-policy": [path]})["findings"]})
+
+    def test_parasite_impact_policy_erased_owner_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteImpactPolicy.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"parasite-impact-policy": [path]})["findings"]})
+
+    def test_parasite_impact_policy_transitive_sdk_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteImpactPolicy.h"
+        self.put(path, '#include "assets/Helper.h"\n')
+        self.put("src/assets/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"parasite-impact-policy": [path]})["findings"]})
+
+    def test_parasite_impact_policy_host_edge_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteImpactPolicy.h"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"parasite-impact-policy": [path]})["findings"]})
+
+    def test_parasite_impact_policy_drawing_state_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteImpactPolicy.h"
+        self.put(path, "struct RuntimeMapRenderCache; void select(RuntimeMapRenderCache&);\n")
+        self.assertIn("parasite-impact-policy-drawing-state", {f["rule"] for f in self.scan({"parasite-impact-policy": [path]})["findings"]})
+
+    def test_parasite_impact_policy_standard_owned_values_are_allowed(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteImpactPolicy.h"
+        self.put(path, "class OwnedStunState { int objectId=-1; int untilTick=0; };\n")
+        self.assertFalse([f for f in self.scan({"parasite-impact-policy": [path]})["findings"] if f["rule"].startswith("protected-") or f["rule"] == "parasite-impact-policy-drawing-state"])
+
+    def test_parasite_impact_policy_special_aggregate_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteImpactPolicy.h"
+        self.put(path, '#include "simulation/abilities/unit_special/RuntimeSpecialMechanisms.h"\n')
+        self.put("src/simulation/abilities/unit_special/RuntimeSpecialMechanisms.h", "struct OriginalAggregate {};\n")
+        self.assertIn("parasite-special-aggregate", {f["rule"] for f in self.scan({"parasite-impact-policy": [path]})["findings"]})
+
+    def test_parasite_host_event_policy_public_root_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteHostEventPolicy.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"parasite-host-event-policy": [path]})["findings"]})
+
+    def test_parasite_host_event_policy_private_roots_are_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteHostEventPolicy.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"parasite-host-event-policy": [path]})["findings"]})
+
+    def test_parasite_host_event_policy_erased_owner_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteHostEventPolicy.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"parasite-host-event-policy": [path]})["findings"]})
+
+    def test_parasite_host_event_policy_transitive_sdk_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteHostEventPolicy.h"
+        self.put(path, '#include "assets/Helper.h"\n')
+        self.put("src/assets/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"parasite-host-event-policy": [path]})["findings"]})
+
+    def test_parasite_host_event_policy_host_edge_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteHostEventPolicy.h"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"parasite-host-event-policy": [path]})["findings"]})
+
+    def test_parasite_host_event_policy_drawing_state_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteHostEventPolicy.h"
+        self.put(path, "struct RuntimeMapRenderCache; void select(RuntimeMapRenderCache&);\n")
+        self.assertIn("parasite-host-event-policy-drawing-state", {f["rule"] for f in self.scan({"parasite-host-event-policy": [path]})["findings"]})
+
+    def test_parasite_host_event_policy_standard_owned_values_are_allowed(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteHostEventPolicy.h"
+        self.put(path, "class OwnedStunState { int objectId=-1; int untilTick=0; };\n")
+        self.assertFalse([f for f in self.scan({"parasite-host-event-policy": [path]})["findings"] if f["rule"].startswith("protected-") or f["rule"] == "parasite-host-event-policy-drawing-state"])
+
+    def test_parasite_host_event_policy_special_aggregate_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteHostEventPolicy.h"
+        self.put(path, '#include "simulation/abilities/unit_special/RuntimeSpecialMechanisms.h"\n')
+        self.put("src/simulation/abilities/unit_special/RuntimeSpecialMechanisms.h", "struct OriginalAggregate {};\n")
+        self.assertIn("parasite-special-aggregate", {f["rule"] for f in self.scan({"parasite-host-event-policy": [path]})["findings"]})
+
+    def test_parasite_chrono_move_policy_public_root_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteChronoMovePolicy.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"parasite-chrono-move-policy": [path]})["findings"]})
+
+    def test_parasite_chrono_move_policy_private_roots_are_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteChronoMovePolicy.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"parasite-chrono-move-policy": [path]})["findings"]})
+
+    def test_parasite_chrono_move_policy_erased_owner_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteChronoMovePolicy.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"parasite-chrono-move-policy": [path]})["findings"]})
+
+    def test_parasite_chrono_move_policy_transitive_sdk_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteChronoMovePolicy.h"
+        self.put(path, '#include "assets/Helper.h"\n')
+        self.put("src/assets/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"parasite-chrono-move-policy": [path]})["findings"]})
+
+    def test_parasite_chrono_move_policy_host_edge_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteChronoMovePolicy.h"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"parasite-chrono-move-policy": [path]})["findings"]})
+
+    def test_parasite_chrono_move_policy_drawing_state_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteChronoMovePolicy.h"
+        self.put(path, "struct RuntimeMapRenderCache; void select(RuntimeMapRenderCache&);\n")
+        self.assertIn("parasite-chrono-move-policy-drawing-state", {f["rule"] for f in self.scan({"parasite-chrono-move-policy": [path]})["findings"]})
+
+    def test_parasite_chrono_move_policy_standard_owned_values_are_allowed(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteChronoMovePolicy.h"
+        self.put(path, "class OwnedChronoCandidate { int objectId=-1; int untilTick=0; };\n")
+        self.assertFalse([f for f in self.scan({"parasite-chrono-move-policy": [path]})["findings"] if f["rule"].startswith("protected-") or f["rule"] == "parasite-chrono-move-policy-drawing-state"])
+
+    def test_parasite_chrono_move_policy_special_aggregate_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteChronoMovePolicy.h"
+        self.put(path, '#include "simulation/abilities/unit_special/RuntimeSpecialMechanisms.h"\n')
+        self.put("src/simulation/abilities/unit_special/RuntimeSpecialMechanisms.h", "struct OriginalAggregate {};\n")
+        self.assertIn("parasite-special-aggregate", {f["rule"] for f in self.scan({"parasite-chrono-move-policy": [path]})["findings"]})
+
+    def _h139_h140_standard_module_headers(self):
+        return [("squid-grapple-water-policy", "src/simulation/abilities/parasites/RuntimeSquidGrappleWaterPolicy.h"),
+                ("squid-splash-codec", "src/simulation/abilities/parasites/RuntimeSquidSplashCodec.h"),
+                ("impact-effect-values", "src/simulation/effects/RuntimeImpactEffectValues.h")]
+
+    def test_h139_h140_public_host_aggregate_is_rejected(self):
+        for module, path in self._h139_h140_standard_module_headers():
+            with self.subTest(module=module):
+                self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+                self.assertIn("protected-host-state", {f["rule"] for f in self.scan({module: [path]})["findings"]})
+
+    def test_h139_h140_private_host_aggregates_are_rejected(self):
+        for module, path in self._h139_h140_standard_module_headers():
+            with self.subTest(module=module):
+                self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+                self.assertIn("protected-host-state", {f["rule"] for f in self.scan({module: [path]})["findings"]})
+
+    def test_h139_h140_erased_aggregate_is_rejected(self):
+        for module, path in self._h139_h140_standard_module_headers():
+            with self.subTest(module=module):
+                self.put(path, "struct Query { void* state; };\n")
+                self.assertIn("protected-platform", {f["rule"] for f in self.scan({module: [path]})["findings"]})
+
+    def test_h139_h140_transitive_native_include_is_rejected(self):
+        for module, path in self._h139_h140_standard_module_headers():
+            with self.subTest(module=module):
+                self.put(path, '#include "assets/Helper.h"\n')
+                self.put("src/assets/Helper.h", "#include <windows.h>\n")
+                self.assertIn("protected-platform", {f["rule"] for f in self.scan({module: [path]})["findings"]})
+
+    def test_h139_h140_host_dependency_is_rejected(self):
+        for module, path in self._h139_h140_standard_module_headers():
+            with self.subTest(module=module):
+                self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+                self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+                self.assertIn("protected-dependency", {f["rule"] for f in self.scan({module: [path]})["findings"]})
+
+    def test_h139_h140_drawing_state_is_rejected(self):
+        for module, path in self._h139_h140_standard_module_headers():
+            with self.subTest(module=module):
+                self.put(path, "struct RuntimeMapRenderCache; void select(RuntimeMapRenderCache&);\n")
+                self.assertIn(module + "-drawing-state", {f["rule"] for f in self.scan({module: [path]})["findings"]})
+
+    def test_h139_h140_special_aggregate_include_is_rejected(self):
+        for module, path in self._h139_h140_standard_module_headers():
+            with self.subTest(module=module):
+                self.put(path, '#include "simulation/abilities/unit_special/RuntimeSpecialMechanisms.h"\n')
+                self.put("src/simulation/abilities/unit_special/RuntimeSpecialMechanisms.h", "struct OriginalAggregate {};\n")
+                self.assertIn("parasite-special-aggregate", {f["rule"] for f in self.scan({module: [path]})["findings"]})
+
+    def test_h139_h140_forward_aggregate_is_rejected(self):
+        for module, path in self._h139_h140_standard_module_headers():
+            with self.subTest(module=module):
+                self.put(path, "class RuntimeSpecialMechanismState; bool query(const RuntimeSpecialMechanismState&);\n")
+                self.assertIn(module + "-aggregate-state", {f["rule"] for f in self.scan({module: [path]})["findings"]})
+
+    def test_h139_h140_owned_values_and_comment_literals_are_allowed(self):
+        for module, path in self._h139_h140_standard_module_headers():
+            with self.subTest(module=module):
+                self.put(path, 'struct OwnedEffectValue { int tick=0; }; // RuntimeSpecialMechanismState\nconst char* note="RuntimeSpecialMechanismState";\n')
+                self.assertFalse([f for f in self.scan({module: [path]})["findings"] if f["rule"].startswith("protected-") or f["rule"] in {module + "-aggregate-state", module + "-drawing-state", "parasite-special-aggregate"}])
+
+    def test_parasite_saved_authority_policy_public_root_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteSavedAuthorityPolicy.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"parasite-saved-authority-policy": [path]})["findings"]})
+
+    def test_parasite_saved_authority_policy_private_roots_are_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteSavedAuthorityPolicy.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"parasite-saved-authority-policy": [path]})["findings"]})
+
+    def test_parasite_saved_authority_policy_erased_owner_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteSavedAuthorityPolicy.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"parasite-saved-authority-policy": [path]})["findings"]})
+
+    def test_parasite_saved_authority_policy_transitive_sdk_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteSavedAuthorityPolicy.h"
+        self.put(path, '#include "assets/Helper.h"\n')
+        self.put("src/assets/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"parasite-saved-authority-policy": [path]})["findings"]})
+
+    def test_parasite_saved_authority_policy_host_edge_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteSavedAuthorityPolicy.h"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"parasite-saved-authority-policy": [path]})["findings"]})
+
+    def test_parasite_saved_authority_policy_drawing_state_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteSavedAuthorityPolicy.h"
+        self.put(path, "struct RuntimeMapRenderCache; void select(RuntimeMapRenderCache&);\n")
+        self.assertIn("parasite-saved-authority-policy-drawing-state", {f["rule"] for f in self.scan({"parasite-saved-authority-policy": [path]})["findings"]})
+
+    def test_parasite_saved_authority_policy_standard_owned_values_are_allowed(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteSavedAuthorityPolicy.h"
+        self.put(path, "class OwnedSavedStuns { int objectId=-1; int untilTick=0; };\n")
+        self.assertFalse([f for f in self.scan({"parasite-saved-authority-policy": [path]})["findings"] if f["rule"].startswith("protected-") or f["rule"] == "parasite-saved-authority-policy-drawing-state"])
+
+    def test_parasite_saved_authority_policy_special_aggregate_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteSavedAuthorityPolicy.h"
+        self.put(path, '#include "simulation/abilities/unit_special/RuntimeSpecialMechanisms.h"\n')
+        self.put("src/simulation/abilities/unit_special/RuntimeSpecialMechanisms.h", "struct OriginalAggregate {};\n")
+        self.assertIn("parasite-special-aggregate", {f["rule"] for f in self.scan({"parasite-saved-authority-policy": [path]})["findings"]})
+
+    def test_parasite_saved_authority_policy_forward_aggregate_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteSavedAuthorityPolicy.h"
+        self.put(path, "class RuntimeSpecialMechanismState; bool validate(const RuntimeSpecialMechanismState&);\n")
+        self.assertIn("parasite-saved-authority-policy-aggregate-state", {f["rule"] for f in self.scan({"parasite-saved-authority-policy": [path]})["findings"]})
+
+    def test_parasite_saved_authority_policy_aggregate_comments_and_literals_are_allowed(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteSavedAuthorityPolicy.h"
+        self.put(path, 'class TypedSavedQueries {}; // RuntimeSpecialMechanismState\nconst char* note="RuntimeSpecialMechanismState";\n')
+        self.assertNotIn("parasite-saved-authority-policy-aggregate-state", {f["rule"] for f in self.scan({"parasite-saved-authority-policy": [path]})["findings"]})
+
+    def test_parasite_stun_state_public_root_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteStunState.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"parasite-stun-state": [path]})["findings"]})
+
+    def test_parasite_stun_state_private_roots_are_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteStunState.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"parasite-stun-state": [path]})["findings"]})
+
+    def test_parasite_stun_state_erased_owner_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteStunState.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"parasite-stun-state": [path]})["findings"]})
+
+    def test_parasite_stun_state_transitive_sdk_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteStunState.h"
+        self.put(path, '#include "assets/Helper.h"\n')
+        self.put("src/assets/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"parasite-stun-state": [path]})["findings"]})
+
+    def test_parasite_stun_state_host_edge_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteStunState.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"parasite-stun-state": [path]})["findings"]})
+
+    def test_parasite_stun_state_drawing_state_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteStunState.h"
+        self.put(path, "struct RuntimeMapRenderCache; void select(RuntimeMapRenderCache&);\n")
+        self.assertIn("parasite-stun-state-drawing-state", {f["rule"] for f in self.scan({"parasite-stun-state": [path]})["findings"]})
+
+    def test_parasite_stun_state_standard_owned_values_are_allowed(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteStunState.h"
+        self.put(path, "class OwnedStunState { int objectId=-1; int untilTick=0; };\n")
+        self.assertFalse([f for f in self.scan({"parasite-stun-state": [path]})["findings"] if f["rule"].startswith("protected-") or f["rule"] == "parasite-stun-state-drawing-state"])
+
+    def test_parasite_stun_state_special_aggregate_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteStunState.h"
+        self.put(path, '#include "simulation/abilities/unit_special/RuntimeSpecialMechanisms.h"\n')
+        self.put("src/simulation/abilities/unit_special/RuntimeSpecialMechanisms.h", "struct OriginalAggregate {};\n")
+        self.assertIn("parasite-special-aggregate", {f["rule"] for f in self.scan({"parasite-stun-state": [path]})["findings"]})
+
+    def test_parasite_state_public_root_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteState.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"parasite-state": [path]})["findings"]})
+
+    def test_parasite_state_private_roots_are_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteState.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"parasite-state": [path]})["findings"]})
+
+    def test_parasite_state_erased_owner_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteState.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"parasite-state": [path]})["findings"]})
+
+    def test_parasite_state_transitive_sdk_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteState.h"
+        self.put(path, '#include "assets/Helper.h"\n')
+        self.put("src/assets/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"parasite-state": [path]})["findings"]})
+
+    def test_parasite_state_host_edge_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteState.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"parasite-state": [path]})["findings"]})
+
+    def test_parasite_state_drawing_state_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteState.h"
+        self.put(path, "struct RuntimeMapRenderCache; void select(RuntimeMapRenderCache&);\n")
+        self.assertIn("parasite-state-drawing-state", {f["rule"] for f in self.scan({"parasite-state": [path]})["findings"]})
+
+    def test_parasite_state_standard_typed_ports_are_allowed(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteState.h"
+        self.put(path, "struct WorldObjectInstance; struct ParasiteLaunchRequest; struct Q { const WorldObjectInstance* findObject(int) const; };\n")
+        self.assertFalse([f for f in self.scan({"parasite-state": [path]})["findings"] if f["rule"].startswith("protected-") or f["rule"] == "parasite-state-drawing-state"])
+
+    def test_parasite_state_special_aggregate_is_rejected(self):
+        path = "src/simulation/abilities/parasites/RuntimeParasiteState.h"
+        self.put(path, '#include "simulation/abilities/unit_special/RuntimeSpecialMechanisms.h"\n')
+        self.put("src/simulation/abilities/unit_special/RuntimeSpecialMechanisms.h", "struct OriginalAggregate {};\n")
+        self.assertIn("parasite-special-aggregate", {f["rule"] for f in self.scan({"parasite-state": [path]})["findings"]})
+
+    def test_temporal_feedback_policy_public_root_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeTemporalFeedbackPolicy.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"temporal-feedback-policy": [path]})["findings"]})
+
+    def test_temporal_feedback_policy_private_roots_are_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeTemporalFeedbackPolicy.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"temporal-feedback-policy": [path]})["findings"]})
+
+    def test_temporal_feedback_policy_erased_owner_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeTemporalFeedbackPolicy.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"temporal-feedback-policy": [path]})["findings"]})
+
+    def test_temporal_feedback_policy_transitive_sdk_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeTemporalFeedbackPolicy.h"
+        self.put(path, '#include "assets/Helper.h"\n')
+        self.put("src/assets/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"temporal-feedback-policy": [path]})["findings"]})
+
+    def test_temporal_feedback_policy_host_edge_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeTemporalFeedbackPolicy.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"temporal-feedback-policy": [path]})["findings"]})
+
+    def test_temporal_feedback_policy_drawing_state_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeTemporalFeedbackPolicy.h"
+        self.put(path, "struct RuntimeMapRenderCache; void select(RuntimeMapRenderCache&);\n")
+        self.assertIn("temporal-feedback-policy-drawing-state", {f["rule"] for f in self.scan({"temporal-feedback-policy": [path]})["findings"]})
+
+    def test_temporal_feedback_policy_standard_typed_ports_are_allowed(self):
+        path = "src/simulation/abilities/chrono/RuntimeTemporalFeedbackPolicy.h"
+        self.put(path, "struct WorldObjectInstance; struct RuntimeObjectBehavior; struct ChronoMoveState; struct Q { const WorldObjectInstance* object(int) const; const RuntimeObjectBehavior* behavior(int) const; const ChronoMoveState* chrono(int) const; };\n")
+        self.assertFalse([f for f in self.scan({"temporal-feedback-policy": [path]})["findings"] if f["rule"].startswith("protected-") or f["rule"] == "temporal-feedback-policy-drawing-state"])
+
+    def test_temporal_feedback_policy_special_aggregate_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeTemporalFeedbackPolicy.h"
+        self.put(path, '#include "simulation/abilities/unit_special/RuntimeSpecialMechanisms.h"\n')
+        self.put("src/simulation/abilities/unit_special/RuntimeSpecialMechanisms.h", "struct OriginalAggregate {};\n")
+        self.assertIn("temporal-special-aggregate", {f["rule"] for f in self.scan({"temporal-feedback-policy": [path]})["findings"]})
+
+    def test_chrono_warp_public_root_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoWarp.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"chrono-warp": [path]})["findings"]})
+
+    def test_chrono_warp_private_roots_are_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoWarp.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"chrono-warp": [path]})["findings"]})
+
+    def test_chrono_warp_erased_owner_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoWarp.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"chrono-warp": [path]})["findings"]})
+
+    def test_chrono_warp_transitive_sdk_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoWarp.h"
+        self.put(path, '#include "assets/Helper.h"\n')
+        self.put("src/assets/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"chrono-warp": [path]})["findings"]})
+
+    def test_chrono_warp_host_edge_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoWarp.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"chrono-warp": [path]})["findings"]})
+
+    def test_chrono_warp_drawing_state_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoWarp.h"
+        self.put(path, "struct RuntimeMapRenderCache; void select(RuntimeMapRenderCache&);\n")
+        self.assertIn("chrono-warp-drawing-state", {f["rule"] for f in self.scan({"chrono-warp": [path]})["findings"]})
+
+    def test_chrono_warp_standard_typed_ports_are_allowed(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoWarp.h"
+        self.put(path, "struct WorldObjectInstance; struct RuntimeObjectBehavior; struct ChronoMoveState; struct Q { const WorldObjectInstance* object(int) const; const RuntimeObjectBehavior* behavior(int) const; const ChronoMoveState* chrono(int) const; };\n")
+        self.assertFalse([f for f in self.scan({"chrono-warp": [path]})["findings"] if f["rule"].startswith("protected-") or f["rule"] == "chrono-warp-drawing-state"])
+
+    def test_chrono_transport_admission_public_root_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoTransportAdmission.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"chrono-transport-admission": [path]})["findings"]})
+
+    def test_chrono_transport_admission_private_roots_are_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoTransportAdmission.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"chrono-transport-admission": [path]})["findings"]})
+
+    def test_chrono_transport_admission_erased_owner_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoTransportAdmission.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"chrono-transport-admission": [path]})["findings"]})
+
+    def test_chrono_transport_admission_transitive_sdk_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoTransportAdmission.h"
+        self.put(path, '#include "assets/Helper.h"\n')
+        self.put("src/assets/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"chrono-transport-admission": [path]})["findings"]})
+
+    def test_chrono_transport_admission_host_edge_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoTransportAdmission.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"chrono-transport-admission": [path]})["findings"]})
+
+    def test_chrono_transport_admission_drawing_state_is_rejected(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoTransportAdmission.h"
+        self.put(path, "struct RuntimeMapRenderCache; void select(RuntimeMapRenderCache&);\n")
+        self.assertIn("chrono-transport-admission-drawing-state", {f["rule"] for f in self.scan({"chrono-transport-admission": [path]})["findings"]})
+
+    def test_chrono_transport_admission_standard_typed_ports_are_allowed(self):
+        path = "src/simulation/abilities/chrono/RuntimeChronoTransportAdmission.h"
+        self.put(path, "struct WorldObjectInstance; struct RuntimeObjectBehavior; struct ChronoMoveState; struct Q { const WorldObjectInstance* object(int) const; const RuntimeObjectBehavior* behavior(int) const; const ChronoMoveState* chrono(int) const; };\n")
+        self.assertFalse([f for f in self.scan({"chrono-transport-admission": [path]})["findings"] if f["rule"].startswith("protected-") or f["rule"] == "chrono-transport-admission-drawing-state"])
+
+    def test_superweapon_ai_policy_public_root_is_rejected(self):
+        path = "src/simulation/superweapons/RuntimeSuperWeaponAiPolicy.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"superweapon-ai-policy": [path]})["findings"]})
+
+    def test_superweapon_ai_policy_private_roots_are_rejected(self):
+        path = "src/simulation/superweapons/RuntimeSuperWeaponAiPolicy.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"superweapon-ai-policy": [path]})["findings"]})
+
+    def test_superweapon_ai_policy_erased_owner_is_rejected(self):
+        path = "src/simulation/superweapons/RuntimeSuperWeaponAiPolicy.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"superweapon-ai-policy": [path]})["findings"]})
+
+    def test_superweapon_ai_policy_transitive_sdk_is_rejected(self):
+        path = "src/simulation/superweapons/RuntimeSuperWeaponAiPolicy.h"
+        self.put(path, '#include "assets/Helper.h"\n')
+        self.put("src/assets/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"superweapon-ai-policy": [path]})["findings"]})
+
+    def test_superweapon_ai_policy_host_edge_is_rejected(self):
+        path = "src/simulation/superweapons/RuntimeSuperWeaponAiPolicy.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"superweapon-ai-policy": [path]})["findings"]})
+
+    def test_superweapon_ai_policy_drawing_state_is_rejected(self):
+        path = "src/simulation/superweapons/RuntimeSuperWeaponAiPolicy.h"
+        self.put(path, "struct RuntimeMapRenderCache; void select(RuntimeMapRenderCache&);\n")
+        self.assertIn("superweapon-ai-policy-drawing-state", {f["rule"] for f in self.scan({"superweapon-ai-policy": [path]})["findings"]})
+
+    def test_superweapon_ai_policy_standard_typed_ports_are_allowed(self):
+        path = "src/simulation/superweapons/RuntimeSuperWeaponAiPolicy.h"
+        self.put(path, "class RuntimeVisionSystem; struct SuperWeaponEvent; bool apply(bool, const SuperWeaponEvent&, RuntimeVisionSystem&);\n")
+        self.assertFalse([f for f in self.scan({"superweapon-ai-policy": [path]})["findings"] if f["rule"].startswith("protected-") or f["rule"] == "superweapon-ai-policy-drawing-state"])
+
+    def test_superweapon_vision_effects_public_root_is_rejected(self):
+        path = "src/simulation/superweapons/RuntimeSuperWeaponVisionEffects.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"superweapon-vision-effects": [path]})["findings"]})
+
+    def test_superweapon_vision_effects_private_roots_are_rejected(self):
+        path = "src/simulation/superweapons/RuntimeSuperWeaponVisionEffects.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"superweapon-vision-effects": [path]})["findings"]})
+
+    def test_superweapon_vision_effects_erased_owner_is_rejected(self):
+        path = "src/simulation/superweapons/RuntimeSuperWeaponVisionEffects.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"superweapon-vision-effects": [path]})["findings"]})
+
+    def test_superweapon_vision_effects_transitive_sdk_is_rejected(self):
+        path = "src/simulation/superweapons/RuntimeSuperWeaponVisionEffects.h"
+        self.put(path, '#include "assets/Helper.h"\n')
+        self.put("src/assets/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"superweapon-vision-effects": [path]})["findings"]})
+
+    def test_superweapon_vision_effects_host_edge_is_rejected(self):
+        path = "src/simulation/superweapons/RuntimeSuperWeaponVisionEffects.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"superweapon-vision-effects": [path]})["findings"]})
+
+    def test_superweapon_vision_effects_drawing_state_is_rejected(self):
+        path = "src/simulation/superweapons/RuntimeSuperWeaponVisionEffects.h"
+        self.put(path, "struct RuntimeMapRenderCache; void select(RuntimeMapRenderCache&);\n")
+        self.assertIn("superweapon-vision-drawing-state", {f["rule"] for f in self.scan({"superweapon-vision-effects": [path]})["findings"]})
+
+    def test_superweapon_vision_effects_standard_vision_event_borrow_is_allowed(self):
+        path = "src/simulation/superweapons/RuntimeSuperWeaponVisionEffects.h"
+        self.put(path, "class RuntimeVisionSystem; struct SuperWeaponEvent; bool apply(bool, const SuperWeaponEvent&, RuntimeVisionSystem&);\n")
+        self.assertFalse([f for f in self.scan({"superweapon-vision-effects": [path]})["findings"] if f["rule"].startswith("protected-") or f["rule"] == "superweapon-vision-drawing-state"])
+
+    def test_nearest_subcell_policy_public_root_is_rejected(self):
+        path = "src/simulation/navigation/occupancy/RuntimeNearestSubcellSelection.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"nearest-subcell-policy": [path]})["findings"]})
+
+    def test_nearest_subcell_policy_private_roots_are_rejected(self):
+        path = "src/simulation/navigation/occupancy/RuntimeNearestSubcellSelection.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"nearest-subcell-policy": [path]})["findings"]})
+
+    def test_nearest_subcell_policy_erased_owner_is_rejected(self):
+        path = "src/simulation/navigation/occupancy/RuntimeNearestSubcellSelection.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"nearest-subcell-policy": [path]})["findings"]})
+
+    def test_nearest_subcell_policy_transitive_sdk_is_rejected(self):
+        path = "src/simulation/navigation/occupancy/RuntimeNearestSubcellSelection.h"
+        self.put(path, '#include "assets/Helper.h"\n')
+        self.put("src/assets/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"nearest-subcell-policy": [path]})["findings"]})
+
+    def test_nearest_subcell_policy_host_edge_is_rejected(self):
+        path = "src/simulation/navigation/occupancy/RuntimeNearestSubcellSelection.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"nearest-subcell-policy": [path]})["findings"]})
+
+    def test_nearest_subcell_policy_drawing_state_is_rejected(self):
+        path = "src/simulation/navigation/occupancy/RuntimeNearestSubcellSelection.h"
+        self.put(path, "struct RuntimeMapRenderCache; void select(RuntimeMapRenderCache&);\n")
+        self.assertIn("nearest-subcell-drawing-state", {f["rule"] for f in self.scan({"nearest-subcell-policy": [path]})["findings"]})
+
+    def test_nearest_subcell_policy_standard_grounded_borrow_is_allowed(self):
+        path = "src/simulation/navigation/occupancy/RuntimeNearestSubcellSelection.h"
+        self.put(path, "struct WorldObjectInstance; int select(WorldObjectInstance&);\n")
+        self.assertFalse([f for f in self.scan({"nearest-subcell-policy": [path]})["findings"] if f["rule"].startswith("protected-") or f["rule"] == "nearest-subcell-drawing-state"])
+
+    def test_auxiliary_shp_bytes_public_root_is_rejected(self):
+        path = "src/assets/sprites/RuntimeAuxiliaryShpBytes.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"auxiliary-shp-bytes": [path]})["findings"]})
+
+    def test_auxiliary_shp_bytes_private_roots_are_rejected(self):
+        path = "src/assets/sprites/RuntimeAuxiliaryShpBytes.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"auxiliary-shp-bytes": [path]})["findings"]})
+
+    def test_auxiliary_shp_bytes_erased_owner_is_rejected(self):
+        path = "src/assets/sprites/RuntimeAuxiliaryShpBytes.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"auxiliary-shp-bytes": [path]})["findings"]})
+
+    def test_auxiliary_shp_bytes_transitive_sdk_is_rejected(self):
+        path = "src/assets/sprites/RuntimeAuxiliaryShpBytes.h"
+        self.put(path, '#include "assets/Helper.h"\n')
+        self.put("src/assets/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"auxiliary-shp-bytes": [path]})["findings"]})
+
+    def test_auxiliary_shp_bytes_host_edge_is_rejected(self):
+        path = "src/assets/sprites/RuntimeAuxiliaryShpBytes.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"auxiliary-shp-bytes": [path]})["findings"]})
+
+    def test_auxiliary_shp_bytes_drawing_state_is_rejected(self):
+        path = "src/assets/sprites/RuntimeAuxiliaryShpBytes.h"
+        self.put(path, "struct RuntimeMapRenderCache; void select(RuntimeMapRenderCache&);\n")
+        self.assertIn("animation-resource-drawing-state", {f["rule"] for f in self.scan({"auxiliary-shp-bytes": [path]})["findings"]})
+
+    def test_auxiliary_shp_bytes_standard_art_borrow_is_allowed(self):
+        path = "src/assets/sprites/RuntimeAuxiliaryShpBytes.h"
+        self.put(path, "struct ArtType; struct Query { const ArtType* select(); };\n")
+        self.assertFalse([f for f in self.scan({"auxiliary-shp-bytes": [path]})["findings"] if f["rule"].startswith("protected-") or f["rule"] == "animation-resource-drawing-state"])
+
+    def test_art_animation_sequence_public_root_is_rejected(self):
+        path = "src/assets/animation/RuntimeArtAnimationSequence.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"art-animation-sequence": [path]})["findings"]})
+
+    def test_art_animation_sequence_private_roots_are_rejected(self):
+        path = "src/assets/animation/RuntimeArtAnimationSequence.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"art-animation-sequence": [path]})["findings"]})
+
+    def test_art_animation_sequence_erased_owner_is_rejected(self):
+        path = "src/assets/animation/RuntimeArtAnimationSequence.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"art-animation-sequence": [path]})["findings"]})
+
+    def test_art_animation_sequence_transitive_sdk_is_rejected(self):
+        path = "src/assets/animation/RuntimeArtAnimationSequence.h"
+        self.put(path, '#include "assets/Helper.h"\n')
+        self.put("src/assets/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"art-animation-sequence": [path]})["findings"]})
+
+    def test_art_animation_sequence_host_edge_is_rejected(self):
+        path = "src/assets/animation/RuntimeArtAnimationSequence.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"art-animation-sequence": [path]})["findings"]})
+
+    def test_art_animation_sequence_drawing_state_is_rejected(self):
+        path = "src/assets/animation/RuntimeArtAnimationSequence.h"
+        self.put(path, "struct RuntimeMapRenderCache; void select(RuntimeMapRenderCache&);\n")
+        self.assertIn("animation-resource-drawing-state", {f["rule"] for f in self.scan({"art-animation-sequence": [path]})["findings"]})
+
+    def test_art_animation_sequence_standard_art_borrow_is_allowed(self):
+        path = "src/assets/animation/RuntimeArtAnimationSequence.h"
+        self.put(path, "struct ArtType; struct Query { const ArtType* select(); };\n")
+        self.assertFalse([f for f in self.scan({"art-animation-sequence": [path]})["findings"] if f["rule"].startswith("protected-") or f["rule"] == "animation-resource-drawing-state"])
+
+    def test_superweapon_animation_timing_public_root_is_rejected(self):
+        path = "src/simulation/superweapons/RuntimeSuperWeaponAnimationTiming.h"
+        self.put(path, "struct RuntimeWindowState; void select(RuntimeWindowState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"superweapon-animation-timing": [path]})["findings"]})
+
+    def test_superweapon_animation_timing_private_roots_are_rejected(self):
+        path = "src/simulation/superweapons/RuntimeSuperWeaponAnimationTiming.h"
+        self.put(path, "struct RuntimeGameSessionState; struct RuntimeProductionHostState; void select(RuntimeGameSessionState&, RuntimeProductionHostState&);\n")
+        self.assertIn("protected-host-state", {f["rule"] for f in self.scan({"superweapon-animation-timing": [path]})["findings"]})
+
+    def test_superweapon_animation_timing_erased_owner_is_rejected(self):
+        path = "src/simulation/superweapons/RuntimeSuperWeaponAnimationTiming.h"
+        self.put(path, "struct Query { void* state; };\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"superweapon-animation-timing": [path]})["findings"]})
+
+    def test_superweapon_animation_timing_transitive_sdk_is_rejected(self):
+        path = "src/simulation/superweapons/RuntimeSuperWeaponAnimationTiming.h"
+        self.put(path, '#include "assets/Helper.h"\n')
+        self.put("src/assets/Helper.h", "#include <windows.h>\n")
+        self.assertIn("protected-platform", {f["rule"] for f in self.scan({"superweapon-animation-timing": [path]})["findings"]})
+
+    def test_superweapon_animation_timing_host_edge_is_rejected(self):
+        path = "src/simulation/superweapons/RuntimeSuperWeaponAnimationTiming.cpp"
+        self.put(path, '#include "runtime/host/RuntimeShell.h"\n')
+        self.put("src/runtime/host/RuntimeShell.h", "struct HostOnly {};\n")
+        self.assertIn("protected-dependency", {f["rule"] for f in self.scan({"superweapon-animation-timing": [path]})["findings"]})
+
+    def test_superweapon_animation_timing_drawing_state_is_rejected(self):
+        path = "src/simulation/superweapons/RuntimeSuperWeaponAnimationTiming.h"
+        self.put(path, "struct RuntimeMapRenderCache; void select(RuntimeMapRenderCache&);\n")
+        self.assertIn("animation-resource-drawing-state", {f["rule"] for f in self.scan({"superweapon-animation-timing": [path]})["findings"]})
+
+    def test_superweapon_animation_timing_standard_art_borrow_is_allowed(self):
+        path = "src/simulation/superweapons/RuntimeSuperWeaponAnimationTiming.h"
+        self.put(path, "struct ArtType; struct Query { const ArtType* select(); };\n")
+        self.assertFalse([f for f in self.scan({"superweapon-animation-timing": [path]})["findings"] if f["rule"].startswith("protected-") or f["rule"] == "animation-resource-drawing-state"])
 
     def test_h333_registration_only(self):
         self.put("src/analysis/sandbox/ReplaySandbox.cpp",

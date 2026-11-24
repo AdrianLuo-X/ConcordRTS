@@ -1,4 +1,5 @@
 #include "render/voxel/GrandCannonRasterTask.h"
+#include "render/voxel/RuntimeVxlReferenceRaster.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -67,47 +68,14 @@ std::size_t raster(const tasks::JobContext& context) {
         return static_cast<unsigned char>(std::clamp(
             static_cast<int>(std::lround(((brightness + 1.0) * 0.5) * 255.0)), 0, 255));
     };
-    const auto triangle = [&](const Face& face, int a, int b, int c) {
-        if (face.color == 0) return;
-        const double ax = static_cast<double>(padding) + face.x[static_cast<std::size_t>(a)];
-        const double ay = static_cast<double>(padding) + face.y[static_cast<std::size_t>(a)];
-        const double bx = static_cast<double>(padding) + face.x[static_cast<std::size_t>(b)];
-        const double by = static_cast<double>(padding) + face.y[static_cast<std::size_t>(b)];
-        const double cx = static_cast<double>(padding) + face.x[static_cast<std::size_t>(c)];
-        const double cy = static_cast<double>(padding) + face.y[static_cast<std::size_t>(c)];
-        const int left = std::clamp(static_cast<int>(std::floor(std::min({ax, bx, cx}))), 0, width - 1);
-        const int right = std::clamp(static_cast<int>(std::ceil(std::max({ax, bx, cx}))), 0, width - 1);
-        const int top = std::clamp(static_cast<int>(std::floor(std::min({ay, by, cy}))), 0, height - 1);
-        const int bottom = std::clamp(static_cast<int>(std::ceil(std::max({ay, by, cy}))), 0, height - 1);
-        const double denominator = ((by - cy) * (ax - cx)) + ((cx - bx) * (ay - cy));
-        if (std::abs(denominator) < 0.0001) return;
-        ++result.triangles;
-        for (int py = top; py <= bottom; ++py) {
-            if (context.stopRequested()) return;
-            for (int px = left; px <= right; ++px) {
-                const double sampleX = static_cast<double>(px) + 0.5;
-                const double sampleY = static_cast<double>(py) + 0.5;
-                const double weightA = (((by - cy) * (sampleX - cx)) + ((cx - bx) * (sampleY - cy))) / denominator;
-                const double weightB = (((cy - ay) * (sampleX - cx)) + ((ax - cx) * (sampleY - cy))) / denominator;
-                const double weightC = 1.0 - weightA - weightB;
-                if (weightA < -0.01 || weightB < -0.01 || weightC < -0.01) continue;
-                const double pixelDepth = (weightA * face.depth[static_cast<std::size_t>(a)])
-                    + (weightB * face.depth[static_cast<std::size_t>(b)])
-                    + (weightC * face.depth[static_cast<std::size_t>(c)]) + referenceFaceBias;
-                const auto pixelIndex = static_cast<std::size_t>(py) * static_cast<std::size_t>(width) + static_cast<std::size_t>(px);
-                if (pixelDepth <= pixelDepths[pixelIndex] + referenceDepthEpsilon) continue;
-                pixelDepths[pixelIndex] = pixelDepth;
-                pixels[pixelIndex] = face.color;
-                rawColorIndices[pixelIndex] = static_cast<unsigned char>(face.material & 0xFFU);
-                ownerRemapMask[pixelIndex] = face.ownerRemap ? 1 : 0;
-                lightLevels[pixelIndex] = 192;
-                normalIndices[pixelIndex] = face.normal;
-                normalBrightnessLevels[pixelIndex] = brightnessByte(face.normalBrightness);
-                vplSections[pixelIndex] = face.vpl;
-                std::memcpy(materialBytes + pixelIndex * sizeof(std::uint32_t), &face.material, sizeof(face.material));
-            }
-        }
+    const concord::render::VxlReferenceRasterTarget target{
+        width, height, padding, referenceDepthEpsilon, referenceFaceBias, 192,
+        {pixelDepths, count}, {pixels, count}, {rawColorIndices, count}, {ownerRemapMask, count},
+        {lightLevels, count}, {normalIndices, count}, {normalBrightnessLevels, count}, {vplSections, count}};
+    const auto writeMaterial = [&](std::size_t index, std::uint32_t material) {
+        std::memcpy(materialBytes + index * sizeof(material), &material, sizeof(material));
     };
+    const auto stopRequested = [&] { return context.stopRequested(); };
     for (std::size_t i = 0; i < input.faces; ++i) {
         if (context.stopRequested()) return 0;
         Face face{};
@@ -115,8 +83,11 @@ std::size_t raster(const tasks::JobContext& context) {
         for (std::size_t j = 0; j < 4; ++j)
             if (!std::isfinite(face.x[j]) || !std::isfinite(face.y[j]) || !std::isfinite(face.depth[j])
                 || std::abs(face.x[j]) > 65536.0 || std::abs(face.y[j]) > 65536.0) return invalid();
-        ++result.cuboidFaces;
-        triangle(face, 0, 1, 2); triangle(face, 0, 2, 3);
+        const concord::render::VxlReferenceFaceView projected{
+            face.x, face.y, face.depth, face.normalBrightness, face.material, face.color,
+            face.normal, face.vpl, face.ownerRemap != 0};
+        concord::render::rasterizeVxlReferenceFace(projected, target, result.cuboidFaces,
+            result.triangles, brightnessByte, writeMaterial, stopRequested);
     }
     int left = width, top = height, right = -1, bottom = -1;
     for (int py = 0; py < height; ++py) for (int px = 0; px < width; ++px) {

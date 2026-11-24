@@ -63,7 +63,10 @@ std::optional<std::pair<double, double>> runtimeLoadingPreviewStartPosition(
             - parseRuntimeIntOrDefault(local[1], 0)) / localHeight);
 }
 
-void refreshRuntimeLoadingMapStarts(RuntimeLoadingWindowState& loading, const RuntimeWindowState& runtime) {
+void refreshRuntimeLoadingMapStarts(
+    RuntimeLoadingWindowState& loading,
+    const RuntimeGameSessionState& runtime,
+    const RuntimeOwnerRemapColorTable& ownerRemapColors) {
     loading.mapStarts.clear();
     if (runtime.campaignMode || loading.mapStartAssignments.empty()) return;
     const auto candidates = runtimeSkirmishStartCandidates(runtime);
@@ -85,9 +88,46 @@ void refreshRuntimeLoadingMapStarts(RuntimeLoadingWindowState& loading, const Ru
         const auto position = runtimeLoadingPreviewStartPosition(loading.mapIni, cell, waypointId);
         if (!position) continue;
         const auto owner = legacyPlayer ? runtime.economy.owner : runtimeSkirmishOwnerForSlot(slotIndex);
-        const auto color = runtime.ownerRemapColors.find(toLowerAsciiLocal(trimAsciiLocal(owner)));
+        const auto color = ownerRemapColors.find(toLowerAsciiLocal(trimAsciiLocal(owner)));
         loading.mapStarts.push_back({position->first, position->second,
-            color != runtime.ownerRemapColors.end() ? color->second : runtimeOwnerRadarColor(owner), slotIndex});
+            color != ownerRemapColors.end() ? color->second : runtimeOwnerRadarColor(owner), slotIndex});
+    }
+}
+
+void prepareRuntimeLoadingAssets(
+    RuntimeLoadingWindowState& loading,
+    const RuntimeConfig& config,
+    RuntimeMapRenderCache& renderCache,
+    const char* flag) {
+    const std::filesystem::path root(runtimeAssetRootPath(config));
+    std::string error, source;
+    loading.flag = {};
+    loading.flagPalette.clear();
+    loading.flagLoaded = false;
+    loading.flagPcx = false;
+    for (const auto& path : {std::filesystem::path(config.modRootPath) / (std::string(flag) + ".pcx"),
+            root / "ra2md" / "localmd" / (std::string(flag) + ".pcx")}) {
+        if (decodeRuntimePcxImageFile(pathString(path), loading.flag, loading.flagPalette, error)) {
+            loading.flagLoaded = loading.flagPcx = true; break;
+        }
+    }
+    if (!loading.flagLoaded) {
+        loading.flagLoaded = loadRuntimePcxImageFromMixArchive(pathString(root / "ra2" / "local.mix"),
+            renderCache, flag, loading.flag, loading.flagPalette, source, error);
+        loading.flagPcx = loading.flagLoaded;
+    }
+    if (!loading.flagLoaded) {
+        loading.flagLoaded = decodeRuntimeShpFrameFile(pathString(root / "ra2md" / "localmd"
+            / (std::string(flag) + ".shp")), 0, loading.flag, error)
+            && loadRuntimePaletteFile(pathString(root / "ra2md" / "localmd"
+                / (std::string(flag) == "yrii" ? "yrii.pal" : "mpyscrn.pal")), loading.flagPalette, error);
+    }
+    loading.mapPreview = {};
+    loading.mapStarts.clear();
+    loading.mapStartAssignments.clear();
+    loading.mapIni = {};
+    if (!config.defaultMapPath.empty() && loading.mapIni.loadFromFile(config.defaultMapPath)) {
+        (void)decodeMapPreviewImage(loading.mapIni, loading.mapPreview, error);
     }
 }
 
@@ -109,36 +149,7 @@ void prepareRuntimeLoadingDetails(RuntimeLoadingWindowState& loading, RuntimeWin
         : runtimeMenuLabel(runtime, "GUI:Player", L"玩家");
     loading.playerColor = runtimeRemapColorFromToken(runtime.config,
         slot ? slot->color : runtime.config.playerColor, RGB(64, 128, 255));
-    const std::filesystem::path root(runtimeAssetRootPath(runtime.config));
-    std::string error, source;
-    loading.flag = {};
-    loading.flagPalette.clear();
-    loading.flagLoaded = false;
-    loading.flagPcx = false;
-    for (const auto& path : {std::filesystem::path(runtime.config.modRootPath) / (std::string(text.flag) + ".pcx"),
-            root / "ra2md" / "localmd" / (std::string(text.flag) + ".pcx")}) {
-        if (decodeRuntimePcxImageFile(pathString(path), loading.flag, loading.flagPalette, error)) {
-            loading.flagLoaded = loading.flagPcx = true; break;
-        }
-    }
-    if (!loading.flagLoaded) {
-        loading.flagLoaded = loadRuntimePcxImageFromMixArchive(pathString(root / "ra2" / "local.mix"),
-            runtime.renderCache, text.flag, loading.flag, loading.flagPalette, source, error);
-        loading.flagPcx = loading.flagLoaded;
-    }
-    if (!loading.flagLoaded) {
-        loading.flagLoaded = decodeRuntimeShpFrameFile(pathString(root / "ra2md" / "localmd"
-            / (std::string(text.flag) + ".shp")), 0, loading.flag, error)
-            && loadRuntimePaletteFile(pathString(root / "ra2md" / "localmd"
-                / (std::string(text.flag) == "yrii" ? "yrii.pal" : "mpyscrn.pal")), loading.flagPalette, error);
-    }
-    loading.mapPreview = {};
-    loading.mapStarts.clear();
-    loading.mapStartAssignments.clear();
-    loading.mapIni = {};
-    if (!runtime.config.defaultMapPath.empty() && loading.mapIni.loadFromFile(runtime.config.defaultMapPath)) {
-        (void)decodeMapPreviewImage(loading.mapIni, loading.mapPreview, error);
-    }
+    prepareRuntimeLoadingAssets(loading, runtime.config, runtime.renderCache, text.flag);
 }
 
 void drawRuntimeCountryLoading(HDC dc, const RECT& client, const RuntimeLoadingWindowState& loading) {

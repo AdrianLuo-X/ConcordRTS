@@ -69,7 +69,7 @@ bool runRuntimeWorldAudioClockSmoke(RuntimeWindowState& stock, std::ostream& out
         s.camera.worldOffsetX=projected.x-600; s.camera.worldOffsetY=projected.y-400;
         s.uiClock=&uiClock; s.worldAudioClock=&clock;
         if (!loadRuntimeSoundDatabase(s)) return std::unique_ptr<RuntimeWindowState>{};
-        s.runtimeSoundIntentHistory.clear(); s.runtimeWorldAudioBackendActionHistory.clear();
+        s.runtimeSoundIntentHistory.clear(); s.worldAudioBackend.clearHistory();
         return p;
     };
     auto current=make(currentClock), baseline=make(originalClock);
@@ -107,7 +107,7 @@ bool runRuntimeWorldAudioClockSmoke(RuntimeWindowState& stock, std::ostream& out
         const auto& x=s.chronosphereSelectionAudio;
         stream<<std::quoted(x.owner)<<' '<<std::quoted(x.weaponId)<<' '<<x.cell.x<<' '<<x.cell.y<<' '<<x.cell.level<<' '<<x.selected<<'\n';sound(stream,x.sound);
         for(const auto& event:s.runtimeSoundIntentHistory) stream<<std::quoted(event)<<'\n';
-        for(const auto& event:s.runtimeWorldAudioBackendActionHistory) {
+        for(const auto& event:s.worldAudioBackend.history()) {
             stream<<int(event.kind)<<' '<<event.handleId<<' '<<std::quoted(event.eventId)<<' '<<std::quoted(event.sampleName)
                 <<' '<<event.waypointId<<' '<<event.cell.x<<' '<<event.cell.y<<' '<<event.cell.level<<' '
                 <<event.eventTick<<' '<<event.playbackOrdinal<<' '<<event.gainPermille<<' '<<event.frequencyPermille
@@ -145,7 +145,7 @@ bool runRuntimeWorldAudioClockSmoke(RuntimeWindowState& stock, std::ostream& out
     startRuntimeChronosphereSelectionAudio(a,marker);
     original.startRuntimeChronosphereSelectionAudio(b,marker,originalClock.nowMs());
     expect(a.chronosphereSelectionAudio.selected,"authored original Chronosphere selection started");
-    expect(std::any_of(a.runtimeWorldAudioBackendActionHistory.begin(),a.runtimeWorldAudioBackendActionHistory.end(),[](const auto& x){return x.kind==RuntimeWorldAudioActionKind::Play;}),"nonempty original sample/PCM actions observed");
+    expect(std::any_of(a.worldAudioBackend.history().begin(),a.worldAudioBackend.history().end(),[](const auto& x){return x.kind==RuntimeWorldAudioActionKind::Play;}),"nonempty original sample/PCM actions observed");
     compare("authored-selection-default");
     // Exercise real decay and duplicate-stop guards, with the old complete body.
     currentClock.reset(200);originalClock.reset(200);

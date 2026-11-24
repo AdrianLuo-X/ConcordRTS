@@ -2,7 +2,7 @@
 // optional recording/viewing session being present.
 
 
-bool dispatchRuntimeOfflineGameplayCommand(RuntimeWindowState& state,
+bool dispatchRuntimeOfflineGameplayCommand(RuntimeProductionHostState& state,
     const RuntimeMultiplayerGameplayCommand& command, std::string& error) {
     const std::string owner=state.economy.owner;
     if(state.config.multiplayerActive

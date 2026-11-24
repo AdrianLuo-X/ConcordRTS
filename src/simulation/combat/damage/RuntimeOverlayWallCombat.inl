@@ -14,19 +14,6 @@
 
 
 
-static bool runtimeOverlayWallSelectionCanAttack(
-    RuntimeWindowState& state, const WorldObjectInstance& target) {
-    for (int id : runtimeCombatSelection(state)) {
-        const auto* source = findObjectById(state, id);
-        if (!source || !source->alive || source->health <= 0 || source->owner != state.economy.owner
-            || runtimeObjectDisabledByParasite(state, id) || !runtimeObjectHasAttackAmmo(state.rules, *source)) continue;
-        const auto profile = runtimeWeaponProfileForObject(state, *source, &target, state.forceAttackHeld);
-        if (profile.weapon && profile.weapon->damage > 0 && profile.weapon->range > 0
-            && (!profile.projectile || profile.projectile->ag)) return true;
-    }
-    return false;
-}
-
 std::optional<WorldObjectInstance> visibleTerrainWallTargetAtPoint(
     RuntimeWindowState& state, const RECT& viewport, POINT point) {
     if (state.selectedObjectIds.empty() || !PtInRect(&viewport, point)) return std::nullopt;
@@ -74,7 +61,8 @@ std::optional<WorldObjectInstance> visibleTerrainWallTargetAtPoint(
         const int key = id - std::numeric_limits<int>::min();
         auto target = runtimeOverlayWallTargetAtCell(state, {key % 512, key / 512});
         if (target && runtimeObjectVisibleToOwner(state, state.economy.owner, *target)
-            && runtimeOverlayWallSelectionCanAttack(state, *target)) return target;
+            && runtimeOverlayWallSelectionCanAttack(
+                state, runtimeCombatSelection(state), *target, state.forceAttackHeld)) return target;
     }
     return std::nullopt;
 }

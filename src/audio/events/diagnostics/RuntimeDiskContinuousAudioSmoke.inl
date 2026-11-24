@@ -58,9 +58,9 @@ bool runRuntimeDiskContinuousAudioSmoke(RuntimeWindowState& live,std::string& er
                 if(!binding.active||binding.ordinal<lastOrdinal[source])return fail("reissued movement restarted voice");
                 lastOrdinal[source]=binding.ordinal;
             }
-            for(const auto& action:s.runtimeWorldAudioBackendActionHistory)
+            for(const auto& action:s.worldAudioBackend.history())
                 if(action.kind==RuntimeWorldAudioActionKind::Play&&action.sampleName==spec->samples.front())++starts;
-            s.runtimeWorldAudioBackendActionHistory.clear();
+            s.worldAudioBackend.clearHistory();
         }
         if(starts!=2)return fail("intro did not play exactly once per moving disk");
         for(const auto& [source,binding]:s.diskMoveAudio.sources)if(binding.ordinal<5)return fail("loop body did not continue");
@@ -71,20 +71,20 @@ bool runRuntimeDiskContinuousAudioSmoke(RuntimeWindowState& live,std::string& er
             return fail("moving full reload: "+error);
         advanceRuntimeDiskMoveAudio(*restored,now);
         if(restored->diskMoveAudio.sources.size()!=2)return fail("load did not recreate movement sounds");
-        for(const auto& action:restored->runtimeWorldAudioBackendActionHistory)
+        for(const auto& action:restored->worldAudioBackend.history())
             if(action.kind==RuntimeWorldAudioActionKind::Play&&action.sampleName==spec->samples.front())return fail("load replayed intro");
         ++saves;
         s.runtimeSoundVolume=0;advanceRuntimeDiskMoveAudio(s,now);
         if(s.diskMoveAudio.sources.at(id).active)return fail("mute retained loop");
-        s.runtimeSoundVolume=100;s.runtimeWorldAudioBackendActionHistory.clear();advanceRuntimeDiskMoveAudio(s,now);
-        for(const auto& action:s.runtimeWorldAudioBackendActionHistory)
+        s.runtimeSoundVolume=100;s.worldAudioBackend.clearHistory();advanceRuntimeDiskMoveAudio(s,now);
+        for(const auto& action:s.worldAudioBackend.history())
             if(action.kind==RuntimeWorldAudioActionKind::Play&&action.sampleName==spec->samples.front())return fail("unmute replayed intro");
         s.selectedObjectIds={id};issueRuntimeStopCommand(s);advanceRuntimeDiskMoveAudio(s,now);
         // Stop retains the currently interpolating jumpjet segment. Its motor
         // sound ends when that physical segment finishes, not at button-down.
         for(int tick=0;tick<hz*3&&s.diskMoveAudio.sources.contains(id);++tick)step();
         if(s.diskMoveAudio.sources.contains(id)||!s.diskMoveAudio.sources.contains(other))return fail("stop closed wrong group member");
-        if(std::none_of(s.runtimeWorldAudioBackendActionHistory.begin(),s.runtimeWorldAudioBackendActionHistory.end(),
+        if(std::none_of(s.worldAudioBackend.history().begin(),s.worldAudioBackend.history().end(),
             [&](const auto& a){return a.handleId==runtimeDiskMoveSoundHandle(id,1)&&a.sampleName==spec->samples.back();}))return fail("stop omitted decay");
         RuntimeObjectExitRequest exit;exit.objectId=other;exit.kind=RuntimeObjectExitKind::Destroyed;
         exit.tick=s.tick;exit.suppressCrew=exit.suppressDeathWeapon=true;

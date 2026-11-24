@@ -1,24 +1,7 @@
-#include "render/buildings/RuntimeBuildingDepth.h"
 #include "render/buildings/RuntimeBuildingDepthRowKernel.h"
 
-struct RuntimeBuildingDepthDraw {
-    RuntimeBuildingDepthFrame description;
-    const RuntimeShpFrameImage* image = nullptr;
-    std::shared_ptr<std::vector<unsigned char>> pinnedPixels;
-    RECT rect{};
-    int instanceId = -1;
-    double ySort = 0.0;
-    std::size_t sequence = 0;
-    int opacity = 255;
-    std::function<std::vector<std::uint32_t>()> colors;
-    std::function<std::uint32_t()> gpuMaterial;
-};
-
-struct RuntimeBuildingDepthBlendPixel {
-    struct Layer { std::uint32_t color; int opacity; int owner; std::uint32_t material=UINT32_MAX,sourceIndex=0; };
-    std::vector<Layer> layers;
-    bool emitted = false;
-};
+using concord::render::RuntimeBuildingDepthDraw;
+using concord::render::RuntimeBuildingDepthBlendPixel;
 
 struct RuntimeBuildingDepthFrameState {
     RECT viewport{};
@@ -65,23 +48,8 @@ struct RuntimeBuildingDepthFrameState {
     } profileCollection;
 };
 
-struct RuntimeBuildingDepthObjectState {
-    int instanceId = -1;
-    POINT center{};
-    int nativeY = 0, heightPixel = 0;
-    int foundationWidth = 1, foundationHeight = 1;
-    int moveX = 0, moveY = 0, normalZAdjust = 0;
-    double ySort = 0.0, animationYSort = 0.0;
-    bool mobileVoxel = false;
-};
-
-struct RuntimeBuildingDepthPartState {
-    RuntimeBuildingDepthLayer layer = RuntimeBuildingDepthLayer::Body;
-    int zAdjust = 0, yDrawOffset = 0;
-    double ySortAdjust = 0;
-    bool independentSort = false;
-    int nativeOffsetY = 0;
-};
+using concord::render::RuntimeBuildingDepthObjectState;
+using concord::render::RuntimeBuildingDepthPartState;
 
 thread_local RuntimeBuildingDepthFrameState* runtimeBuildingDepthFrame = nullptr;
 thread_local const RuntimeBuildingDepthObjectState* runtimeBuildingDepthObject = nullptr;
@@ -98,11 +66,6 @@ struct RuntimeBuildingDepthBufferReferenceScope {
     explicit RuntimeBuildingDepthBufferReferenceScope(bool enabled) { runtimeBuildingDepthBufferReferenceOverride = enabled; }
     ~RuntimeBuildingDepthBufferReferenceScope() { runtimeBuildingDepthBufferReferenceOverride = previous; }
 };
-// A scope lends this storage only on its own thread and returns it at exit.
-// Every reused pixel is initialized before resolution; neither winners nor
-// addresses survive into a later paint. Large surfaces retain no giant pool.
-static thread_local std::vector<RuntimeBuildingDepthPixel> runtimeBuildingDepthPixelScratch;
-
 static thread_local std::optional<bool> runtimeBuildingDepthRasterReferenceOverride;
 static bool runtimeBuildingDepthRasterReference() {
     if (runtimeBuildingDepthRasterReferenceOverride) return *runtimeBuildingDepthRasterReferenceOverride;
@@ -142,26 +105,19 @@ bool prepareRuntimeBuildingDepthTemplate(const RuntimeMapRenderContext& context,
     RuntimeMapRenderCache& cache) {
     const std::string key = context.assetRootPath + "|"
         + cachedRuntimeMixExportsRootForContext(context, cache);
-    if (cache.buildingDepthTemplateKey != key) {
-        cache.buildingDepthTemplateKey = key;
-        cache.buildingDepthTemplateAttempted = false;
-        cache.buildingDepthTemplate = {};
-    }
-    if (!cache.buildingDepthTemplateAttempted) {
-        cache.buildingDepthTemplateAttempted = true;
-        std::vector<unsigned char> bytes;
-        std::string source, error;
-        bool loaded = loadRuntimeResourceBytesFromMixArchives(context.assetRootPath,
-            "BUILDNGZ.SHA", cache, bytes, source, error);
-        const auto& mixRoot = cachedRuntimeMixExportsRootForContext(context, cache);
-        if (!loaded && !mixRoot.empty()) loaded = loadRuntimeResourceBytesFromMixArchives(
-            mixRoot, "BUILDNGZ.SHA", cache, bytes, source, error);
-        if (loaded) (void)decodeRuntimeShpFrameFromBytes(bytes, source, 0,
-            cache.buildingDepthTemplate, error);
-    }
-    const auto& image = cache.buildingDepthTemplate;
-    return image.width > 0 && image.height > 0
-        && image.pixels.size() >= static_cast<std::size_t>(image.width) * image.height;
+    return concord::render::ensureRuntimeBuildingDepthTemplate(
+        {cache.buildingDepthTemplateKey, cache.buildingDepthTemplateAttempted, cache.buildingDepthTemplate},
+        key, [&](RuntimeShpFrameImage& image) {
+            std::vector<unsigned char> bytes;
+            std::string source, error;
+            bool loaded = loadRuntimeResourceBytesFromMixArchives(context.assetRootPath,
+                "BUILDNGZ.SHA", cache, bytes, source, error);
+            const auto& mixRoot = cachedRuntimeMixExportsRootForContext(context, cache);
+            if (!loaded && !mixRoot.empty()) loaded = loadRuntimeResourceBytesFromMixArchives(
+                mixRoot, "BUILDNGZ.SHA", cache, bytes, source, error);
+            if (loaded) (void)decodeRuntimeShpFrameFromBytes(bytes, source, 0,
+                image, error);
+        });
 }
 
 struct RuntimeBuildingDepthFrameScope {
@@ -177,8 +133,10 @@ struct RuntimeBuildingDepthFrameScope {
         state.stageTimingEnabled = context.coarseStageTimingEnabled || runtimeRenderDetailDiagnosticsEnabled(context)
             || (profile && profile[0] == '1');
         const auto constructorStarted = runtimeMaybeTimingStart(state.stageTimingEnabled);
-        state.width = std::max(0L, viewport.right - viewport.left);
-        const int height = std::max(0L, viewport.bottom - viewport.top);
+        const auto extent = concord::render::runtimeBuildingDepthBufferExtent(
+            runtimeRenderPlacementPixelRect(viewport));
+        state.width = extent.width;
+        const int height = extent.height;
         const auto templateStarted = runtimeMaybeTimingStart(state.stageTimingEnabled);
         ready = state.width > 0 && height > 0 && prepareRuntimeBuildingDepthTemplate(context, cache);
         state.profileDepthTemplateMs = runtimeMaybeElapsedMs(state.stageTimingEnabled, templateStarted);
@@ -195,7 +153,7 @@ struct RuntimeBuildingDepthFrameScope {
                 && !runtimeBuildingDepthBufferReference();
             const auto initializeStarted = runtimeMaybeTimingStart(state.stageTimingEnabled);
             if (state.compactOwnershipBuffer) {
-                state.pixels.swap(runtimeBuildingDepthPixelScratch);
+                concord::render::borrowRuntimeBuildingDepthScratch(state.pixels);
                 ownsScratch = true;
             } else state.pixels.resize(static_cast<std::size_t>(state.width) * height);
             state.profileDepthInitializeMs = runtimeMaybeElapsedMs(state.stageTimingEnabled, initializeStarted);
@@ -205,9 +163,8 @@ struct RuntimeBuildingDepthFrameScope {
     }
     ~RuntimeBuildingDepthFrameScope() {
         runtimeBuildingDepthFrame = previous;
-        constexpr std::size_t maximumScratchBytes = 64U * 1024U * 1024U;
-        if (ownsScratch && state.pixels.capacity() <= maximumScratchBytes / sizeof(RuntimeBuildingDepthPixel))
-            state.pixels.swap(runtimeBuildingDepthPixelScratch);
+        if (ownsScratch)
+            concord::render::releaseRuntimeBuildingDepthScratch(state.pixels);
     }
 };
 
@@ -230,27 +187,20 @@ struct RuntimeBuildingDepthObjectScope {
             return;
         }
         state.instanceId = object.instanceId;
-        state.center = center;
+        state.center = runtimeRenderPlacementPixelPoint(center);
         const auto subCell = worldObjectSubCellOffset(object);
         const double level = drawLevelForObject(object);
-        state.nativeY = static_cast<int>(std::llround((objectRenderX(object) + subCell.x
-            + objectRenderY(object) + subCell.y - level) * 15.0));
-        state.heightPixel = static_cast<int>(std::llround(level * 15.0));
+        const auto projection = concord::render::projectRuntimeBuildingDepthOrigin(
+            objectRenderX(object), subCell.x, objectRenderY(object), subCell.y, level);
+        state.nativeY = projection.nativeY;
+        state.heightPixel = projection.heightPixel;
         const auto footprint = runtimeObjectFoundationDimensions(object, context);
         state.foundationWidth = footprint.width;
         state.foundationHeight = footprint.height;
-        state.animationYSort = (objectRenderX(object) + subCell.x
-            + objectRenderY(object) + subCell.y) * 256.0;
-        // Retail BuildingClass::GetYSort uses its foundation origin; the
-        // existing whole-object compositor's far-corner key is unrelated.
-        state.ySort = state.animationYSort;
-        // The retail unit uses cell-centre coordinates; the building sort
-        // subtracts half a cell on each axis. This is a sort-only distinction.
-        if (mobileUnit) state.ySort += 256.0;
-        if (const auto* rules = !mobileUnit && context.rules ? context.rules->findBuildingType(object.type) : nullptr) {
-            if (rules->turretAnimIsVoxel) state.ySort += 32;
-            if (rules->gate) state.ySort -= 16;
-        }
+        state.animationYSort = projection.animationYSort;
+        const auto* rules = !mobileUnit && context.rules ? context.rules->findBuildingType(object.type) : nullptr;
+        state.ySort = concord::render::runtimeBuildingDepthDrawSort(projection.animationYSort,
+            mobileUnit, rules && rules->turretAnimIsVoxel, rules && rules->gate);
         if (mobileUnit) runtimeBuildingDepthPart.layer = state.mobileVoxel
             ? RuntimeBuildingDepthLayer::NavalVoxel
             : object.kind == WorldObjectKind::Infantry ? RuntimeBuildingDepthLayer::InfantrySprite
@@ -296,213 +246,64 @@ struct RuntimeBuildingDepthColorSampleScope {
 
 RuntimeBuildingDepthFrame runtimeBuildingDepthDescription(const RECT& imageRect,
     const RuntimeShpFrameImage& image) {
-    const auto& object = *runtimeBuildingDepthObject;
-    RuntimeBuildingDepthFrame frame;
-    frame.canvasWidth = image.globalWidth > 0 ? image.globalWidth : image.width;
-    frame.canvasHeight = image.globalHeight > 0 ? image.globalHeight : image.height;
-    frame.width = image.width; frame.height = image.height;
-    frame.offsetX = image.offsetX; frame.offsetY = image.offsetY;
-    frame.foundationWidth = object.foundationWidth; frame.foundationHeight = object.foundationHeight;
-    frame.moveX = object.moveX; frame.moveY = object.moveY;
-    frame.normalZAdjust = object.normalZAdjust;
-    frame.nativeFrameTopY = object.nativeY + imageRect.top - object.center.y
-        + runtimeBuildingDepthPart.nativeOffsetY;
-    frame.heightPixel = object.heightPixel;
-    frame.layer = runtimeBuildingDepthPart.layer;
-    frame.zAdjust = runtimeBuildingDepthPart.zAdjust;
-    frame.yDrawOffset = runtimeBuildingDepthPart.yDrawOffset;
-    if (object.mobileVoxel) {
-        frame.layer = RuntimeBuildingDepthLayer::NavalVoxel;
-        frame.navalBottom = image.sceneDepthBoundsValid ? image.sceneDepthBoundsBottom : image.height;
-    }
-    return frame;
+    return concord::render::describeRuntimeBuildingDepthReplay(imageRect.top, image,
+        *runtimeBuildingDepthObject, runtimeBuildingDepthPart);
 }
 
 bool acceptRuntimeBuildingPixel(const RuntimeBuildingDepthFrame& frame,
     const RECT& imageRect, int x, int y, int opacity = 255) {
     auto& state = *runtimeBuildingDepthFrame;
-    const int screenX = imageRect.left + x, screenY = imageRect.top + y;
-    if (screenX < state.viewport.left || screenX >= state.viewport.right
-        || screenY < state.viewport.top || screenY >= state.viewport.bottom) return false;
-    int depth = 0;
-    // The resolved pass only reads the winner already computed for this
-    // pixel. Its current part's depth cannot change that winner.
-    if ((!state.resolved || state.referenceMode)
-        && !runtimeBuildingRenderDepthAtPixel(frame, state.zShape->pixels, state.zShape->width,
-            state.zShape->height, x, y, depth)) return false;
-    auto& pixel = state.pixels[static_cast<std::size_t>(screenY - state.viewport.top)
-        * state.width + screenX - state.viewport.left];
-    if (state.resolved) {
-        if (pixel.visibleOwner != runtimeBuildingDepthObject->instanceId) return false;
-    } else if (!runtimeBuildingDepthAccept(pixel, runtimeBuildingDepthObject->instanceId,
-        depth, frame.layer == RuntimeBuildingDepthLayer::Body
-            || (frame.layer == RuntimeBuildingDepthLayer::Bib || frame.layer == RuntimeBuildingDepthLayer::WallSprite))) return false;
+    const RuntimeInputPixelPoint screen{imageRect.left + x, imageRect.top + y};
+    if (!concord::render::acceptRuntimeBuildingDepthReplayPixel(frame,
+            {{runtimeRenderPlacementPixelRect(state.viewport), state.width, state.pixels},
+                state.zShape, state.resolved, state.referenceMode}, runtimeBuildingDepthObject, screen, x, y))
+        return false;
     if (!state.geometryOnly && opacity >= 128 && runtimeMapLightFrame
         && runtimeMapLightFrame->drawingReceiver >= 0) {
         auto& lights = *runtimeMapLightFrame;
-        if (screenX >= lights.bounds.left && screenX < lights.bounds.right
-            && screenY >= lights.bounds.top && screenY < lights.bounds.bottom)
-            lights.pixels[static_cast<std::size_t>(screenY - lights.bounds.top)
-                * lights.width + screenX - lights.bounds.left] = lights.drawingReceiver;
+        concord::render::recordRuntimeBuildingDepthReplayReceiver(
+            {runtimeRenderPlacementPixelRect(lights.bounds), lights.width, lights.drawingReceiver, lights.pixels.data()},
+            screen);
     }
     return true;
-}
-
-// Ordinary opaque building parts need only the resolved owner and a palette
-// lookup. Preserve the accepted pixels' local-light receiver without repeating
-// depth calculation, transparency checks, or generic color-effect branches.
-template<bool MaskedRemap, bool RecordLights>
-void drawRuntimeResolvedBuildingOpaqueSpansImpl(
-    const RuntimeShpFrameImage& image, const RuntimeMapRenderContext& context,
-    int targetX, int targetY, int startX, int endX, int startY, int endY,
-    const std::uint32_t* palette, const unsigned char* remapMask,
-    const std::uint32_t* remapPalette
-) {
-    const auto& frame = *runtimeBuildingDepthFrame;
-    const int owner = runtimeBuildingDepthObject->instanceId;
-    startX = std::max(startX, static_cast<int>(frame.viewport.left) - targetX);
-    endX = std::min(endX, static_cast<int>(frame.viewport.right) - targetX);
-    startY = std::max(startY, static_cast<int>(frame.viewport.top) - targetY);
-    endY = std::min(endY, static_cast<int>(frame.viewport.bottom) - targetY);
-    if (startX >= endX || startY >= endY) return;
-    for (const auto& span : image.spriteOpaqueSpans) {
-        if (span.y < startY) continue;
-        if (span.y >= endY) break;
-        const int left = std::max(startX, static_cast<int>(span.left));
-        const int right = std::min(endX, static_cast<int>(span.right));
-        if (left >= right) continue;
-        const int screenY = targetY + span.y;
-        const int screenLeft = targetX + left;
-        const auto sourceOffset = static_cast<std::size_t>(span.y) * image.width + left;
-        const unsigned char* source = image.pixels.data() + sourceOffset;
-        const auto* owners = frame.pixels.data()
-            + (static_cast<std::size_t>(screenY - frame.viewport.top) * frame.width
-                + static_cast<std::size_t>(screenLeft - frame.viewport.left));
-        auto* target = context.surfacePixels
-            + static_cast<std::size_t>(screenY) * context.surfaceWidth + screenLeft;
-        const unsigned char* mask = nullptr;
-        if constexpr (MaskedRemap) mask = remapMask + sourceOffset;
-        int* lightRow = nullptr;
-        int lightLeft = 0, lightRight = 0, lightReceiver = -1;
-        if constexpr (RecordLights) {
-            auto& lights = *runtimeMapLightFrame;
-            if (screenY >= lights.bounds.top && screenY < lights.bounds.bottom) {
-                lightRow = lights.pixels.data()
-                    + static_cast<std::size_t>(screenY - lights.bounds.top) * lights.width;
-                lightLeft = lights.bounds.left;
-                lightRight = lights.bounds.right;
-                lightReceiver = lights.drawingReceiver;
-            }
-        }
-        for (int index = 0; index < right - left; ++index) {
-            if (owners[index].visibleOwner != owner) continue;
-            if constexpr (MaskedRemap)
-                target[index] = mask[index] ? remapPalette[source[index]] : palette[source[index]];
-            else
-                target[index] = palette[source[index]];
-            if constexpr (RecordLights) {
-                const int screenX = screenLeft + index;
-                if (lightRow && screenX >= lightLeft && screenX < lightRight)
-                    lightRow[screenX - lightLeft] = lightReceiver;
-            }
-        }
-    }
 }
 
 void drawRuntimeResolvedBuildingOpaqueSpans(
     const RuntimeShpFrameImage& image, const RuntimeMapRenderContext& context,
     int targetX, int targetY, int startX, int endX, int startY, int endY,
-    const std::uint32_t* palette, const unsigned char* remapMask,
-    const std::uint32_t* remapPalette
-) {
-    const bool recordLights = runtimeMapLightFrame && runtimeMapLightFrame->drawingReceiver >= 0;
-    if (remapMask) {
-        if (recordLights)
-            drawRuntimeResolvedBuildingOpaqueSpansImpl<true, true>(image, context,
-                targetX, targetY, startX, endX, startY, endY, palette, remapMask, remapPalette);
-        else
-            drawRuntimeResolvedBuildingOpaqueSpansImpl<true, false>(image, context,
-                targetX, targetY, startX, endX, startY, endY, palette, remapMask, remapPalette);
-    } else {
-        if (recordLights)
-            drawRuntimeResolvedBuildingOpaqueSpansImpl<false, true>(image, context,
-                targetX, targetY, startX, endX, startY, endY, palette, remapMask, remapPalette);
-        else
-            drawRuntimeResolvedBuildingOpaqueSpansImpl<false, false>(image, context,
-                targetX, targetY, startX, endX, startY, endY, palette, remapMask, remapPalette);
+    const std::uint32_t* palette, const unsigned char* remapMask, const std::uint32_t* remapPalette) {
+    const auto& frame = *runtimeBuildingDepthFrame;
+    auto* nativeLights = runtimeMapLightFrame;
+    concord::render::RuntimeBuildingDepthReceiverBuffer lights{};
+    const bool recordLights = nativeLights && nativeLights->drawingReceiver >= 0;
+    if (recordLights) {
+        lights = {runtimeRenderPlacementPixelRect(nativeLights->bounds), nativeLights->width,
+            nativeLights->drawingReceiver, nativeLights->pixels.data()};
     }
+    concord::render::drawRuntimeResolvedBuildingOpaqueSpans(image,
+        {runtimeRenderPlacementPixelRect(frame.viewport), frame.width, frame.pixels},
+        runtimeBuildingDepthObject->instanceId, {context.surfacePixels, context.surfaceWidth},
+        recordLights ? &lights : nullptr, {targetX, targetY}, {startX, startY, endX, endY},
+        palette, remapMask, remapPalette);
 }
 
-// Evaluate only the marker's small sample set. The accepted blend chain must
-// contain an opaque-enough part of its final owner; a transparent or frozen
-// silhouette alone does not justify the original behind-building hint.
-static bool runtimeBuildingDepthOwnerCoversMarkerSample(
-    const RuntimeBuildingDepthFrameState& frame, POINT point, int finalOwner) {
-    if (!frame.occludingStructureIds.contains(finalOwner)
-        || frame.frozenOwners.contains(finalOwner)) return false;
-    if (frame.opaqueMarkerCovers) return true;
-    RuntimeBuildingDepthPixel replay;
-    bool covered = false;
-    for (const auto& draw : frame.draws) {
-        if (draw.opacity <= 0 || !PtInRect(&draw.rect, point)) continue;
-        const int x = point.x - draw.rect.left, y = point.y - draw.rect.top;
-        const auto& pixels = draw.pinnedPixels ? *draw.pinnedPixels : draw.image->pixels;
-        if (!pixels[static_cast<std::size_t>(y) * draw.description.width + x]) continue;
-        int depth = 0;
-        if (!runtimeBuildingRenderDepthAtPixel(draw.description, frame.zShape->pixels,
-            frame.zShape->width, frame.zShape->height, x, y, depth)) continue;
-        const bool writeDepth = draw.description.layer == RuntimeBuildingDepthLayer::Body
-            || draw.description.layer == RuntimeBuildingDepthLayer::Bib
-            || draw.description.layer == RuntimeBuildingDepthLayer::WallSprite;
-        if (!runtimeBuildingDepthAccept(replay, draw.instanceId, depth, writeDepth)) continue;
-        if (draw.opacity == 255 && !frame.frozenOwners.contains(draw.instanceId)) covered = false;
-        if (draw.instanceId == finalOwner && draw.opacity >= 192) covered = true;
-    }
-    return covered;
-}
 void recordRuntimeBuildingDepthBehindMarkers(const RuntimeBuildingDepthFrame& description,
     const RECT& imageRect, const RuntimeShpFrameImage& image, int opacity) {
     auto* markers = runtimeBehindMarkerFrame;
-    if (!markers || opacity <= 0) return;
-    const auto& frame = *runtimeBuildingDepthFrame;
-    if (markers->drawingUnit) {
-        // Participating mobiles still supply their own opaque sample points.
-        // Resolve hiding from the same final owner as color and picking, so a
-        // foreground structure need not happen to be painted after the mobile.
-        recordRuntimeBehindMarkerShpFrame(imageRect, frame.requestedViewport, image, opacity);
-        auto& unit = *markers->drawingUnit;
-        if (frame.resolved && !unit.depthSamplesEvaluated) for (int index = 0; index < unit.sampleCount; ++index) {
-            const auto point = unit.samples[index];
-            if (!PtInRect(&frame.viewport, point)) continue;
-            const auto& pixel = frame.pixels[static_cast<std::size_t>(point.y - frame.viewport.top)
-                * frame.width + point.x - frame.viewport.left];
-            if (runtimeBuildingDepthOwnerCoversMarkerSample(frame, point, pixel.visibleOwner)) unit.covered |= 1U << index;
-        }
-        if (frame.resolved && unit.sampleCount > 0) unit.depthSamplesEvaluated = true;
+    if (!markers || opacity <= 0)
         return;
-    }
-    if (!markers->drawingStructure || opacity < 192) return;
-    for (auto& unit : markers->candidates) for (int index = 0; index < unit.sampleCount; ++index) {
-        const POINT point = unit.samples[index];
-        if ((unit.covered & (1U << index)) || !PtInRect(&imageRect, point)
-            || !PtInRect(&frame.viewport, point)) continue;
-        const int x = point.x - imageRect.left, y = point.y - imageRect.top;
-        if (!image.pixels[static_cast<std::size_t>(y) * image.width + x]) continue;
-        int depth = 0;
-        if (!runtimeBuildingRenderDepthAtPixel(description, frame.zShape->pixels,
-            frame.zShape->width, frame.zShape->height, x, y, depth)) continue;
-        auto previous = frame.pixels[static_cast<std::size_t>(point.y - frame.viewport.top)
-            * frame.width + point.x - frame.viewport.left];
-        if (frame.resolved ? previous.visibleOwner == runtimeBuildingDepthObject->instanceId
-                && runtimeBuildingDepthOwnerCoversMarkerSample(frame, point, previous.visibleOwner)
-            : runtimeBuildingDepthAccept(previous, runtimeBuildingDepthObject->instanceId, depth, false))
-            unit.covered |= 1U << index;
-    }
+    const auto& frame = *runtimeBuildingDepthFrame;
+    concord::render::recordRuntimeBehindMarkerDepthSprite(*markers,
+        {runtimeRenderPlacementPixelRect(frame.viewport), runtimeRenderPlacementPixelRect(frame.requestedViewport),
+            frame.width, frame.resolved, frame.opaqueMarkerCovers, frame.zShape, frame.pixels,
+            frame.draws, frame.occludingStructureIds, frame.frozenOwners}, runtimeBuildingDepthObject, description,
+        runtimeRenderPlacementPixelRect(imageRect), image, opacity);
 }
 
-static bool runtimeBuildingDepthImageRequiresPin(const RuntimeShpFrameImage& image) {
-    return !image.rasterCacheKey.empty() || !image.depthLevels.empty()
-        || !image.rasterFunctionActuallyCalled.empty();
+static concord::render::RuntimeBuildingDepthRasterDraw runtimeBuildingDepthRasterDraw(
+    const RuntimeBuildingDepthDraw& draw) {
+    return {draw.description, draw.rect, draw.image,
+        draw.pinnedPixels.get(), draw.instanceId, draw.opacity};
 }
 
 RuntimeBuildingDepthDraw& collectRuntimeBuildingDepthDraw(const RuntimeBuildingDepthFrame& description,
@@ -514,7 +315,7 @@ RuntimeBuildingDepthDraw& collectRuntimeBuildingDepthDraw(const RuntimeBuildingD
     const double ySort = part.independentSort
         ? object.animationYSort + part.ySortAdjust : object.ySort;
     RuntimeBuildingDepthDraw draw;
-    draw.description = description; draw.image = &image; draw.rect = imageRect;
+    draw.description = description; draw.image = &image; draw.rect = runtimeRenderPlacementPixelRect(imageRect);
     draw.instanceId = object.instanceId; draw.ySort = ySort; draw.sequence = state.draws.size();
     draw.opacity = std::clamp(opacity, 0, 255);
     // SHP frames occupy stable unordered_map nodes for the whole render cache.
@@ -523,12 +324,9 @@ RuntimeBuildingDepthDraw& collectRuntimeBuildingDepthDraw(const RuntimeBuildingD
     // already owns a complete, exact image copy; alias that copy's pixels instead
     // of allocating and copying the same bytes a second time. Both references
     // retain the snapshot, including for tilted/LRU, temporary and uncached poses.
-    if (runtimeBuildingDepthImageRequiresPin(image)) {
-        if (state.composeColors && ownedImageSnapshot && !runtimeBuildingDepthPixelCopyReference()) {
-            draw.image = ownedImageSnapshot.get();
-            draw.pinnedPixels = std::shared_ptr<std::vector<unsigned char>>(
-                ownedImageSnapshot, &ownedImageSnapshot->pixels);
-        } else draw.pinnedPixels = std::make_shared<std::vector<unsigned char>>(image.pixels);
+    if (concord::render::runtimeBuildingDepthImageRequiresPin(image)) {
+        const bool alias = state.composeColors && ownedImageSnapshot && !runtimeBuildingDepthPixelCopyReference();
+        concord::render::pinRuntimeBuildingDepthDraw(draw, image, alias ? &ownedImageSnapshot : nullptr);
     }
     state.draws.push_back(std::move(draw));
     return state.draws.back();
@@ -539,27 +337,12 @@ void initializeRuntimeBuildingDepthPixelBuffer(RuntimeBuildingDepthFrameState& s
     // Collection completes before the first owner lookup. Every non-background
     // pixel comes from this accepted stream; retaining its rectangle union also
     // covers transparent, animation, bib, foreground and mobile/naval layers.
-    RECT bounds = state.requestedViewport;
-    if (!state.participatingIds.contains(-1)) {
-        bool any = false;
-        for (const auto& draw : state.draws) {
-            RECT clipped{};
-            if (!IntersectRect(&clipped, &draw.rect, &state.requestedViewport)) continue;
-            if (!any) { bounds = clipped; any = true; }
-            else {
-                bounds.left = std::min(bounds.left, clipped.left);
-                bounds.top = std::min(bounds.top, clipped.top);
-                bounds.right = std::max(bounds.right, clipped.right);
-                bounds.bottom = std::max(bounds.bottom, clipped.bottom);
-            }
-        }
-        if (!any) bounds = {state.requestedViewport.left, state.requestedViewport.top,
-            state.requestedViewport.left, state.requestedViewport.top};
-    }
-    state.viewport = bounds;
-    state.width = std::max(0L, bounds.right - bounds.left);
-    const auto height = std::max(0L, bounds.bottom - bounds.top);
-    state.pixels.assign(static_cast<std::size_t>(state.width) * height, RuntimeBuildingDepthPixel{});
+    const auto bounds = concord::render::compactRuntimeBuildingDepthViewport(
+        runtimeRenderPlacementPixelRect(state.requestedViewport), state.draws, state.participatingIds.contains(-1));
+    const auto extent = concord::render::runtimeBuildingDepthBufferExtent(bounds);
+    state.viewport = runtimeRenderPlacementNativeRect(bounds);
+    state.width = extent.width;
+    state.pixels.assign(static_cast<std::size_t>(extent.width) * extent.height, RuntimeBuildingDepthPixel{});
 }
 
 void resolveRuntimeBuildingDepthDraws(RuntimeBuildingDepthFrameState& state) {
@@ -570,163 +353,53 @@ void resolveRuntimeBuildingDepthDraws(RuntimeBuildingDepthFrameState& state) {
     state.profileDepthInitializeMs += runtimeMaybeElapsedMs(timingEnabled, initializeStarted);
     const auto sortStarted = runtimeMaybeTimingStart(timingEnabled);
     std::stable_sort(state.draws.begin(), state.draws.end(), [](const auto& left, const auto& right) {
-        const bool leftWall = left.description.layer == RuntimeBuildingDepthLayer::WallSprite;
-        const bool rightWall = right.description.layer == RuntimeBuildingDepthLayer::WallSprite;
-        if (leftWall != rightWall) return leftWall;
-        if (left.ySort != right.ySort) return left.ySort < right.ySort;
-        return left.sequence < right.sequence;
+        return concord::render::runtimeBuildingDepthDrawBefore(
+            {left.description.layer == RuntimeBuildingDepthLayer::WallSprite, left.ySort, left.sequence},
+            {right.description.layer == RuntimeBuildingDepthLayer::WallSprite, right.ySort, right.sequence});
     });
     state.profileDepthSortMs = runtimeMaybeElapsedMs(timingEnabled, sortStarted);
     const auto rasterStarted = runtimeMaybeTimingStart(timingEnabled);
-    state.opaqueMarkerCovers = state.frozenOwners.empty()
-        && std::none_of(state.draws.begin(), state.draws.end(), [&](const auto& draw) {
-            return draw.opacity < 255 && state.occludingStructureIds.contains(draw.instanceId);
-        });
-    const bool hasAlpha = state.composeColors && std::any_of(state.draws.begin(),state.draws.end(),
-        [](const auto& draw) { return draw.opacity > 0 && draw.opacity < 255; });
+    const auto flags = concord::render::runtimeBuildingDepthSceneFlags(
+        state.draws, state.frozenOwners, state.occludingStructureIds, state.composeColors);
+    state.opaqueMarkerCovers = flags.opaqueMarkerCovers;
+    const bool hasAlpha = flags.hasAlpha;
     std::vector<int> lastOpaque(hasAlpha ? state.pixels.size() : 0, -1);
-    std::unordered_map<std::size_t,std::vector<int>> chains;
-    for (std::size_t drawIndex=0;drawIndex<state.draws.size();++drawIndex) {
-        const auto& draw=state.draws[drawIndex];
-        const auto& pixels = draw.pinnedPixels ? *draw.pinnedPixels : draw.image->pixels;
-        const int width = draw.description.width, height = draw.description.height;
-        const int firstY = std::max(0, static_cast<int>(state.viewport.top - draw.rect.top));
-        const int lastY = std::min(height, static_cast<int>(state.viewport.bottom - draw.rect.top));
-        const int firstX = std::max(0, static_cast<int>(state.viewport.left - draw.rect.left));
-        const int lastX = std::min(width, static_cast<int>(state.viewport.right - draw.rect.left));
-        std::optional<RuntimeBuildingDepthRowKernel> kernel;
-        if (!rasterReference) kernel.emplace(draw.description, state.zShape->pixels,
-            state.zShape->width, state.zShape->height);
-        const bool writeDepth = draw.description.layer == RuntimeBuildingDepthLayer::Body
-            || (draw.description.layer == RuntimeBuildingDepthLayer::Bib || draw.description.layer == RuntimeBuildingDepthLayer::WallSprite);
-        const bool opaqueUnfrozen = draw.opacity == 255 && !state.frozenOwners.contains(draw.instanceId);
-        const auto rasterRowRange = [&](int y, int rangeFirstX, int rangeLastX) {
-            const auto row = kernel ? kernel->row(y) : RuntimeBuildingDepthRowKernel::Row{};
-            const auto sourceRow = static_cast<std::size_t>(y) * width;
-            const auto targetRow = static_cast<std::size_t>(draw.rect.top + y - state.viewport.top) * state.width
-                + static_cast<std::size_t>(draw.rect.left + firstX - state.viewport.left);
-            for (int x = rangeFirstX; x < rangeLastX; ++x) {
-                if (!pixels[sourceRow + x]) continue;
-                int depth = 0;
-                if (rasterReference) {
-                    if (!runtimeBuildingRenderDepthAtPixel(draw.description, state.zShape->pixels,
-                        state.zShape->width, state.zShape->height, x, y, depth)) continue;
-                } else depth = row.depthAtKnownX(x);
-                const auto pixelIndex = targetRow + static_cast<std::size_t>(x - firstX);
-                auto& pixel = state.pixels[pixelIndex];
-                if (!runtimeBuildingDepthAccept(pixel, draw.instanceId, depth, writeDepth)) continue;
-                if (hasAlpha) {
-                    // A frozen object's completed body is translucent even when
-                    // its individual SHP/VXL parts are opaque. Retain the scene
-                    // underneath until those parts can be blended together once.
-                    if (opaqueUnfrozen) {
-                        lastOpaque[pixelIndex]=static_cast<int>(drawIndex);chains.erase(pixelIndex);
-                    } else {
-                        auto [entry,inserted]=chains.try_emplace(pixelIndex);
-                        if(inserted&&lastOpaque[pixelIndex]>=0)entry->second.push_back(lastOpaque[pixelIndex]);
-                        entry->second.push_back(static_cast<int>(drawIndex));
-                    }
-                }
-            }
-        };
-        // Cached native SHP runs contain exactly the nonzero source pixels.
-        // Keep pinned/VXL, frozen, reference and uncached images on the old scan.
-        const bool cachedOpaqueSpans = !rasterReference && opaqueUnfrozen
-            && !draw.pinnedPixels && !runtimeBuildingDepthImageRequiresPin(*draw.image)
-            && draw.image->spriteOpaqueSpansValid
-            && draw.image->width == width && draw.image->height == height
-            && width > 0 && height > 0
-            && pixels.size() >= static_cast<std::size_t>(width) * height;
-        if (cachedOpaqueSpans) {
-            for (const auto& span : draw.image->spriteOpaqueSpans) {
-                if (span.y < firstY) continue;
-                if (span.y >= lastY) break;
-                const int left = std::max(firstX, static_cast<int>(span.left));
-                const int right = std::min(lastX, static_cast<int>(span.right));
-                if (left < right) rasterRowRange(span.y, left, right);
-            }
-        } else {
-            for (int y = firstY; y < lastY; ++y) rasterRowRange(y, firstX, lastX);
-        }
+    concord::render::RuntimeBuildingDepthDrawChains chains;
+    concord::render::RuntimeBuildingDepthAlphaRaster alpha{lastOpaque, chains};
+    const concord::render::RuntimeBuildingDepthRasterTemplate zShape{state.zShape, rasterReference};
+    const concord::render::RuntimeBuildingDepthRasterTarget target{
+        runtimeRenderPlacementPixelRect(state.viewport), state.width, state.pixels};
+    for (std::size_t drawIndex = 0; drawIndex < state.draws.size(); ++drawIndex) {
+        concord::render::rasterRuntimeBuildingDepthDraw(
+            runtimeBuildingDepthRasterDraw(state.draws[drawIndex]), target, zShape,
+            state.frozenOwners, drawIndex, hasAlpha ? &alpha : nullptr);
     }
     state.profileDepthRasterMs = runtimeMaybeElapsedMs(timingEnabled, rasterStarted);
     const auto blendStarted = runtimeMaybeTimingStart(timingEnabled);
     // A translucent winner must retain foreign building colors underneath.
     // Compose only those sparse pixels, at the winner's existing paint slot;
     // opaque pixels and single-building internal layers keep their old path.
-    std::unordered_map<int,std::vector<std::uint32_t>> colors;
-    std::unordered_map<int,std::uint32_t> gpuMaterials;
-    for(const auto& [pixelIndex,chain]:chains) {
-        const int owner=state.pixels[pixelIndex].visibleOwner;
-        // The visible frozen object retains its existing whole-body temporal
-        // scope. Its background is restored below; replaying this chain too
-        // would apply the foreign frozen layers twice.
-        if(state.frozenOwners.contains(owner))continue;
-        if(!std::any_of(chain.begin(),chain.end(),[&](int index){return state.draws[index].instanceId!=owner;}))continue;
-        auto& blend=state.blends[pixelIndex];
-        const int screenX=state.viewport.left+static_cast<int>(pixelIndex%state.width);
-        const int screenY=state.viewport.top+static_cast<int>(pixelIndex/state.width);
-        for(const int index:chain) {
-            const auto& draw=state.draws[index];
-            const auto sourceIndex=static_cast<std::size_t>(screenY-draw.rect.top)*draw.description.width+screenX-draw.rect.left;
-            if(draw.gpuMaterial){auto [m,created]=gpuMaterials.try_emplace(index);if(created)m->second=draw.gpuMaterial();
-                blend.layers.push_back({0,draw.opacity,draw.instanceId,m->second,static_cast<std::uint32_t>(sourceIndex)});continue;}
-            auto [entry,inserted]=colors.try_emplace(index);
-            if(inserted) {RuntimeBuildingDepthColorSampleScope isolated;entry->second=draw.colors();}
-            blend.layers.push_back({entry->second[sourceIndex],draw.opacity,draw.instanceId});
-        }
-    }
+    concord::render::RuntimeBuildingDepthMaterialReplay materials([](const RuntimeBuildingDepthDraw& draw) {
+        RuntimeBuildingDepthColorSampleScope isolated;
+        return draw.colors();
+    });
+    materials.composeVisible({runtimeRenderPlacementPixelRect(state.viewport), state.width, state.draws},
+        state.pixels, state.frozenOwners, chains, state.blends);
     if(!state.frozenOwners.empty()) {
         // A whole-building temporal blend needs the scene behind that building.
         // Re-evaluate the native accepted stream while excluding the final
         // frozen owner independently at each pixel; do not attenuate each part.
         std::vector<RuntimeBuildingDepthPixel> background(state.pixels.size());
-        std::unordered_map<std::size_t,std::vector<int>> underlayChains;
-        for(std::size_t index=0;index<state.draws.size();++index) {
-            const auto& draw=state.draws[index];
-            const auto& pixels=draw.pinnedPixels?*draw.pinnedPixels:draw.image->pixels;
-            std::optional<RuntimeBuildingDepthRowKernel> kernel;
-            if (!rasterReference) kernel.emplace(draw.description, state.zShape->pixels,
-                state.zShape->width, state.zShape->height);
-            const bool writeDepth = draw.description.layer == RuntimeBuildingDepthLayer::Body
-                || (draw.description.layer == RuntimeBuildingDepthLayer::Bib || draw.description.layer == RuntimeBuildingDepthLayer::WallSprite);
-            for(int y=std::max(0,static_cast<int>(state.viewport.top-draw.rect.top));
-                y<std::min(draw.description.height,static_cast<int>(state.viewport.bottom-draw.rect.top));++y) {
-                const auto row = kernel ? kernel->row(y) : RuntimeBuildingDepthRowKernel::Row{};
-                for(int x=std::max(0,static_cast<int>(state.viewport.left-draw.rect.left));
-                    x<std::min(draw.description.width,static_cast<int>(state.viewport.right-draw.rect.left));++x) {
-                    if(!pixels[static_cast<std::size_t>(y)*draw.description.width+x])continue;
-                    const auto p=static_cast<std::size_t>(draw.rect.top+y-state.viewport.top)*state.width
-                        +draw.rect.left+x-state.viewport.left;
-                    const int owner=state.pixels[p].visibleOwner;
-                    if(owner==draw.instanceId||!state.frozenOwners.contains(owner))continue;
-                    int depth=0;
-                    if (rasterReference) {
-                        if(!runtimeBuildingRenderDepthAtPixel(draw.description,state.zShape->pixels,
-                            state.zShape->width,state.zShape->height,x,y,depth))continue;
-                    } else depth = row.depthAtKnownX(x);
-                    if(!runtimeBuildingDepthAccept(background[p],draw.instanceId,depth,writeDepth))continue;
-                    auto& chain=underlayChains[p];
-                    if(draw.opacity==255&&!state.frozenOwners.contains(draw.instanceId))chain.clear();
-                    chain.push_back(static_cast<int>(index));
-                }
-            }
+        concord::render::RuntimeBuildingDepthDrawChains underlayChains;
+        const concord::render::RuntimeBuildingDepthFrozenRaster underlay{
+            {runtimeRenderPlacementPixelRect(state.viewport), state.width, background},
+            state.pixels, underlayChains};
+        for (std::size_t index = 0; index < state.draws.size(); ++index) {
+            concord::render::rasterRuntimeBuildingDepthFrozenUnderlay(
+                runtimeBuildingDepthRasterDraw(state.draws[index]), underlay, zShape, state.frozenOwners, index);
         }
-        for(const auto& [p,chain]:underlayChains) {
-            auto& blend=state.frozenUnderlays[p];
-            const int sx=state.viewport.left+static_cast<int>(p%state.width);
-            const int sy=state.viewport.top+static_cast<int>(p/state.width);
-            for(const int index:chain) {
-                const auto& draw=state.draws[index];
-                if(draw.gpuMaterial){auto [m,created]=gpuMaterials.try_emplace(index);if(created)m->second=draw.gpuMaterial();
-                    const auto sourceIndex=static_cast<std::size_t>(sy-draw.rect.top)*draw.description.width+sx-draw.rect.left;
-                    blend.layers.push_back({0,draw.opacity,draw.instanceId,m->second,static_cast<std::uint32_t>(sourceIndex)});continue;}
-                auto [entry,inserted]=colors.try_emplace(index);
-                if(inserted){RuntimeBuildingDepthColorSampleScope isolated;entry->second=draw.colors();}
-                blend.layers.push_back({entry->second[static_cast<std::size_t>(sy-draw.rect.top)
-                    *draw.description.width+sx-draw.rect.left],draw.opacity,draw.instanceId});
-            }
-        }
+        materials.composeFrozen({runtimeRenderPlacementPixelRect(state.viewport), state.width, state.draws},
+            underlayChains, state.frozenUnderlays);
         if(!state.frozenUnderlays.empty())state.nonBuildingPixels.resize(state.pixels.size());
     }
     state.collectOnly = state.geometryOnly = false;
@@ -734,42 +407,19 @@ void resolveRuntimeBuildingDepthDraws(RuntimeBuildingDepthFrameState& state) {
     state.profileBlendMs = runtimeMaybeElapsedMs(timingEnabled, blendStarted);
 }
 
-std::uint32_t blendRuntimeBuildingDepthLayers(const RuntimeBuildingDepthBlendPixel& blend,std::uint32_t destination,
-    std::size_t afterOrdinal=0) {
-    const auto blendColor=[](std::uint32_t background,std::uint32_t foreground,int opacity) {
-        std::uint32_t color=0;
-        for(unsigned shift:{0U,8U,16U})color|=((((foreground>>shift)&255U)*opacity
-            +((background>>shift)&255U)*(255-opacity)+127U)/255U)<<shift;
-        return color;
-    };
-    int groupOwner=-1;
-    std::uint32_t groupBackground=destination;
-    const auto finishGroup=[&] {
-        if(groupOwner>=0&&runtimeBuildingDepthFrame->frozenOwners.contains(groupOwner))
-            destination=blendColor(groupBackground,destination,128);
-    };
-    for(const auto& layer:blend.layers) {
-        if(afterOrdinal) {
-            const auto found=runtimeBuildingDepthFrame->ownerPaintOrdinals.find(layer.owner);
-            if(found!=runtimeBuildingDepthFrame->ownerPaintOrdinals.end()&&found->second<=afterOrdinal)continue;
-        }
-        if(layer.owner!=groupOwner) {
-            finishGroup();
-            groupOwner=layer.owner;
-            groupBackground=destination;
-        }
-        destination=blendColor(destination,layer.color,layer.opacity);
-    }
-    finishGroup();
-    return destination;
+std::uint32_t blendRuntimeBuildingDepthLayers(const RuntimeBuildingDepthBlendPixel& blend,
+    std::uint32_t destination, std::size_t afterOrdinal=0) {
+    const auto& frame = *runtimeBuildingDepthFrame;
+    return concord::render::blendRuntimeBuildingDepthLayers(
+        blend, destination, frame.frozenOwners, frame.ownerPaintOrdinals, afterOrdinal);
 }
 
-void recordRuntimeBuildingUnderlayForeground(int screenX,int screenY) {
-    auto* frame=runtimeBuildingDepthFrame;
-    if(!frame||frame->nonBuildingPixels.empty()||screenX<frame->viewport.left
-        ||screenX>=frame->viewport.right||screenY<frame->viewport.top||screenY>=frame->viewport.bottom)return;
-    frame->nonBuildingPixels[static_cast<std::size_t>(screenY-frame->viewport.top)*frame->width
-        +screenX-frame->viewport.left]=frame->paintOrdinal;
+void recordRuntimeBuildingUnderlayForeground(int screenX, int screenY) {
+    auto* frame = runtimeBuildingDepthFrame;
+    if (!frame)
+        return;
+    concord::render::recordRuntimeBuildingDepthForeground(frame->nonBuildingPixels,
+        runtimeRenderPlacementPixelRect(frame->viewport), frame->width, {screenX, screenY}, frame->paintOrdinal);
 }
 
 void restoreRuntimeFrozenBuildingUnderlay(HDC dc,const RuntimeMapRenderContext& context,int owner) {
@@ -796,12 +446,7 @@ bool compositeRuntimeBuildingDepthPixel(const RECT& imageRect,int x,int y,std::u
     if(frame.blends.empty())return false;
     const auto pixelIndex=static_cast<std::size_t>(imageRect.top+y-frame.viewport.top)*frame.width
         +imageRect.left+x-frame.viewport.left;
-    const auto found=frame.blends.find(pixelIndex);
-    if(found==frame.blends.end())return false;
-    auto& blend=found->second;
-    if(!blend.emitted) {
-        destination=blendRuntimeBuildingDepthLayers(blend,destination);
-        blend.emitted=true;
-    }
-    return true;
+    return concord::render::compositeRuntimeBuildingDepthOnce(frame.blends, pixelIndex,
+        {frame.frozenOwners, frame.ownerPaintOrdinals}, destination);
 }
+

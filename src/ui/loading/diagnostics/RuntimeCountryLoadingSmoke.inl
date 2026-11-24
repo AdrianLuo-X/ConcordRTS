@@ -93,7 +93,7 @@ int runRuntimeCountryLoadingPresentationSmoke(const RuntimeConfig& config) {
             || !initializeRuntimeSkirmishStart(state, &assignments, &planned)
             || assignments != planned) return false;
         loading.mapStartAssignments = assignments;
-        refreshRuntimeLoadingMapStarts(loading, state);
+        refreshRuntimeLoadingMapStarts(loading, state, state.ownerRemapColors);
         if (loading.mapStarts.size() != firstMarkers.size()) return false;
         for (std::size_t i = 0; i < firstMarkers.size(); ++i) {
             if (loading.mapStarts[i].x != firstMarkers[i].x
@@ -120,7 +120,7 @@ int runRuntimeCountryLoadingPresentationSmoke(const RuntimeConfig& config) {
         RuntimeLoadingWindowState loading;
         if (!prepareRuntimeLoadingMaterial(loading, random)) return fail("random loading material");
         loading.mapStartAssignments = randomAssignments;
-        refreshRuntimeLoadingMapStarts(loading, random);
+        refreshRuntimeLoadingMapStarts(loading, random, random.ownerRemapColors);
         if (loading.mapStarts.size() != 2) return fail("random player markers");
         const auto candidates = runtimeSkirmishStartCandidates(random);
         for (const auto& marker : loading.mapStarts) {
@@ -134,7 +134,7 @@ int runRuntimeCountryLoadingPresentationSmoke(const RuntimeConfig& config) {
             if (found == random.world.getObjects().end()) return fail("marker disagrees with spawned player");
         }
         for (auto& slot : random.config.playerSlots) slot.enabled = false;
-        refreshRuntimeLoadingMapStarts(loading, random);
+        refreshRuntimeLoadingMapStarts(loading, random, random.ownerRemapColors);
         if (!loading.mapStarts.empty()) return fail("closed positions remain visible");
     }
     IniFile sparse;
@@ -159,7 +159,7 @@ int runRuntimeCountryLoadingPresentationSmoke(const RuntimeConfig& config) {
         if (!prepareRuntimeLoadingMaterial(loading, runtime)) return fail(std::string(country) + " original artwork");
         if (!loading.mapStarts.empty()) return fail("material decoding fabricated start assignments");
         loading.mapStartAssignments = assignments;
-        refreshRuntimeLoadingMapStarts(loading, runtime);
+        refreshRuntimeLoadingMapStarts(loading, runtime, runtime.ownerRemapColors);
         if (loading.mapStarts.size() != (std::string(country) == "Observer" ? 1U : 2U))
             return fail("combatant-only marker count");
         for (const auto& marker : loading.mapStarts) {

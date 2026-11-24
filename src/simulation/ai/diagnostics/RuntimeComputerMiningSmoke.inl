@@ -259,17 +259,86 @@ bool runRuntimeComputerMiningSmoke(const RuntimeConfig& config, std::string& err
         const int mobile = add(s, RuntimeBuildKind::Unit, "SMIN", {8, 8});
         initializeRuntimeNavigation(s);
         bool deployed = false, carried = false;
+        std::ostringstream lastPathStatus;
         for (int t = 0; t < 7000 && money(s) == 0; ++t) {
             step(s);
+            if (t >= 6940) {
+                lastPathStatus << "\nAI slave path tick=" << s.tick << " finished=" << s.skirmishMatchFinished
+                    << " pathQueue=" << s.pendingPathObjectIds.size() << " pathStatus=" << s.simulationStatus;
+                for (const auto& worker : s.slaveMinerTasks) {
+                    const int id = worker.first;
+                    const auto path = s.behaviors.find(id);
+                    if (path == s.behaviors.end()) continue;
+                    const auto& order = path->second;
+                    lastPathStatus << " #" << id << "=" << order.pathRequestPending << ','
+                        << order.pathReplans << ',' << order.blockedTicks << ',' << order.path.size()
+                        << ',' << order.nextRepathTick;
+                }
+            }
             for (const auto& object : s.world.getObjects())
                 deployed = deployed || (object.alive && object.owner == aiOwner && object.type == "YAREFN");
             for (const auto& [id, task] : s.slaveMinerTasks) carried = carried || task.cargoValue > 0;
             if (!localUnchanged(s)) return fail("AI slave miner changed human account");
         }
         if (!deployed || !carried || money(s) <= 0 || findObjectById(s, mobile) != nullptr
-            || s.computerMiningByOwner.at(aiKey).resourceTrips <= 0)
-            return fail("Yuri did not deploy and deliver: deployed=" + std::to_string(deployed)
-                + " carried=" + std::to_string(carried) + " money=" + std::to_string(money(s)));
+            || s.computerMiningByOwner.at(aiKey).resourceTrips <= 0) {
+            std::ostringstream details;
+            details << "Yuri did not deploy and deliver: deployed=" << deployed
+                << " carried=" << carried << " money=" << money(s) << " tick=" << s.tick;
+            for (const auto& [id, task] : s.slaveMinerTasks) {
+                details << "\nworker=" << id << " home=" << task.refineryId
+                    << " phase=" << static_cast<int>(task.phase) << " status=" << task.status
+                    << " load=" << task.cargoUnits << '/' << task.cargoValue
+                    << " ore=" << task.targetOre.x << ',' << task.targetOre.y
+                    << " workTicks=" << task.workTicksRemaining;
+                if (const auto* worker = findObjectById(s, id)) {
+                    details << " cell=" << worker->x << ',' << worker->y << ',' << worker->level
+                        << " body=" << runtimeObjectRenderX(*worker) << ',' << runtimeObjectRenderY(*worker)
+                        << " mission=" << worker->mission << " segment=" << worker->renderMoveActive
+                        << " atHome=";
+                    if (const auto* home = findObjectById(s, task.refineryId)) {
+                        details << runtimeSlaveMinerWorkerAtRefinery(s, *worker, *home)
+                            << " homeCell=" << home->x << ',' << home->y << ',' << home->level
+                            << " homeBuildTicks=" << home->buildAnimTicksRemaining;
+                        const auto cite = [&](const char* phase) {
+                            const auto entry = findRuntimeEngineerEntryCell(s, *worker, *home, "slave-delivery", 2);
+                            details << " " << phase << "DeliveryCell=";
+                            if (!entry) {
+                                details << "none";
+                                return;
+                            }
+                            const auto original = runtimeCellPointForObject(*worker);
+                            const auto path = findRuntimePath(s, *worker, original, *entry, home->instanceId);
+                            details << entry->x << ',' << entry->y << " route=" << path.size();
+                            if (!path.empty()) details << " first=" << path.front().x << ',' << path.front().y;
+                            const auto approach = makeRuntimeMovePathApproachContext(s, *worker, *entry, 0, false);
+                            const auto queued = resolveRuntimePathWithQueue(s, *worker, original, *entry,
+                                home->instanceId, nullptr, approach);
+                            details << " queued=" << queued.reachable << '/' << queued.realNoPath << '/'
+                                << queued.budgetExhausted << '/' << queued.cooldownNoPath
+                                << " resolved=" << queued.resolvedGoal.x << ',' << queued.resolvedGoal.y
+                                << " path=" << queued.path.size();
+                        };
+                        cite("original");
+                        RuntimeSnapshotActiveStateScope active(s);
+                        cite("scoped");
+                    } else {
+                        details << "missing";
+                    }
+                }
+                if (const auto move = s.behaviors.find(id); move != s.behaviors.end()) {
+                    const auto& order = move->second;
+                    details << " target=" << order.moveTarget.x << ',' << order.moveTarget.y
+                        << " state=" << static_cast<int>(order.state)
+                        << " allowed=" << order.pendingAllowedOccupiedObjectId
+                        << " pathLeft=" << order.path.size() << " cooldown=" << order.moveCooldownTicks
+                        << " pathPending=" << order.pathRequestPending
+                        << " requestStart=" << order.pendingPathStart.x << ',' << order.pendingPathStart.y
+                        << " requestGoal=" << order.pendingPathGoal.x << ',' << order.pendingPathGoal.y;
+                }
+            }
+            return fail(details.str() + lastPathStatus.str());
+        }
         const auto& ai = s.computerAiByOwner.at(aiKey);
         auto metrics = runtimeComputerAiMetrics(s, ai);
         if (metrics.harvesters != 1) return fail("deployed mine was not counted for replacement quota");

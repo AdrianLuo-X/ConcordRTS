@@ -2,6 +2,7 @@
 #include "simulation/abilities/unit_special/RuntimeSpecialMechanismsPrivate.h"
 #include "simulation/buildings/RuntimeStructureRepack.h"
 #include "simulation/abilities/radiation/RuntimeRadiation.h"
+#include "simulation/navigation/terrain/RuntimeTerrainTargetId.h"
 
 #include <algorithm>
 #include <cmath>
@@ -18,28 +19,17 @@
 #include <utility>
 
 bool decodeRuntimeCarrierCellTarget(int targetId, SpecialCell& cell, bool& bridge) {
-    int key = -1;
-    if (targetId >= -2959999 && targetId <= -1960000) {
-        key = -1960000 - targetId;
-        bridge = false;
-    } else if (targetId >= -1959999 && targetId <= -960000) {
-        key = -960000 - targetId;
-        bridge = true;
-    } else {
-        return false;
-    }
-    cell = {key % 1000, key / 1000};
-    return true;
+    return concord::simulation::navigation::terrain_target::decodeTerrainTargetId(targetId, cell, bridge);
 }
 
 namespace {
 
 constexpr int kSpecialMechanismSaveVersion = 3;
 using runtime_special_mechanisms_detail::kMaximumTimedBombRecords;
-constexpr std::size_t kMaximumParasiteRecords = 4096;
+using runtime_parasite_values_detail::kMaximumParasiteRecords;
 constexpr std::size_t kMaximumCarrierRecords = 4096;
-constexpr std::size_t kMaximumParasiteTextLength = 256;
-constexpr int kParasiteRatioPerMyriad = 10000;
+using runtime_parasite_values_detail::kMaximumParasiteTextLength;
+using runtime_parasite_values_detail::kParasiteRatioPerMyriad;
 
 char lowerAscii(char value) {
     return value >= 'A' && value <= 'Z'
@@ -285,48 +275,10 @@ bool timedBombKindFromName(const std::string& value, TimedBombKind& kind) {
     return false;
 }
 
-std::string parasiteTargetKindName(ParasiteTargetKind kind) {
-    return kind == ParasiteTargetKind::Infantry ? "Infantry" : "Vehicle";
-}
-
-bool parasiteTargetKindFromName(
-    const std::string& value,
-    ParasiteTargetKind& kind
-) {
-    if (value == "Infantry") {
-        kind = ParasiteTargetKind::Infantry;
-        return true;
-    }
-    if (value == "Vehicle") {
-        kind = ParasiteTargetKind::Vehicle;
-        return true;
-    }
-    return false;
-}
-
-std::string parasiteHostEventName(ParasiteHostEventKind event) {
-    switch (event) {
-    case ParasiteHostEventKind::Healed:
-        return "healed";
-    case ParasiteHostEventKind::SonicHit:
-        return "sonic hit";
-    case ParasiteHostEventKind::Teleporting:
-        return "teleporting";
-    case ParasiteHostEventKind::DestroyedExternally:
-        return "destroyed externally";
-    case ParasiteHostEventKind::DestroyedByParasite:
-        return "destroyed by parasite";
-    }
-    return "unknown host event";
-}
-
-bool validParasiteText(const std::string& value) {
-    return !value.empty() && value.size() <= kMaximumParasiteTextLength;
-}
-
-bool validParasiteRatio(int value) {
-    return value >= 0 && value <= kParasiteRatioPerMyriad;
-}
+using runtime_parasite_values_detail::parasiteTargetKindName;
+using runtime_parasite_values_detail::parasiteTargetKindFromName;
+using runtime_parasite_values_detail::validParasiteText;
+using runtime_parasite_values_detail::validParasiteRatio;
 
 using runtime_special_mechanisms_detail::objectCell;
 
@@ -457,6 +409,17 @@ TimedBombEligibilityQuery timedBombEligibilityQuery(
     };
 }
 
+class ParasiteObjectQuery final : public RuntimeParasiteObjectQueries {
+public:
+    using Finder = const WorldObjectInstance* (*)(const std::vector<WorldObjectInstance>&, int);
+    ParasiteObjectQuery(const std::vector<WorldObjectInstance>& objects, Finder finder)
+        : objects_(objects), finder_(finder) {}
+    const WorldObjectInstance* findObject(int objectId) const override { return finder_(objects_, objectId); }
+private:
+    const std::vector<WorldObjectInstance>& objects_;
+    Finder finder_;
+};
+
 TimedBombRules timedBombRules(const SpecialMechanismRules& rules) {
     return {rules.c4DelayMinutes, rules.c4Warhead, rules.ivanTimedDelayFrames,
         rules.ivanDamage, rules.ivanWarhead};
@@ -473,20 +436,14 @@ void RuntimeSpecialMechanismState::swap(
     mindControlByTarget_.swap(other.mindControlByTarget_);
     mindControlOverloadByController_.swap(other.mindControlOverloadByController_);
     camouflageByObject_.swap(other.camouflageByObject_);
-    chronoByObject_.swap(other.chronoByObject_);
-    temporalByTarget_.swap(other.temporalByTarget_);
+    chrono_.swap(other.chrono_);
+    temporal_.swap(other.temporal_);
     electricDisableByObject_.swap(other.electricDisableByObject_);
     electricChargeByTarget_.swap(other.electricChargeByTarget_);
     electricArcs_.swap(other.electricArcs_);
     radiationAreas_.swap(other.radiationAreas_);
     timedBombs_.swap(other.timedBombs_);
-    parasitePendingByProjectile_.swap(
-        other.parasitePendingByProjectile_
-    );
-    parasiteByTarget_.swap(other.parasiteByTarget_);
-    parasiteResolvedByProjectile_.swap(
-        other.parasiteResolvedByProjectile_
-    );
+    parasite_.swap(other.parasite_);
     carrierParents_.swap(other.carrierParents_);
     carrierChildren_.swap(other.carrierChildren_);
     spawnedMissiles_.swap(other.spawnedMissiles_);
@@ -508,16 +465,14 @@ void RuntimeSpecialMechanismState::reset(
     mindControlByTarget_.clear();
     mindControlOverloadByController_.clear();
     camouflageByObject_.clear();
-    chronoByObject_.clear();
-    temporalByTarget_.clear();
+    chrono_.reset();
+    temporal_.reset();
     electricDisableByObject_.clear();
     electricChargeByTarget_.clear();
     electricArcs_.clear();
     radiationAreas_.clear();
     timedBombs_.reset();
-    parasitePendingByProjectile_.clear();
-    parasiteByTarget_.clear();
-    parasiteResolvedByProjectile_.clear();
+    parasite_.reset();
     carrierParents_.clear();
     carrierChildren_.clear();
     spawnedMissiles_.clear();
@@ -839,38 +794,19 @@ bool RuntimeSpecialMechanismState::isCamouflageBlinking(
 void RuntimeSpecialMechanismState::beginChronosphereRecovery(
     WorldObjectInstance& object, int tick, int fixedTickHz
 ) {
-    beginChronoArrivalRecovery(object, tick, fixedTickHz, rules_.chronoDelay);
+    chrono_.beginChronosphereRecovery(object, tick, fixedTickHz, rules_);
 }
 
 void RuntimeSpecialMechanismState::beginChronoReinforcementRecovery(
     WorldObjectInstance& object, int tick, int fixedTickHz
 ) {
-    beginChronoArrivalRecovery(object, tick, fixedTickHz, rules_.chronoReinforcementDelay);
+    chrono_.beginChronoReinforcementRecovery(object, tick, fixedTickHz, rules_);
 }
 
 void RuntimeSpecialMechanismState::beginChronoArrivalRecovery(
     WorldObjectInstance& object, int tick, int fixedTickHz, int delayFrames
 ) {
-    if (!object.alive) return;
-    const int delay = static_cast<int>(std::clamp(
-        std::round(static_cast<double>(std::max(0, delayFrames))
-            * std::max(1, fixedTickHz) / 15.0),
-        0.0, static_cast<double>(std::numeric_limits<int>::max() / 2)));
-    if (delay == 0) {
-        chronoByObject_.erase(object.instanceId);
-        object.mission = "Guard";
-        return;
-    }
-    ChronoMoveState recovery;
-    recovery.objectId = object.instanceId;
-    recovery.phase = ChronoPhase::WarpIn;
-    recovery.source = recovery.destination = {object.x, object.y};
-    recovery.sourceLevel = recovery.destinationLevel = object.level;
-    recovery.startTick = recovery.completeTick = tick;
-    recovery.cooldownUntilTick = static_cast<int>(std::min<std::int64_t>(
-        std::numeric_limits<int>::max(), static_cast<std::int64_t>(tick) + delay));
-    chronoByObject_[object.instanceId] = recovery;
-    object.mission = "ChronoFrozen";
+    chrono_.beginChronoArrivalRecovery(object, tick, fixedTickHz, delayFrames);
 }
 
 bool RuntimeSpecialMechanismState::requestChronoMove(
@@ -886,75 +822,22 @@ bool RuntimeSpecialMechanismState::requestChronoMove(
     std::string& reason,
     int fixedTickHz
 ) {
-    WorldObjectInstance* object = findObject(objects, objectId);
-    const UnitType* unit = object == nullptr ? nullptr : unitTypeFor(rules, *object);
-    if (object == nullptr || unit == nullptr || !object->alive
-        || !unit->teleporter) {
-        reason = "not a teleporter";
-        return false;
-    }
-    if (object->dockedToObjectId >= 0 || !object->transportPassengerIds.empty()) {
-        reason = "transport state blocks chrono";
-        return false;
-    }
-    const auto current = chronoByObject_.find(objectId);
-    if (current != chronoByObject_.end()
-        && (isChronoInTransit(objectId) || tick < current->second.cooldownUntilTick)) {
-        reason = "chrono cooldown or transit";
-        return false;
-    }
-    if (cellIsLegal != nullptr
-        && !cellIsLegal(destination.x, destination.y, objectId)) {
-        reason = "illegal destination";
-        return false;
-    }
-    if (cellIsOccupied != nullptr
-        && cellIsOccupied(destination.x, destination.y, objectId)) {
-        reason = "destination occupied";
-        return false;
-    }
-
-    const SpecialCell source{object->x, object->y};
-    // This is recovery AFTER arrival, not travel time. RangeMinimum is a
-    // threshold for the minimum delay, not a distance to subtract from a trip.
-    const double distanceLeptons = std::hypot(
-        static_cast<double>(destination.x) - source.x,
-        static_cast<double>(destination.y) - source.y) * 256.0;
-    const double variableFrames = rules_.chronoTrigger
-            && distanceLeptons > std::max(0, rules_.chronoRangeMinimum)
-        ? std::floor(distanceLeptons / std::max(1, rules_.chronoDistanceFactor)) : 0.0;
-    const double recoveryFrames = std::max(
-        static_cast<double>(rules_.chronoMinimumDelay), variableFrames);
-    const int delay = static_cast<int>(std::clamp(
-        std::round(recoveryFrames * std::max(1, fixedTickHz) / 15.0),
-        0.0, static_cast<double>(std::numeric_limits<int>::max() / 2)));
-
-    ChronoMoveState state;
-    state.objectId = objectId;
-    state.phase = ChronoPhase::WarpOut;
-    state.source = source;
-    state.destination = destination;
-    state.sourceLevel = object->level;
-    state.destinationLevel = destinationLevel;
-    state.startTick = tick;
-    state.completeTick = tick + 1; // A blink takes one simulation tick at any distance.
-    state.cooldownUntilTick = static_cast<int>(std::min<std::int64_t>(
-        std::numeric_limits<int>::max(), static_cast<std::int64_t>(state.completeTick) + delay));
-    chronoByObject_[objectId] = state;
-    object->mission = "ChronoOut";
-    reason = "chrono warp queued";
-    if (emit != nullptr) {
-        emit({
-            "ChronoWarpOut",
-            tick,
-            objectId,
-            -1,
-            delay,
-            source,
-            reason
-        });
-    }
-    return true;
+    class Queries final : public RuntimeChronoStateRequestQueries {
+    public:
+        Queries(std::vector<WorldObjectInstance>& objects, const RulesDatabase& rules)
+            : objects_(objects), rules_(rules) {}
+        WorldObjectInstance* findObject(int id) const override {
+            return RuntimeSpecialMechanismState::findObject(objects_, id);
+        }
+        const UnitType* unitType(const WorldObjectInstance& value) const override {
+            return unitTypeFor(rules_, value);
+        }
+    private:
+        std::vector<WorldObjectInstance>& objects_;
+        const RulesDatabase& rules_;
+    } queries(objects, rules);
+    return chrono_.requestChronoMove(queries, rules_, objectId, destination,
+        destinationLevel, tick, cellIsLegal, cellIsOccupied, emit, reason, fixedTickHz);
 }
 
 bool RuntimeSpecialMechanismState::tickChronoMoves(
@@ -964,136 +847,27 @@ bool RuntimeSpecialMechanismState::tickChronoMoves(
     const SpecialCellPredicate& cellIsOccupied,
     const SpecialEventSink& emit
 ) {
-    bool changed = false;
-    std::vector<int> completed;
-    for (auto& [objectId, state] : chronoByObject_) {
-        WorldObjectInstance* object = findObject(objects, objectId);
-        // A real passenger retains the absolute recovery deadline without
-        // replaying a landing or replacing its InsideTransport mission.
-        if (object && !object->alive
-            && (state.phase == ChronoPhase::WarpIn || state.phase == ChronoPhase::Cooldown)
-            && specialCombatSourceAvailable(objects, object)) {
-            if (tick >= state.cooldownUntilTick) {
-                completed.push_back(objectId);
-                changed = true;
-            } else if (state.phase != ChronoPhase::Cooldown) {
-                state.phase = ChronoPhase::Cooldown;
-                changed = true;
-            }
-            continue;
+    class Queries final : public RuntimeChronoStateTickQueries {
+    public:
+        explicit Queries(std::vector<WorldObjectInstance>& objects) : objects_(objects) {}
+        WorldObjectInstance* findObject(int id) const override {
+            return RuntimeSpecialMechanismState::findObject(objects_, id);
         }
-        if (object == nullptr || !object->alive) {
-            completed.push_back(objectId);
-            continue;
+        bool combatSourceAvailable(const WorldObjectInstance* source) const override {
+            return specialCombatSourceAvailable(objects_, source);
         }
-        if ((state.phase == ChronoPhase::WarpOut || state.phase == ChronoPhase::InTransit)
-            && tick >= state.completeTick) {
-            state.phase = ChronoPhase::InTransit;
-            object->mission = "ChronoInTransit";
-            if (cellIsLegal != nullptr
-                && !cellIsLegal(
-                    state.destination.x,
-                    state.destination.y,
-                    objectId
-                )) {
-                object->mission = "Guard";
-                if (emit != nullptr) {
-                    emit({
-                        "ChronoRejectedAtArrival",
-                        tick,
-                        objectId,
-                        -1,
-                        0,
-                        state.source,
-                        "destination became illegal"
-                    });
-                }
-                completed.push_back(objectId);
-                changed = true;
-                continue;
-            }
-            if (cellIsOccupied != nullptr
-                && cellIsOccupied(
-                    state.destination.x,
-                    state.destination.y,
-                    objectId
-                )) {
-                object->mission = "Guard";
-                if (emit != nullptr) {
-                    emit({
-                        "ChronoRejectedAtArrival",
-                        tick,
-                        objectId,
-                        -1,
-                        0,
-                        state.source,
-                        "destination became occupied"
-                    });
-                }
-                completed.push_back(objectId);
-                changed = true;
-                continue;
-            }
-            object->x = state.destination.x;
-            object->y = state.destination.y;
-            object->cell = state.destination.x + state.destination.y * 512;
-            object->level = state.destinationLevel;
-            object->hasRenderPosition = false;
-            object->renderMoveActive = false;
-            object->renderX = object->x;
-            object->renderY = object->y;
-            object->renderLevel = object->level;
-            object->mission = "ChronoFrozen";
-            const int recoveryTicks = std::max(0, state.cooldownUntilTick - state.completeTick);
-            state.phase = ChronoPhase::WarpIn;
-            state.completeTick = tick; // Retain actual arrival time through recovery/save/load.
-            state.cooldownUntilTick = static_cast<int>(std::min<std::int64_t>(
-                std::numeric_limits<int>::max(), static_cast<std::int64_t>(tick) + recoveryTicks));
-            if (emit != nullptr) {
-                emit({
-                    "ChronoWarpIn",
-                    tick,
-                    objectId,
-                    -1,
-                    0,
-                    state.destination,
-                    "destination reached"
-                });
-            }
-            changed = true;
-        } else if (state.phase == ChronoPhase::WarpIn || state.phase == ChronoPhase::Cooldown) {
-            if (tick >= state.cooldownUntilTick) {
-                object->mission = "Guard";
-                completed.push_back(objectId);
-                if (emit != nullptr) {
-                    emit({"ChronoReady", tick, objectId, -1, 0,
-                        state.destination, "chrono recovery complete"});
-                }
-                changed = true;
-            } else if (state.phase == ChronoPhase::WarpIn) {
-                state.phase = ChronoPhase::Cooldown;
-                object->mission = "ChronoFrozen";
-                changed = true;
-            }
-        }
-    }
-    for (int objectId : completed) {
-        chronoByObject_.erase(objectId);
-    }
-    return changed;
+    private:
+        std::vector<WorldObjectInstance>& objects_;
+    } queries(objects);
+    return chrono_.tickChronoMoves(queries, tick, cellIsLegal, cellIsOccupied, emit);
 }
 
 bool RuntimeSpecialMechanismState::isChronoInTransit(int objectId) const {
-    const auto found = chronoByObject_.find(objectId);
-    return found != chronoByObject_.end()
-        && (found->second.phase == ChronoPhase::WarpOut
-            || found->second.phase == ChronoPhase::InTransit);
+    return chrono_.isChronoInTransit(objectId);
 }
 
 bool RuntimeSpecialMechanismState::isChronoMovementLocked(int objectId, int tick) const {
-    const auto found = chronoByObject_.find(objectId);
-    return found != chronoByObject_.end()
-        && (isChronoInTransit(objectId) || tick < found->second.cooldownUntilTick);
+    return chrono_.isChronoMovementLocked(objectId, tick);
 }
 
 bool RuntimeSpecialMechanismState::applyTemporalHit(
@@ -1110,96 +884,35 @@ bool RuntimeSpecialMechanismState::applyTemporalHit(
     std::string& reason,
     bool allowAlliedTarget
 ) {
-    completed = false;
-    WorldObjectInstance* attacker = findObject(objects, attackerObjectId);
-    WorldObjectInstance* target = findObject(objects, targetObjectId);
-    if (attacker == nullptr || target == nullptr
-        || !specialCombatSourceAvailable(objects, attacker, &rules, &areAllied) || !target->alive) {
-        reason = "object unavailable";
-        return false;
-    }
-    // Ordinary acquisition keeps its alliance filter. The host may admit
-    // an explicit force-fire order against a distinct friendly target.
-    if (attackerObjectId == targetObjectId || (!allowAlliedTarget && areAllied != nullptr
-        && areAllied(attacker->owner, target->owner))) {
-        reason = "allied target";
-        return false;
-    }
-    if (targetImmuneToTemporal(rules, *target)) {
-        reason = "target immune to temporal";
-        return false;
-    }
-
-    auto [targetState, inserted] = temporalByTarget_.try_emplace(targetObjectId);
-    TemporalTargetState& state = targetState->second;
-    if (inserted) state.lastAdvancedTick = tick;
-    state.targetObjectId = targetObjectId;
-    state.requiredProgress = std::max(
-        state.requiredProgress,
-        std::max(1, requiredProgress)
-    );
-    state.frozen = true;
-    auto& contribution = state.progressByAttacker[attackerObjectId];
-    contribution = static_cast<int>(std::min<std::int64_t>(
-        std::numeric_limits<int>::max(), static_cast<std::int64_t>(contribution) + std::max(0, progress)));
-    // Preserve the saved folding mission while its buildup clock is frozen.
-    if (!runtimeStructureIsRepacking(*target)) target->mission = "Temporal";
-    std::int64_t totalProgress = 0;
-    for (const auto& [unusedAttacker, value] : state.progressByAttacker) {
-        (void)unusedAttacker;
-        totalProgress += value;
-    }
-    reason = "temporal progress";
-    if (emit != nullptr) {
-        emit({
-            "TemporalProgress",
-            tick,
-            attackerObjectId,
-            targetObjectId,
-            static_cast<int>(std::min<std::int64_t>(totalProgress, std::numeric_limits<int>::max())),
-            {target->x, target->y},
-            reason
-        });
-    }
-    if (totalProgress >= state.requiredProgress) {
-        completed = true;
-        target->health = 0;
-        target->mission = "TemporalRemoved";
-        if (emit != nullptr) {
-            emit({
-                "TemporalCompleted",
-                tick,
-                attackerObjectId,
-                targetObjectId,
-                static_cast<int>(std::min<std::int64_t>(totalProgress, std::numeric_limits<int>::max())),
-                {target->x, target->y},
-                "temporal progress complete"
-            });
+    struct Queries final : RuntimeTemporalStateHitQueries {
+        std::vector<WorldObjectInstance>& objects_;
+        const RulesDatabase& rules_;
+        const SpecialAlliancePredicate& allied_;
+        Queries(std::vector<WorldObjectInstance>& objects, const RulesDatabase& rules,
+            const SpecialAlliancePredicate& allied) : objects_(objects), rules_(rules), allied_(allied) {}
+        WorldObjectInstance* findObject(int id) const override {
+            return RuntimeSpecialMechanismState::findObject(objects_, id);
         }
-        temporalByTarget_.erase(targetObjectId);
-    }
-    return true;
+        bool combatSourceAvailable(const WorldObjectInstance* source) const override {
+            return specialCombatSourceAvailable(objects_, source, &rules_, &allied_);
+        }
+        bool targetImmune(const WorldObjectInstance& target) const override {
+            return targetImmuneToTemporal(rules_, target);
+        }
+    };
+    return temporal_.applyTemporalHit(Queries(objects, rules, areAllied), attackerObjectId,
+        targetObjectId, progress, requiredProgress, tick, areAllied, emit, completed, reason,
+        allowAlliedTarget);
 }
 
 bool RuntimeSpecialMechanismState::isTemporalFrozen(int objectId) const {
-    const auto found = temporalByTarget_.find(objectId);
-    return found != temporalByTarget_.end() && found->second.frozen;
+    return temporal_.isTemporalFrozen(objectId);
 }
 
 bool RuntimeSpecialMechanismState::hasTemporalAuthorityForObject(
     int objectId
 ) const {
-    if (temporalByTarget_.find(objectId) != temporalByTarget_.end()) {
-        return true;
-    }
-    return std::any_of(
-        temporalByTarget_.begin(),
-        temporalByTarget_.end(),
-        [objectId](const auto& entry) {
-            return entry.second.progressByAttacker.find(objectId)
-                != entry.second.progressByAttacker.end();
-        }
-    );
+    return temporal_.hasTemporalAuthorityForObject(objectId);
 }
 
 void RuntimeSpecialMechanismState::clearTemporalAttacker(
@@ -1209,36 +922,7 @@ void RuntimeSpecialMechanismState::clearTemporalAttacker(
     const SpecialEventSink& emit,
     const std::string& reason
 ) {
-    const auto targetIt = temporalByTarget_.find(targetObjectId);
-    if (targetIt == temporalByTarget_.end()) {
-        return;
-    }
-    auto& contributors = targetIt->second.progressByAttacker;
-    const auto leaving = contributors.find(attackerObjectId);
-    if (leaving == contributors.end()) return;
-    const int accrued = leaving->second;
-    contributors.erase(leaving);
-    // Erasure belongs to the target. A remaining firer inherits completed
-    // work; only the final disconnected beam releases stasis and resets it.
-    if (!contributors.empty()) {
-        auto& retained = contributors.begin()->second;
-        retained = static_cast<int>(std::min<std::int64_t>(
-            std::numeric_limits<int>::max(), static_cast<std::int64_t>(retained) + accrued));
-    }
-    if (targetIt->second.progressByAttacker.empty()) {
-        temporalByTarget_.erase(targetIt);
-    }
-    if (emit != nullptr) {
-        emit({
-            "TemporalInterrupted",
-            tick,
-            attackerObjectId,
-            targetObjectId,
-            0,
-            {},
-            reason
-        });
-    }
+    temporal_.clearTemporalAttacker(attackerObjectId, targetObjectId, tick, emit, reason);
 }
 
 void RuntimeSpecialMechanismState::clearTemporalTarget(
@@ -1247,20 +931,7 @@ void RuntimeSpecialMechanismState::clearTemporalTarget(
     const SpecialEventSink& emit,
     const std::string& reason
 ) {
-    if (temporalByTarget_.erase(targetObjectId) == 0) {
-        return;
-    }
-    if (emit != nullptr) {
-        emit({
-            "TemporalTargetCleared",
-            tick,
-            -1,
-            targetObjectId,
-            0,
-            {},
-            reason
-        });
-    }
+    temporal_.clearTemporalTarget(targetObjectId, tick, emit, reason);
 }
 
 void RuntimeSpecialMechanismState::addElectricArc(
@@ -1785,434 +1456,21 @@ ParasiteOperationResult RuntimeSpecialMechanismState::beginParasiteLaunch(
     const ParasiteLaunchRequest& request,
     const SpecialEventSink& emit
 ) {
-    ParasiteOperationResult result;
-    const auto reject = [&](const std::string& reason) {
-        result.reason = reason;
-        if (emit != nullptr) {
-            emit({
-                "ParasiteLaunchRejected",
-                request.currentTick,
-                request.sourceObjectId,
-                request.targetObjectId,
-                request.projectileId,
-                request.targetCell,
-                reason
-            });
-        }
-        return result;
-    };
-    for (auto resolved = parasiteResolvedByProjectile_.begin();
-         resolved != parasiteResolvedByProjectile_.end();) {
-        if (resolved->second.resolvedTick < request.currentTick) {
-            resolved = parasiteResolvedByProjectile_.erase(resolved);
-        } else {
-            ++resolved;
-        }
-    }
-    if (request.currentTick < 0 || request.projectileId == 0
-        || request.sourceObjectId < 0 || request.targetObjectId < 0
-        || request.sourceObjectId == request.targetObjectId) {
-        return reject("invalid parasite launch identity");
-    }
-    if (!validParasiteText(request.sourceOwner)
-        || !validParasiteText(request.sourceTypeId)
-        || !validParasiteText(request.targetTypeId)
-        || !validParasiteText(request.weaponId)
-        || !validParasiteText(request.warheadId)) {
-        return reject("invalid parasite launch text snapshot");
-    }
-    if (request.damage < 0 || request.damageIntervalTicks <= 0
-        || request.paralyzes < 0 || request.targetMaximumHealth <= 0
-        || !validParasiteRatio(request.normalCullingThresholdPermyriad)
-        || !validParasiteRatio(request.eliteCullingThresholdPermyriad)) {
-        return reject("invalid parasite launch rules snapshot");
-    }
-    if (request.targetKind == ParasiteTargetKind::Vehicle
-        && !request.targetParasiteable) {
-        return reject("vehicle target is not parasiteable");
-    }
-    const auto existingProjectile = parasitePendingByProjectile_.find(
-        request.projectileId
-    );
-    if (existingProjectile != parasitePendingByProjectile_.end()) {
-        const ParasitePendingLaunchState& pending = existingProjectile->second;
-        if (pending.sourceObjectId == request.sourceObjectId
-            && pending.targetObjectId == request.targetObjectId
-            && pending.sourceTypeId == request.sourceTypeId
-            && pending.targetTypeId == request.targetTypeId
-            && pending.weaponId == request.weaponId
-            && pending.warheadId == request.warheadId) {
-            result.accepted = true;
-            result.idempotent = true;
-            return result;
-        }
-        return reject("projectile identity already belongs to another launch");
-    }
-    const auto resolved = parasiteResolvedByProjectile_.find(
-        request.projectileId
-    );
-    if (resolved != parasiteResolvedByProjectile_.end()
-        && resolved->second.resolvedTick == request.currentTick) {
-        if (resolved->second.sourceObjectId == request.sourceObjectId
-            && resolved->second.targetObjectId == request.targetObjectId) {
-            result.accepted = true;
-            result.idempotent = true;
-            return result;
-        }
-        return reject("resolved projectile identity conflicts with launch");
-    }
-    if (parasitePendingByProjectile_.size()
-            + parasiteResolvedByProjectile_.size()
-        >= kMaximumParasiteRecords) {
-        return reject("parasite launch/resolution capacity reached");
-    }
-    for (const auto& [unusedProjectileId, pending]
-         : parasitePendingByProjectile_) {
-        (void)unusedProjectileId;
-        if (pending.sourceObjectId == request.sourceObjectId) {
-            return reject("parasite source already owns an in-flight launch");
-        }
-        if (pending.targetObjectId == request.targetObjectId) {
-            return reject("parasite target is already being boarded");
-        }
-    }
-    for (const auto& [targetId, link] : parasiteByTarget_) {
-        if (link.sourceObjectId == request.sourceObjectId) {
-            return reject("parasite source is already attached");
-        }
-        if (targetId == request.targetObjectId) {
-            return reject("parasite target already has a parasite");
-        }
-    }
-
-    ParasitePendingLaunchState pending;
-    pending.projectileId = request.projectileId;
-    pending.sourceObjectId = request.sourceObjectId;
-    pending.targetObjectId = request.targetObjectId;
-    pending.owner = request.sourceOwner;
-    pending.sourceTypeId = request.sourceTypeId;
-    pending.targetTypeId = request.targetTypeId;
-    pending.weaponId = request.weaponId;
-    pending.warheadId = request.warheadId;
-    pending.targetKind = request.targetKind;
-    pending.targetCell = request.targetCell;
-    pending.launchedTick = request.currentTick;
-    pending.damage = request.damage;
-    pending.damageIntervalTicks = request.damageIntervalTicks;
-    pending.paralyzes = request.paralyzes;
-    pending.targetMaximumHealth = request.targetMaximumHealth;
-    pending.cullingThresholdPerMyriad = request.sourceElite
-        ? request.eliteCullingThresholdPermyriad
-        : request.normalCullingThresholdPermyriad;
-    pending.targetParasiteable = request.targetParasiteable;
-    pending.organic = request.sourceOrganic;
-    pending.sourceElite = request.sourceElite;
-    pending.culling = request.culling;
-    parasitePendingByProjectile_[pending.projectileId] = pending;
-
-    SpecialMechanismAction enterLimbo;
-    enterLimbo.kind = SpecialMechanismActionKind::ParasiteEnterLimbo;
-    enterLimbo.tick = request.currentTick;
-    enterLimbo.projectileId = request.projectileId;
-    enterLimbo.objectId = request.sourceObjectId;
-    enterLimbo.targetObjectId = request.targetObjectId;
-    enterLimbo.owner = request.sourceOwner;
-    enterLimbo.damage = request.damage;
-    enterLimbo.warheadId = request.warheadId;
-    enterLimbo.paralyzes = request.paralyzes;
-    enterLimbo.culling = request.culling;
-    enterLimbo.cell = request.targetCell;
-    enterLimbo.reason = "LimboLaunch projectile began";
-    result.actions.push_back(std::move(enterLimbo));
-    result.accepted = true;
-    if (emit != nullptr) {
-        emit({
-            "ParasiteLaunchBegan",
-            request.currentTick,
-            request.sourceObjectId,
-            request.targetObjectId,
-            request.projectileId,
-            request.targetCell,
-            request.weaponId
-        });
-    }
-    return result;
+    return parasite_.beginParasiteLaunch(request, emit);
 }
 
 ParasiteOperationResult RuntimeSpecialMechanismState::resolveParasiteImpact(
     const ParasiteImpactRequest& request,
     const SpecialEventSink& emit
 ) {
-    ParasiteOperationResult result;
-    const auto reject = [&](const std::string& reason) {
-        result.reason = reason;
-        return result;
-    };
-    for (auto resolved = parasiteResolvedByProjectile_.begin();
-         resolved != parasiteResolvedByProjectile_.end();) {
-        if (resolved->second.resolvedTick < request.currentTick) {
-            resolved = parasiteResolvedByProjectile_.erase(resolved);
-        } else {
-            ++resolved;
-        }
-    }
-    if (request.currentTick < 0 || request.projectileId == 0) {
-        return reject("invalid parasite impact identity");
-    }
-    const auto pendingIt = parasitePendingByProjectile_.find(
-        request.projectileId
-    );
-    if (pendingIt == parasitePendingByProjectile_.end()) {
-        const auto resolved = parasiteResolvedByProjectile_.find(
-            request.projectileId
-        );
-        if (resolved != parasiteResolvedByProjectile_.end()
-            && resolved->second.resolvedTick == request.currentTick) {
-            result.accepted = true;
-            result.idempotent = true;
-            return result;
-        }
-        return reject("parasite projectile has no pending launch");
-    }
-    const ParasitePendingLaunchState pending = pendingIt->second;
-    if (request.currentTick < pending.launchedTick) {
-        return reject("parasite impact precedes launch");
-    }
-    if (request.targetPresent
-        && (!validParasiteText(request.targetTypeId)
-            || request.targetMaximumHealth <= 0)) {
-        return reject("invalid parasite impact target snapshot");
-    }
-    if (pending.damageIntervalTicks > 0
-        && request.currentTick
-            > std::numeric_limits<int>::max()
-                - pending.damageIntervalTicks) {
-        return reject("parasite impact tick would overflow bite interval");
-    }
-
-    const bool identityMatches = request.targetPresent
-        && request.targetObjectId == pending.targetObjectId
-        && request.targetTypeId == pending.targetTypeId
-        && request.targetKind == pending.targetKind;
-    const bool liveHit = request.impact == ParasiteImpactKind::Hit
-        && identityMatches && request.targetAlive;
-    const bool vehicleHit = liveHit
-        && pending.targetKind == ParasiteTargetKind::Vehicle
-        && pending.targetParasiteable && request.targetParasiteable;
-    const bool infantryHit = liveHit
-        && pending.targetKind == ParasiteTargetKind::Infantry;
-
-    const auto appendReturnOrKill = [&](const std::string& reason,
-                                      bool replacesTerminatingHost = false) {
-        SpecialMechanismAction action;
-        action.kind = request.returnCellAvailable
-            ? SpecialMechanismActionKind::ParasiteReturnFromLimbo
-            : SpecialMechanismActionKind::ParasiteKillParasite;
-        action.tick = request.currentTick;
-        action.projectileId = pending.projectileId;
-        action.objectId = pending.sourceObjectId;
-        action.targetObjectId = pending.targetObjectId;
-        action.owner = pending.owner;
-        action.paralyzes = pending.paralyzes;
-        action.cell = request.returnCellAvailable
-            ? request.returnCell
-            : request.impactCell;
-        action.suppressDeathWeapon = !request.returnCellAvailable;
-        action.replacesTerminatingHost = request.returnCellAvailable
-            && replacesTerminatingHost;
-        action.reason = request.returnCellAvailable
-            ? reason
-            : reason + "; no legal return cell";
-        result.actions.push_back(std::move(action));
-    };
-
-    if (vehicleHit) {
-        if (parasiteByTarget_.size() >= kMaximumParasiteRecords
-            || parasiteByTarget_.find(pending.targetObjectId)
-                != parasiteByTarget_.end()) {
-            return reject("parasite link capacity or target conflict");
-        }
-        ParasiteLinkState link;
-        link.projectileId = pending.projectileId;
-        link.targetObjectId = pending.targetObjectId;
-        link.sourceObjectId = pending.sourceObjectId;
-        link.owner = pending.owner;
-        link.sourceTypeId = pending.sourceTypeId;
-        link.targetTypeId = pending.targetTypeId;
-        link.weaponId = pending.weaponId;
-        link.warheadId = pending.warheadId;
-        link.damage = pending.damage;
-        link.attachedTick = request.currentTick;
-        link.damageIntervalTicks = pending.damageIntervalTicks;
-        link.nextDamageTick = pending.organic
-            ? request.currentTick + pending.damageIntervalTicks
-            : request.currentTick;
-        link.organic = pending.organic;
-        link.sourceElite = pending.sourceElite;
-        link.paralyzes = pending.paralyzes;
-        link.culling = pending.culling;
-        link.cullingThresholdPerMyriad = pending.cullingThresholdPerMyriad;
-        link.targetMaximumHealth = std::max(
-            1,
-            request.targetMaximumHealth
-        );
-        link.sourceExpectedInLimbo = true;
-        parasiteByTarget_[link.targetObjectId] = link;
-
-        SpecialMechanismAction attached;
-        attached.kind = SpecialMechanismActionKind::ParasiteAttachHost;
-        attached.tick = request.currentTick;
-        attached.projectileId = pending.projectileId;
-        attached.objectId = pending.sourceObjectId;
-        attached.targetObjectId = pending.targetObjectId;
-        attached.owner = pending.owner;
-        attached.damage = pending.damage;
-        attached.warheadId = pending.warheadId;
-        attached.paralyzes = pending.paralyzes;
-        attached.culling = pending.culling;
-        attached.cell = request.impactCell;
-        attached.reason = "LimboLaunch parasite attached to vehicle";
-        result.actions.push_back(std::move(attached));
-    } else if (infantryHit) {
-        SpecialMechanismAction kill;
-        kill.kind = SpecialMechanismActionKind::ParasiteKillTarget;
-        kill.tick = request.currentTick;
-        kill.projectileId = pending.projectileId;
-        kill.objectId = pending.sourceObjectId;
-        kill.targetObjectId = pending.targetObjectId;
-        kill.owner = pending.owner;
-        kill.damage = std::numeric_limits<int>::max();
-        kill.warheadId = pending.warheadId;
-        kill.forceDestruction = true;
-        kill.cell = request.impactCell;
-        kill.reason = "parasite warhead instantly kills infantry";
-        result.actions.push_back(std::move(kill));
-        appendReturnOrKill("parasite returned after infantry impact", true);
-    } else {
-        appendReturnOrKill(
-            identityMatches
-                ? "parasite returned after invalid or dead target"
-                : "parasite returned after miss or identity mismatch"
-        );
-    }
-
-    parasitePendingByProjectile_.erase(pendingIt);
-    parasiteResolvedByProjectile_[request.projectileId] = {
-        request.projectileId,
-        pending.sourceObjectId,
-        pending.targetObjectId,
-        request.currentTick
-    };
-    result.accepted = true;
-    if (emit != nullptr) {
-        emit({
-            vehicleHit ? "ParasiteAttached"
-                : (infantryHit ? "ParasiteInfantryKilled"
-                               : "ParasiteReturned"),
-            request.currentTick,
-            pending.sourceObjectId,
-            pending.targetObjectId,
-            request.projectileId,
-            request.impactCell,
-            pending.warheadId
-        });
-    }
-    return result;
+    return parasite_.resolveParasiteImpact(request, emit);
 }
 
 ParasiteOperationResult RuntimeSpecialMechanismState::handleParasiteHostEvent(
     const ParasiteHostEventRequest& request,
     const SpecialEventSink& emit
 ) {
-    ParasiteOperationResult result;
-    if (request.currentTick < 0 || request.targetObjectId < 0
-        || request.stunTicks < 0) {
-        result.reason = "invalid parasite host event";
-        return result;
-    }
-    for (auto resolved = parasiteResolvedByProjectile_.begin();
-         resolved != parasiteResolvedByProjectile_.end();) {
-        if (resolved->second.resolvedTick < request.currentTick) {
-            resolved = parasiteResolvedByProjectile_.erase(resolved);
-        } else {
-            ++resolved;
-        }
-    }
-    const auto linkIt = parasiteByTarget_.find(request.targetObjectId);
-    if (linkIt == parasiteByTarget_.end()) {
-        const auto repeated = std::find_if(
-            parasiteResolvedByProjectile_.begin(),
-            parasiteResolvedByProjectile_.end(),
-            [&request](const auto& entry) {
-                return entry.second.targetObjectId == request.targetObjectId
-                    && entry.second.resolvedTick == request.currentTick
-                    && entry.second.hostTerminated;
-            }
-        );
-        if (repeated != parasiteResolvedByProjectile_.end()) {
-            result.accepted = true;
-            result.idempotent = true;
-            return result;
-        }
-        result.reason = "target has no attached parasite";
-        return result;
-    }
-    const ParasiteLinkState link = linkIt->second;
-    const bool killDirectly =
-        request.event == ParasiteHostEventKind::DestroyedExternally
-        || (request.event == ParasiteHostEventKind::Healed && !link.organic);
-    const bool canEject = !killDirectly && request.ejectCellAvailable;
-
-    SpecialMechanismAction action;
-    action.kind = canEject
-        ? SpecialMechanismActionKind::ParasiteEject
-        : SpecialMechanismActionKind::ParasiteKillParasite;
-    action.tick = request.currentTick;
-    action.projectileId = link.projectileId;
-    action.objectId = link.sourceObjectId;
-    action.targetObjectId = link.targetObjectId;
-    action.owner = link.owner;
-    action.paralyzes = link.paralyzes;
-    action.cell = canEject ? request.ejectCell : SpecialCell{};
-    action.suppressDeathWeapon = !canEject;
-    action.replacesTerminatingHost = canEject
-        && request.event == ParasiteHostEventKind::DestroyedByParasite;
-    action.sourceWasAttachedToHost = true;
-    const bool stunned = canEject
-        && (request.event == ParasiteHostEventKind::Healed
-            || request.event == ParasiteHostEventKind::SonicHit
-            || request.event == ParasiteHostEventKind::Teleporting);
-    action.stunTicks = stunned ? request.stunTicks : 0;
-    action.reason = canEject
-        ? "parasite ejected because host was "
-            + parasiteHostEventName(request.event)
-        : "parasite destroyed without death weapon because host was "
-            + parasiteHostEventName(request.event)
-            + (request.ejectCellAvailable || killDirectly
-                ? std::string()
-                : "; no legal eject cell");
-    result.actions.push_back(std::move(action));
-    parasiteByTarget_.erase(linkIt);
-    parasiteResolvedByProjectile_[link.projectileId] = {
-        link.projectileId,
-        link.sourceObjectId,
-        link.targetObjectId,
-        request.currentTick,
-        true
-    };
-    result.accepted = true;
-    if (emit != nullptr) {
-        emit({
-            canEject ? "ParasiteEjected" : "ParasiteKilled",
-            request.currentTick,
-            link.sourceObjectId,
-            link.targetObjectId,
-            0,
-            canEject ? request.ejectCell : SpecialCell{},
-            parasiteHostEventName(request.event)
-        });
-    }
-    return result;
+    return parasite_.handleParasiteHostEvent(request, emit);
 }
 
 std::vector<SpecialMechanismAction>
@@ -2222,122 +1480,7 @@ RuntimeSpecialMechanismState::reconcileParasites(
     int tick,
     const SpecialEventSink& emit
 ) {
-    std::vector<SpecialMechanismAction> actions;
-    const std::set<int> activeProjectiles(
-        activeProjectileIds.begin(),
-        activeProjectileIds.end()
-    );
-    for (auto pending = parasitePendingByProjectile_.begin();
-         pending != parasitePendingByProjectile_.end();) {
-        const ParasitePendingLaunchState state = pending->second;
-        const WorldObjectInstance* source = findObject(
-            objects,
-            state.sourceObjectId
-        );
-        const WorldObjectInstance* target = findObject(
-            objects,
-            state.targetObjectId
-        );
-        const bool sourceValid = source != nullptr && source->health > 0
-            && source->type == state.sourceTypeId
-            && ((!source->alive && source->mission == "ParasiteLimbo")
-                || (source->alive && tick == state.launchedTick));
-        const bool targetValid = target != nullptr && target->alive
-            && target->health > 0 && target->type == state.targetTypeId;
-        const bool projectileValid = activeProjectiles.find(state.projectileId)
-            != activeProjectiles.end();
-        if (sourceValid && targetValid && projectileValid) {
-            ++pending;
-            continue;
-        }
-        SpecialMechanismAction action;
-        action.kind = sourceValid
-            ? SpecialMechanismActionKind::ParasiteReturnFromLimbo
-            : SpecialMechanismActionKind::ParasiteKillParasite;
-        action.tick = tick;
-        action.projectileId = state.projectileId;
-        action.objectId = state.sourceObjectId;
-        action.targetObjectId = state.targetObjectId;
-        action.owner = state.owner;
-        action.paralyzes = state.paralyzes;
-        action.cell = target == nullptr ? state.targetCell : objectCell(target);
-        action.suppressDeathWeapon = !sourceValid;
-        action.reason = !sourceValid
-            ? "pending parasite source invalid during reconciliation"
-            : (!targetValid
-                ? "pending parasite target invalid during reconciliation"
-                : "pending parasite projectile missing during reconciliation");
-        actions.push_back(std::move(action));
-        parasiteResolvedByProjectile_[state.projectileId] = {
-            state.projectileId,
-            state.sourceObjectId,
-            state.targetObjectId,
-            tick
-        };
-        if (emit != nullptr) {
-            emit({
-                sourceValid ? "ParasiteReturned" : "ParasiteKilled",
-                tick,
-                state.sourceObjectId,
-                state.targetObjectId,
-                state.projectileId,
-                target == nullptr ? state.targetCell : objectCell(target),
-                "pending launch reconciled"
-            });
-        }
-        pending = parasitePendingByProjectile_.erase(pending);
-    }
-    for (auto link = parasiteByTarget_.begin();
-         link != parasiteByTarget_.end();) {
-        const ParasiteLinkState state = link->second;
-        const WorldObjectInstance* source = findObject(
-            objects,
-            state.sourceObjectId
-        );
-        const WorldObjectInstance* target = findObject(
-            objects,
-            state.targetObjectId
-        );
-        const bool sourceValid = source != nullptr && source->health > 0
-            && (state.sourceTypeId.empty()
-                || source->type == state.sourceTypeId)
-            && (!state.sourceExpectedInLimbo
-                || (!source->alive && source->mission == "ParasiteLimbo"));
-        const bool targetValid = target != nullptr && target->alive
-            && target->health > 0
-            && (state.targetTypeId.empty()
-                || target->type == state.targetTypeId);
-        if (sourceValid && targetValid) {
-            ++link;
-            continue;
-        }
-        SpecialMechanismAction action;
-        action.kind = sourceValid
-            ? SpecialMechanismActionKind::ParasiteKillParasite
-            : SpecialMechanismActionKind::ParasiteReleaseTarget;
-        action.tick = tick;
-        action.projectileId = state.projectileId;
-        action.objectId = state.sourceObjectId;
-        action.targetObjectId = state.targetObjectId;
-        action.owner = state.owner;
-        action.paralyzes = state.paralyzes;
-        action.cell = objectCell(target);
-        action.suppressDeathWeapon = sourceValid;
-        action.sourceWasAttachedToHost = sourceValid;
-        action.reason = sourceValid
-            ? "parasite host invalid during reconciliation"
-            : "parasite source invalid during reconciliation";
-        actions.push_back(std::move(action));
-        parasiteResolvedByProjectile_[state.projectileId] = {
-            state.projectileId,
-            state.sourceObjectId,
-            state.targetObjectId,
-            tick,
-            sourceValid
-        };
-        link = parasiteByTarget_.erase(link);
-    }
-    return actions;
+    return parasite_.reconcileParasites(ParasiteObjectQuery(objects, &RuntimeSpecialMechanismState::findObject), activeProjectileIds, tick, emit);
 }
 
 bool RuntimeSpecialMechanismState::tryAttachParasite(
@@ -2444,174 +1587,25 @@ RuntimeSpecialMechanismState::tickParasites(
     const SpecialEventSink& emit
 ) {
     (void)rules;
-    std::vector<SpecialMechanismAction> actions;
-    for (auto resolved = parasiteResolvedByProjectile_.begin();
-         resolved != parasiteResolvedByProjectile_.end();) {
-        if (resolved->second.resolvedTick < tick) {
-            resolved = parasiteResolvedByProjectile_.erase(resolved);
-        } else {
-            ++resolved;
-        }
-    }
-    for (auto entry = parasiteByTarget_.begin();
-         entry != parasiteByTarget_.end();) {
-        ParasiteLinkState& link = entry->second;
-        const WorldObjectInstance* source = findObject(
-            objects,
-            link.sourceObjectId
-        );
-        const WorldObjectInstance* target = findObject(
-            objects,
-            link.targetObjectId
-        );
-        const bool sourceDestroyed = source == nullptr || source->health <= 0
-            || (!link.sourceTypeId.empty()
-                && source->type != link.sourceTypeId)
-            || (!source->alive
-                && (!link.sourceExpectedInLimbo
-                    || source->mission != "ParasiteLimbo"));
-        if (sourceDestroyed) {
-            SpecialMechanismAction action;
-            action.kind = SpecialMechanismActionKind::ParasiteReleaseTarget;
-            action.tick = tick;
-            action.projectileId = link.projectileId;
-            action.objectId = link.sourceObjectId;
-            action.targetObjectId = link.targetObjectId;
-            action.owner = link.owner;
-            action.paralyzes = link.paralyzes;
-            action.cell = objectCell(target);
-            action.reason = "parasite source died or left the world";
-            actions.push_back(std::move(action));
-            parasiteResolvedByProjectile_[link.projectileId] = {
-                link.projectileId,
-                link.sourceObjectId,
-                link.targetObjectId,
-                tick,
-                false
-            };
-            entry = parasiteByTarget_.erase(entry);
-            continue;
-        }
-        if (target == nullptr || !target->alive || target->health <= 0
-            || target->kind != WorldObjectKind::Unit
-            || (!link.targetTypeId.empty()
-                && target->type != link.targetTypeId)) {
-            SpecialMechanismAction action;
-            action.kind = SpecialMechanismActionKind::ParasiteKillParasite;
-            action.tick = tick;
-            action.projectileId = link.projectileId;
-            action.objectId = link.sourceObjectId;
-            action.targetObjectId = link.targetObjectId;
-            action.owner = link.owner;
-            action.paralyzes = link.paralyzes;
-            action.cell = objectCell(target);
-            action.suppressDeathWeapon = true;
-            action.sourceWasAttachedToHost = true;
-            action.reason = "parasite host died externally or became invalid";
-            actions.push_back(std::move(action));
-            parasiteResolvedByProjectile_[link.projectileId] = {
-                link.projectileId,
-                link.sourceObjectId,
-                link.targetObjectId,
-                tick,
-                true
-            };
-            entry = parasiteByTarget_.erase(entry);
-            continue;
-        }
-        if (tick >= link.nextDamageTick) {
-            const bool culled = link.culling
-                && link.cullingThresholdPerMyriad > 0
-                && static_cast<long long>(target->health)
-                    * kParasiteRatioPerMyriad
-                    <= static_cast<long long>(link.targetMaximumHealth)
-                        * link.cullingThresholdPerMyriad;
-            SpecialMechanismAction action;
-            action.kind = culled
-                ? SpecialMechanismActionKind::ParasiteKillTarget
-                : SpecialMechanismActionKind::ParasiteDamage;
-            action.tick = tick;
-            action.projectileId = link.projectileId;
-            action.objectId = link.sourceObjectId;
-            action.targetObjectId = link.targetObjectId;
-            action.owner = link.owner;
-            action.damage = culled
-                ? std::numeric_limits<int>::max()
-                : link.damage;
-            action.warheadId = link.warheadId;
-            action.forceDestruction = culled;
-            action.paralyzes = link.paralyzes;
-            action.culling = link.culling;
-            action.cell = objectCell(target);
-            action.reason = culled
-                ? (link.sourceElite ? "elite parasite culling threshold"
-                                    : "parasite culling threshold")
-                : "parasite damage interval";
-            actions.push_back(std::move(action));
-            link.nextDamageTick = tick
-                    > std::numeric_limits<int>::max()
-                        - std::max(1, link.damageIntervalTicks)
-                ? std::numeric_limits<int>::max()
-                : tick + std::max(1, link.damageIntervalTicks);
-            if (emit != nullptr) {
-                emit({
-                    culled ? "ParasiteCulling" : "ParasiteDamage",
-                    tick,
-                    link.sourceObjectId,
-                    link.targetObjectId,
-                    culled ? target->health : link.damage,
-                    objectCell(target),
-                    link.warheadId
-                });
-            }
-        }
-        ++entry;
-    }
-    return actions;
+    return parasite_.tickParasites(ParasiteObjectQuery(objects, &RuntimeSpecialMechanismState::findObject), tick, emit);
 }
 
 bool RuntimeSpecialMechanismState::isParasiteSourceLimboed(
     int objectId
 ) const {
-    for (const auto& [unusedProjectileId, pending]
-         : parasitePendingByProjectile_) {
-        (void)unusedProjectileId;
-        if (pending.sourceObjectId == objectId) {
-            return true;
-        }
-    }
-    for (const auto& [unusedTargetId, link] : parasiteByTarget_) {
-        (void)unusedTargetId;
-        if (link.sourceObjectId == objectId) {
-            return true;
-        }
-    }
-    return false;
+    return parasite_.isParasiteSourceLimboed(objectId);
 }
 
 int RuntimeSpecialMechanismState::parasiteTargetForSource(
     int objectId
 ) const {
-    for (const auto& [unusedProjectileId, pending]
-         : parasitePendingByProjectile_) {
-        (void)unusedProjectileId;
-        if (pending.sourceObjectId == objectId) {
-            return pending.targetObjectId;
-        }
-    }
-    for (const auto& [targetId, link] : parasiteByTarget_) {
-        if (link.sourceObjectId == objectId) {
-            return targetId;
-        }
-    }
-    return -1;
+    return parasite_.parasiteTargetForSource(objectId);
 }
 
 bool RuntimeSpecialMechanismState::isParasiteHostParalyzed(
     int objectId
 ) const {
-    const auto found = parasiteByTarget_.find(objectId);
-    return found != parasiteByTarget_.end() && found->second.paralyzes != 0;
+    return parasite_.isParasiteHostParalyzed(objectId);
 }
 
 void RuntimeSpecialMechanismState::ensureCarrierParents(
@@ -2971,116 +1965,16 @@ void RuntimeSpecialMechanismState::onObjectRemoved(
     releaseMindControlByController(objects, objectId, tick, emit, reason);
     mindControlOverloadByController_.erase(objectId);
     releaseMindControlByTarget(objects, objectId, tick, emit, reason);
-    clearTemporalTarget(objectId, tick, emit, reason);
-    std::vector<int> affectedTemporalTargets;
-    for (const auto& [targetId, temporal] : temporalByTarget_) {
-        if (temporal.progressByAttacker.contains(objectId)) affectedTemporalTargets.push_back(targetId);
-    }
-    for (int targetId : affectedTemporalTargets) {
-        clearTemporalAttacker(objectId, targetId, tick, emit, reason);
-    }
+    temporal_.onObjectRemoved(objectId, tick, emit, reason);
     camouflageByObject_.erase(objectId);
-    chronoByObject_.erase(objectId);
+    chrono_.erase(objectId);
     electricDisableByObject_.erase(objectId);
     clearElectricChargeByObject(objectId, tick, emit, reason);
 
     timedBombs_.onObjectRemoved(timedBombObjectQuery(objects), objectId, tick, emit, reason, actions);
 
-    for (auto pending = parasitePendingByProjectile_.begin();
-         pending != parasitePendingByProjectile_.end();) {
-        const ParasitePendingLaunchState state = pending->second;
-        if (state.sourceObjectId != objectId
-            && state.targetObjectId != objectId) {
-            ++pending;
-            continue;
-        }
-        const bool sourceRemoved = state.sourceObjectId == objectId;
-        if (actions != nullptr) {
-            SpecialMechanismAction action;
-            action.kind = sourceRemoved
-                ? SpecialMechanismActionKind::ParasiteKillParasite
-                : SpecialMechanismActionKind::ParasiteReturnFromLimbo;
-            action.tick = tick;
-            action.projectileId = state.projectileId;
-            action.objectId = state.sourceObjectId;
-            action.targetObjectId = state.targetObjectId;
-            action.owner = state.owner;
-            action.paralyzes = state.paralyzes;
-            action.cell = state.targetCell;
-            action.suppressDeathWeapon = sourceRemoved;
-            action.reason = sourceRemoved
-                ? "pending parasite source removed"
-                : "pending parasite target removed";
-            actions->push_back(std::move(action));
-        }
-        parasiteResolvedByProjectile_[state.projectileId] = {
-            state.projectileId,
-            state.sourceObjectId,
-            state.targetObjectId,
-            tick
-        };
-        if (emit != nullptr) {
-            emit({
-                sourceRemoved ? "ParasiteKilled" : "ParasiteReturned",
-                tick,
-                state.sourceObjectId,
-                state.targetObjectId,
-                state.projectileId,
-                state.targetCell,
-                reason
-            });
-        }
-        pending = parasitePendingByProjectile_.erase(pending);
-    }
-
-    for (auto parasite = parasiteByTarget_.begin();
-         parasite != parasiteByTarget_.end();) {
-        const ParasiteLinkState state = parasite->second;
-        if (state.sourceObjectId != objectId
-            && state.targetObjectId != objectId) {
-            ++parasite;
-            continue;
-        }
-        const bool sourceRemoved = state.sourceObjectId == objectId;
-        if (actions != nullptr) {
-            SpecialMechanismAction action;
-            action.kind = sourceRemoved
-                ? SpecialMechanismActionKind::ParasiteReleaseTarget
-                : SpecialMechanismActionKind::ParasiteKillParasite;
-            action.tick = tick;
-            action.projectileId = state.projectileId;
-            action.objectId = state.sourceObjectId;
-            action.targetObjectId = state.targetObjectId;
-            action.owner = state.owner;
-            action.paralyzes = state.paralyzes;
-            action.cell = objectCell(findObject(objects, state.targetObjectId));
-            action.suppressDeathWeapon = !sourceRemoved;
-            action.sourceWasAttachedToHost = !sourceRemoved;
-            action.reason = sourceRemoved
-                ? "parasite source removed"
-                : "parasite host removed externally";
-            actions->push_back(std::move(action));
-        }
-        if (emit != nullptr) {
-            emit({
-                sourceRemoved ? "ParasiteLinkCleared" : "ParasiteKilled",
-                tick,
-                state.sourceObjectId,
-                state.targetObjectId,
-                0,
-                objectCell(findObject(objects, state.targetObjectId)),
-                reason
-            });
-        }
-        parasiteResolvedByProjectile_[state.projectileId] = {
-            state.projectileId,
-            state.sourceObjectId,
-            state.targetObjectId,
-            tick,
-            !sourceRemoved
-        };
-        parasite = parasiteByTarget_.erase(parasite);
-    }
+    parasite_.onObjectRemoved(ParasiteObjectQuery(objects, &RuntimeSpecialMechanismState::findObject),
+        objectId, tick, emit, reason, actions);
 
     if (carrierParents_.find(objectId) != carrierParents_.end()) {
         CarrierParentState parent = carrierParents_.at(objectId);
@@ -3225,14 +2119,14 @@ void RuntimeSpecialMechanismState::reconcile(
         const auto* controller = findObject(objects, entry.first);
         return !specialCombatSourceAvailable(objects, controller);
     });
-    for (auto it = temporalByTarget_.begin(); it != temporalByTarget_.end();) {
-        if (findObject(objects, it->first) == nullptr
-            || !findObject(objects, it->first)->alive) {
-            it = temporalByTarget_.erase(it);
-        } else {
-            ++it;
+    struct TemporalQueries final : RuntimeTemporalStateObjectQueries {
+        std::vector<WorldObjectInstance>& objects_;
+        explicit TemporalQueries(std::vector<WorldObjectInstance>& objects) : objects_(objects) {}
+        WorldObjectInstance* findObject(int id) const override {
+            return RuntimeSpecialMechanismState::findObject(objects_, id);
         }
-    }
+    };
+    temporal_.reconcile(TemporalQueries(objects));
     for (auto it = camouflageByObject_.begin(); it != camouflageByObject_.end();) {
         const WorldObjectInstance* object = findObject(objects, it->first);
         if (object == nullptr || !object->alive) {
@@ -3243,9 +2137,9 @@ void RuntimeSpecialMechanismState::reconcile(
     }
     timedBombs_.reconcile(timedBombObjectQuery(objects), tick, emit, actions);
     std::vector<int> assumedActiveProjectiles;
-    assumedActiveProjectiles.reserve(parasitePendingByProjectile_.size());
+    assumedActiveProjectiles.reserve(parasite_.pendingParasiteLaunches().size());
     for (const auto& [projectileId, unusedPending]
-         : parasitePendingByProjectile_) {
+         : parasite_.pendingParasiteLaunches()) {
         (void)unusedPending;
         assumedActiveProjectiles.push_back(projectileId);
     }
@@ -3301,9 +2195,9 @@ void RuntimeSpecialMechanismState::save(std::ostream& output) const {
     }
 
     output << "\n[SpecialChrono]\n";
-    output << "Count=" << chronoByObject_.size() << "\n";
+    output << "Count=" << chrono_.records().size() << "\n";
     index = 0;
-    for (const auto& [objectId, state] : chronoByObject_) {
+    for (const auto& [objectId, state] : chrono_.records()) {
         output << index++ << "="
                << objectId << "|"
                << chronoPhaseName(state.phase) << "|"
@@ -3316,9 +2210,9 @@ void RuntimeSpecialMechanismState::save(std::ostream& output) const {
 
     output << "\n[SpecialTemporal]\n";
     output << "ProgressScale=10\n";
-    output << "Count=" << temporalByTarget_.size() << "\n";
+    output << "Count=" << temporal_.records().size() << "\n";
     index = 0;
-    for (const auto& [targetId, state] : temporalByTarget_) {
+    for (const auto& [targetId, state] : temporal_.records()) {
         output << index++ << "="
                << targetId << "|" << state.requiredProgress << "|"
                << boolText(state.frozen) << "|";
@@ -3397,10 +2291,10 @@ void RuntimeSpecialMechanismState::save(std::ostream& output) const {
     }
 
     output << "\n[SpecialParasitePending]\n";
-    output << "Count=" << parasitePendingByProjectile_.size() << "\n";
+    output << "Count=" << parasite_.pendingParasiteLaunches().size() << "\n";
     index = 0;
     for (const auto& [projectileId, pending]
-         : parasitePendingByProjectile_) {
+         : parasite_.pendingParasiteLaunches()) {
         output << index++ << "="
                << projectileId << "|" << pending.sourceObjectId << "|"
                << pending.targetObjectId << "|" << saveField(pending.owner)
@@ -3421,9 +2315,9 @@ void RuntimeSpecialMechanismState::save(std::ostream& output) const {
     }
 
     output << "\n[SpecialParasites]\n";
-    output << "Count=" << parasiteByTarget_.size() << "\n";
+    output << "Count=" << parasite_.parasiteLinks().size() << "\n";
     index = 0;
-    for (const auto& [targetId, link] : parasiteByTarget_) {
+    for (const auto& [targetId, link] : parasite_.parasiteLinks()) {
         output << index++ << "="
                << targetId << "|" << link.sourceObjectId << "|"
                << saveField(link.owner) << "|"
@@ -3443,10 +2337,10 @@ void RuntimeSpecialMechanismState::save(std::ostream& output) const {
     }
 
     output << "\n[SpecialParasiteResolved]\n";
-    output << "Count=" << parasiteResolvedByProjectile_.size() << "\n";
+    output << "Count=" << parasite_.resolvedParasiteLaunches().size() << "\n";
     index = 0;
     for (const auto& [projectileId, resolved]
-         : parasiteResolvedByProjectile_) {
+         : parasite_.resolvedParasiteLaunches()) {
         output << index++ << "=" << projectileId << "|"
                << resolved.sourceObjectId << "|" << resolved.targetObjectId
                << "|" << resolved.resolvedTick << "|"
@@ -3517,16 +2411,14 @@ bool RuntimeSpecialMechanismState::load(
     mindControlByTarget_.clear();
     mindControlOverloadByController_.clear();
     camouflageByObject_.clear();
-    chronoByObject_.clear();
-    temporalByTarget_.clear();
+    chrono_.reset();
+    temporal_.reset();
     electricDisableByObject_.clear();
     electricChargeByTarget_.clear();
     electricArcs_.clear();
     radiationAreas_.clear();
     timedBombs_.reset();
-    parasitePendingByProjectile_.clear();
-    parasiteByTarget_.clear();
-    parasiteResolvedByProjectile_.clear();
+    parasite_.reset();
     carrierParents_.clear();
     carrierChildren_.clear();
     spawnedMissiles_.clear();
@@ -3636,7 +2528,7 @@ bool RuntimeSpecialMechanismState::load(
         state.startTick = parseInt(values[8]);
         state.completeTick = parseInt(values[9]);
         state.cooldownUntilTick = parseInt(values[10]);
-        chronoByObject_[state.objectId] = state;
+        chrono_.byObject_[state.objectId] = state;
     }
     for (int index = 0; index < countFor("SpecialTemporal"); ++index) {
         const auto values = split(
@@ -3670,7 +2562,7 @@ bool RuntimeSpecialMechanismState::load(
             state.requiredProgress = rescale(state.requiredProgress);
             for (auto& [id, progress] : state.progressByAttacker) progress = rescale(progress);
         }
-        temporalByTarget_[state.targetObjectId] = state;
+        temporal_.byTarget_[state.targetObjectId] = state;
     }
     for (int index = 0; index < countFor("SpecialElectricDisable"); ++index) {
         const auto values = split(
@@ -3850,14 +2742,14 @@ bool RuntimeSpecialMechanismState::load(
     };
     const auto sourceOrTargetReserved = [this](int sourceId, int targetId) {
         for (const auto& [unusedProjectileId, pending]
-             : parasitePendingByProjectile_) {
+             : parasite_.pendingParasiteLaunches()) {
             (void)unusedProjectileId;
             if (pending.sourceObjectId == sourceId
                 || pending.targetObjectId == targetId) {
                 return true;
             }
         }
-        for (const auto& [existingTargetId, link] : parasiteByTarget_) {
+        for (const auto& [existingTargetId, link] : parasite_.parasiteLinks()) {
             if (link.sourceObjectId == sourceId
                 || existingTargetId == targetId) {
                 return true;
@@ -3935,8 +2827,8 @@ bool RuntimeSpecialMechanismState::load(
             || !validParasiteText(pending.warheadId)
             || (pending.targetKind == ParasiteTargetKind::Vehicle
                 && !pending.targetParasiteable)
-            || parasitePendingByProjectile_.find(pending.projectileId)
-                != parasitePendingByProjectile_.end()
+            || parasite_.pendingParasiteLaunches().find(pending.projectileId)
+                != parasite_.pendingParasiteLaunches().end()
             || sourceOrTargetReserved(
                 pending.sourceObjectId,
                 pending.targetObjectId
@@ -3944,7 +2836,7 @@ bool RuntimeSpecialMechanismState::load(
             errorMessage = "invalid or conflicting pending parasite state";
             return false;
         }
-        parasitePendingByProjectile_[pending.projectileId] =
+        parasite_.pendingByProjectile_[pending.projectileId] =
             std::move(pending);
     }
 
@@ -4032,15 +2924,15 @@ bool RuntimeSpecialMechanismState::load(
                 link.sourceObjectId,
                 link.targetObjectId
             )
-            || parasiteByTarget_.find(link.targetObjectId)
-                != parasiteByTarget_.end()) {
+            || parasite_.parasiteLinks().find(link.targetObjectId)
+                != parasite_.parasiteLinks().end()) {
             if (saveVersion >= 2) {
                 errorMessage = "invalid or conflicting parasite link";
                 return false;
             }
             continue;
         }
-        parasiteByTarget_[link.targetObjectId] = std::move(link);
+        parasite_.byTarget_[link.targetObjectId] = std::move(link);
     }
 
     int resolvedParasiteCount = 0;
@@ -4052,7 +2944,7 @@ bool RuntimeSpecialMechanismState::load(
         errorMessage = "invalid SpecialParasiteResolved count";
         return false;
     }
-    if (parasitePendingByProjectile_.size()
+    if (parasite_.pendingParasiteLaunches().size()
             + static_cast<std::size_t>(resolvedParasiteCount)
         > kMaximumParasiteRecords) {
         errorMessage = "combined parasite launch/resolution cap exceeded";
@@ -4079,22 +2971,22 @@ bool RuntimeSpecialMechanismState::load(
             || resolved.targetObjectId < 0
             || resolved.sourceObjectId == resolved.targetObjectId
             || resolved.resolvedTick < 0
-            || parasitePendingByProjectile_.find(resolved.projectileId)
-                != parasitePendingByProjectile_.end()
-            || parasiteResolvedByProjectile_.find(resolved.projectileId)
-                != parasiteResolvedByProjectile_.end()) {
+            || parasite_.pendingParasiteLaunches().find(resolved.projectileId)
+                != parasite_.pendingParasiteLaunches().end()
+            || parasite_.resolvedParasiteLaunches().find(resolved.projectileId)
+                != parasite_.resolvedParasiteLaunches().end()) {
             errorMessage = "invalid SpecialParasiteResolved entry";
             return false;
         }
         resolved.hostTerminated = hostTerminated;
-        const auto link = parasiteByTarget_.find(resolved.targetObjectId);
-        if (link != parasiteByTarget_.end()
+        const auto link = parasite_.parasiteLinks().find(resolved.targetObjectId);
+        if (link != parasite_.parasiteLinks().end()
             && (link->second.projectileId != resolved.projectileId
                 || link->second.sourceObjectId != resolved.sourceObjectId)) {
             errorMessage = "resolved parasite identity conflicts with link";
             return false;
         }
-        parasiteResolvedByProjectile_[resolved.projectileId] = resolved;
+        parasite_.resolvedByProjectile_[resolved.projectileId] = resolved;
     }
     const auto readCarrierCount = [
         &ini
@@ -4358,7 +3250,7 @@ std::uint64_t RuntimeSpecialMechanismState::stateHash() const {
         mixValue(hash, state.rearmUntilTick);
         mixValue(hash, state.fakeBlinkUntilTick);
     }
-    for (const auto& [objectId, state] : chronoByObject_) {
+    for (const auto& [objectId, state] : chrono_.records()) {
         mixValue(hash, objectId);
         mixString(hash, chronoPhaseName(state.phase));
         mixValue(hash, state.source.x);
@@ -4371,7 +3263,7 @@ std::uint64_t RuntimeSpecialMechanismState::stateHash() const {
         mixValue(hash, state.completeTick);
         mixValue(hash, state.cooldownUntilTick);
     }
-    for (const auto& [targetId, state] : temporalByTarget_) {
+    for (const auto& [targetId, state] : temporal_.records()) {
         mixValue(hash, targetId);
         mixValue(hash, state.requiredProgress);
         mixValue(hash, state.frozen);
@@ -4422,7 +3314,7 @@ std::uint64_t RuntimeSpecialMechanismState::stateHash() const {
         mixValue(hash, bomb.forceDestruction);
     }
     for (const auto& [projectileId, pending]
-         : parasitePendingByProjectile_) {
+         : parasite_.pendingParasiteLaunches()) {
         mixValue(hash, projectileId);
         mixValue(hash, pending.sourceObjectId);
         mixValue(hash, pending.targetObjectId);
@@ -4445,7 +3337,7 @@ std::uint64_t RuntimeSpecialMechanismState::stateHash() const {
         mixValue(hash, pending.sourceElite);
         mixValue(hash, pending.culling);
     }
-    for (const auto& [targetId, link] : parasiteByTarget_) {
+    for (const auto& [targetId, link] : parasite_.parasiteLinks()) {
         mixValue(hash, targetId);
         mixValue(hash, link.projectileId);
         mixValue(hash, link.sourceObjectId);
@@ -4467,7 +3359,7 @@ std::uint64_t RuntimeSpecialMechanismState::stateHash() const {
         mixValue(hash, link.sourceExpectedInLimbo);
     }
     for (const auto& [projectileId, resolved]
-         : parasiteResolvedByProjectile_) {
+         : parasite_.resolvedParasiteLaunches()) {
         mixValue(hash, projectileId);
         mixValue(hash, resolved.sourceObjectId);
         mixValue(hash, resolved.targetObjectId);
@@ -4547,7 +3439,7 @@ RuntimeSpecialMechanismState::renderSnapshots(int tick, int fixedTickHz) const {
         snapshot.expireTick = state.fakeBlinkUntilTick;
         snapshots.push_back(std::move(snapshot));
     }
-    for (const auto& [objectId, state] : chronoByObject_) {
+    for (const auto& [objectId, state] : chrono_.records()) {
         SpecialMechanismRenderSnapshot snapshot;
         snapshot.kind = "chrono";
         snapshot.objectId = objectId;
@@ -4563,7 +3455,7 @@ RuntimeSpecialMechanismState::renderSnapshots(int tick, int fixedTickHz) const {
         snapshot.expireTick = state.cooldownUntilTick;
         snapshots.push_back(std::move(snapshot));
     }
-    for (const auto& [targetId, state] : temporalByTarget_) {
+    for (const auto& [targetId, state] : temporal_.records()) {
         int progress = 0;
         for (const auto& [unusedAttacker, value] : state.progressByAttacker) {
             (void)unusedAttacker;
@@ -4649,7 +3541,7 @@ RuntimeSpecialMechanismState::renderSnapshots(int tick, int fixedTickHz) const {
         snapshot.resourceId = bomb.warheadId;
         snapshots.push_back(std::move(snapshot));
     }
-    for (const auto& [targetId, link] : parasiteByTarget_) {
+    for (const auto& [targetId, link] : parasite_.parasiteLinks()) {
         SpecialMechanismRenderSnapshot snapshot;
         snapshot.kind = "parasite";
         snapshot.objectId = link.sourceObjectId;
@@ -4714,11 +3606,11 @@ RuntimeSpecialMechanismState::timedBombs() const {
 
 const std::map<int, ParasitePendingLaunchState>&
 RuntimeSpecialMechanismState::pendingParasiteLaunches() const {
-    return parasitePendingByProjectile_;
+    return parasite_.pendingParasiteLaunches();
 }
 
 const std::map<int, ParasiteLinkState>&
 RuntimeSpecialMechanismState::parasiteLinks() const {
-    return parasiteByTarget_;
+    return parasite_.parasiteLinks();
 }
 

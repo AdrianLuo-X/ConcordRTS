@@ -18,7 +18,10 @@ endif()
 add_executable(concord_rules_dump
     src/assets/codecs/PalDecoder.cpp
     src/analysis/cli/main.cpp
+    src/analysis/sandbox/PathfindingSandbox.cpp
     src/data/art/ArtDatabase.cpp
+    src/assets/codecs/RuntimeTmpCodec.cpp
+    src/assets/codecs/VoxelMetadataCodec.cpp
     src/assets/inspection/AssetInspector.cpp
     src/assets/audio/AudioCatalog.cpp
     src/assets/audio/AudioDecoder.cpp
@@ -35,12 +38,18 @@ add_executable(concord_rules_dump
     src/world/model/GameWorld.cpp
     src/analysis/reports/JsonExporter.cpp
     src/data/maps/MapDatabase.cpp
+    src/assets/codecs/RuntimeLzo1xCodec.cpp
+    src/data/maps/MapLzoPayload.cpp
+    src/assets/codecs/RuntimeLcwCodec.cpp
+    src/assets/codecs/RuntimeMapBase64Codec.cpp
     src/assets/preview/MapPreviewExporter.cpp
     src/assets/preview/MapPreviewResourceContext.cpp
     src/assets/archive/MixArchive.cpp
     src/analysis/reports/ModCompatibilityScanner.cpp
     src/analysis/reports/ObjectReferenceValidator.cpp
     src/simulation/navigation/pathfinding/PathRequestQueue.cpp
+    src/simulation/navigation/pathfinding/PathRequestSearch.cpp
+    src/simulation/navigation/pathfinding/PathRequestFailureCache.cpp
     src/analysis/reports/PerformancePlan.cpp
     src/analysis/sandbox/ReplaySandbox.cpp
     src/data/rules/RulesDatabase.cpp
@@ -127,7 +136,26 @@ add_executable(concord_runtime
     src/assets/audio/AudioSampleResolver.cpp
     src/assets/inspection/GameResourceMount.cpp
     src/render/core/RuntimeMapRenderer.cpp
+    src/render/buildings/RuntimeBuildingDepthRaster.cpp
+    src/render/buildings/RuntimeBuildingDepthMaterials.cpp
+    src/render/buildings/RuntimeRepairDepotRenderAnimation.cpp
+    src/render/buildings/RuntimeRepairDepotForegroundOrder.cpp
+    src/render/buildings/RuntimeFactoryAirExitForeground.cpp
+    src/render/effects/RuntimeBehindMarkerOcclusion.cpp
+    src/render/terrain/RuntimeTerrainLayerBlit.cpp
+    src/render/terrain/RuntimeTerrainLayerRaster.cpp
+    src/render/terrain/RuntimeTerrainVisualSelection.cpp
+    src/render/terrain/RuntimeTerrainVisualResources.cpp
+    src/render/terrain/RuntimeBridgeViewportBounds.cpp
+    src/render/terrain/RuntimeVehicleTerrainSlope.cpp
+    src/render/terrain/RuntimeTerrainWallDepth.cpp
+    src/render/geometry/RuntimeInfantryMuzzleAnchors.cpp
+    src/render/geometry/RuntimeMarineMuzzleAnchors.cpp
+    src/render/geometry/RuntimeStructureMuzzleGeometry.cpp
+    src/render/geometry/RuntimeAirImpactBodyCenterValues.cpp
+    src/render/voxel/RuntimeVoxelMuzzleModel.cpp
     src/assets/codecs/RuntimeTmpCodec.cpp
+    src/assets/codecs/VoxelMetadataCodec.cpp
     src/assets/terrain/RuntimeTerrainTmpQuery.cpp
     src/render/lighting/RuntimeLightingSystem.cpp
     src/simulation/buildings/RuntimeGarrisonSystem.cpp
@@ -147,11 +175,29 @@ add_executable(concord_runtime
     src/simulation/abilities/psionic/RuntimeMagBeamSystem.cpp
     src/simulation/abilities/psionic/RuntimePsychicStatusSystem.cpp
     src/simulation/abilities/psionic/RuntimeSpySystem.cpp
+    src/simulation/abilities/chrono/RuntimeChronoState.cpp
+    src/simulation/abilities/chrono/RuntimeTemporalState.cpp
+    src/simulation/abilities/chrono/RuntimeTemporalAttackPolicy.cpp
+    src/simulation/abilities/chrono/RuntimeTemporalFeedbackPolicy.cpp
+    src/simulation/abilities/parasites/RuntimeParasiteState.cpp
+    src/simulation/abilities/parasites/RuntimeParasiteActionPolicy.cpp
+    src/simulation/abilities/parasites/RuntimeParasiteHostDeathPolicy.cpp
+    src/simulation/abilities/parasites/RuntimeParasiteStunState.cpp
+    src/simulation/abilities/parasites/RuntimeParasiteAdmissionPolicy.cpp
+    src/simulation/abilities/parasites/RuntimeParasiteLaunchPolicy.cpp
+    src/simulation/abilities/parasites/RuntimeParasiteSavedAuthorityPolicy.cpp
+    src/simulation/abilities/parasites/RuntimeSquidGrappleWaterPolicy.cpp
+    src/simulation/abilities/parasites/RuntimeSquidSplashCodec.cpp
+    src/simulation/abilities/chrono/RuntimeChronoCellOccupancy.cpp
+    src/simulation/abilities/chrono/RuntimeChronoTerrainView.cpp
+    src/simulation/abilities/chrono/RuntimeChronoWarp.cpp
     src/simulation/abilities/unit_special/RuntimeSpecialMechanisms.cpp
     src/simulation/buildings/RuntimeInfantryServiceSystem.cpp
     
     src/assets/archive/MixArchive.cpp
     src/simulation/navigation/pathfinding/PathRequestQueue.cpp
+    src/simulation/navigation/pathfinding/PathRequestSearch.cpp
+    src/simulation/navigation/pathfinding/PathRequestFailureCache.cpp
     src/data/rules/TechTreeAnalyzer.cpp
     src/assets/archive/WestwoodCrypto.cpp
 )

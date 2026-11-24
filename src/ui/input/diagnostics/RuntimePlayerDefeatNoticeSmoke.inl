@@ -571,7 +571,7 @@ bool runRuntimePlayerDefeatNoticeSmoke(RuntimeWindowState& stock, std::string& e
         return fail("same-outcome row order or mid-match admission");
     // A future injected observation keeps native asset warmup independent of
     // machine speed; duration and real-clock outcomes were checked above.
-    resetRuntimePlayerDefeatNotices(native);
+    native.playerDefeatNotices.reset();
     observeRuntimePlayerDefeatNotices(native, GetTickCount64() + 60000);
     const std::vector<std::wstring> shortNames{L"甲&蓝", L"红队"};
     const std::vector<COLORREF> shortColors{RGB(49, 137, 243), RGB(230, 63, 51)};
@@ -609,7 +609,7 @@ bool runRuntimePlayerDefeatNoticeSmoke(RuntimeWindowState& stock, std::string& e
         native.playerCommunication.lines.clear();
         // Restore a genuine observed presentation for the original paused
         // notice-only cache-expiry regression below.
-        resetRuntimePlayerDefeatNotices(native);
+        native.playerDefeatNotices.reset();
         observeRuntimePlayerDefeatNotices(native, GetTickCount64() + 60000);
         if (!verifyPixels(native, window, shortNames, shortColors, &baseline)) return false;
         const int frozenTick = native.tick;
@@ -634,7 +634,7 @@ bool runRuntimePlayerDefeatNoticeSmoke(RuntimeWindowState& stock, std::string& e
     // Re-observe real defeated authority in a fresh presentation for the second
     // viewport; the original simulation remains frozen and the text does not
     // inherit map zoom, camera displacement or a nonzero authored explosion.
-    resetRuntimePlayerDefeatNotices(native);
+    native.playerDefeatNotices.reset();
     observeRuntimePlayerDefeatNotices(native, GetTickCount64() + 60000);
     native.camera.tileWidth = 48;
     native.camera.tileHeight = 24;

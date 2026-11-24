@@ -1,4 +1,5 @@
 #include "simulation/combat/targeting/RuntimeOpenTransportMuzzle.h"
+#include "runtime/session/detail/RuntimeParasiteStunHostAdapter.h"
 #include "simulation/movement/ground/RuntimeCommittedGroundMotion.h"
 #include "runtime/persistence/RuntimeSaveDocument.h"
 #include "simulation/triggers/RuntimeTriggerPersistence.h"
@@ -20,6 +21,7 @@
 #include "ui/surface/win32/RuntimeMainBackBufferWin32.h"
 #include "runtime/host/RuntimeShell.h"
 #include "render/geometry/win32/RuntimeRenderPlacementWin32.h"
+#include "render/buildings/RuntimeBuildingRepairOverlay.h"
 #include "render/visibility/diagnostics/RuntimeGpuVisionOverlayContract.h"
 #include "render/terrain/diagnostics/RuntimeGpuTerrainContract.h"
 #include "network/maps/RuntimeMultiplayerCompatibilityFingerprint.h"
@@ -100,6 +102,8 @@
 #include "simulation/buildings/RuntimeGrindingSystem.h"
 #include "ui/main_menu/RuntimeMainMenu.h"
 #include "render/core/RuntimeMapRenderer.h"
+#include "render/effects/diagnostics/RuntimeBuildingDebrisPaletteContract.h"
+#include "render/units/diagnostics/RuntimePlayerCheerSequenceContract.h"
 #include "render/voxel/RuntimeGrandCannonPrewarm.h"
 #include "simulation/navigation/pathfinding/PathGoalCandidateTask.h"
 #include "render/buildings/RuntimeBuildingDepthEmptyScene.h"
@@ -172,6 +176,9 @@
 #include "simulation/combat/targeting/RuntimeCombatDetails.h"
 #include "render/units/RuntimeInfantryDeathAnimation.h"
 #include "ui/results/RuntimeMatchScore.h"
+#include "ui/results/RuntimeMatchScorePageLayout.h"
+#include "ui/results/RuntimeResultBitmapFontResource.h"
+#include "ui/results/RuntimeMatchScoreAssetLoader.h"
 #include "simulation/navigation/occupancy/RuntimeSubcellSystem.h"
 #include "audio/world/RuntimeWorldAudioSystem.h"
 #include "audio/events/RuntimeSuperWeaponBuildingAudio.h"
@@ -226,6 +233,7 @@
 #include <optional>
 #include <queue>
 #include <set>
+#include <span>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -239,6 +247,10 @@
 
 #include "runtime/session/detail/RuntimeSessionCommands.h"
 #include "runtime/session/win32/RuntimeNativeSessionGeometry.h"
+#include "runtime/session/detail/RuntimeChronoMoveHostAdapter.h"
+#include "runtime/session/detail/RuntimeHarvesterSelectionQuery.h"
+#include "runtime/host/RuntimeWindowSessionCompletionPolicy.h"
+#include "runtime/campaign/RuntimeCampaignLaunchConfig.h"
 
 namespace {
 using namespace concord::runtime::session_detail;
@@ -965,27 +977,10 @@ struct RuntimeMenuControl {
     bool checked = false;
 };
 
-enum class RuntimeWindowCompletion {
-    ExitProcess,
-    ReturnToMainMenu
-};
+using concord::runtime::session_completion::RuntimeWindowCompletion;
+using concord::runtime::session_completion::runtimeWindowCompletionAfterCampaignLoadFailure;
+using concord::runtime::session_completion::runtimeWindowCompletionAfterMatch;
 
-RuntimeWindowCompletion runtimeWindowCompletionAfterMatch(
-    bool confirmedExit,
-    bool mainMenuEnabled
-) {
-    return confirmedExit && mainMenuEnabled
-        ? RuntimeWindowCompletion::ReturnToMainMenu
-        : RuntimeWindowCompletion::ExitProcess;
-}
-
-RuntimeWindowCompletion runtimeWindowCompletionAfterCampaignLoadFailure(
-    bool mainMenuEnabled
-) {
-    return mainMenuEnabled
-        ? RuntimeWindowCompletion::ReturnToMainMenu
-        : RuntimeWindowCompletion::ExitProcess;
-}
 
 bool runtimeShouldCenterCameraAfterStartup(
     bool restoredSkirmishSave,
@@ -1128,7 +1123,7 @@ struct RuntimeMultiplayerPendingFileOperation {
 };
 
 
-bool dispatchRuntimeOfflineGameplayCommand(RuntimeWindowState& state,
+bool dispatchRuntimeOfflineGameplayCommand(RuntimeProductionHostState& state,
     const RuntimeMultiplayerGameplayCommand& command, std::string& error);
 void initializeRuntimeOfflineGameplayRouting(RuntimeWindowState& state);
 
@@ -7180,7 +7175,10 @@ constexpr std::size_t runtimeProjectileSaveFieldCount =
 
 
 
-#include "audio/backend/RuntimeWorldAudioBackend.inl"
+void advanceRuntimeSpatialAudioMixes(RuntimeWindowState& state) {
+    advanceRuntimeSfxSpatialMixes(state);
+    advanceRuntimeWorldAudioBackendSpatialMixes(state);
+}
 
 #include "audio/events/RuntimeSuperWeaponBuildingAudio.inl"
 #include "audio/events/RuntimeDiskDrainAudio.inl"
@@ -10458,29 +10456,10 @@ unsigned long long runtimePersistentTransientStateHash(
         hash,
         static_cast<long long>(state.spies.stateHash())
     );
-    std::vector<std::pair<int, int>> parasiteStuns;
-    parasiteStuns.reserve(
-        state.parasiteStunUntilTickByObject.size()
+    auto parasiteStuns = state.parasiteStunUntilTickByObject.persistentSnapshot(
+        RuntimeParasiteStunReadHostQueries(state), state.tick
     );
-    for (const auto& [objectId, untilTick] :
-            state.parasiteStunUntilTickByObject) {
-        const WorldObjectInstance* object = findObjectById(state, objectId);
-        if (object != nullptr && object->alive && object->health > 0
-            && object->mission == "ParasiteStunned"
-            && untilTick > state.tick) {
-            parasiteStuns.emplace_back(objectId, untilTick);
-        }
-    }
-    std::sort(parasiteStuns.begin(), parasiteStuns.end());
-    runtimeStableHashMixString(hash, "ParasiteStuns/1");
-    runtimeStableHashMix(
-        hash,
-        static_cast<long long>(parasiteStuns.size())
-    );
-    for (const auto& [objectId, untilTick] : parasiteStuns) {
-        runtimeStableHashMix(hash, objectId);
-        runtimeStableHashMix(hash, untilTick);
-    }
+    RuntimeParasiteStunState::mixPersistentHash(hash, parasiteStuns);
     return hash;
 }
 
@@ -12735,7 +12714,6 @@ runtimeProjectileRenderActorsForRender(const RuntimeWindowState& state) {
 
 
 
-#include "ui/selection/RuntimeChronosphereSelection.inl"
 #include "ui/selection/RuntimeChronosphereSelectionAudio.inl"
 #include "ui/selection/RuntimeChronosphereSelectionClockDefaults.inl"
 
@@ -13484,20 +13462,23 @@ bool deployFirstSelectedRuntimeMcv(RuntimeWindowState& state) {
 
 
 
-bool queueRuntimeCampaignPostScore(RuntimeWindowState& state) {
+bool queueRuntimeCampaignPostScore(
+    const RuntimeGameSessionState& session,
+    RuntimeHostLocalPresentationState& presentation,
+    std::string& interactionStatus) {
     const std::string moviePath = trimAsciiLocal(
-        state.config.campaignPostScoreVideoPath
+        session.config.campaignPostScoreVideoPath
     );
-    if (!state.campaignMode
-        || !state.skirmishMatchFinished
-        || !state.skirmishVictory
-        || state.exitAfterPendingCampaignVideos
+    if (!session.campaignMode
+        || !session.skirmishMatchFinished
+        || !session.skirmishVictory
+        || presentation.exitAfterPendingCampaignVideos
         || moviePath.empty()) {
         return false;
     }
-    state.pendingCampaignVideoPaths.push_back(moviePath);
-    state.exitAfterPendingCampaignVideos = true;
-    state.interactionStatus = "campaign post-score movie queued "
+    presentation.pendingCampaignVideoPaths.push_back(moviePath);
+    presentation.exitAfterPendingCampaignVideos = true;
+    interactionStatus = "campaign post-score movie queued "
         + std::filesystem::path(moviePath).filename().string();
     return true;
 }
@@ -22795,6 +22776,8 @@ std::optional<std::pair<int, int>> runtimeVeterancyPipFrames(
 
 #include "ui/sidebar/RuntimeHealthPipStrip.inl"
 
+#include "simulation/mod_extensions/RuntimeModShieldBar.inl"
+
 void drawRuntimeSelectedHealthBar(
     HDC dc,
     RuntimeWindowState& state,
@@ -22807,7 +22790,17 @@ void drawRuntimeSelectedHealthBar(
     }
 
     const WorldObjectInstance& object = *projectedObject.object;
-#include "simulation/mod_extensions/RuntimeModShieldBar.inl"
+    if (const auto shield = runtimeModShieldBarLayout(state.rules, object, projectedObject.selectionBounds)) {
+        const auto frame = runtimeRenderPlacementNativeRect(shield->frame);
+        const auto inner = runtimeRenderPlacementNativeRect(shield->fill);
+        const auto brush = static_cast<HBRUSH>(GetStockObject(DC_BRUSH));
+        const auto oldColor = SetDCBrushColor(dc, RGB(18, 30, 42));
+        FillRect(dc, &frame, brush);
+        SetDCBrushColor(dc, shield->online ? RGB(96, 208, 255) : RGB(112, 120, 128));
+        FrameRect(dc, &frame, brush);
+        FillRect(dc, &inner, brush);
+        SetDCBrushColor(dc, oldColor);
+    }
     const int maxHealth = std::max(1, runtimeMaxHealthForObject(state, object));
     const int currentHealth = std::clamp(object.health, 0, maxHealth);
     const double healthRatio = static_cast<double>(currentHealth)
@@ -23029,7 +23022,10 @@ void drawRuntimeSelectedHealthBar(
                 ? runtimeUiPaletteForEntry(state, fillImage, "palette") : nullptr;
             if (fillPalette != nullptr) {
                 originalFillDrawn = true;
-                if (drawRuntimeHealthPipStrip(dc, state, *fillImage, *fillPalette,
+                if (!runtimeHealthPipStripReference()
+                    && drawRuntimeHealthPipStripPixels(
+                        fillImage->image, *fillPalette, fillImage->pcxFallback,
+                        runtimePixelSurfaceTargetForDc(state, dc),
                         frame.left + 1, frame.top + 1, fillPixels)) {
                     // Keep the original logical pip count, including clipped pips.
                     state.lastHealthPipResourceDraws += (fillPixels + 1) / 2;
@@ -23466,8 +23462,9 @@ COLORREF runtimeSuperWeaponTimerColor(
         : found->second;
 }
 
-int runtimeSuperWeaponTimerTextWidth(const RuntimeWindowState&, const std::wstring&);
-void drawRuntimeSuperWeaponTimerText(HDC, RECT, const RuntimeWindowState&, const std::wstring&, COLORREF);
+const RuntimeResultBitFont& runtimeResultBitFont(const RuntimeWindowState&);
+int runtimeSuperWeaponTimerTextWidth(const RuntimeResultBitFont&, const std::wstring&);
+void drawRuntimeSuperWeaponTimerText(HDC, RECT, const RuntimeResultBitFont&, const std::wstring&, COLORREF);
 
 void drawRuntimeSuperWeaponTimerList(
     HDC dc,
@@ -23510,7 +23507,7 @@ void drawRuntimeSuperWeaponTimerList(
     int contentWidth = 120;
     for (const auto* timer : timers) {
         const std::wstring label = runtimeSuperWeaponDisplayName(state, *timer);
-        contentWidth = std::max(contentWidth, runtimeSuperWeaponTimerTextWidth(state, label) + 60);
+        contentWidth = std::max(contentWidth, runtimeSuperWeaponTimerTextWidth(runtimeResultBitFont(state), label) + 60);
     }
     const int width = std::min({320, availableWidth, contentWidth});
     const int bottom = static_cast<int>(viewport.bottom) - margin;
@@ -23580,8 +23577,8 @@ void drawRuntimeSuperWeaponTimerList(
             rowTop + rowHeight
         };
         const COLORREF color = runtimeSuperWeaponTimerColor(state, snapshot.owner);
-        drawRuntimeSuperWeaponTimerText(dc, labelRect, state, label, color);
-        drawRuntimeSuperWeaponTimerText(dc, timerRect, state, timer, color);
+        drawRuntimeSuperWeaponTimerText(dc, labelRect, runtimeResultBitFont(state), label, color);
+        drawRuntimeSuperWeaponTimerText(dc, timerRect, runtimeResultBitFont(state), timer, color);
     }
 
     RestoreDC(dc, savedDc);
@@ -28548,7 +28545,7 @@ bool cancelRuntimeActiveSuperWeaponTargetSelection(
 #include "ui/input/RuntimePlayerWaypointsUi.inl"
 #include "ui/diplomacy/RuntimeDiplomacyPage.inl"
 #include "ui/input/RuntimePlayerBeaconPresentation.inl"
-int runtimePlayerDefeatNoticeStackHeight(const RuntimeWindowState& state, const RECT& viewport, std::uint64_t nowMs);
+int runtimePlayerDefeatNoticeStackHeight(std::span<const RuntimePlayerDefeatNotice> notices, const RECT& viewport, std::uint64_t nowMs);
 #include "ui/input/RuntimePlayerHotkeysUi.inl"
 #include "ui/input/RuntimePlayerDefeatNoticeUi.inl"
 #include "ui/input/RuntimePlayerCommandsUi.inl"
@@ -32903,8 +32900,8 @@ int runRuntimeRenderSmokeTest(const RuntimeConfig& config) {
                         oreSeedState.rules.findTerrainType(object.type);
                     if (terrainType != nullptr
                         && terrainType->animationRate > 0) {
-                        animationProbeTick =
-                            oreGrowthProbeEventTick + terrainType->animationRate;
+                        animationProbeTick = oreGrowthProbeEventTick + std::max(1,
+                            runtimeRuleFramesToTicks(terrainType->animationRate, oreSeedState.config.fixedTickHz));
                     }
                     break;
                 }
@@ -43894,7 +43891,7 @@ AffectsEnemies=yes
         || !terrainProjectile->subjectToWalls
         || proneGun == nullptr || proneWarhead == nullptr
         || std::abs(proneWarhead->proneDamageMultiplier - 0.5) > 0.000001
-        || prismGun == nullptr || prismFeed == nullptr
+        || prismGun == nullptr || prismGun->rof != 45 || prismFeed == nullptr
         || prismFeed->damage != 999 || prismFeed->rof != 91
         || std::abs(prismFeed->range - 3.0) > 0.000001) {
         return fail("field rules were not available to the runtime probe");
@@ -44147,15 +44144,25 @@ AffectsEnemies=yes
 
         const std::filesystem::path savePath =
             "runtime_weapon_projectile_fields_smoke.ini";
+        const char* retain = std::getenv("CONCORD_WEAPON_PROJECTILE_FIELDS_SMOKE_RETAIN");
+        const bool keepSave = retain != nullptr && std::string_view(retain) == "1";
         struct SaveCleanup {
             std::filesystem::path path;
+            bool keep;
             ~SaveCleanup() {
+                if (keep) return;
                 std::error_code error;
                 std::filesystem::remove(path, error);
             }
-        } saveCleanup{savePath};
-        std::error_code removeError;
-        std::filesystem::remove(savePath, removeError);
+        } saveCleanup{savePath, keepSave};
+        if (keepSave) {
+            if (std::filesystem::exists(savePath)) {
+                return fail("retained cooldown save needs a new output directory");
+            }
+        } else {
+            std::error_code removeError;
+            std::filesystem::remove(savePath, removeError);
+        }
         std::string saveError;
         if (!saveRuntimeState(state, pathString(savePath), saveError)) {
             return fail("cooldown save failed: " + saveError);
@@ -44765,6 +44772,16 @@ AffectsEnemies=yes
             return fail("Prism master did not fire its ready attack");
         }
 
+        // The master uses ordinary weapon timing. The support delay is
+        // authored separately and must not change the master's cooldown.
+        const int masterFiringCooldown = runtimeWeaponCooldownTicks(
+            state, *master, *prismGun
+        );
+        if (master->weaponCooldownTicksRemaining != masterFiringCooldown
+            || activeAttack.weaponCooldownTicks != masterFiringCooldown) {
+            return fail("Prism master did not use its authored weapon cooldown");
+        }
+
         const RuntimeProjectileEffect* mainBeam = nullptr;
         std::vector<const RuntimeProjectileEffect*> supportBeams;
         std::vector<int> supportBeamAttackers;
@@ -44884,13 +44901,22 @@ AffectsEnemies=yes
         );
         if (!state.projectiles.empty()
             || state.actionSummary.impactsThisTick != impactsAfterMain
-            || cooldownFor(masterId) != 45
+            || cooldownFor(masterId) != masterFiringCooldown
             || cooldownFor(supportOneId) != 6
             || cooldownFor(supportTwoId) != 6
             || masterAfter == nullptr || masterAfter->health != 600
             || supportOneAfter == nullptr || supportOneAfter->health != 600
             || supportTwoAfter == nullptr || supportTwoAfter->health != 600) {
-            return fail("Prism visual links caused damage or fake impacts");
+            std::ostringstream details;
+            details << "Prism visual links caused damage or fake impacts"
+                    << " projectiles=" << state.projectiles.size()
+                    << " impacts=" << state.actionSummary.impactsThisTick
+                    << " afterMain=" << impactsAfterMain
+                    << " masterCooldown=" << cooldownFor(masterId)
+                    << " authoredCooldown=" << masterFiringCooldown
+                    << " supportCooldowns=" << cooldownFor(supportOneId)
+                    << "," << cooldownFor(supportTwoId);
+            return fail(details.str());
         }
 
         const auto resetMasterAttack = [&]() {
@@ -45806,6 +45832,12 @@ DieSound=WallDie
             return fail("resolver allowed a real move commit through a hard blocker");
         }
 
+        // Leave the hard-blocked cell as the only candidate so this
+        // assertion exercises the resolver instead of a legal retreat.
+        auto& retreat = blockedCommitState.terrainInfoByCell.at(runtimeCellKey(0, 2));
+        retreat.passable = false;
+        retreat.kind = RuntimeTerrainKind::Blocked;
+        retreat.cost = std::numeric_limits<int>::max() / 4;
         (void)tryRuntimeLocalAvoidanceMove(
             blockedCommitState,
             *blockedCrusher,
@@ -45816,7 +45848,14 @@ DieSound=WallDie
         if (runtimeCellPointForObject(*blockedCrusher) != RuntimeCellPoint{1, 2}
             || blockedBehaviorIt->second.path.empty()
             || blockedBehaviorIt->second.path.front() != RuntimeCellPoint{2, 2}) {
-            return fail("local avoidance committed or consumed a hard-blocked step");
+            const auto actual = runtimeCellPointForObject(*blockedCrusher);
+            const auto& remaining = blockedBehaviorIt->second.path;
+            const auto next = remaining.empty() ? RuntimeCellPoint{-1, -1} : remaining.front();
+            return fail("local avoidance committed or consumed a hard-blocked step"
+                " actor=" + std::to_string(actual.x) + "," + std::to_string(actual.y)
+                + " first=" + std::to_string(next.x) + "," + std::to_string(next.y)
+                + " length=" + std::to_string(remaining.size())
+                + " moving=" + std::to_string(blockedCrusher->renderMoveActive));
         }
     }
 
@@ -45986,7 +46025,21 @@ DieSound=WallDie
         if (!canEnterCrushCell(omniState, 40, {2, 2})) {
             return fail("OmniCrusher did not override Crushable=no");
         }
-        (void)resolveRuntimeCrushAtDestination(omniState, 40, {2, 2});
+        // Omni crushing takes effect when the committed movement reaches
+        // the body. Exercise that original simulation path.
+        queueAdjacentMove(omniState, 40, {2, 2});
+        bool sawApproachWithLivingTarget = false;
+        for (int step = 0; step < 600; ++step) {
+            ++omniState.tick;
+            advanceRuntimeSimulation(omniState);
+            const auto* victim = inactiveObject(omniState, 41);
+            if (victim == nullptr || !victim->alive) break;
+            const auto* crusher = findObjectById(omniState, 40);
+            sawApproachWithLivingTarget |= crusher != nullptr && crusher->renderMoveActive;
+        }
+        if (!sawApproachWithLivingTarget) {
+            return fail("Omni target did not survive the live approach to contact");
+        }
         const WorldObjectInstance* hardVictim = inactiveObject(omniState, 41);
         if (hardVictim == nullptr || hardVictim->alive) {
             return fail("OmniCrusher did not destroy a non-crushable target");
@@ -46915,13 +46968,19 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
             + std::to_string(static_cast<unsigned long>(GetCurrentProcessId()))
             + ".ini"
         );
+        const char* retain = std::getenv("CONCORD_NAVAL_CLOAK_SMOKE_RETAIN");
+        const bool retainMaterials = retain != nullptr && std::string_view(retain) == "1";
+        const auto legacySavePath = savePath.parent_path()
+            / (savePath.stem().wstring() + L"-legacy" + savePath.extension().wstring());
         struct ScopedSmokeFile {
             std::filesystem::path path;
+            bool retain;
             ~ScopedSmokeFile() {
+                if (retain) return;
                 std::error_code removeError;
                 std::filesystem::remove(path, removeError);
             }
-        } cleanup{savePath};
+        } cleanup{savePath, retainMaterials}, legacyCleanup{legacySavePath, retainMaterials};
 
         std::string saveError;
         if (!saveRuntimeState(state, pathString(savePath), saveError)) {
@@ -46959,13 +47018,16 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
                 recordBegin,
                 recordEnd - recordBegin
             ));
-        if (savedTokens.size() != 55U
+        // The v14 writer now includes the factory, capture, extension,
+        // facing and bio-reactor fields after the original naval fields.
+        if (savedTokens.size() != 64U
             || !parseRuntimeBool(savedTokens[35])
             || parseRuntimeIntOrDefault(savedTokens[36], -1) != 2
             || parseRuntimeIntOrDefault(savedTokens[37], -1) != 0
             || parseRuntimeIntOrDefault(savedTokens[48], -2) != -1
             || parseRuntimeIntOrDefault(savedTokens[49], -2) != -1) {
-            return fail("save did not append cloak and submerge fields 36-38");
+            return fail("save did not append cloak and submerge fields 36-38; record fields="
+                + std::to_string(savedTokens.size()));
         }
 
         state.world.accessObjects()[0].cloaked = false;
@@ -47012,7 +47074,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
             );
         }
         std::ofstream legacyOutput(
-            savePath,
+            legacySavePath,
             std::ios::binary | std::ios::trunc
         );
         legacyOutput.write(
@@ -47024,7 +47086,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
             return fail("could not write legacy cloak save probe");
         }
         state.economy.limitedBuildHistoryByOwner["alpha"]["legacyprobe"] = 7;
-        if (!loadRuntimeState(state, pathString(savePath), loadError)) {
+        if (!loadRuntimeState(state, pathString(legacySavePath), loadError)) {
             return fail("legacy cloak save failed to load: " + loadError);
         }
         restoredCloaker = findObjectById(state, 50);
@@ -47427,12 +47489,15 @@ bool runRuntimeOccupyIntentPersistenceSmokeProbe(
         return false;
     }
 
-    std::error_code cleanupError;
-    std::filesystem::remove(savePath, cleanupError);
-    cleanupError.clear();
-    std::filesystem::remove(legacyPath, cleanupError);
-    cleanupError.clear();
-    std::filesystem::remove(badPath, cleanupError);
+    if (const char* retain = std::getenv("CONCORD_OCCUPANCY_SMOKE_RETAIN");
+        retain == nullptr || std::string(retain) != "1") {
+        std::error_code cleanupError;
+        std::filesystem::remove(savePath, cleanupError);
+        cleanupError.clear();
+        std::filesystem::remove(legacyPath, cleanupError);
+        cleanupError.clear();
+        std::filesystem::remove(badPath, cleanupError);
+    }
     return true;
 }
 
@@ -49146,12 +49211,15 @@ LocalSize=0,0,16,16
         }
     }
 
-    std::error_code cleanupError;
-    std::filesystem::remove(savePath, cleanupError);
-    cleanupError.clear();
-    std::filesystem::remove(legacyPath, cleanupError);
-    cleanupError.clear();
-    std::filesystem::remove(badPath, cleanupError);
+    if (const char* retain = std::getenv("CONCORD_AIRCRAFT_SERVICE_SMOKE_RETAIN");
+        retain == nullptr || retain[0] == '\0' || retain[0] == '0') {
+        std::error_code cleanupError;
+        std::filesystem::remove(savePath, cleanupError);
+        cleanupError.clear();
+        std::filesystem::remove(legacyPath, cleanupError);
+        cleanupError.clear();
+        std::filesystem::remove(badPath, cleanupError);
+    }
     std::cout
         << "Aircraft service integration smoke passed: initialization, "
         << "volley debit, return/reload, paid repair, persistence, pips.\n";
@@ -51292,12 +51360,15 @@ int runRuntimeGateIntegrationSmokeTest() {
         return fail("bad gate save was not rejected atomically");
     }
 
-    std::error_code cleanupError;
-    std::filesystem::remove(savePath, cleanupError);
-    cleanupError.clear();
-    std::filesystem::remove(legacyPath, cleanupError);
-    cleanupError.clear();
-    std::filesystem::remove(badPath, cleanupError);
+    if (const char* retain = std::getenv("CONCORD_OCCUPANCY_SMOKE_RETAIN");
+        retain == nullptr || std::string(retain) != "1") {
+        std::error_code cleanupError;
+        std::filesystem::remove(savePath, cleanupError);
+        cleanupError.clear();
+        std::filesystem::remove(legacyPath, cleanupError);
+        cleanupError.clear();
+        std::filesystem::remove(badPath, cleanupError);
+    }
     std::cout << "Gate integration smoke passed: footprint, planning/commit, "
               << "vehicle/infantry/attack, occupancy, cache, save/hash.\n";
     return 0;
@@ -51631,10 +51702,13 @@ int runRuntimeSubcellIntegrationSmokeTest() {
         return fail("bad save was not rejected atomically");
     }
 
-    std::error_code cleanupError;
-    std::filesystem::remove(savePath, cleanupError);
-    cleanupError.clear();
-    std::filesystem::remove(badSavePath, cleanupError);
+    if (const char* retain = std::getenv("CONCORD_OCCUPANCY_SMOKE_RETAIN");
+        retain == nullptr || std::string(retain) != "1") {
+        std::error_code cleanupError;
+        std::filesystem::remove(savePath, cleanupError);
+        cleanupError.clear();
+        std::filesystem::remove(badSavePath, cleanupError);
+    }
     std::string occupyIntentError;
     if (!runRuntimeOccupyIntentPersistenceSmokeProbe(occupyIntentError)) {
         return fail("occupy intent persistence: " + occupyIntentError);
@@ -51987,6 +52061,8 @@ int runRuntimeSpyIntegrationSmokeTest() {
         std::filesystem::path path;
         std::filesystem::path legacyPath;
         ~ScopedSpySmokeFile() {
+            const char* retain = std::getenv("CONCORD_SPY_SMOKE_RETAIN");
+            if (retain != nullptr && std::string_view(retain) == "1") return;
             std::error_code removeError;
             std::filesystem::remove(path, removeError);
             removeError.clear();
@@ -55230,12 +55306,12 @@ bool runRuntimeParasiteHostSmokeProbe(std::string& errorMessage) {
     }
     const WorldObjectInstance* ejected = findObjectById(probe, 604);
     const WorldObjectInstance* releasedHost = findObjectById(probe, 605);
-    const auto stun = probe.parasiteStunUntilTickByObject.find(604);
+    const auto stun = probe.parasiteStunUntilTickByObject.entries().find(604);
     if (!probe.specialMechanisms.parasiteLinks().empty()
         || ejected == nullptr || !ejected->alive
         || ejected->mission != "ParasiteStunned"
         || releasedHost == nullptr || releasedHost->mission != "Guard"
-        || stun == probe.parasiteStunUntilTickByObject.end()
+        || stun == probe.parasiteStunUntilTickByObject.entries().end()
         || stun->second != probe.tick + 7) {
         errorMessage = "parasite eject did not release host and stun source"
             " links="
@@ -55254,7 +55330,7 @@ bool runRuntimeParasiteHostSmokeProbe(std::string& errorMessage) {
                 ? std::string("missing")
                 : releasedHost->mission)
             + " stun="
-            + (stun == probe.parasiteStunUntilTickByObject.end()
+            + (stun == probe.parasiteStunUntilTickByObject.entries().end()
                 ? std::string("missing")
                 : std::to_string(stun->second))
             + " tick=" + std::to_string(probe.tick)
@@ -55271,8 +55347,8 @@ bool runRuntimeParasiteHostSmokeProbe(std::string& errorMessage) {
         || probe.specialMechanisms.stateHash() != stunSpecialHash
         || runtimePersistentTransientStateHash(probe)
             != stunPersistentHash
-        || !probe.parasiteStunUntilTickByObject.contains(604)
-        || probe.parasiteStunUntilTickByObject.at(604)
+        || !probe.parasiteStunUntilTickByObject.entries().contains(604)
+        || probe.parasiteStunUntilTickByObject.entries().at(604)
             != expectedStunUntil
         || findObjectById(probe, 605) == nullptr
         || findObjectById(probe, 605)->mission != "Guard") {
@@ -55334,7 +55410,7 @@ bool runRuntimeParasiteHostSmokeProbe(std::string& errorMessage) {
         || probe.specialMechanisms.stateHash() != atomicSpecialHash
         || runtimePersistentTransientStateHash(probe)
             != atomicPersistentHash
-        || !probe.parasiteStunUntilTickByObject.contains(604)
+        || !probe.parasiteStunUntilTickByObject.entries().contains(604)
         || findObjectById(probe, 605) == nullptr
         || findObjectById(probe, 605)->mission != "Guard") {
         errorMessage =
@@ -56831,6 +56907,10 @@ bool runRuntimeAirstrikeHostSmokeProbe(std::string& errorMessage) {
         std::filesystem::path rootPath;
         std::filesystem::path badPath;
         ~AirstrikeSmokeCleanup() {
+            if (const char* retain = std::getenv("CONCORD_AIRSTRIKE_SMOKE_RETAIN");
+                retain != nullptr && retain[0] != '\0' && retain[0] != '0') {
+                return;
+            }
             std::error_code cleanupError;
             std::filesystem::remove(phasePath, cleanupError);
             cleanupError.clear();
@@ -61082,6 +61162,7 @@ int runRuntimeCommandSmokeTest(const RuntimeConfig& config) {
     }
     if (std::getenv("CONCORD_COMMAND_SMOKE_COMPUTER_TACTICS_ASSEMBLY_ONLY")
         || std::getenv("CONCORD_COMMAND_SMOKE_COMPUTER_TACTICS_COOPERATION_ONLY")
+        || std::getenv("CONCORD_COMMAND_SMOKE_COMPUTER_TEAM_SUPERWEAPONS_ONLY")
         || std::getenv("CONCORD_COMMAND_SMOKE_COMPUTER_TACTICS_LIFECYCLE_ONLY")
         || std::getenv("CONCORD_COMMAND_SMOKE_COMPUTER_TACTICS_NAVAL_ONLY")
         || std::getenv("CONCORD_COMMAND_SMOKE_COMPUTER_TACTICS_SUPER_LOSS_ONLY")
@@ -82825,7 +82906,9 @@ int runRuntimeMultiplayerAuthoritativeHashSmokeTest() {
         state.slaveMinerRegenTicks.emplace(202, 11);
         state.repairingStructureTicks.emplace(102, 6);
         state.gattlingWeaponTimers.emplace(202, 4);
-        state.parasiteStunUntilTickByObject.emplace(201, 27);
+        auto retainedStunFixture = state.parasiteStunUntilTickByObject.entries();
+        retainedStunFixture.emplace(201, 27);
+        state.parasiteStunUntilTickByObject.restoreValidated(std::move(retainedStunFixture));
 
         RuntimeProjectileEffect projectile;
         projectile.actorId = 7;
@@ -84297,13 +84380,13 @@ int runRuntimeCampaignRuntimeSmokeTest(const RuntimeConfig& config) {
             postScoreVictoryProbe.pendingCampaignVideoPaths.empty()
             && !postScoreVictoryProbe.exitAfterPendingCampaignVideos;
         const bool postScoreQueuedOnDismiss =
-            queueRuntimeCampaignPostScore(postScoreVictoryProbe)
+            queueRuntimeCampaignPostScore(postScoreVictoryProbe, postScoreVictoryProbe, postScoreVictoryProbe.interactionStatus)
             && postScoreVictoryProbe.pendingCampaignVideoPaths.size() == 1U
             && postScoreVictoryProbe.pendingCampaignVideoPaths.front()
                 == alliedFinal->postScoreVideoPath
             && postScoreVictoryProbe.exitAfterPendingCampaignVideos;
         const bool postScoreNotQueuedTwice =
-            !queueRuntimeCampaignPostScore(postScoreVictoryProbe)
+            !queueRuntimeCampaignPostScore(postScoreVictoryProbe, postScoreVictoryProbe, postScoreVictoryProbe.interactionStatus)
             && postScoreVictoryProbe.pendingCampaignVideoPaths.size() == 1U;
 
         RuntimeWindowState postScoreDefeatProbe;
@@ -84317,7 +84400,7 @@ int runRuntimeCampaignRuntimeSmokeTest(const RuntimeConfig& config) {
             "post-score-defeat-probe"
         );
         const bool postScoreSkippedOnDefeat =
-            !queueRuntimeCampaignPostScore(postScoreDefeatProbe)
+            !queueRuntimeCampaignPostScore(postScoreDefeatProbe, postScoreDefeatProbe, postScoreDefeatProbe.interactionStatus)
             && postScoreDefeatProbe.pendingCampaignVideoPaths.empty()
             && !postScoreDefeatProbe.exitAfterPendingCampaignVideos;
 
@@ -84330,7 +84413,7 @@ int runRuntimeCampaignRuntimeSmokeTest(const RuntimeConfig& config) {
             "post-score-missing-probe"
         );
         const bool postScoreSkippedWhenMissing =
-            !queueRuntimeCampaignPostScore(postScoreMissingProbe)
+            !queueRuntimeCampaignPostScore(postScoreMissingProbe, postScoreMissingProbe, postScoreMissingProbe.interactionStatus)
             && postScoreMissingProbe.pendingCampaignVideoPaths.empty()
             && !postScoreMissingProbe.exitAfterPendingCampaignVideos;
         if (!postScoreDeferredUntilDismiss
@@ -86307,7 +86390,7 @@ bool prepareRuntimeLoadingMapStartPlan(
                 runtimeSkirmishStartCandidateLegality(runtime, candidates));
         }
     }
-    refreshRuntimeLoadingMapStarts(loading, runtime);
+    refreshRuntimeLoadingMapStarts(loading, runtime, runtime.ownerRemapColors);
     return true;
 }
 
@@ -87773,51 +87856,6 @@ int runRuntimeWindowSession(
                 );
         }
     }
-    const auto applyCampaignSelection = [&activeConfig](
-        const RuntimeCampaignSelection& selection
-    ) {
-        activeConfig.skirmishLoadSavePath.clear();
-        activeConfig.defaultMapPath = selection.mapPath;
-        activeConfig.mapStartingPointLimit = 0;
-        activeConfig.gameMode = "CampaignMission";
-        activeConfig.noCooldown = false;
-        activeConfig.gameModeRulesOverride.clear();
-        activeConfig.campaignId = selection.campaignId;
-        activeConfig.campaignMissionId = selection.missionId;
-        activeConfig.campaignSourceId =
-            normalizeRuntimeCampaignSourceId(selection.sourceId);
-        activeConfig.campaignDifficulty = selection.difficulty;
-        activeConfig.campaignPlayerHouse = selection.playerHouse;
-        activeConfig.campaignNextMissionId = selection.nextMissionId;
-        activeConfig.campaignIntroVideoPath = selection.introVideoPath;
-        activeConfig.campaignPostScoreVideoPath =
-            selection.postScoreVideoPath;
-        activeConfig.campaignBriefingKey = selection.briefingKey;
-        activeConfig.campaignLoadSavePath = selection.loadedFromSave
-            ? selection.savePath
-            : "";
-        activeConfig.campaignSavePath = selection.savePath;
-        activeConfig.playerCountry = selection.playerCountry;
-        activeConfig.playerColor = "Gold";
-        activeConfig.loadingCountryDisplayName =
-            selection.playerCountryDisplayName;
-        activeConfig.loadingCountryBrief = selection.playerCountryBrief;
-        activeConfig.loadingScreenAssetId = selection.loadingScreenAssetId;
-        // Campaign maps own their initial buildings, units, ownership and
-        // trigger-created reinforcements. No skirmish MCV, random opponent,
-        // crate or short-game bootstrap is allowed to enter this mode.
-        activeConfig.startingCredits = std::max(0, selection.mission.startingCredits);
-        activeConfig.startingUnits = 0;
-        activeConfig.gameSpeed = 3;
-        activeConfig.shortGame = false;
-        activeConfig.mcvRepacks = false;
-        activeConfig.crates = false;
-        activeConfig.superweapons = true;
-        activeConfig.buildOffAlly = false;
-        activeConfig.computerAiEnabled = true;
-        activeConfig.playerSlots.clear();
-    };
-
     RuntimePersistentMenuHostWin32 nativeMenuHost;
     RuntimeMenuParentHost& menuHost = nativeMenuHost;
     if (activeConfig.showMainMenu || activeConfig.showSkirmishMenu) {
@@ -87883,7 +87921,7 @@ int runRuntimeWindowSession(
                 activeConfig.skirmishLoadSavePath = selection.savePath;
                 break;
             }
-            applyCampaignSelection(selection);
+            concord::runtime::campaign::applyRuntimeCampaignSelection(activeConfig, selection);
             if (!selection.loadedFromSave
                 && !selection.introVideoPath.empty()) {
                 std::string videoError;
@@ -88181,7 +88219,7 @@ int runRuntimeWindowSession(
             return 1;
         }
     }
-    refreshRuntimeLoadingMapStarts(loading, state);
+    refreshRuntimeLoadingMapStarts(loading, state, state.ownerRemapColors);
     updateRuntimeLoadingStage(loading, "skirmish start and triggers");
     prewarmRuntimeCoreAudio(state);
     snapRuntimeCreditAudio(state);

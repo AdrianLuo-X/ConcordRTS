@@ -16,6 +16,10 @@
 
 namespace {
 
+void appendRuleFieldWarning(std::vector<std::string>& warnings, const std::string& message) {
+    warnings.push_back(message);
+}
+
 constexpr double maximumProductionCoefficient = 100.0;
 [[maybe_unused]] constexpr double maximumProductionRatio = 1.0;
 
@@ -1382,6 +1386,460 @@ std::string readPrerequisiteOverride(
 
 } // namespace
 
+namespace {
+
+int readIntegerRuleField(
+    std::vector<std::string>& warnings,
+    const IniFile& ini,
+    const std::string& section,
+    const std::string& key,
+    int defaultValue
+);
+
+bool readBooleanRuleField(
+    std::vector<std::string>& warnings,
+    const IniFile& ini,
+    const std::string& section,
+    const std::string& key,
+    bool defaultValue
+);
+
+double readNumberRuleField(
+    std::vector<std::string>& warnings,
+    const IniFile& ini,
+    const std::string& section,
+    const std::string& key,
+    double defaultValue
+);
+
+SuperWeaponRule readSuperWeaponRuleFields(
+    const IniFile& ini,
+    const std::string& id,
+    std::vector<std::string>& warnings
+) {
+    SuperWeaponRule rule;
+    rule.id = id;
+    rule.uiName = trim(ini.getValue(id, "UIName", ""));
+    rule.name = trim(ini.getValue(id, "Name", id));
+    rule.type = trim(ini.getValue(id, "Type", ""));
+    rule.action = trim(ini.getValue(id, "Action", ""));
+    rule.sidebarImage = trim(ini.getValue(id, "SidebarImage", ""));
+    rule.preDependent = trim(ini.getValue(id, "PreDependent", ""));
+    rule.rechargeVoice = trim(ini.getValue(id, "RechargeVoice", ""));
+    rule.chargingVoice = trim(ini.getValue(id, "ChargingVoice", ""));
+    rule.impatientVoice = trim(ini.getValue(id, "ImpatientVoice", ""));
+    rule.suspendVoice = trim(ini.getValue(id, "SuspendVoice", ""));
+    rule.specialSound = trim(ini.getValue(id, "SpecialSound", ""));
+    rule.startSound = trim(ini.getValue(id, "StartSound", ""));
+    rule.rechargeTimeMinutes = std::max(
+        0.0,
+        readNumberRuleField(warnings, ini, id, "RechargeTime", 5.0)
+    );
+    rule.range = std::max(0.0, readNumberRuleField(warnings, ini, id, "Range", 0.0));
+    rule.lineMultiplier = std::max(
+        0,
+        readIntegerRuleField(warnings, ini, id, "LineMultiplier", 0)
+    );
+    rule.flashSidebarTabFrames = std::max(
+        -1,
+        readIntegerRuleField(warnings, ini, id, "FlashSidebarTabFrames", -1)
+    );
+    rule.isPowered = readBooleanRuleField(warnings, ini, id, "IsPowered", true);
+    rule.preClick = readBooleanRuleField(warnings, ini, id, "PreClick", false);
+    rule.postClick = readBooleanRuleField(warnings, ini, id, "PostClick", false);
+    rule.showTimer = readBooleanRuleField(warnings, ini, id, "ShowTimer", false);
+    rule.disableableFromShell = readBooleanRuleField(warnings,
+        ini,
+        id,
+        "DisableableFromShell",
+        false
+    );
+    rule.aiDefendAgainst = readBooleanRuleField(warnings,
+        ini,
+        id,
+        "AIDefendAgainst",
+        false
+    );
+    rule.targetMode = trim(ini.getValue(id, "TargetMode", ""));
+    rule.weaponType = trim(
+        firstNonEmptyRuleValue(ini, id, {"WeaponType", "Weapon"})
+    );
+    rule.projectile = trim(
+        firstNonEmptyRuleValue(ini, id, {"Projectile", "LaunchProjectile"})
+    );
+    rule.warhead = trim(ini.getValue(id, "Warhead", ""));
+    rule.payloadWeapon = trim(ini.getValue(id, "PayloadWeapon", ""));
+    rule.payloadProjectile = trim(
+        ini.getValue(id, "PayloadProjectile", "")
+    );
+    rule.payloadWarhead = trim(
+        ini.getValue(id, "PayloadWarhead", "")
+    );
+    rule.launchAnim = trim(ini.getValue(id, "LaunchAnim", ""));
+    rule.impactAnim = trim(ini.getValue(id, "ImpactAnim", ""));
+    rule.activeAnim = trim(ini.getValue(id, "ActiveAnim", ""));
+    rule.invokeAnim = trim(ini.getValue(id, "InvokeAnim", ""));
+    rule.firstAnim = trim(ini.getValue(id, "FirstAnim", ""));
+    rule.secondAnim = trim(ini.getValue(id, "SecondAnim", ""));
+    rule.boltAnim = trim(ini.getValue(id, "BoltAnim", ""));
+    rule.cloudAnim = trim(ini.getValue(id, "CloudAnim", ""));
+    rule.planeType = trim(
+        firstNonEmptyRuleValue(
+            ini,
+            "General",
+            {"ParaDropPlane", "ParadropPlane", "PDropPlane"}
+        )
+    );
+    rule.planeType = trim(ini.getValue(id, "PlaneType", rule.planeType));
+    rule.supportFlightLevelLeptons = std::max(1, readIntegerRuleField(warnings, ini, "General", "FlightLevel", 1500));
+    rule.paradropRadiusLeptons = std::max(0, readIntegerRuleField(warnings, ini, "General", "ParadropRadius", 1024));
+    rule.parachuteFallRate = std::max(1, std::abs(readIntegerRuleField(warnings, ini, "General", "ParachuteMaxFallRate", -3)));
+    rule.spyCameraFrames = std::max(1, readIntegerRuleField(warnings, ini, "AudioVisual", "SpyPlaneCameraFrames", 16));
+    rule.parachuteAnim = trim(
+        ini.getValue("General", "Parachute", ini.getValue("AudioVisual", "Parachute", "")));
+    // Stock GeneticConverter uses InfantryMutate/GENDEATH, whose
+    // MakeInfantry=0 result is the hard-coded BRUTE.  SmallVisceroid is
+    // unrelated (it is used by visceroid spawning logic).
+    rule.mutationType.clear();
+    rule.damage = std::max(0, readIntegerRuleField(warnings, ini, id, "Damage", 0));
+    rule.radius = std::max(0, readIntegerRuleField(warnings, ini, id, "Radius", 0));
+    rule.durationFrames = std::max(
+        0,
+        readIntegerRuleField(warnings, ini, id, "Duration", 0)
+    );
+    rule.defermentFrames = std::max(
+        0,
+        readIntegerRuleField(warnings, ini, id, "Deferment", 0)
+    );
+    rule.hitDelayFrames = std::max(
+        0,
+        readIntegerRuleField(warnings, ini, id, "HitDelay", 0)
+    );
+    rule.scatterDelayFrames = std::max(
+        0,
+        readIntegerRuleField(warnings, ini, id, "ScatterDelay", 0)
+    );
+    rule.cellSpread = std::max(
+        0,
+        readIntegerRuleField(warnings, ini, id, "CellSpread", 0)
+    );
+    rule.separation = std::max(
+        0,
+        readIntegerRuleField(warnings, ini, id, "Separation", 0)
+    );
+    rule.captureRange = std::max(
+        0,
+        readIntegerRuleField(warnings, ini, id, "CaptureRange", 0)
+    );
+    rule.blackoutDurationFrames = std::max(
+        0,
+        readIntegerRuleField(warnings, ini, id, "BlackoutDuration", 0)
+    );
+    rule.powerPenalty = std::max(
+        0,
+        readIntegerRuleField(warnings, ini, id, "PowerPenalty", 0)
+    );
+
+    const std::string typeKey = toLower(rule.type);
+    const std::string actionKey = toLower(rule.action);
+    const bool isNuke = typeKey.find("multimissile") != std::string::npos
+        || actionKey.find("nuke") != std::string::npos;
+    const bool isStorm = typeKey.find("lightning") != std::string::npos
+        || actionKey.find("lightning") != std::string::npos;
+    const bool isIron = typeKey.find("ironcurtain") != std::string::npos
+        || actionKey.find("ironcurtain") != std::string::npos;
+    const bool isForce = typeKey.find("forceshield") != std::string::npos
+        || actionKey.find("forceshield") != std::string::npos;
+    const bool isChrono = typeKey.find("chrono") != std::string::npos
+        || actionKey.find("chrono") != std::string::npos;
+    const bool isDominator = typeKey.find("psychicdominator")
+            != std::string::npos
+        || actionKey.find("dominator") != std::string::npos;
+    const bool isMutator = typeKey.find("genetic") != std::string::npos
+        || actionKey.find("genetic") != std::string::npos;
+    const bool isPara = typeKey.find("para") != std::string::npos
+        || actionKey.find("para") != std::string::npos;
+    const bool isSpy = typeKey.find("spy") != std::string::npos
+        || actionKey.find("spy") != std::string::npos;
+    const bool isReveal = typeKey.find("reveal") != std::string::npos
+        || actionKey.find("reveal") != std::string::npos;
+
+    // These families have opposite target polarity from the default
+    // hostile area weapon.  Keeping it in the parsed rule is important:
+    // the UI preview and the committed target must reject the same cells
+    // and objects.
+    if (isIron || isForce || isChrono) {
+        rule.targetEnemy = false;
+        rule.targetFriendly = true;
+    }
+    if (isIron || isDominator) {
+        rule.targetEnemy = true;
+        rule.targetFriendly = true;
+    }
+    if (isForce) {
+        rule.targetInfantry = false;
+        rule.targetUnits = false;
+        rule.targetBuildings = true;
+    }
+    if (isChrono || isDominator) {
+        rule.targetBuildings = false;
+    }
+    if (isMutator) {
+        rule.targetEnemy = true;
+        rule.targetFriendly = true;
+        rule.targetInfantry = true;
+        rule.targetUnits = false;
+        rule.targetBuildings = false;
+        rule.mutationType = "BRUTE";
+    }
+
+    if (isNuke) {
+        // YR's carrier/payload weapons point at GiantNukeUp/Down. The
+        // obsolete General.NukeDown entry is not a weapon definition.
+        const std::string carrier = rule.weaponType.empty() ? "NukeCarrier" : rule.weaponType;
+        rule.projectile = ini.getValue(carrier, "Projectile", rule.projectile);
+        if (rule.payloadWeapon.empty() && ini.getSection("NukePayload")) rule.payloadWeapon = "NukePayload";
+        rule.payloadProjectile = ini.getValue(rule.payloadWeapon, "Projectile", rule.payloadProjectile);
+        rule.payloadWarhead = ini.getValue(rule.payloadWeapon, "Warhead", rule.payloadWarhead);
+        rule.impactAnim = ini.getValue(rule.payloadWarhead, "AnimList", rule.impactAnim);
+        rule.launchAnim = ini.getValue("General", "NukeTakeOff", rule.launchAnim);
+        rule.startSound = ini.getValue("AudioVisual", "DigSound", rule.startSound);
+        if (ini.getSection(rule.projectile) && ini.getSection(rule.payloadProjectile)) {
+            rule.nuclearAltitudeLeptons = std::max(1, readIntegerRuleField(warnings, ini, rule.projectile, "DetonationAltitude", 20000));
+            rule.nuclearUpAcceleration = std::max(0, readIntegerRuleField(warnings, ini, rule.projectile, "Acceleration", 1));
+            rule.nuclearDownAcceleration = std::max(0, readIntegerRuleField(warnings, ini, rule.payloadProjectile, "Acceleration", 1));
+            // Retail WeaponType::CalculateSpeed (0x7729F0): ROT=0 uses
+            // the ballistic range/gravity speed, including vertical nukes.
+            rule.nuclearDownSpeed = readIntegerRuleField(warnings, ini, rule.payloadProjectile, "ROT", 0) == 0
+                ? std::max(1, int(std::sqrt(std::max(0.0,
+                    readNumberRuleField(warnings, ini, rule.payloadWeapon, "Range", 30.0) * 256.0
+                    * readNumberRuleField(warnings, ini, "General", "Gravity", 6.0) * 1.2))))
+                : std::max(1, readIntegerRuleField(warnings, ini, rule.payloadWeapon, "Speed", 10));
+            rule.preImpactAnim = "NUKEBALL";
+        }
+    }
+    if (isChrono) rule.placementAnim = ini.getValue("General", "ChronoPlacement", "CHRONOAR");
+    if (isStorm) {
+        rule.boltExplosionAnim = ini.getValue("General", "WeatherConBoltExplosion", "");
+        rule.damage = std::max(
+            0,
+            readIntegerRuleField(warnings, ini, "General", "LightningDamage", rule.damage)
+        );
+        rule.defermentFrames = std::max(
+            0,
+            readIntegerRuleField(warnings, ini, "General", "LightningDeferment", rule.defermentFrames)
+        );
+        rule.durationFrames = std::max(
+            0,
+            readIntegerRuleField(warnings, ini, "General", "LightningStormDuration", rule.durationFrames)
+        );
+        rule.hitDelayFrames = std::max(
+            0,
+            readIntegerRuleField(warnings, ini, "General", "LightningHitDelay", rule.hitDelayFrames)
+        );
+        rule.scatterDelayFrames = std::max(
+            0,
+            readIntegerRuleField(warnings, ini, "General", "LightningScatterDelay", rule.scatterDelayFrames)
+        );
+        rule.cellSpread = std::max(
+            0,
+            readIntegerRuleField(warnings, ini, "General", "LightningCellSpread", rule.cellSpread)
+        );
+        rule.separation = std::max(
+            0,
+            readIntegerRuleField(warnings, ini, "General", "LightningSeparation", rule.separation)
+        );
+        rule.payloadWarhead = ini.getValue(
+            "General",
+            "LightningWarhead",
+            rule.payloadWarhead
+        );
+        rule.startSound = ini.getValue(
+            "AudioVisual",
+            "StormSound",
+            rule.startSound
+        );
+        rule.specialSound = ini.getValue(
+            "AudioVisual",
+            "LightningSounds",
+            rule.specialSound
+        );
+        rule.cloudAnim = firstNonEmptyRuleValue(
+            ini,
+            "General",
+            {"WeatherConClouds"}
+        );
+        rule.boltAnim = firstNonEmptyRuleValue(
+            ini,
+            "General",
+            {"WeatherConBolts"}
+        );
+    }
+    if (isIron) {
+        rule.durationFrames = std::max(
+            0,
+            readIntegerRuleField(warnings, ini, "CombatDamage", "IronCurtainDuration",
+                readIntegerRuleField(warnings, ini, "General", "IronCurtainDuration", rule.durationFrames))
+        );
+        rule.invokeAnim = ini.getValue("General", "IronCurtainInvokeAnim", ini.getValue("AudioVisual", "IronCurtainInvokeAnim", rule.invokeAnim));
+        rule.radius = std::max(1, static_cast<int>(std::floor(rule.range)));
+    }
+    if (isForce) {
+        rule.radius = std::max(
+            0,
+            readIntegerRuleField(warnings, ini, "General", "ForceShieldRadius", rule.radius)
+        );
+        rule.durationFrames = std::max(
+            0,
+            readIntegerRuleField(warnings, ini, "General", "ForceShieldDuration", rule.durationFrames)
+        );
+        rule.blackoutDurationFrames = std::max(
+            0,
+            readIntegerRuleField(warnings,
+                ini,
+                "General",
+                "ForceShieldBlackoutDuration",
+                rule.blackoutDurationFrames
+            )
+        );
+        rule.invokeAnim = ini.getValue("General", "ForceShieldInvokeAnim", ini.getValue("AudioVisual", "ForceShieldInvokeAnim", rule.invokeAnim));
+        rule.fadeSoundFrames = std::max(0, readIntegerRuleField(warnings, ini, "General", "ForceShieldPlayFadeSoundTime", 0));
+    }
+    if (isChrono) {
+        rule.targetEnemy = true;
+        rule.radius = std::max(1, static_cast<int>(std::floor(rule.range)));
+        rule.firstAnim = ini.getValue("General", "ChronoBlast", ini.getValue("AudioVisual", "ChronoBlast", rule.firstAnim));
+        rule.secondAnim = ini.getValue("General", "ChronoBlastDest", ini.getValue("AudioVisual", "ChronoBlastDest", rule.secondAnim));
+        rule.launchAnim = ini.getValue("General", "WarpOut", ini.getValue("AudioVisual", "WarpOut", rule.launchAnim));
+        rule.impactAnim = ini.getValue("General", "WarpIn", ini.getValue("AudioVisual", "WarpIn", rule.impactAnim));
+    }
+    if (isDominator) {
+        rule.fireAtPercentage = std::clamp(readIntegerRuleField(warnings, ini, id,
+            "SW.FireAtPercentage", readIntegerRuleField(warnings, ini, "General",
+                "DominatorFireAtPercentage", 20)), 0, 100);
+        rule.captureRange = std::max(
+            0,
+            readIntegerRuleField(warnings, ini, "General", "DominatorCaptureRange", rule.captureRange)
+        );
+        rule.damage = std::max(
+            0,
+            readIntegerRuleField(warnings, ini, "General", "DominatorDamage", rule.damage)
+        );
+        rule.payloadWarhead = ini.getValue(
+            "General",
+            "DominatorWarhead",
+            rule.payloadWarhead
+        );
+        rule.firstAnim = ini.getValue(
+            "General",
+            "DominatorFirstAnim",
+            rule.firstAnim
+        );
+        rule.secondAnim = ini.getValue(
+            "General",
+            "DominatorSecondAnim",
+            rule.secondAnim
+        );
+        rule.startSound = ini.getValue(
+            "AudioVisual",
+            "PsychicDominatorActivateSound",
+            rule.startSound
+        );
+    }
+    if (isMutator) {
+        rule.mutateExplosion = readBooleanRuleField(warnings, ini, "General", "MutateExplosion", false);
+        rule.payloadWarhead = ini.getValue(
+            "SpecialWeapons",
+            "MutateWarhead",
+            rule.payloadWarhead
+        );
+        rule.warhead = ini.getValue(
+            "SpecialWeapons",
+            "MutateExplosionWarhead",
+            rule.warhead
+        );
+        rule.startSound = ini.getValue(
+            "AudioVisual",
+            "GeneticMutatorActivateSound",
+            rule.startSound
+        );
+        rule.impactAnim = ini.getValue("General", "InfantryMutate", ini.getValue("AudioVisual", "InfantryMutate", rule.impactAnim));
+        rule.invokeAnim = ini.getValue("General", "IonBlast", rule.invokeAnim);
+        if (rule.mutateExplosion) {
+            rule.radius = std::max(0, static_cast<int>(std::ceil(readNumberRuleField(warnings, ini,
+                rule.warhead, "CellSpread", 0.0))));
+        } else {
+            rule.radius = 1; // Retail non-explosion mode affects a 3 by 3 square.
+        }
+    }
+    if (isPara) {
+        const bool american = typeKey.find("amer") != std::string::npos
+            || actionKey.find("amer") != std::string::npos;
+        const std::string prefix = american
+            ? "AmerParaDrop"
+            : "ParaDrop";
+        rule.infantryTypes = firstNonEmptyRuleValue(
+            ini,
+            "General",
+            {prefix == "AmerParaDrop" ? "AmerParaDropInf" : "PParatrooper"}
+        );
+        rule.infantryCounts = firstNonEmptyRuleValue(
+            ini,
+            "General",
+            {prefix == "AmerParaDrop" ? "AmerParaDropNum" : "PParatrooperNum"}
+        );
+        if (rule.planeType.empty() && ini.getSection("PDPLANE")) rule.planeType = "PDPLANE";
+        const std::array<std::string, 3> sidePrefixes{"Ally", "Sov", "Yuri"};
+        for (std::size_t side=0; side<sidePrefixes.size(); ++side) {
+            rule.sideInfantryTypes[side] = ini.getValue("General", sidePrefixes[side]+"ParaDropInf", "");
+            rule.sideInfantryCounts[side] = ini.getValue("General", sidePrefixes[side]+"ParaDropNum", "");
+        }
+        rule.targetFriendly = true;
+        rule.parachuteAnim = ini.getValue("General", "Parachute", ini.getValue("AudioVisual", "Parachute", rule.parachuteAnim));
+    }
+    if (isSpy) {
+        rule.planeType = trim(ini.getValue(id, "PlaneType", ini.getSection("SPYP") ? "SPYP" : ""));
+        rule.radius = std::max(1, readIntegerRuleField(warnings, ini, "General", "CameraRange", 9));
+        rule.targetFriendly = true;
+        rule.startSound = ini.getValue(
+            "AudioVisual",
+            "SpyPlaneCamera",
+            rule.startSound
+        );
+    }
+    if (isReveal) {
+        rule.targetFriendly = true;
+        rule.radius = std::max(
+            0,
+            std::min(10, readIntegerRuleField(warnings, ini, "CombatDamage", "PsychicRevealRadius",
+                readIntegerRuleField(warnings, ini, "General", "PsychicRevealRadius", rule.radius)))
+        );
+        rule.startSound = ini.getValue(
+            "AudioVisual",
+            "PsychicRevealActivateSound",
+            rule.startSound
+        );
+    }
+
+    if (rule.targetMode.empty()) {
+        if (rule.preClick) {
+            rule.targetMode = "TwoStage";
+        } else if (isPara || isSpy || isReveal) {
+            rule.targetMode = "Cell";
+        } else if (isNuke || isStorm || isIron || isForce || isDominator || isMutator) {
+            rule.targetMode = "Area";
+        } else {
+            rule.targetMode = "Cell";
+        }
+    }
+    if (rule.action.empty()) {
+        rule.action = rule.type;
+    }
+    return rule;
+}
+
+} // namespace
+
 void RulesDatabase::loadSuperWeaponTypes(const IniFile& ini) {
     superWeaponTypes_.clear();
     const IniFile::Section* list = ini.getSection("SuperWeaponTypes");
@@ -1405,425 +1863,7 @@ void RulesDatabase::loadSuperWeaponTypes(const IniFile& ini) {
             continue;
         }
 
-        SuperWeaponRule rule;
-        rule.id = id;
-        rule.uiName = trim(ini.getValue(id, "UIName", ""));
-        rule.name = trim(ini.getValue(id, "Name", id));
-        rule.type = trim(ini.getValue(id, "Type", ""));
-        rule.action = trim(ini.getValue(id, "Action", ""));
-        rule.sidebarImage = trim(ini.getValue(id, "SidebarImage", ""));
-        rule.preDependent = trim(ini.getValue(id, "PreDependent", ""));
-        rule.rechargeVoice = trim(ini.getValue(id, "RechargeVoice", ""));
-        rule.chargingVoice = trim(ini.getValue(id, "ChargingVoice", ""));
-        rule.impatientVoice = trim(ini.getValue(id, "ImpatientVoice", ""));
-        rule.suspendVoice = trim(ini.getValue(id, "SuspendVoice", ""));
-        rule.specialSound = trim(ini.getValue(id, "SpecialSound", ""));
-        rule.startSound = trim(ini.getValue(id, "StartSound", ""));
-        rule.rechargeTimeMinutes = std::max(
-            0.0,
-            readDouble(ini, id, "RechargeTime", 5.0)
-        );
-        rule.range = std::max(0.0, readDouble(ini, id, "Range", 0.0));
-        rule.lineMultiplier = std::max(
-            0,
-            readInt(ini, id, "LineMultiplier", 0)
-        );
-        rule.flashSidebarTabFrames = std::max(
-            -1,
-            readInt(ini, id, "FlashSidebarTabFrames", -1)
-        );
-        rule.isPowered = readBool(ini, id, "IsPowered", true);
-        rule.preClick = readBool(ini, id, "PreClick", false);
-        rule.postClick = readBool(ini, id, "PostClick", false);
-        rule.showTimer = readBool(ini, id, "ShowTimer", false);
-        rule.disableableFromShell = readBool(
-            ini,
-            id,
-            "DisableableFromShell",
-            false
-        );
-        rule.aiDefendAgainst = readBool(
-            ini,
-            id,
-            "AIDefendAgainst",
-            false
-        );
-        rule.targetMode = trim(ini.getValue(id, "TargetMode", ""));
-        rule.weaponType = trim(
-            firstNonEmptyRuleValue(ini, id, {"WeaponType", "Weapon"})
-        );
-        rule.projectile = trim(
-            firstNonEmptyRuleValue(ini, id, {"Projectile", "LaunchProjectile"})
-        );
-        rule.warhead = trim(ini.getValue(id, "Warhead", ""));
-        rule.payloadWeapon = trim(ini.getValue(id, "PayloadWeapon", ""));
-        rule.payloadProjectile = trim(
-            ini.getValue(id, "PayloadProjectile", "")
-        );
-        rule.payloadWarhead = trim(
-            ini.getValue(id, "PayloadWarhead", "")
-        );
-        rule.launchAnim = trim(ini.getValue(id, "LaunchAnim", ""));
-        rule.impactAnim = trim(ini.getValue(id, "ImpactAnim", ""));
-        rule.activeAnim = trim(ini.getValue(id, "ActiveAnim", ""));
-        rule.invokeAnim = trim(ini.getValue(id, "InvokeAnim", ""));
-        rule.firstAnim = trim(ini.getValue(id, "FirstAnim", ""));
-        rule.secondAnim = trim(ini.getValue(id, "SecondAnim", ""));
-        rule.boltAnim = trim(ini.getValue(id, "BoltAnim", ""));
-        rule.cloudAnim = trim(ini.getValue(id, "CloudAnim", ""));
-        rule.planeType = trim(
-            firstNonEmptyRuleValue(
-                ini,
-                "General",
-                {"ParaDropPlane", "ParadropPlane", "PDropPlane"}
-            )
-        );
-        rule.planeType = trim(ini.getValue(id, "PlaneType", rule.planeType));
-        rule.supportFlightLevelLeptons = std::max(1, readInt(ini, "General", "FlightLevel", 1500));
-        rule.paradropRadiusLeptons = std::max(0, readInt(ini, "General", "ParadropRadius", 1024));
-        rule.parachuteFallRate = std::max(1, std::abs(readInt(ini, "General", "ParachuteMaxFallRate", -3)));
-        rule.spyCameraFrames = std::max(1, readInt(ini, "AudioVisual", "SpyPlaneCameraFrames", 16));
-        rule.parachuteAnim = trim(
-            ini.getValue("General", "Parachute", ini.getValue("AudioVisual", "Parachute", "")));
-        // Stock GeneticConverter uses InfantryMutate/GENDEATH, whose
-        // MakeInfantry=0 result is the hard-coded BRUTE.  SmallVisceroid is
-        // unrelated (it is used by visceroid spawning logic).
-        rule.mutationType.clear();
-        rule.damage = std::max(0, readInt(ini, id, "Damage", 0));
-        rule.radius = std::max(0, readInt(ini, id, "Radius", 0));
-        rule.durationFrames = std::max(
-            0,
-            readInt(ini, id, "Duration", 0)
-        );
-        rule.defermentFrames = std::max(
-            0,
-            readInt(ini, id, "Deferment", 0)
-        );
-        rule.hitDelayFrames = std::max(
-            0,
-            readInt(ini, id, "HitDelay", 0)
-        );
-        rule.scatterDelayFrames = std::max(
-            0,
-            readInt(ini, id, "ScatterDelay", 0)
-        );
-        rule.cellSpread = std::max(
-            0,
-            readInt(ini, id, "CellSpread", 0)
-        );
-        rule.separation = std::max(
-            0,
-            readInt(ini, id, "Separation", 0)
-        );
-        rule.captureRange = std::max(
-            0,
-            readInt(ini, id, "CaptureRange", 0)
-        );
-        rule.blackoutDurationFrames = std::max(
-            0,
-            readInt(ini, id, "BlackoutDuration", 0)
-        );
-        rule.powerPenalty = std::max(
-            0,
-            readInt(ini, id, "PowerPenalty", 0)
-        );
-
-        const std::string typeKey = toLower(rule.type);
-        const std::string actionKey = toLower(rule.action);
-        const bool isNuke = typeKey.find("multimissile") != std::string::npos
-            || actionKey.find("nuke") != std::string::npos;
-        const bool isStorm = typeKey.find("lightning") != std::string::npos
-            || actionKey.find("lightning") != std::string::npos;
-        const bool isIron = typeKey.find("ironcurtain") != std::string::npos
-            || actionKey.find("ironcurtain") != std::string::npos;
-        const bool isForce = typeKey.find("forceshield") != std::string::npos
-            || actionKey.find("forceshield") != std::string::npos;
-        const bool isChrono = typeKey.find("chrono") != std::string::npos
-            || actionKey.find("chrono") != std::string::npos;
-        const bool isDominator = typeKey.find("psychicdominator")
-                != std::string::npos
-            || actionKey.find("dominator") != std::string::npos;
-        const bool isMutator = typeKey.find("genetic") != std::string::npos
-            || actionKey.find("genetic") != std::string::npos;
-        const bool isPara = typeKey.find("para") != std::string::npos
-            || actionKey.find("para") != std::string::npos;
-        const bool isSpy = typeKey.find("spy") != std::string::npos
-            || actionKey.find("spy") != std::string::npos;
-        const bool isReveal = typeKey.find("reveal") != std::string::npos
-            || actionKey.find("reveal") != std::string::npos;
-
-        // These families have opposite target polarity from the default
-        // hostile area weapon.  Keeping it in the parsed rule is important:
-        // the UI preview and the committed target must reject the same cells
-        // and objects.
-        if (isIron || isForce || isChrono) {
-            rule.targetEnemy = false;
-            rule.targetFriendly = true;
-        }
-        if (isIron || isDominator) {
-            rule.targetEnemy = true;
-            rule.targetFriendly = true;
-        }
-        if (isForce) {
-            rule.targetInfantry = false;
-            rule.targetUnits = false;
-            rule.targetBuildings = true;
-        }
-        if (isChrono || isDominator) {
-            rule.targetBuildings = false;
-        }
-        if (isMutator) {
-            rule.targetEnemy = true;
-            rule.targetFriendly = true;
-            rule.targetInfantry = true;
-            rule.targetUnits = false;
-            rule.targetBuildings = false;
-            rule.mutationType = "BRUTE";
-        }
-
-        if (isNuke) {
-            // YR's carrier/payload weapons point at GiantNukeUp/Down. The
-            // obsolete General.NukeDown entry is not a weapon definition.
-            const std::string carrier = rule.weaponType.empty() ? "NukeCarrier" : rule.weaponType;
-            rule.projectile = ini.getValue(carrier, "Projectile", rule.projectile);
-            if (rule.payloadWeapon.empty() && ini.getSection("NukePayload")) rule.payloadWeapon = "NukePayload";
-            rule.payloadProjectile = ini.getValue(rule.payloadWeapon, "Projectile", rule.payloadProjectile);
-            rule.payloadWarhead = ini.getValue(rule.payloadWeapon, "Warhead", rule.payloadWarhead);
-            rule.impactAnim = ini.getValue(rule.payloadWarhead, "AnimList", rule.impactAnim);
-            rule.launchAnim = ini.getValue("General", "NukeTakeOff", rule.launchAnim);
-            rule.startSound = ini.getValue("AudioVisual", "DigSound", rule.startSound);
-            if (ini.getSection(rule.projectile) && ini.getSection(rule.payloadProjectile)) {
-                rule.nuclearAltitudeLeptons = std::max(1, readInt(ini, rule.projectile, "DetonationAltitude", 20000));
-                rule.nuclearUpAcceleration = std::max(0, readInt(ini, rule.projectile, "Acceleration", 1));
-                rule.nuclearDownAcceleration = std::max(0, readInt(ini, rule.payloadProjectile, "Acceleration", 1));
-                // Retail WeaponType::CalculateSpeed (0x7729F0): ROT=0 uses
-                // the ballistic range/gravity speed, including vertical nukes.
-                rule.nuclearDownSpeed = readInt(ini, rule.payloadProjectile, "ROT", 0) == 0
-                    ? std::max(1, int(std::sqrt(std::max(0.0,
-                        readDouble(ini, rule.payloadWeapon, "Range", 30.0) * 256.0
-                        * readDouble(ini, "General", "Gravity", 6.0) * 1.2))))
-                    : std::max(1, readInt(ini, rule.payloadWeapon, "Speed", 10));
-                rule.preImpactAnim = "NUKEBALL";
-            }
-        }
-        if (isChrono) rule.placementAnim = ini.getValue("General", "ChronoPlacement", "CHRONOAR");
-        if (isStorm) {
-            rule.boltExplosionAnim = ini.getValue("General", "WeatherConBoltExplosion", "");
-            rule.damage = std::max(
-                0,
-                readInt(ini, "General", "LightningDamage", rule.damage)
-            );
-            rule.defermentFrames = std::max(
-                0,
-                readInt(ini, "General", "LightningDeferment", rule.defermentFrames)
-            );
-            rule.durationFrames = std::max(
-                0,
-                readInt(ini, "General", "LightningStormDuration", rule.durationFrames)
-            );
-            rule.hitDelayFrames = std::max(
-                0,
-                readInt(ini, "General", "LightningHitDelay", rule.hitDelayFrames)
-            );
-            rule.scatterDelayFrames = std::max(
-                0,
-                readInt(ini, "General", "LightningScatterDelay", rule.scatterDelayFrames)
-            );
-            rule.cellSpread = std::max(
-                0,
-                readInt(ini, "General", "LightningCellSpread", rule.cellSpread)
-            );
-            rule.separation = std::max(
-                0,
-                readInt(ini, "General", "LightningSeparation", rule.separation)
-            );
-            rule.payloadWarhead = ini.getValue(
-                "General",
-                "LightningWarhead",
-                rule.payloadWarhead
-            );
-            rule.startSound = ini.getValue(
-                "AudioVisual",
-                "StormSound",
-                rule.startSound
-            );
-            rule.specialSound = ini.getValue(
-                "AudioVisual",
-                "LightningSounds",
-                rule.specialSound
-            );
-            rule.cloudAnim = firstNonEmptyRuleValue(
-                ini,
-                "General",
-                {"WeatherConClouds"}
-            );
-            rule.boltAnim = firstNonEmptyRuleValue(
-                ini,
-                "General",
-                {"WeatherConBolts"}
-            );
-        }
-        if (isIron) {
-            rule.durationFrames = std::max(
-                0,
-                readInt(ini, "CombatDamage", "IronCurtainDuration",
-                    readInt(ini, "General", "IronCurtainDuration", rule.durationFrames))
-            );
-            rule.invokeAnim = ini.getValue("General", "IronCurtainInvokeAnim", ini.getValue("AudioVisual", "IronCurtainInvokeAnim", rule.invokeAnim));
-            rule.radius = std::max(1, static_cast<int>(std::floor(rule.range)));
-        }
-        if (isForce) {
-            rule.radius = std::max(
-                0,
-                readInt(ini, "General", "ForceShieldRadius", rule.radius)
-            );
-            rule.durationFrames = std::max(
-                0,
-                readInt(ini, "General", "ForceShieldDuration", rule.durationFrames)
-            );
-            rule.blackoutDurationFrames = std::max(
-                0,
-                readInt(
-                    ini,
-                    "General",
-                    "ForceShieldBlackoutDuration",
-                    rule.blackoutDurationFrames
-                )
-            );
-            rule.invokeAnim = ini.getValue("General", "ForceShieldInvokeAnim", ini.getValue("AudioVisual", "ForceShieldInvokeAnim", rule.invokeAnim));
-            rule.fadeSoundFrames = std::max(0, readInt(ini, "General", "ForceShieldPlayFadeSoundTime", 0));
-        }
-        if (isChrono) {
-            rule.targetEnemy = true;
-            rule.radius = std::max(1, static_cast<int>(std::floor(rule.range)));
-            rule.firstAnim = ini.getValue("General", "ChronoBlast", ini.getValue("AudioVisual", "ChronoBlast", rule.firstAnim));
-            rule.secondAnim = ini.getValue("General", "ChronoBlastDest", ini.getValue("AudioVisual", "ChronoBlastDest", rule.secondAnim));
-            rule.launchAnim = ini.getValue("General", "WarpOut", ini.getValue("AudioVisual", "WarpOut", rule.launchAnim));
-            rule.impactAnim = ini.getValue("General", "WarpIn", ini.getValue("AudioVisual", "WarpIn", rule.impactAnim));
-        }
-        if (isDominator) {
-            rule.fireAtPercentage = std::clamp(readInt(ini, id,
-                "SW.FireAtPercentage", readInt(ini, "General",
-                    "DominatorFireAtPercentage", 20)), 0, 100);
-            rule.captureRange = std::max(
-                0,
-                readInt(ini, "General", "DominatorCaptureRange", rule.captureRange)
-            );
-            rule.damage = std::max(
-                0,
-                readInt(ini, "General", "DominatorDamage", rule.damage)
-            );
-            rule.payloadWarhead = ini.getValue(
-                "General",
-                "DominatorWarhead",
-                rule.payloadWarhead
-            );
-            rule.firstAnim = ini.getValue(
-                "General",
-                "DominatorFirstAnim",
-                rule.firstAnim
-            );
-            rule.secondAnim = ini.getValue(
-                "General",
-                "DominatorSecondAnim",
-                rule.secondAnim
-            );
-            rule.startSound = ini.getValue(
-                "AudioVisual",
-                "PsychicDominatorActivateSound",
-                rule.startSound
-            );
-        }
-        if (isMutator) {
-            rule.mutateExplosion = readBool(ini, "General", "MutateExplosion", false);
-            rule.payloadWarhead = ini.getValue(
-                "SpecialWeapons",
-                "MutateWarhead",
-                rule.payloadWarhead
-            );
-            rule.warhead = ini.getValue(
-                "SpecialWeapons",
-                "MutateExplosionWarhead",
-                rule.warhead
-            );
-            rule.startSound = ini.getValue(
-                "AudioVisual",
-                "GeneticMutatorActivateSound",
-                rule.startSound
-            );
-            rule.impactAnim = ini.getValue("General", "InfantryMutate", ini.getValue("AudioVisual", "InfantryMutate", rule.impactAnim));
-            rule.invokeAnim = ini.getValue("General", "IonBlast", rule.invokeAnim);
-            if (rule.mutateExplosion) {
-                rule.radius = std::max(0, static_cast<int>(std::ceil(readDouble(ini,
-                    rule.warhead, "CellSpread", 0.0))));
-            } else {
-                rule.radius = 1; // Retail non-explosion mode affects a 3 by 3 square.
-            }
-        }
-        if (isPara) {
-            const bool american = typeKey.find("amer") != std::string::npos
-                || actionKey.find("amer") != std::string::npos;
-            const std::string prefix = american
-                ? "AmerParaDrop"
-                : "ParaDrop";
-            rule.infantryTypes = firstNonEmptyRuleValue(
-                ini,
-                "General",
-                {prefix == "AmerParaDrop" ? "AmerParaDropInf" : "PParatrooper"}
-            );
-            rule.infantryCounts = firstNonEmptyRuleValue(
-                ini,
-                "General",
-                {prefix == "AmerParaDrop" ? "AmerParaDropNum" : "PParatrooperNum"}
-            );
-            if (rule.planeType.empty() && ini.getSection("PDPLANE")) rule.planeType = "PDPLANE";
-            const std::array<std::string, 3> sidePrefixes{"Ally", "Sov", "Yuri"};
-            for (std::size_t side=0; side<sidePrefixes.size(); ++side) {
-                rule.sideInfantryTypes[side] = ini.getValue("General", sidePrefixes[side]+"ParaDropInf", "");
-                rule.sideInfantryCounts[side] = ini.getValue("General", sidePrefixes[side]+"ParaDropNum", "");
-            }
-            rule.targetFriendly = true;
-            rule.parachuteAnim = ini.getValue("General", "Parachute", ini.getValue("AudioVisual", "Parachute", rule.parachuteAnim));
-        }
-        if (isSpy) {
-            rule.planeType = trim(ini.getValue(id, "PlaneType", ini.getSection("SPYP") ? "SPYP" : ""));
-            rule.radius = std::max(1, readInt(ini, "General", "CameraRange", 9));
-            rule.targetFriendly = true;
-            rule.startSound = ini.getValue(
-                "AudioVisual",
-                "SpyPlaneCamera",
-                rule.startSound
-            );
-        }
-        if (isReveal) {
-            rule.targetFriendly = true;
-            rule.radius = std::max(
-                0,
-                std::min(10, readInt(ini, "CombatDamage", "PsychicRevealRadius",
-                    readInt(ini, "General", "PsychicRevealRadius", rule.radius)))
-            );
-            rule.startSound = ini.getValue(
-                "AudioVisual",
-                "PsychicRevealActivateSound",
-                rule.startSound
-            );
-        }
-
-        if (rule.targetMode.empty()) {
-            if (rule.preClick) {
-                rule.targetMode = "TwoStage";
-            } else if (isPara || isSpy || isReveal) {
-                rule.targetMode = "Cell";
-            } else if (isNuke || isStorm || isIron || isForce || isDominator || isMutator) {
-                rule.targetMode = "Area";
-            } else {
-                rule.targetMode = "Cell";
-            }
-        }
-        if (rule.action.empty()) {
-            rule.action = rule.type;
-        }
-        superWeaponTypes_.push_back(std::move(rule));
+        superWeaponTypes_.push_back(readSuperWeaponRuleFields(ini, id, warnings_));
     }
 }
 
@@ -3657,7 +3697,10 @@ void RulesDatabase::addWarning(const std::string& message) {
     warnings_.push_back(message);
 }
 
-int RulesDatabase::readInt(
+namespace {
+
+int readIntegerRuleField(
+    std::vector<std::string>& warnings,
     const IniFile& ini,
     const std::string& section,
     const std::string& key,
@@ -3672,12 +3715,26 @@ int RulesDatabase::readInt(
     try {
         return std::stoi(value);
     } catch (const std::exception&) {
-        addWarning("Invalid integer: [" + section + "] " + key + "=" + value);
+        appendRuleFieldWarning(warnings, "Invalid integer: [" + section + "] " + key + "=" + value);
         return defaultValue;
     }
 }
 
-double RulesDatabase::readDouble(
+} // namespace
+
+int RulesDatabase::readInt(
+    const IniFile& ini,
+    const std::string& section,
+    const std::string& key,
+    int defaultValue
+) {
+    return readIntegerRuleField(warnings_, ini, section, key, defaultValue);
+}
+
+namespace {
+
+double readNumberRuleField(
+    std::vector<std::string>& warnings,
     const IniFile& ini,
     const std::string& section,
     const std::string& key,
@@ -3693,8 +3750,19 @@ double RulesDatabase::readDouble(
     if (parseFiniteDouble(value, parsed)) {
         return parsed;
     }
-    addWarning("Invalid number: [" + section + "] " + key + "=" + value);
+    appendRuleFieldWarning(warnings, "Invalid number: [" + section + "] " + key + "=" + value);
     return defaultValue;
+}
+
+} // namespace
+
+double RulesDatabase::readDouble(
+    const IniFile& ini,
+    const std::string& section,
+    const std::string& key,
+    double defaultValue
+) {
+    return readNumberRuleField(warnings_, ini, section, key, defaultValue);
 }
 
 double RulesDatabase::readProductionDouble(
@@ -3729,7 +3797,10 @@ double RulesDatabase::readPercent(
     return defaultValue;
 }
 
-double RulesDatabase::readRatio(
+namespace {
+
+double readRatioRuleField(
+    std::vector<std::string>& warnings,
     const IniFile& ini,
     const std::string& section,
     const std::string& key,
@@ -3754,14 +3825,29 @@ double RulesDatabase::readRatio(
     } catch (const std::exception&) {
     }
 
-    addWarning(
+    appendRuleFieldWarning(
+        warnings,
         "Invalid ratio: [" + section + "] " + key + "="
         + ini.getValue(section, key, "")
     );
     return defaultValue;
 }
 
-bool RulesDatabase::readBool(
+} // namespace
+
+double RulesDatabase::readRatio(
+    const IniFile& ini,
+    const std::string& section,
+    const std::string& key,
+    double defaultValue
+) {
+    return readRatioRuleField(warnings_, ini, section, key, defaultValue);
+}
+
+namespace {
+
+bool readBooleanRuleField(
+    std::vector<std::string>& warnings,
     const IniFile& ini,
     const std::string& section,
     const std::string& key,
@@ -3782,8 +3868,19 @@ bool RulesDatabase::readBool(
         return false;
     }
 
-    addWarning("Invalid boolean: [" + section + "] " + key + "=" + value);
+    appendRuleFieldWarning(warnings, "Invalid boolean: [" + section + "] " + key + "=" + value);
     return defaultValue;
+}
+
+} // namespace
+
+bool RulesDatabase::readBool(
+    const IniFile& ini,
+    const std::string& section,
+    const std::string& key,
+    bool defaultValue
+) {
+    return readBooleanRuleField(warnings_, ini, section, key, defaultValue);
 }
 
 std::vector<VeteranAbility> RulesDatabase::readVeteranAbilities(
@@ -3809,6 +3906,61 @@ std::vector<VeteranAbility> RulesDatabase::readVeteranAbilities(
     }
     return abilities;
 }
+
+namespace {
+
+void applyUnitMotionRuleFields(
+    const IniFile& ini,
+    const std::string& id,
+    UnitType& unit,
+    std::vector<std::string>& warnings
+) {
+    unit.speed = readIntegerRuleField(warnings, ini, id, "Speed", 0);
+    unit.accelerates = readBooleanRuleField(warnings, ini, id, "Accelerates", true);
+    unit.accelerationFactor = std::clamp(readRatioRuleField(warnings, ini, id, "AccelerationFactor", 0.03), 0.0, 10000.0);
+    unit.hoverAcceleration = std::clamp(readRatioRuleField(warnings, ini, "General", "HoverAcceleration", 0.02), 0.0, 10000.0);
+    unit.threatPosed = std::max(0, readIntegerRuleField(warnings, ini, id, "ThreatPosed", 0));
+    unit.threatAvoidanceCoefficient = std::max(0.0, readNumberRuleField(warnings, ini, id, "ThreatAvoidanceCoefficient", 0.0));
+    unit.walkRate = std::max(1, readIntegerRuleField(warnings, ini, id, "WalkRate", 1));
+    unit.idleRate = std::max(0, readIntegerRuleField(warnings, ini, id, "IdleRate", 0));
+    unit.weight = std::max(0.0, readNumberRuleField(warnings, ini, id, "Weight", 1.0));
+    unit.speedType = ini.getValue(id, "SpeedType", "");
+    unit.movementZone = ini.getValue(id, "MovementZone", "");
+    unit.locomotor = ini.getValue(id, "Locomotor", "");
+    unit.isTilter = readBooleanRuleField(warnings, ini, id, "IsTilter", true);
+    unit.jumpJet = readBooleanRuleField(warnings, ini, id, "JumpJet", false);
+    const auto jumpjetNumber = [&](const char* key, const char* global, double fallback) {
+        const double value = readNumberRuleField(warnings, ini, id, key,
+            readNumberRuleField(warnings, ini, "JumpjetControls", global, fallback));
+        return std::isfinite(value) ? std::clamp(value, 0.0, 10000.0) : fallback;
+    };
+    unit.jumpjetSpeed = jumpjetNumber("JumpjetSpeed", "Speed", 14.0);
+    unit.jumpjetClimb = jumpjetNumber("JumpjetClimb", "Climb", 5.0);
+    unit.jumpjetAccel = jumpjetNumber("JumpjetAccel", "Acceleration", 2.0);
+    unit.jumpjetTurnRate = std::clamp(readIntegerRuleField(warnings, ini, id, "JumpjetTurnRate",
+        readIntegerRuleField(warnings, ini, "JumpjetControls", "TurnRate", 4)), 0, 128);
+    unit.jumpjetWobbles = jumpjetNumber("JumpjetWobbles", "WobblesPerSecond", 0.15);
+    unit.jumpjetDeviation = std::clamp(readIntegerRuleField(warnings, ini, id, "JumpjetDeviation",
+        readIntegerRuleField(warnings, ini, "JumpjetControls", "WobbleDeviation", 40)), 0, 4096);
+    unit.jumpjetNoWobbles = readBooleanRuleField(warnings, ini, id, "JumpjetNoWobbles", false);
+    unit.crashable = readBooleanRuleField(warnings, ini, id, "Crashable", false);
+    unit.tiltCrashJumpjet = readBooleanRuleField(warnings, ini, id, "TiltCrashJumpjet", false);
+    unit.jumpjetCrash = std::max(0.01, readNumberRuleField(warnings, ini, id, "JumpjetCrash", readNumberRuleField(warnings, ini, "JumpjetControls", "Crash", 5.0)));
+    unit.crashGravity = std::max(0.01, readNumberRuleField(warnings, ini, "AudioVisual", "Gravity", 6.0));
+    unit.shipSinkingWeight = std::max(0.0, readNumberRuleField(warnings, ini, "General", "ShipSinkingWeight", 3.0));
+    unit.crashingSound = ini.getValue(id, "CrashingSound", "");
+    unit.sinkingSound = ini.getValue(id, "SinkingSound", ini.getValue("AudioVisual", "SinkingSound", ""));
+    unit.impactLandSound = ini.getValue(id, "ImpactLandSound", ini.getValue("AudioVisual", "ImpactLandSound", ""));
+    unit.impactWaterSound = ini.getValue(id, "ImpactWaterSound", ini.getValue("AudioVisual", "ImpactWaterSound", ""));
+    unit.consideredAircraft = readBooleanRuleField(warnings, ini, id, "ConsideredAircraft", false);
+    unit.balloonHover = readBooleanRuleField(warnings, ini, id, "BalloonHover", false);
+    const bool jumpjetLocomotor = unit.jumpJet
+        || toLower(trim(unit.locomotor)) == "{92612c46-f71f-11d1-ac9f-006008055bb5}";
+    unit.jumpJetHeight = std::clamp(readIntegerRuleField(warnings, ini, id, "JumpjetHeight", jumpjetLocomotor
+        ? readIntegerRuleField(warnings, ini, "JumpjetControls", "CruiseHeight", 500) : 0), 0, 32768);
+}
+
+} // namespace
 
 UnitType RulesDatabase::loadUnitType(
     const IniFile& ini,
@@ -3939,49 +4091,7 @@ UnitType RulesDatabase::loadUnitType(
     }
     unit.weaponRateUp = std::max(0, readInt(ini, id, "RateUp", 0));
     unit.weaponRateDown = std::max(0, readInt(ini, id, "RateDown", 0));
-    unit.speed = readInt(ini, id, "Speed", 0);
-    unit.accelerates = readBool(ini, id, "Accelerates", true);
-    unit.accelerationFactor = std::clamp(readRatio(ini, id, "AccelerationFactor", 0.03), 0.0, 10000.0);
-    unit.hoverAcceleration = std::clamp(readRatio(ini, "General", "HoverAcceleration", 0.02), 0.0, 10000.0);
-    unit.threatPosed = std::max(0, readInt(ini, id, "ThreatPosed", 0));
-    unit.threatAvoidanceCoefficient = std::max(0.0, readDouble(ini, id, "ThreatAvoidanceCoefficient", 0.0));
-    unit.walkRate = std::max(1, readInt(ini, id, "WalkRate", 1));
-    unit.idleRate = std::max(0, readInt(ini, id, "IdleRate", 0));
-    unit.weight = std::max(0.0, readDouble(ini, id, "Weight", 1.0));
-    unit.speedType = ini.getValue(id, "SpeedType", "");
-    unit.movementZone = ini.getValue(id, "MovementZone", "");
-    unit.locomotor = ini.getValue(id, "Locomotor", "");
-    unit.isTilter = readBool(ini, id, "IsTilter", true);
-    unit.jumpJet = readBool(ini, id, "JumpJet", false);
-    const auto jumpjetNumber = [&](const char* key, const char* global, double fallback) {
-        const double value = readDouble(ini, id, key,
-            readDouble(ini, "JumpjetControls", global, fallback));
-        return std::isfinite(value) ? std::clamp(value, 0.0, 10000.0) : fallback;
-    };
-    unit.jumpjetSpeed = jumpjetNumber("JumpjetSpeed", "Speed", 14.0);
-    unit.jumpjetClimb = jumpjetNumber("JumpjetClimb", "Climb", 5.0);
-    unit.jumpjetAccel = jumpjetNumber("JumpjetAccel", "Acceleration", 2.0);
-    unit.jumpjetTurnRate = std::clamp(readInt(ini, id, "JumpjetTurnRate",
-        readInt(ini, "JumpjetControls", "TurnRate", 4)), 0, 128);
-    unit.jumpjetWobbles = jumpjetNumber("JumpjetWobbles", "WobblesPerSecond", 0.15);
-    unit.jumpjetDeviation = std::clamp(readInt(ini, id, "JumpjetDeviation",
-        readInt(ini, "JumpjetControls", "WobbleDeviation", 40)), 0, 4096);
-    unit.jumpjetNoWobbles = readBool(ini, id, "JumpjetNoWobbles", false);
-    unit.crashable = readBool(ini, id, "Crashable", false);
-    unit.tiltCrashJumpjet = readBool(ini, id, "TiltCrashJumpjet", false);
-    unit.jumpjetCrash = std::max(0.01, readDouble(ini, id, "JumpjetCrash", readDouble(ini, "JumpjetControls", "Crash", 5.0)));
-    unit.crashGravity = std::max(0.01, readDouble(ini, "AudioVisual", "Gravity", 6.0));
-    unit.shipSinkingWeight = std::max(0.0, readDouble(ini, "General", "ShipSinkingWeight", 3.0));
-    unit.crashingSound = ini.getValue(id, "CrashingSound", "");
-    unit.sinkingSound = ini.getValue(id, "SinkingSound", ini.getValue("AudioVisual", "SinkingSound", ""));
-    unit.impactLandSound = ini.getValue(id, "ImpactLandSound", ini.getValue("AudioVisual", "ImpactLandSound", ""));
-    unit.impactWaterSound = ini.getValue(id, "ImpactWaterSound", ini.getValue("AudioVisual", "ImpactWaterSound", ""));
-    unit.consideredAircraft = readBool(ini, id, "ConsideredAircraft", false);
-    unit.balloonHover = readBool(ini, id, "BalloonHover", false);
-    const bool jumpjetLocomotor = unit.jumpJet
-        || toLower(trim(unit.locomotor)) == "{92612c46-f71f-11d1-ac9f-006008055bb5}";
-    unit.jumpJetHeight = std::clamp(readInt(ini, id, "JumpjetHeight", jumpjetLocomotor
-        ? readInt(ini, "JumpjetControls", "CruiseHeight", 500) : 0), 0, 32768);
+    applyUnitMotionRuleFields(ini, id, unit, warnings_);
     unit.sight = readInt(ini, id, "Sight", 0);
     unit.cloakable = readBool(ini, id, "Cloakable", false);
     unit.cloakingSpeed = std::clamp(
@@ -4303,6 +4413,32 @@ UnitType RulesDatabase::loadUnitType(
     return unit;
 }
 
+namespace {
+
+struct BuildingPowerFields {
+    int power;
+    bool powered;
+    bool drainable;
+    bool poweredSpecial;
+    bool overpowerable;
+};
+
+BuildingPowerFields readBuildingPowerFields(
+    const IniFile& ini,
+    const std::string& id,
+    std::vector<std::string>& warnings
+) {
+    return {
+        readIntegerRuleField(warnings, ini, id, "Power", 0),
+        readBooleanRuleField(warnings, ini, id, "Powered", false),
+        readBooleanRuleField(warnings, ini, id, "Drainable", false),
+        readBooleanRuleField(warnings, ini, id, "PoweredSpecial", false),
+        readBooleanRuleField(warnings, ini, id, "Overpowerable", false),
+    };
+}
+
+} // namespace
+
 BuildingType RulesDatabase::loadBuildingType(const IniFile& ini, const std::string& id) {
     BuildingType building;
 
@@ -4438,11 +4574,12 @@ BuildingType RulesDatabase::loadBuildingType(const IniFile& ini, const std::stri
     building.weaponRateDown =
         std::max(0, readInt(ini, id, "RateDown", 0));
     building.rot = std::max(0, readInt(ini, id, "ROT", 0));
-    building.power = readInt(ini, id, "Power", 0);
-    building.powered = readBool(ini, id, "Powered", false);
-    building.drainable = readBool(ini, id, "Drainable", false);
-    building.poweredSpecial = readBool(ini, id, "PoweredSpecial", false);
-    building.overpowerable = readBool(ini, id, "Overpowerable", false);
+    const auto power = readBuildingPowerFields(ini, id, warnings_);
+    building.power = power.power;
+    building.powered = power.powered;
+    building.drainable = power.drainable;
+    building.poweredSpecial = power.poweredSpecial;
+    building.overpowerable = power.overpowerable;
     building.navalTargeting = readInt(ini, id, "NavalTargeting", 0);
     building.landTargeting = readInt(ini, id, "LandTargeting", 0);
     building.guardRange =
@@ -4818,67 +4955,73 @@ BuildingType RulesDatabase::loadBuildingType(const IniFile& ini, const std::stri
     return building;
 }
 
-WeaponType RulesDatabase::loadWeaponType(const IniFile& ini, const std::string& id) {
+namespace {
+
+WeaponType readWeaponFields(
+    const IniFile& ini,
+    const std::string& id,
+    std::vector<std::string>& warnings
+) {
     WeaponType weapon;
 
     weapon.id = id;
-    weapon.damage = readInt(ini, id, "Damage", 0);
-    weapon.rof = readInt(ini, id, "ROF", 0);
-    weapon.range = readDouble(ini, id, "Range", 0.0);
-    weapon.minimumRange = readDouble(ini, id, "MinimumRange", 0.0);
+    weapon.damage = readIntegerRuleField(warnings, ini, id, "Damage", 0);
+    weapon.rof = readIntegerRuleField(warnings, ini, id, "ROF", 0);
+    weapon.range = readNumberRuleField(warnings, ini, id, "Range", 0.0);
+    weapon.minimumRange = readNumberRuleField(warnings, ini, id, "MinimumRange", 0.0);
     weapon.projectile = ini.getValue(id, "Projectile", "");
-    weapon.speed = readInt(ini, id, "Speed", 0);
+    weapon.speed = readIntegerRuleField(warnings, ini, id, "Speed", 0);
     weapon.warhead = ini.getValue(id, "Warhead", "");
-    weapon.burst = readInt(ini, id, "Burst", 0);
-    weapon.burstDelay = std::clamp(readInt(ini, id, "BurstDelay", 3), 1, 36000);
+    weapon.burst = readIntegerRuleField(warnings, ini, id, "Burst", 0);
+    weapon.burstDelay = std::clamp(readIntegerRuleField(warnings, ini, id, "BurstDelay", 3), 1, 36000);
     weapon.burstDelaySpecified = !ini.getValue(id, "BurstDelay", "").empty();
     weapon.burstDelays = parseIntegerList(ini.getValue(id, "BurstDelays", ""));
     if (weapon.burstDelays.size() > 256) weapon.burstDelays.resize(256);
     for (int& delay : weapon.burstDelays) delay = std::clamp(delay, 1, 36000);
-    weapon.turboBoost = readBool(ini, id, "TurboBoost", false);
+    weapon.turboBoost = readBooleanRuleField(warnings, ini, id, "TurboBoost", false);
     weapon.report = ini.getValue(id, "Report", "");
     weapon.anim = ini.getValue(id, "Anim", "");
     weapon.occupantAnim = ini.getValue(id, "OccupantAnim", "");
     weapon.openToppedAnim = ini.getValue(id, "OpenToppedAnim", "");
-    weapon.charges = readBool(ini, id, "Charges", false);
-    weapon.bright = readBool(ini, id, "Bright", false);
-    weapon.decloakToFire = readBool(ini, id, "DecloakToFire", true);
-    weapon.revealOnFire = readBool(ini, id, "RevealOnFire", true);
-    weapon.cellRangefinding = readBool(ini, id, "CellRangefinding", false);
-    weapon.migAttackCursor = readBool(ini, id, "MigAttackCursor", false);
-    weapon.sabotageCursor = readBool(ini, id, "SabotageCursor", false);
-    weapon.neverUse = readBool(ini, id, "NeverUse", false);
-    weapon.suicide = readBool(ini, id, "Suicide", false);
-    weapon.fireInTransport = readBool(ini, id, "FireInTransport", true);
-    weapon.laser = readBool(ini, id, "IsLaser", false);
-    weapon.houseColorLaser = readBool(ini, id, "IsHouseColor", false);
-    weapon.diskLaser = readBool(ini, id, "DiskLaser", false);
-    weapon.drainWeapon = readBool(ini, id, "DrainWeapon", false);
+    weapon.charges = readBooleanRuleField(warnings, ini, id, "Charges", false);
+    weapon.bright = readBooleanRuleField(warnings, ini, id, "Bright", false);
+    weapon.decloakToFire = readBooleanRuleField(warnings, ini, id, "DecloakToFire", true);
+    weapon.revealOnFire = readBooleanRuleField(warnings, ini, id, "RevealOnFire", true);
+    weapon.cellRangefinding = readBooleanRuleField(warnings, ini, id, "CellRangefinding", false);
+    weapon.migAttackCursor = readBooleanRuleField(warnings, ini, id, "MigAttackCursor", false);
+    weapon.sabotageCursor = readBooleanRuleField(warnings, ini, id, "SabotageCursor", false);
+    weapon.neverUse = readBooleanRuleField(warnings, ini, id, "NeverUse", false);
+    weapon.suicide = readBooleanRuleField(warnings, ini, id, "Suicide", false);
+    weapon.fireInTransport = readBooleanRuleField(warnings, ini, id, "FireInTransport", true);
+    weapon.laser = readBooleanRuleField(warnings, ini, id, "IsLaser", false);
+    weapon.houseColorLaser = readBooleanRuleField(warnings, ini, id, "IsHouseColor", false);
+    weapon.diskLaser = readBooleanRuleField(warnings, ini, id, "DiskLaser", false);
+    weapon.drainWeapon = readBooleanRuleField(warnings, ini, id, "DrainWeapon", false);
     weapon.laserInnerColor = ini.getValue(id, "LaserInnerColor", "");
     weapon.laserOuterColor = ini.getValue(id, "LaserOuterColor", "");
     weapon.laserOuterSpread = ini.getValue(id, "LaserOuterSpread", "");
     weapon.laserDuration =
-        std::max(0, readInt(ini, id, "LaserDuration", 0));
+        std::max(0, readIntegerRuleField(warnings, ini, id, "LaserDuration", 0));
     weapon.laserThickness = std::clamp(
-        readInt(ini, id, "LaserThickness", 1),
+        readIntegerRuleField(warnings, ini, id, "LaserThickness", 1),
         1,
         32
     );
-    weapon.sonic = readBool(ini, id, "IsSonic", false);
-    weapon.ambientDamage = readInt(ini, id, "AmbientDamage", 0);
-    weapon.electricBolt = readBool(ini, id, "IsElectricBolt", false);
+    weapon.sonic = readBooleanRuleField(warnings, ini, id, "IsSonic", false);
+    weapon.ambientDamage = readIntegerRuleField(warnings, ini, id, "AmbientDamage", 0);
+    weapon.electricBolt = readBooleanRuleField(warnings, ini, id, "IsElectricBolt", false);
     weapon.alternateElectricColor =
-        readBool(ini, id, "IsAlternateColor", false);
-    weapon.radBeam = readBool(ini, id, "IsRadBeam", false);
-    weapon.magBeam = readBool(ini, id, "IsMagBeam", false);
-    weapon.isRailgun = readBool(ini, id, "IsRailgun", false);
-    weapon.useSparkParticles = readBool(
+        readBooleanRuleField(warnings, ini, id, "IsAlternateColor", false);
+    weapon.radBeam = readBooleanRuleField(warnings, ini, id, "IsRadBeam", false);
+    weapon.magBeam = readBooleanRuleField(warnings, ini, id, "IsMagBeam", false);
+    weapon.isRailgun = readBooleanRuleField(warnings, ini, id, "IsRailgun", false);
+    weapon.useSparkParticles = readBooleanRuleField(warnings, 
         ini,
         id,
         "UseSparkParticles",
         false
     );
-    weapon.useFireParticles = readBool(
+    weapon.useFireParticles = readBooleanRuleField(warnings, 
         ini,
         id,
         "UseFireParticles",
@@ -4887,34 +5030,41 @@ WeaponType RulesDatabase::loadWeaponType(const IniFile& ini, const std::string& 
     weapon.attachedParticleSystem = trim(
         ini.getValue(id, "AttachedParticleSystem", "")
     );
-    weapon.spawner = readBool(ini, id, "Spawner", false);
-    weapon.limboLaunch = readBool(ini, id, "LimboLaunch", false);
-    weapon.infiniteMindControl = readBool(
+    weapon.spawner = readBooleanRuleField(warnings, ini, id, "Spawner", false);
+    weapon.limboLaunch = readBooleanRuleField(warnings, ini, id, "LimboLaunch", false);
+    weapon.infiniteMindControl = readBooleanRuleField(warnings, 
         ini,
         id,
         "InfiniteMindControl",
         false
     );
-    weapon.fireOnce = readBool(ini, id, "FireOnce", false);
-    weapon.permanentMindControl = readBool(
+    weapon.fireOnce = readBooleanRuleField(warnings, ini, id, "FireOnce", false);
+    weapon.permanentMindControl = readBooleanRuleField(warnings, 
         ini,
         id,
         "PermanentMindControl",
-        readBool(ini, id, "PermaControl", false)
+        readBooleanRuleField(warnings, ini, id, "PermaControl", false)
     );
     weapon.disguiseFakeBlinkTime = std::max(
         0,
-        readInt(ini, id, "DisguiseFakeBlinkTime", 0)
+        readIntegerRuleField(warnings, ini, id, "DisguiseFakeBlinkTime", 0)
     );
-    weapon.disguiseFireOnly = readBool(
+    weapon.disguiseFireOnly = readBooleanRuleField(warnings, 
         ini,
         id,
         "DisguiseFireOnly",
         false
     );
-    weapon.areaFire = readBool(ini, id, "AreaFire", false);
-    weapon.isRadEruption = readBool(ini, id, "IsRadEruption", false);
-    weapon.radLevel = std::max(0, readInt(ini, id, "RadLevel", 0));
+    weapon.areaFire = readBooleanRuleField(warnings, ini, id, "AreaFire", false);
+    weapon.isRadEruption = readBooleanRuleField(warnings, ini, id, "IsRadEruption", false);
+    weapon.radLevel = std::max(0, readIntegerRuleField(warnings, ini, id, "RadLevel", 0));
+    return weapon;
+}
+
+} // namespace
+
+WeaponType RulesDatabase::loadWeaponType(const IniFile& ini, const std::string& id) {
+    auto weapon = readWeaponFields(ini, id, warnings_);
     WeaponLifecycleProfile lifecycle;
     lifecycle.id = id;
     lifecycle.omniFire = readBool(ini, id, "OmniFire", false);
@@ -4927,7 +5077,13 @@ WeaponType RulesDatabase::loadWeaponType(const IniFile& ini, const std::string& 
     return weapon;
 }
 
-ProjectileType RulesDatabase::loadProjectileType(const IniFile& ini, const std::string& id) {
+namespace {
+
+ProjectileType readProjectileFields(
+    const IniFile& ini,
+    const std::string& id,
+    std::vector<std::string>& warnings
+) {
     ProjectileType projectile;
 
     projectile.id = id;
@@ -4936,52 +5092,59 @@ ProjectileType RulesDatabase::loadProjectileType(const IniFile& ini, const std::
     projectile.color = ini.getValue(id, "Color", "");
     projectile.paletteIsSet = !projectile.palette.empty();
     projectile.imageIsNone = isNoneValue(projectile.image);
-    projectile.arcing = readBool(ini, id, "Arcing", false);
-    projectile.floater = readBool(ini, id, "Floater", false);
-    projectile.rot = readInt(ini, id, "ROT", 0);
-    projectile.aa = readBool(ini, id, "AA", false);
+    projectile.arcing = readBooleanRuleField(warnings, ini, id, "Arcing", false);
+    projectile.floater = readBooleanRuleField(warnings, ini, id, "Floater", false);
+    projectile.rot = readIntegerRuleField(warnings, ini, id, "ROT", 0);
+    projectile.aa = readBooleanRuleField(warnings, ini, id, "AA", false);
     projectile.agExplicit = !ini.getValue(id, "AG", "").empty();
-    projectile.ag = readBool(ini, id, "AG", true);
-    projectile.an = readBool(ini, id, "AN", false);
-    projectile.asw = readBool(ini, id, "ASW", false);
-    projectile.inviso = readBool(ini, id, "Inviso", false);
-    projectile.animates = readBool(ini, id, "Animates", false);
-    projectile.inaccurate = readBool(ini, id, "Inaccurate", false);
-    projectile.flakScatter = readBool(ini, id, "FlakScatter", false);
-    projectile.subjectToCliffs = readBool(ini, id, "SubjectToCliffs", false);
+    projectile.ag = readBooleanRuleField(warnings, ini, id, "AG", true);
+    projectile.an = readBooleanRuleField(warnings, ini, id, "AN", false);
+    projectile.asw = readBooleanRuleField(warnings, ini, id, "ASW", false);
+    projectile.inviso = readBooleanRuleField(warnings, ini, id, "Inviso", false);
+    projectile.animates = readBooleanRuleField(warnings, ini, id, "Animates", false);
+    projectile.inaccurate = readBooleanRuleField(warnings, ini, id, "Inaccurate", false);
+    projectile.flakScatter = readBooleanRuleField(warnings, ini, id, "FlakScatter", false);
+    projectile.subjectToCliffs = readBooleanRuleField(warnings, ini, id, "SubjectToCliffs", false);
     projectile.subjectToElevation =
-        readBool(ini, id, "SubjectToElevation", false);
-    projectile.subjectToWalls = readBool(ini, id, "SubjectToWalls", false);
-    projectile.high = readBool(ini, id, "High", false);
-    projectile.veryHigh = readBool(ini, id, "VeryHigh", false);
-    projectile.shadow = readBool(
+        readBooleanRuleField(warnings, ini, id, "SubjectToElevation", false);
+    projectile.subjectToWalls = readBooleanRuleField(warnings, ini, id, "SubjectToWalls", false);
+    projectile.high = readBooleanRuleField(warnings, ini, id, "High", false);
+    projectile.veryHigh = readBooleanRuleField(warnings, ini, id, "VeryHigh", false);
+    projectile.shadow = readBooleanRuleField(
+        warnings,
         ini,
         id,
         "Shadow",
         true
     );
-    projectile.vertical = readBool(ini, id, "Vertical", false);
-    projectile.airburst = readBool(ini, id, "Airburst", false);
-    projectile.proximity = readBool(ini, id, "Proximity", false);
-    projectile.ranged = readBool(ini, id, "Ranged", false);
-    projectile.dropping = readBool(ini, id, "Dropping", false);
-    projectile.level = readBool(ini, id, "Level", false);
-    projectile.courseLockDuration = std::max(0, readInt(ini, id, "CourseLockDuration", 0));
-    projectile.firersPalette = readBool(ini, id, "FirersPalette", false);
-    projectile.animPalette = readBool(ini, id, "AnimPalette", false);
-    projectile.frames = readInt(ini, id, "Frames", 0);
-    projectile.translucency = readInt(ini, id, "Translucency", 0);
-    projectile.cluster = readInt(ini, id, "Cluster", 0);
-    projectile.acceleration = readInt(ini, id, "Acceleration", 3);
+    projectile.vertical = readBooleanRuleField(warnings, ini, id, "Vertical", false);
+    projectile.airburst = readBooleanRuleField(warnings, ini, id, "Airburst", false);
+    projectile.proximity = readBooleanRuleField(warnings, ini, id, "Proximity", false);
+    projectile.ranged = readBooleanRuleField(warnings, ini, id, "Ranged", false);
+    projectile.dropping = readBooleanRuleField(warnings, ini, id, "Dropping", false);
+    projectile.level = readBooleanRuleField(warnings, ini, id, "Level", false);
+    projectile.courseLockDuration = std::max(0, readIntegerRuleField(warnings, ini, id, "CourseLockDuration", 0));
+    projectile.firersPalette = readBooleanRuleField(warnings, ini, id, "FirersPalette", false);
+    projectile.animPalette = readBooleanRuleField(warnings, ini, id, "AnimPalette", false);
+    projectile.frames = readIntegerRuleField(warnings, ini, id, "Frames", 0);
+    projectile.translucency = readIntegerRuleField(warnings, ini, id, "Translucency", 0);
+    projectile.cluster = readIntegerRuleField(warnings, ini, id, "Cluster", 0);
+    projectile.acceleration = readIntegerRuleField(warnings, ini, id, "Acceleration", 3);
     projectile.trailer = ini.getValue(id, "Trailer", "");
-    projectile.trailerSeperation = readInt(ini, id, "TrailerSeperation", 0);
+    projectile.trailerSeperation = readIntegerRuleField(warnings, ini, id, "TrailerSeperation", 0);
     projectile.airburstWeapon = ini.getValue(id, "AirburstWeapon", "");
     projectile.shrapnelWeapon = ini.getValue(id, "ShrapnelWeapon", "");
     projectile.shrapnelCount =
-        readInt(ini, id, "ShrapnelCount", 0);
+        readIntegerRuleField(warnings, ini, id, "ShrapnelCount", 0);
     projectile.profile = projectileProfileForObject(projectile);
 
     return projectile;
+}
+
+} // namespace
+
+ProjectileType RulesDatabase::loadProjectileType(const IniFile& ini, const std::string& id) {
+    return readProjectileFields(ini, id, warnings_);
 }
 
 OverlayType RulesDatabase::loadOverlayType(
@@ -5348,84 +5511,100 @@ ParticleType RulesDatabase::loadParticleType(
     return particle;
 }
 
-WarheadType RulesDatabase::loadWarheadType(const IniFile& ini, const std::string& id) {
-    WarheadType warhead;
+namespace {
 
-    warhead.id = id;
-    warhead.attachEffect = loadAttachEffect(ini, id, true);
-    warhead.shieldPenetrate = readBool(ini, id, "Shield.Penetrate", false);
-    warhead.cellSpread = readDouble(ini, id, "CellSpread", 0.0);
-    warhead.percentAtMax = readDouble(ini, id, "PercentAtMax", 0.0);
+WarheadLifecycleProfile applyWarheadRuleFields(
+    const IniFile& ini,
+    const std::string& id,
+    const std::vector<WeaponType>& weapons,
+    WarheadType& warhead,
+    std::vector<std::string>& warnings
+) {
+    warhead.shieldPenetrate = readBooleanRuleField(warnings, ini, id, "Shield.Penetrate", false);
+    warhead.cellSpread = readNumberRuleField(warnings, ini, id, "CellSpread", 0.0);
+    warhead.percentAtMax = readNumberRuleField(warnings, ini, id, "PercentAtMax", 0.0);
     warhead.verses = ini.getValue(id, "Verses", "");
     warhead.animList = ini.getValue(id, "AnimList", "");
     warhead.explosion = ini.getValue(id, "Explosion", "");
     warhead.particle = ini.getValue(id, "Particle", "");
     warhead.particleSystem = ini.getValue(id, "ParticleSystem", "");
-    warhead.infDeath = readInt(ini, id, "InfDeath", 0);
+    warhead.infDeath = readIntegerRuleField(warnings, ini, id, "InfDeath", 0);
     warhead.proneDamage = ini.getValue(id, "ProneDamage", "");
     warhead.proneDamageMultiplier = std::max(
         0.0,
-        readRatio(ini, id, "ProneDamage", 1.0)
+        readRatioRuleField(warnings, ini, id, "ProneDamage", 1.0)
     );
-    warhead.combatLightSize = readRatio(
+    warhead.combatLightSize = readRatioRuleField(warnings,
         ini,
         id,
         "CombatLightSize",
         0.0
     );
-    warhead.clDisableRed = readBool(ini, id, "CLDisableRed", false);
-    warhead.clDisableGreen = readBool(ini, id, "CLDisableGreen", false);
-    warhead.clDisableBlue = readBool(ini, id, "CLDisableBlue", false);
-    warhead.wall = readBool(ini, id, "Wall", false);
-    warhead.penetratesBunker = readBool(ini, id, "PenetratesBunker", false);
-    warhead.wood = readBool(ini, id, "Wood", false);
-    warhead.psychedelic = readBool(ini, id, "Psychedelic", false);
-    warhead.poison = readBool(ini, id, "Poison", false);
+    warhead.clDisableRed = readBooleanRuleField(warnings, ini, id, "CLDisableRed", false);
+    warhead.clDisableGreen = readBooleanRuleField(warnings, ini, id, "CLDisableGreen", false);
+    warhead.clDisableBlue = readBooleanRuleField(warnings, ini, id, "CLDisableBlue", false);
+    warhead.wall = readBooleanRuleField(warnings, ini, id, "Wall", false);
+    warhead.penetratesBunker = readBooleanRuleField(warnings, ini, id, "PenetratesBunker", false);
+    warhead.wood = readBooleanRuleField(warnings, ini, id, "Wood", false);
+    warhead.psychedelic = readBooleanRuleField(warnings, ini, id, "Psychedelic", false);
+    warhead.poison = readBooleanRuleField(warnings, ini, id, "Poison", false);
     // Retail defaults AffectsAllies to yes. Restore that default for authored
     // suicide blasts and poison while retaining the ordinary-weapon policy.
     const std::string warheadKey = canonicalIdKey(id);
     const bool suicideWarhead = std::any_of(
-        weaponTypes_.begin(), weaponTypes_.end(), [&warheadKey](const WeaponType& weapon) {
+        weapons.begin(), weapons.end(), [&warheadKey](const WeaponType& weapon) {
             return weapon.suicide && canonicalIdKey(weapon.warhead) == warheadKey;
         }
     );
-    warhead.affectsAllies = readBool(
+    warhead.affectsAllies = readBooleanRuleField(warnings,
         ini, id, "AffectsAllies", warhead.psychedelic || suicideWarhead || warhead.poison
     );
-    warhead.affectsEnemies = readBool(ini, id, "AffectsEnemies", true);
-    warhead.bright = readBool(ini, id, "Bright", false);
-    warhead.conventional = readBool(ini, id, "Conventional", false);
-    warhead.sparky = readBool(ini, id, "Sparky", true);
-    warhead.fire = readBool(ini, id, "Fire", false);
-    warhead.tiberium = readBool(ini, id, "Tiberium", false);
-    warhead.mindControl = readBool(ini, id, "MindControl", false);
-    warhead.temporal = readBool(ini, id, "Temporal", false);
-    warhead.radiation = readBool(ini, id, "Radiation", false);
-    warhead.electricAssault = readBool(
+    warhead.affectsEnemies = readBooleanRuleField(warnings, ini, id, "AffectsEnemies", true);
+    warhead.bright = readBooleanRuleField(warnings, ini, id, "Bright", false);
+    warhead.conventional = readBooleanRuleField(warnings, ini, id, "Conventional", false);
+    warhead.sparky = readBooleanRuleField(warnings, ini, id, "Sparky", true);
+    warhead.fire = readBooleanRuleField(warnings, ini, id, "Fire", false);
+    warhead.tiberium = readBooleanRuleField(warnings, ini, id, "Tiberium", false);
+    warhead.mindControl = readBooleanRuleField(warnings, ini, id, "MindControl", false);
+    warhead.temporal = readBooleanRuleField(warnings, ini, id, "Temporal", false);
+    warhead.radiation = readBooleanRuleField(warnings, ini, id, "Radiation", false);
+    warhead.electricAssault = readBooleanRuleField(warnings,
         ini,
         id,
         "ElectricAssault",
         false
     );
-    warhead.psychicDamage = readBool(ini, id, "PsychicDamage", false);
-    warhead.makesDisguise = readBool(ini, id, "MakesDisguise", false);
-    warhead.rocker = readBool(ini, id, "Rocker", false);
-    warhead.parasite = readBool(ini, id, "Parasite", false);
-    warhead.culling = readBool(ini, id, "Culling", false);
-    warhead.paralyzes = std::max(0, readInt(ini, id, "Paralyzes", 0));
-    warhead.ivanBomb = readBool(ini, id, "IvanBomb", false);
-    warhead.bombDisarm = readBool(ini, id, "BombDisarm", false);
-    warhead.airstrike = readBool(ini, id, "Airstrike", false);
-    warhead.isLocomotor = readBool(ini, id, "IsLocomotor", false);
+    warhead.psychicDamage = readBooleanRuleField(warnings, ini, id, "PsychicDamage", false);
+    warhead.makesDisguise = readBooleanRuleField(warnings, ini, id, "MakesDisguise", false);
+    warhead.rocker = readBooleanRuleField(warnings, ini, id, "Rocker", false);
+    warhead.parasite = readBooleanRuleField(warnings, ini, id, "Parasite", false);
+    warhead.culling = readBooleanRuleField(warnings, ini, id, "Culling", false);
+    warhead.paralyzes = std::max(0, readIntegerRuleField(warnings, ini, id, "Paralyzes", 0));
+    warhead.ivanBomb = readBooleanRuleField(warnings, ini, id, "IvanBomb", false);
+    warhead.bombDisarm = readBooleanRuleField(warnings, ini, id, "BombDisarm", false);
+    warhead.airstrike = readBooleanRuleField(warnings, ini, id, "Airstrike", false);
+    warhead.isLocomotor = readBooleanRuleField(warnings, ini, id, "IsLocomotor", false);
     warhead.locomotor = trim(ini.getValue(id, "Locomotor", ""));
-    warhead.cellInset = std::max(0, readInt(ini, id, "CellInset", 0));
+    warhead.cellInset = std::max(0, readIntegerRuleField(warnings, ini, id, "CellInset", 0));
     WarheadLifecycleProfile lifecycle;
     lifecycle.id = id;
-    lifecycle.shakeXlo = readInt(ini, id, "ShakeXlo", 0);
-    lifecycle.shakeXhi = readInt(ini, id, "ShakeXhi", 0);
-    lifecycle.shakeYlo = readInt(ini, id, "ShakeYlo", 0);
-    lifecycle.shakeYhi = readInt(ini, id, "ShakeYhi", 0);
+    lifecycle.shakeXlo = readIntegerRuleField(warnings, ini, id, "ShakeXlo", 0);
+    lifecycle.shakeXhi = readIntegerRuleField(warnings, ini, id, "ShakeXhi", 0);
+    lifecycle.shakeYlo = readIntegerRuleField(warnings, ini, id, "ShakeYlo", 0);
+    lifecycle.shakeYhi = readIntegerRuleField(warnings, ini, id, "ShakeYhi", 0);
     warhead.lifecycle = lifecycle;
+    return lifecycle;
+}
+
+} // namespace
+
+WarheadType RulesDatabase::loadWarheadType(const IniFile& ini, const std::string& id) {
+    WarheadType warhead;
+
+    warhead.id = id;
+    warhead.attachEffect = loadAttachEffect(ini, id, true);
+    WarheadLifecycleProfile lifecycle = applyWarheadRuleFields(
+        ini, id, weaponTypes_, warhead, warnings_);
     cacheWarheadLifecycleProfile(this, std::move(lifecycle));
     warhead.profile = warheadProfileForObject(warhead);
 

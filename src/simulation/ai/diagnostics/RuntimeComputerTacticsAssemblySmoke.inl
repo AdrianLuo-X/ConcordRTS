@@ -99,7 +99,8 @@ bool runRuntimeComputerTacticsAssemblySmoke(const RuntimeConfig& config, std::st
 #include "simulation/ai/diagnostics/RuntimeComputerTacticsLifecycleSmoke.inl"
         return true;
     }
-    if (std::getenv("CONCORD_COMMAND_SMOKE_COMPUTER_TACTICS_COOPERATION_ONLY")) {
+    const bool teamWeaponsOnly = std::getenv("CONCORD_COMMAND_SMOKE_COMPUTER_TEAM_SUPERWEAPONS_ONLY") != nullptr;
+    if (teamWeaponsOnly || std::getenv("CONCORD_COMMAND_SMOKE_COMPUTER_TACTICS_COOPERATION_ONLY")) {
 #include "simulation/ai/diagnostics/RuntimeComputerTacticsCooperationSmoke.inl"
         return true;
     }

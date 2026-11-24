@@ -382,6 +382,28 @@ bool runRuntimeSlaveMinerLifecycleSmoke(RuntimeWindowState& live,std::string& er
             const std::vector<int> victims(initialIds.begin(),initialIds.end());
             if(!killWorkers(victims))return false;
         }else{
+            // All five workers begin with their ordinary automatic ore target.
+            // Give the real order stream separate nearby deposits before the
+            // simultaneous partial-load checkpoint so access to one deposit
+            // does not serialize different workers' harvesting windows.
+            stage="native approaches to separate deposits";
+            const std::array<RuntimeCellPoint, 5> nearbyOre{{
+                {38,32}, {38,33}, {38,34}, {39,32}, {39,34}
+            }};
+            std::size_t orderIndex=0;
+            for(int id:initialIds) {
+                const auto& task=s.slaveMinerTasks.at(id);
+                if(!orePoint(task.targetOre) || task.cargoUnits!=0
+                    || task.phase!=RuntimeSlaveMinerPhase::MovingToOre) {
+                    return fail("native worker did not start its ordinary initial ore trip");
+                }
+                const auto target=nearbyOre.at(orderIndex++);
+                if(!orePoint(target)) return fail("authored deposit is missing ore");
+                if(task.targetOre!=target && !manualOrder(id,target,false)) return false;
+                if(s.slaveMinerTasks.at(id).targetOre!=target) {
+                    return fail("native order did not bind the authored deposit");
+                }
+            }
             stage="actual partial harvesting before repack";
             if(!wait(hz*90,[&](){for(int id:initialIds){const auto* w=findObjectById(s,id);const auto& t=s.slaveMinerTasks.at(id);
                     if(!w||w->renderMoveActive||t.cargoUnits<1||t.cargoUnits>=capacity||t.phase!=RuntimeSlaveMinerPhase::Harvesting||t.workTicksRemaining<=2)return false;}return true;},"all five did not genuinely harvest partial original cargo"))return false;

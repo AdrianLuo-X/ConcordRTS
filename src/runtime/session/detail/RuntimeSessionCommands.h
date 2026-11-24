@@ -178,6 +178,8 @@ std::string runtimePlayerCommunicationViewerOwner(const RuntimeProductionHostSta
 bool runtimePlayerBeaconVisibleToLocal(const RuntimeProductionHostState& state,
     const RuntimePlayerBeacon& beacon);
 
+RuntimePlayerBeacon* runtimePlayerSelectedBeacon(RuntimeProductionHostState& state);
+
 std::optional<std::size_t> runtimePlayerChatSlot(const RuntimeProductionHostState& state,
     const std::string& owner);
 

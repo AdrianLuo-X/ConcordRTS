@@ -59,7 +59,7 @@ bool runRuntimeChronosphereCallerClockSmoke(RuntimeWindowState& stock,std::ostre
         s.camera.worldOffsetX=projected.x-600; s.camera.worldOffsetY=projected.y-400;
         s.uiClock=&uiClock; s.worldAudioClock=&clock;
         if (!loadRuntimeSoundDatabase(s)) return std::unique_ptr<RuntimeWindowState>{};
-        s.runtimeSoundIntentHistory.clear(); s.runtimeWorldAudioBackendActionHistory.clear();
+        s.runtimeSoundIntentHistory.clear(); s.worldAudioBackend.clearHistory();
         int id=1;for(const auto& object:s.world.getObjects())id=std::max(id,object.instanceId+1);
         const auto building=[&](const BuildingType& rule,int x,int y){
             WorldObjectInstance object;object.instanceId=id++;object.kind=WorldObjectKind::Structure;
@@ -103,7 +103,7 @@ bool runRuntimeChronosphereCallerClockSmoke(RuntimeWindowState& stock,std::ostre
         const auto& x=s.chronosphereSelectionAudio;
         stream<<std::quoted(x.owner)<<' '<<std::quoted(x.weaponId)<<' '<<x.cell.x<<' '<<x.cell.y<<' '<<x.cell.level<<' '<<x.selected<<'\n';sound(stream,x.sound);
         for(const auto& event:s.runtimeSoundIntentHistory) stream<<std::quoted(event)<<'\n';
-        for(const auto& event:s.runtimeWorldAudioBackendActionHistory) {
+        for(const auto& event:s.worldAudioBackend.history()) {
             stream<<int(event.kind)<<' '<<event.handleId<<' '<<std::quoted(event.eventId)<<' '<<std::quoted(event.sampleName)
                 <<' '<<event.waypointId<<' '<<event.cell.x<<' '<<event.cell.y<<' '<<event.cell.level<<' '
                 <<event.eventTick<<' '<<event.playbackOrdinal<<' '<<event.gainPermille<<' '<<event.frequencyPermille

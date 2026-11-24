@@ -27,6 +27,12 @@ struct RuntimePlayerDefeatNoticeState {
     std::set<std::string> announcedOwners;
     bool suppressExisting = false;
 
+    void reset() noexcept {
+        lines.clear();
+        announcedOwners.clear();
+        suppressExisting = false;
+    }
+
     // Commit exchanges container storage directly; moving an entire set may allocate.
     friend void swap(RuntimePlayerDefeatNoticeState& live,
         RuntimePlayerDefeatNoticeState& loaded) noexcept {

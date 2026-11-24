@@ -1,21 +1,19 @@
 // G005 actual GPU source materials. CPU depth/owner acceptance and order remain authoritative.
-static void runtimeGpuDepthOperations(const RuntimeBuildingDepthBlendPixel& blend,std::size_t afterOrdinal,
-    std::vector<std::array<std::uint32_t,4>>& operations) {
-    int groupOwner=-1;const auto finish=[&]{if(groupOwner>=0&&runtimeBuildingDepthFrame->frozenOwners.contains(groupOwner))operations.push_back({0,257});};
-    for(const auto& layer:blend.layers){if(afterOrdinal){const auto found=runtimeBuildingDepthFrame->ownerPaintOrdinals.find(layer.owner);
-            if(found!=runtimeBuildingDepthFrame->ownerPaintOrdinals.end()&&found->second<=afterOrdinal)continue;}
-        if(layer.owner!=groupOwner){finish();groupOwner=layer.owner;if(runtimeBuildingDepthFrame->frozenOwners.contains(groupOwner))operations.push_back({0,256});}
-        operations.push_back(layer.material==UINT32_MAX?std::array<std::uint32_t,4>{layer.color,static_cast<std::uint32_t>(layer.opacity),0,0}:std::array<std::uint32_t,4>{layer.material,static_cast<std::uint32_t>(layer.opacity),layer.sourceIndex,1});
-    }finish();
-}
-static bool runtimeGpuRestoreFrozenUnderlay(const RuntimeMapRenderContext& context,int owner) {
-    if(!runtimeGpuWorldTarget(context))return false;auto* frame=runtimeBuildingDepthFrame;
-    if(!frame||!frame->frozenOwners.contains(owner)||frame->frozenUnderlays.empty())return true;
-    try{const int height=frame->viewport.bottom-frame->viewport.top;std::vector<std::array<std::uint32_t,2>> descriptors(frame->pixels.size());std::vector<std::array<std::uint32_t,4>> operations;
-        for(const auto& [p,blend]:frame->frozenUnderlays){if(frame->pixels[p].visibleOwner!=owner)continue;const auto start=operations.size();
-            runtimeGpuDepthOperations(blend,frame->nonBuildingPixels[p],operations);descriptors[p]={static_cast<std::uint32_t>(start),static_cast<std::uint32_t>(operations.size()-start)};}
-        (void)runtimeGpuWorldChain(frame->viewport,frame->width,height,descriptors,operations);
-    }catch(...){runtimeGpuWorldOwner->reject("world-frozen-underlay-budget");}return true;
+static bool runtimeGpuRestoreFrozenUnderlay(const RuntimeMapRenderContext& context, int owner) {
+    if (!runtimeGpuWorldTarget(context))
+        return false;
+    auto* frame = runtimeBuildingDepthFrame;
+    if (!frame || !frame->frozenOwners.contains(owner) || frame->frozenUnderlays.empty())
+        return true;
+    try {
+        const int height = frame->viewport.bottom - frame->viewport.top;
+        const auto chains = concord::render::buildRuntimeBuildingDepthGpuUnderlay(frame->frozenUnderlays,
+            frame->pixels, frame->nonBuildingPixels, owner, {frame->frozenOwners, frame->ownerPaintOrdinals});
+        (void)runtimeGpuWorldChain(frame->viewport, frame->width, height, chains.descriptors, chains.operations);
+    } catch (...) {
+        runtimeGpuWorldOwner->reject("world-frozen-underlay-budget");
+    }
+    return true;
 }
 static bool runtimeGpuWorldShp(HDC dc,const RECT& viewport,const POINT& center,const RuntimeMapRenderContext& context,
     const RuntimeMapCamera& camera,const RuntimeShpFrameImage& image,const std::vector<RuntimePaletteColor>& palette,
@@ -27,19 +25,26 @@ static bool runtimeGpuWorldShp(HDC dc,const RECT& viewport,const POINT& center,c
         auto c=runtimeGpuWorldRegion(clipped,concord::render::MapDrawKind::Sprite);if(c.left>=c.right||c.top>=c.bottom)return true;
         const auto material=runtimeGpuPrepareSpriteMaterial(context,camera,image,palette,ownerRemap,remapColor,brightnessLift,vxlColorGrade,vxlPaletteLookup);
         if(material==UINT32_MAX)return true;
-        std::vector<unsigned char> mask(static_cast<std::size_t>(image.width)*image.height);std::vector<std::array<std::uint32_t,2>> descriptors;std::vector<std::array<std::uint32_t,4>> operations;
-        if(depthEnabled&&!runtimeBuildingDepthFrame->blends.empty())descriptors.resize(mask.size());
+        std::vector<unsigned char> mask(static_cast<std::size_t>(image.width)*image.height);
+        concord::render::RuntimeBuildingDepthGpuChains chains;
+        if (depthEnabled && !runtimeBuildingDepthFrame->blends.empty())
+            chains.descriptors.resize(mask.size());
         for(int sy=c.top;sy<c.bottom;++sy)for(int sx=c.left;sx<c.right;++sx){const int x=sx-rect.left,y=sy-rect.top;const auto index=static_cast<std::size_t>(y)*image.width+x;if(!image.pixels[index])continue;
             if(depthEnabled&&!acceptRuntimeBuildingPixel(depth,rect,x,y,opacity))continue;
-            if(depthEnabled&&!descriptors.empty()){
-                auto* frame=runtimeBuildingDepthFrame;const auto p=static_cast<std::size_t>(sy-frame->viewport.top)*frame->width+sx-frame->viewport.left;auto found=frame->blends.find(p);
-                if(found!=frame->blends.end()){if(!found->second.emitted){const auto start=operations.size();runtimeGpuDepthOperations(found->second,0,operations);
-                        descriptors[index]={static_cast<std::uint32_t>(start),static_cast<std::uint32_t>(operations.size()-start)};found->second.emitted=true;}continue;}}
+            if (depthEnabled && !chains.descriptors.empty()) {
+                auto* frame = runtimeBuildingDepthFrame;
+                const auto pixel = static_cast<std::size_t>(sy - frame->viewport.top) * frame->width
+                    + sx - frame->viewport.left;
+                if (concord::render::appendRuntimeBuildingDepthGpuPixel(frame->blends, pixel, index,
+                        {frame->frozenOwners, frame->ownerPaintOrdinals}, chains))
+                    continue;
+            }
             mask[index]=1;if(!depthEnabled&&opacity>0)recordRuntimeBuildingUnderlayForeground(sx,sy);
         }
         auto* list=runtimeGpuWorldOwner->drawList();if(!list)return true;c.originX=rect.left;c.originY=rect.top;c.width=image.width;c.height=image.height;c.stride=image.width;c.flags=0;c.parameter=static_cast<std::uint32_t>(std::clamp(opacity,0,255));
         c.offset=material;c.auxiliary=list->intern(mask);(void)runtimeGpuWorldEmit(c);
-        if(!operations.empty())(void)runtimeGpuWorldChain(rect,image.width,image.height,descriptors,operations);
+        if (!chains.operations.empty())
+            (void)runtimeGpuWorldChain(rect, image.width, image.height, chains.descriptors, chains.operations);
     }catch(...){runtimeGpuWorldOwner->reject("world-sprite-bridge-budget");}return true;
 }
 

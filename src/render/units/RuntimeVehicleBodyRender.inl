@@ -1,89 +1,32 @@
-struct RuntimeVehicleBodyImpact {
-    const RuntimeImpactRenderActor* actor = nullptr;
-    double radius = 0.0;
-    double age = 0.0;
-    double duration = 0.0;
-    double coefficient = 0.0;
-};
+using concord::render::RuntimeVehicleBodyImpact;
+using concord::render::RuntimeVehicleBodyPoseSources;
 
-double runtimeVehicleBlastRockingCoefficient(const WarheadType& warhead, const RulesDatabase& rules) {
-    if (warhead.rocker) return rules.getSpecialMechanismRules().directRockingCoefficient;
-    // A narrow armor-piercing hit should only nudge the hull. Large area
-    // explosions retain their existing response; explicit Rocker stays strong.
-    return 0.65 * std::clamp(warhead.cellSpread, 0.0, 1.0);
-}
-
-bool runtimeVehicleBodyHasBlastIntent(const RuntimeImpactRenderActor& impact) {
-    if (impact.renderIntent == "warheadImpact" || impact.renderIntent == "bombImpact"
-        || impact.renderIntent == "deathImpact" || impact.renderIntent == "unitDestruction"
-        || impact.renderIntent == "superWeaponEffect") return true;
-    // Snapshot records keep the hit lifecycle and its age, but intentionally
-    // omit presentation tags. Recover the same impulse without new authority.
-    return (impact.renderIntent.empty() || impact.renderIntent == "impact")
-        && (impact.lifecycleState == "Impact" || impact.lifecycleState == "DeathImpact");
-}
-
-struct RuntimeVehicleBodyPoseSources {
-    std::unordered_map<int, const SpecialMechanismRenderSnapshot*> parasitesByTarget;
-    std::unordered_map<int, const SpecialMechanismRenderSnapshot*> squidByTarget;
-    std::vector<RuntimeVehicleBodyImpact> impacts;
-    RuntimeRenderSpatialIndex impactIndex;
-    bool impactsIndexed = false;
-    mutable std::vector<std::size_t> impactCandidates;
-
-    void prepare(const RuntimeMapRenderContext& context, bool buildIndex = true) {
-        if (context.rules == nullptr) return;
-        const double hz = std::max(1, context.fixedTickHz);
-        if (context.specialMechanismSnapshots != nullptr) {
-            for (const auto& snapshot : *context.specialMechanismSnapshots) {
-                if (snapshot.kind != "parasite" || snapshot.intensity <= 0) continue;
-                if (snapshot.phase == "organic") {
-                    squidByTarget.try_emplace(snapshot.targetObjectId, &snapshot);
-                    continue;
-                }
-                const auto* warhead = context.rules->findWarheadType(snapshot.resourceId);
-                if (warhead != nullptr && !warhead->rocker) continue;
-                // Preserve the first eligible attachment for each target.
-                parasitesByTarget.try_emplace(snapshot.targetObjectId, &snapshot);
-            }
-        }
-        if (context.impactActors != nullptr) {
-            for (const auto& impact : *context.impactActors) {
-                if (impact.damage <= 0 || impact.remainingTicks <= 0 || impact.totalTicks <= 0
-                    || !runtimeVehicleBodyHasBlastIntent(impact)) continue;
-                const auto* wh = context.rules->findWarheadType(impact.warheadId);
-                if (wh == nullptr || wh->parasite || wh->mindControl || wh->temporal || wh->psychedelic
-                    || wh->radiation || wh->psychicDamage || wh->electricAssault
-                    || (!wh->rocker && wh->cellSpread <= 0.0)) continue;
-                impacts.push_back({&impact,
-                    std::clamp(std::max(wh->cellSpread, 0.5) + 1.25, 1.0, 6.0),
-                    (impact.totalTicks - impact.remainingTicks) / hz,
-                    std::min(0.9, impact.totalTicks / hz),
-                    runtimeVehicleBlastRockingCoefficient(*wh, *context.rules)});
-            }
-        }
-        impactsIndexed = buildIndex && !runtimeMovementReferenceForRender() && impacts.size() > 16;
-        if (impactsIndexed) {
-            for (const auto& source : impacts) {
-                const auto& impact = *source.actor;
-                // The extra cell keeps bucket bounds conservative even at
-                // floating-point boundaries. Exact 3D distance remains below.
-                // Invalid heights must retain the original all-source behavior.
-                const double radius = std::isfinite(impact.level)
-                    ? source.radius + 1.0 : std::numeric_limits<double>::quiet_NaN();
-                impactIndex.add(impact.x - radius, impact.y - radius,
-                    impact.x + radius, impact.y + radius);
-            }
+void prepareRuntimeVehicleBodyPoseSources(
+    RuntimeVehicleBodyPoseSources& sources, const RuntimeMapRenderContext& context, bool buildIndex = true
+) {
+    if (context.rules == nullptr) return;
+    const double hz = std::max(1, context.fixedTickHz);
+    if (context.specialMechanismSnapshots != nullptr)
+        sources.captureAttachments(*context.specialMechanismSnapshots, *context.rules);
+    if (context.impactActors != nullptr) {
+        for (const auto& impact : *context.impactActors) {
+            if (!runtimeVehicleBodyHasLiveBlast(impact.damage, impact.remainingTicks, impact.totalTicks,
+                impact.renderIntent, impact.lifecycleState)) continue;
+            const auto* wh = context.rules->findWarheadType(impact.warheadId);
+            if (!runtimeVehicleBodyWarheadCanRock(wh)) continue;
+            const double directRocking = wh->rocker
+                ? context.rules->getSpecialMechanismRules().directRockingCoefficient : 0.0;
+            sources.impacts.push_back({&impact, runtimeVehicleBlastPresentation(
+                *wh, impact.totalTicks, impact.remainingTicks, hz, directRocking)});
         }
     }
-
-    const std::vector<std::size_t>* candidatesFor(double x, double y, double z) const {
-        if (!impactsIndexed || !std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z))
-            return nullptr;
-        impactIndex.query(x, y, impactCandidates);
-        return &impactCandidates;
+    if (sources.beginImpactIndex(buildIndex && !runtimeMovementReferenceForRender())) {
+        for (const auto& source : sources.impacts) {
+            const auto& impact = *source.actor;
+            sources.indexImpact(impact.x, impact.y, impact.level, source.presentation.radius);
+        }
     }
-};
+}
 
 struct RuntimeVehicleBodyPoseRenderScope {
     static inline thread_local RuntimeVehicleBodyPoseRenderScope* active = nullptr;
@@ -107,7 +50,7 @@ struct RuntimeVehicleBodyPoseRenderScope {
     }
     const RuntimeVehicleBodyPoseSources& get(const RuntimeMapRenderContext& context) {
         if (!prepared) {
-            sources.prepare(context);
+            prepareRuntimeVehicleBodyPoseSources(sources, context);
             prepared = true;
         }
         return sources;
@@ -131,16 +74,13 @@ RuntimeVehicleBodyPose runtimeVehicleBodyPoseForRender(
     RuntimeVehicleBodyPoseSources localSources;
     auto* scope = RuntimeVehicleBodyPoseRenderScope::active;
     const bool shareSources = scope != nullptr && scope->matches(context);
-    if (!shareSources) localSources.prepare(context, false);
+    if (!shareSources) prepareRuntimeVehicleBodyPoseSources(localSources, context, false);
     const auto& sources = shareSources ? scope->get(context) : localSources;
     if (unit->naval) {
         const auto squid = sources.squidByTarget.find(object.instanceId);
         if (unit->organic || squid == sources.squidByTarget.end()) return terrainPose;
-        pose.roll = runtimeSquidGrapplePose(squid->second->progress, context.fixedTickHz).roll;
-        pose.hullLocalRoll = true;
-        pose.hullYaw = (worldObjectArtFacingBucket(object.facing, 32) - 8)
-            * 6.283185307179586 / 32;
-        return pose;
+        return concord::render::runtimeVehicleGrappleHullPose(
+            squid->second->progress, context.fixedTickHz, object.facing);
     }
     const auto parasite = sources.parasitesByTarget.find(object.instanceId);
     if (parasite != sources.parasitesByTarget.end()) {
@@ -155,12 +95,8 @@ RuntimeVehicleBodyPose runtimeVehicleBodyPoseForRender(
         const double z = object.hasRenderPosition ? object.renderLevel : object.level;
         const auto applyImpact = [&](const RuntimeVehicleBodyImpact& source) {
             const auto& impact = *source.actor;
-            const double dx = x - impact.x, dy = y - impact.y;
-            const double distance = std::sqrt(dx * dx + dy * dy + (z - impact.level) * (z - impact.level));
-            const auto impulse = runtimeVehicleBlastMotion(
-                source.age, source.duration, dx, dy, distance, source.radius,
-                impact.damage, unit->weight, source.coefficient);
-            pose.pitch += impulse.pitch; pose.roll += impulse.roll; pose.height += impulse.height;
+            concord::render::accumulateRuntimeVehicleBlastPose(pose, source.presentation,
+                {x, y, z}, {impact.x, impact.y, impact.level}, impact.damage, unit->weight);
         };
         if (const auto* candidates = sources.candidatesFor(x, y, z)) {
             for (const std::size_t index : *candidates) applyImpact(sources.impacts[index]);
@@ -168,63 +104,28 @@ RuntimeVehicleBodyPose runtimeVehicleBodyPoseForRender(
             for (const auto& source : sources.impacts) applyImpact(source);
         }
     }
-    pose.pitch = std::clamp(pose.pitch, -0.31, 0.31);
-    pose.roll = std::clamp(pose.roll, -0.31, 0.31);
-    pose.height = std::clamp(pose.height, 0.0, 0.22);
-    // Bound the impact motion before adding the independent resting plane.
-    // Otherwise a real ramp would be cropped by the old impulse-only limit.
-    pose.pitch += terrainPose.pitch;
-    pose.roll += terrainPose.roll;
-    pose.terrainPitch = terrainPose.terrainPitch;
-    pose.terrainRoll = terrainPose.terrainRoll;
-    pose.terrainHeight = terrainPose.terrainHeight;
-    pose.terrainSupported = terrainPose.terrainSupported;
-    return pose;
+    return concord::render::composeRuntimeGroundBodyPose(pose, terrainPose);
 }
 
 void touchRuntimeVehicleBodyVoxelCache(
     RuntimeMapRenderCache& cache, RuntimeVoxelCacheEntry& entry,
     const std::string& rasterKey, const std::string& lookupKey
 ) {
-    auto use = cache.vehicleBodyPoseUses.extract(entry.vehicleBodyPoseUse);
-    const std::uint64_t sequence = ++cache.vehicleBodyPoseUseSequence;
-    if (use.empty()) {
-        cache.vehicleBodyPoseUses.emplace(sequence,
-            RuntimeVehicleBodyPoseCacheReference{rasterKey, lookupKey});
-    } else {
-        // Exact scale lookup keys can alias the same raster key. Keep only the
-        // current alias so eviction also bounds the secondary lookup cache.
-        auto& reference = use.mapped();
-        if (!lookupKey.empty() && reference.lookupKey != lookupKey) {
-            const auto old = cache.stableVoxelCacheKeyByLookup.find(reference.lookupKey);
-            if (old != cache.stableVoxelCacheKeyByLookup.end()
-                && old->second == reference.rasterKey)
-                cache.stableVoxelCacheKeyByLookup.erase(old);
-            reference.lookupKey = lookupKey;
-        }
-        use.key() = sequence;
-        cache.vehicleBodyPoseUses.insert(std::move(use));
-    }
-    entry.vehicleBodyPoseUse = sequence;
+    concord::render::touchRuntimeVehicleBodyPoseUse(cache.vehicleBodyPoseUses,
+        cache.stableVoxelCacheKeyByLookup, cache.vehicleBodyPoseUseSequence,
+        entry.vehicleBodyPoseUse, rasterKey, lookupKey);
     cache.vehicleBodyPoseCacheEntries = static_cast<int>(cache.vehicleBodyPoseUses.size());
 }
 
 void trimRuntimeVehicleBodyVoxelCache(RuntimeMapRenderCache& cache) {
-    constexpr std::size_t capacity = 768;
-    while (cache.vehicleBodyPoseUses.size() > capacity) {
-        const auto oldest = cache.vehicleBodyPoseUses.begin();
-        const auto& reference = oldest->second;
-        const auto raster = cache.voxelObjectsByType.find(reference.rasterKey);
-        if (raster != cache.voxelObjectsByType.end()
-            && raster->second.vehicleBodyPoseUse == oldest->first)
-            cache.voxelObjectsByType.erase(raster);
-        const auto lookup = cache.stableVoxelCacheKeyByLookup.find(reference.lookupKey);
-        if (lookup != cache.stableVoxelCacheKeyByLookup.end()
-            && lookup->second == reference.rasterKey)
-            cache.stableVoxelCacheKeyByLookup.erase(lookup);
-        cache.vehicleBodyPoseUses.erase(oldest);
-        ++cache.vehicleBodyPoseCacheEvictions;
-    }
+    concord::render::trimRuntimeVehicleBodyPoseUses(cache.vehicleBodyPoseUses,
+        cache.stableVoxelCacheKeyByLookup, cache.vehicleBodyPoseCacheEvictions,
+        [&](const std::string& key, std::uint64_t use) {
+            const auto raster = cache.voxelObjectsByType.find(key);
+            if (raster != cache.voxelObjectsByType.end()
+                && raster->second.vehicleBodyPoseUse == use)
+                cache.voxelObjectsByType.erase(raster);
+        });
     cache.vehicleBodyPoseCacheEntries = static_cast<int>(cache.vehicleBodyPoseUses.size());
 }
 

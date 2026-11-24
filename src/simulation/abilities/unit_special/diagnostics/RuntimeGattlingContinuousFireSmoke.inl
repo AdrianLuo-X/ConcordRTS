@@ -440,7 +440,7 @@ bool runRuntimeGattlingContinuousFireSmoke(RuntimeWindowState& live, std::string
         std::string lastPresentedEvent; std::uint64_t lastPresentedTime = 0;
     };
     const auto collectAudio = [&](RuntimeWindowState& s, SoundProbe& probe, bool restored) {
-        for (const auto& action : s.runtimeWorldAudioBackendActionHistory) {
+        for (const auto& action : s.worldAudioBackend.history()) {
             if (action.sourceObjectId != 1 || action.kind != RuntimeWorldAudioActionKind::Play
                 || (action.handleId != runtimeGattlingSoundHandle(1, 0) && action.handleId != runtimeGattlingSoundHandle(1, 1))) continue;
             const auto event = std::find(reports.begin(), reports.end(), action.eventId); if (event == reports.end()) return fail("managed source used a foreign sound event");
@@ -480,13 +480,13 @@ bool runRuntimeGattlingContinuousFireSmoke(RuntimeWindowState& live, std::string
             // Its first queued sample (ordinal 0) gives the original duration;
             // nextSample is precisely creation time plus that duration. Do not
             // guess the epoch from a later GetTickCount64 observation.
-            const auto first = std::find_if(s.runtimeWorldAudioBackendActionHistory.rbegin(),
-                s.runtimeWorldAudioBackendActionHistory.rend(), [&](const RuntimeWorldAudioAction& action) {
+            const auto first = std::find_if(s.worldAudioBackend.history().rbegin(),
+                s.worldAudioBackend.history().rend(), [&](const RuntimeWorldAudioAction& action) {
                     return action.kind == RuntimeWorldAudioActionKind::Play && action.sourceObjectId == 1
                         && action.handleId == runtimeGattlingSoundHandle(1, 0) && action.eventId == current->second.event
                         && action.playbackOrdinal == 0 && action.queueAfterCurrent;
                 });
-            if (first == s.runtimeWorldAudioBackendActionHistory.rend()
+            if (first == s.worldAudioBackend.history().rend()
                 || current->second.ordinal != 2 || !sampleMilliseconds.contains(first->sampleName)
                 || current->second.nextSampleMilliseconds < sampleMilliseconds.at(first->sampleName))
                 return fail("actual stage has no exact initial sample schedule: " + current->second.event
@@ -786,9 +786,9 @@ bool runRuntimeGattlingContinuousFireSmoke(RuntimeWindowState& live, std::string
                     nextTick += 1000 / hz;
                 }
                 advanceRuntimeGattlingWeaponAudio(s, now); if (!collectAudio(s, sound, false)) return false;
-                const auto probe = s.runtimeVoiceAudio->probe(handle); const auto binding = s.runtimeWorldAudioBackendBindings.find(handle);
+                const auto probe = s.runtimeVoiceAudio->probe(handle); const auto binding = s.worldAudioBackend.bindings().find(handle);
                 if (!probe.available || probe.masterVolume != 0 || probe.buffersQueued < 1 || !s.runtimeVoiceAudio->isPlaying(handle).value_or(false)
-                    || probe.samplesPlayed < lastSamples || binding == s.runtimeWorldAudioBackendBindings.end()
+                    || probe.samplesPlayed < lastSamples || binding == s.worldAudioBackend.bindings().end()
                     || binding->second.action.sourceObjectId != 1 || binding->second.action.eventId != reports[2]
                     || (bindingOrder && binding->second.playbackOrder != bindingOrder))
                     return fail("actual highest original voice dropped/reopened/stopped its queued sequence");
@@ -822,7 +822,7 @@ bool runRuntimeGattlingContinuousFireSmoke(RuntimeWindowState& live, std::string
             reapRuntimeWorldAudioBackendBindings(s);
             if (s.runtimeVoiceAudio->isPlaying(runtimeGattlingSoundHandle(1, 0)).value_or(false)
                 || s.runtimeVoiceAudio->isPlaying(handle).value_or(false)
-                || s.runtimeWorldAudioBackendBindings.contains(runtimeGattlingSoundHandle(1, 0)) || s.runtimeWorldAudioBackendBindings.contains(handle))
+                || s.worldAudioBackend.bindings().contains(runtimeGattlingSoundHandle(1, 0)) || s.worldAudioBackend.bindings().contains(handle))
                 return fail("original finite decay did not naturally finish on the actual device");
             s.runtimeSoundsEnabled = false;
         }

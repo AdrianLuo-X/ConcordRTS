@@ -1,7 +1,8 @@
 bool runRuntimeRemainingControlsSmoke(const RuntimeConfig& config,std::string& error) {
     const auto fail=[&](const std::string& why){error="Remaining controls: "+why;return false;};
     const char* output=std::getenv("CONCORD_CONTROLS_OUTPUT");
-    const std::filesystem::path root=output?output:"build/smoke/remaining-controls";
+    if (!output || !*output) return fail("CONCORD_CONTROLS_OUTPUT must name a private output directory");
+    const std::filesystem::path root(output);
     std::filesystem::create_directories(root);
     auto storage=std::make_unique<RuntimeWindowState>();auto& s=*storage;
     s.config=config;s.config.computerAiEnabled=false;s.config.playerSlots.clear();s.config.gameMode="Battle";
@@ -50,7 +51,7 @@ bool runRuntimeRemainingControlsSmoke(const RuntimeConfig& config,std::string& e
     std::set<int> visited;
     for (int category=0;category<5;++category) {
         s.runtimeMenuKeyboardCategory=category;s.runtimeMenuKeyboardPage=0;
-        const int pages=runtimeKeyboardCategoryPages(s);
+        const int pages=runtimeKeyboardCategoryPages(s.runtimeMenuKeyboardBindings, s.runtimeMenuKeyboardCategory);
         for (int page=0;page<pages;++page) {
             s.runtimeMenuKeyboardPage=page;
             for (const auto& control:runtimeMenuContentControls(s,client)) {

@@ -16,39 +16,17 @@ bool resolveRuntimeStructureWeaponMuzzlePoint(const WorldObjectInstance& object,
     const bool secondaryOffset = secondary && !art->secondaryFirePixelOffset.empty();
     const auto& text = secondaryOffset ? art->secondaryFirePixelOffset : art->primaryFirePixelOffset;
     if (!text.empty()) {
-        std::istringstream stream(text);
-        int x = 0, y = 0;
-        char comma = 0;
-        if (!(stream >> x >> comma >> y) || comma != ',' || (stream >> std::ws, !stream.eof())
-            || x < -32768 || x > 32767 || y < -32768 || y > 32767) return false;
-        double sx = x, sy = y;
-        if (secondaryOffset ? art->secondaryFireDualOffset : art->primaryFireDualOffset) {
-            constexpr double pi = 3.14159265358979323846;
-            const double angle = (firingFacing & 255) * 2.0 * pi / 256.0;
-            const double fx = (std::sin(angle) - std::cos(angle)) / std::sqrt(2.0);
-            const double fy = (-std::cos(angle) - std::sin(angle)) / std::sqrt(2.0);
-            const double dx = (fx * forwardLeptons - fy * lateralLeptons) / 256.0;
-            const double dy = (fy * forwardLeptons + fx * lateralLeptons) / 256.0;
-            sx += (dx - dy) * 30.0;
-            sy += (dx + dy) * 15.0 - heightLeptons * std::sqrt(6.0) * 15.0 / 256.0;
-        }
-        const POINT center = runtimeRenderPlacementNativePoint(centerPixels);
-        result = {center.x + static_cast<LONG>(std::lround(sx)),
-            center.y + static_cast<LONG>(std::lround(sy))};
-        return true;
+        return concord::render::geometry::resolveAuthoredStructureMuzzle(text,
+            secondaryOffset ? art->secondaryFireDualOffset : art->primaryFireDualOffset,
+            {forwardLeptons, lateralLeptons, heightLeptons}, firingFacing, centerPixels, result);
     }
     const auto attach = [&](RuntimeObjectShpSpriteCacheEntry* sprite, int offsetX, int offsetY) {
         if (!sprite || !sprite->loaded) return false;
         const int width = sprite->image.globalWidth > 0 ? sprite->image.globalWidth : sprite->image.width;
         const int height = sprite->image.globalHeight > 0 ? sprite->image.globalHeight : sprite->image.height;
-        POINT point{};
-        if (!runtimeNativeStructureMuzzleAnchor(sprite->resolvedImageId, sprite->sourceFingerprint,
-                sprite->frameIndex, width, height, point)) return false;
-        // Structure main and active SHPs are center-authored, unlike infantry.
-        const POINT center = runtimeRenderPlacementNativePoint(centerPixels);
-        result = {center.x + offsetX - width / 2 + point.x,
-            center.y + offsetY - height / 2 + point.y};
-        return true;
+        return concord::render::geometry::resolveStructureFrameMuzzle(
+            {sprite->resolvedImageId, sprite->sourceFingerprint, sprite->frameIndex, width, height},
+            centerPixels, {offsetX, offsetY}, result);
     };
     if (toLowerAscii(art->id) == "caeast01")
         return attach(loadRuntimeObjectShpSpriteFromCache(object, context, cache), 0, 0);

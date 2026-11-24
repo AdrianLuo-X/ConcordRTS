@@ -1273,3 +1273,22 @@ include("${CMAKE_CURRENT_LIST_DIR}/CommittedGroundMotionContracts.cmake")
 
 # R011: same actual physical open-transport source query and FLH value.
 include("${CMAKE_CURRENT_LIST_DIR}/OpenTransportSourceContracts.cmake")
+
+# H003: standard local playback session, same Runtime and Contract producer.
+include("${CMAKE_CURRENT_LIST_DIR}/WorldAudioBackendSessionContracts.cmake")
+
+# H005 original tactic policy independent Runtime/Contract profiles.
+include("${CMAKE_CURRENT_LIST_DIR}/ComputerTacticSelectionContracts.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/ComputerTacticLifecycleContracts.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/ComputerTacticReservationsContracts.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/ComputerTacticRecruitmentContracts.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/ComputerBasePlanContracts.cmake")
+
+include("${CMAKE_CURRENT_LIST_DIR}/ComputerTacticProductionContracts.cmake")
+
+include("${CMAKE_CURRENT_LIST_DIR}/NuclearDeathDetonationContracts.cmake")
+
+include("${CMAKE_CURRENT_LIST_DIR}/MindControlOverloadEffectsContracts.cmake")
+
+include("${CMAKE_CURRENT_LIST_DIR}/DominatorControlCompletionContracts.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/SuperWeaponAnimationTimingContracts.cmake")

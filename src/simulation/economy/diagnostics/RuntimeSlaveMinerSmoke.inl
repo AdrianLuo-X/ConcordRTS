@@ -45,6 +45,12 @@ bool runRuntimeSlaveMinerDeliverySmokeProbe(RuntimeWindowState& live, std::strin
             : RuntimeSlaveMinerPhase::Returning;
         const int expectedValue = task.cargoValue;
         probe.slaveMinerTasks[workerId] = task;
+        const auto* workerHome = findObjectById(probe, refineryId);
+        const auto* stockHome = workerHome ? runtimeSlaveMinerParentBuilding(probe, *workerHome) : nullptr;
+        if (!stockHome) return fail("stock slave miner rules are missing");
+        // The one worker under test is already out. Its vacant sibling slots
+        // are recovering on the stock timer, as when those workers are lost.
+        probe.slaveMinerRegenTicks[refineryId] = runtimeSlaveMinerWorkerRegenTicks(probe, *stockHome);
         if (mode == "blocked") {
             for (int y = 7; y <= 10; ++y) for (int x = 7; x <= 10; ++x) {
                 if (x != 7 && x != 10 && y != 7 && y != 10) continue;
@@ -170,12 +176,18 @@ bool runRuntimeSlaveMinerEmergenceSmokeProbe(RuntimeWindowState& live, std::stri
             return fail("no initial workers");
         const int wanted = building->slavesNumber;
         std::map<int, RuntimeCellPoint> lastCells;
+        std::map<int, std::array<double, 2>> previousWorkerBodies;
+        std::map<int, std::string> previousWorkerOrders;
         for (const auto& [id, task] : fixture->slaveMinerTasks) {
             const auto* worker = findObjectById(*fixture, id);
             if (worker == nullptr || task.refineryId != refineryId
                 || !runtimeSlaveMinerWorkerAtRefinery(*fixture, *worker, *findObjectById(*fixture, refineryId)))
                 return fail("initial worker appeared outside the building");
             lastCells[id] = runtimeCellPointForObject(*worker);
+            const auto foot = worldObjectSubCellOffset(*worker);
+            previousWorkerBodies[id] = {
+                runtimeObjectRenderX(*worker) + foot.x, runtimeObjectRenderY(*worker) + foot.y
+            };
         }
         // Loading a worker before its first movement must not invoke generic
         // infantry overlap relocation and put it on the surrounding ground.
@@ -205,17 +217,56 @@ bool runRuntimeSlaveMinerEmergenceSmokeProbe(RuntimeWindowState& live, std::stri
                 if (worker == nullptr || !worker->alive || task.refineryId != refineryId)
                     return fail("worker identity or parent lost");
                 const auto cell = runtimeCellPointForObject(*worker);
+                const auto foot = worldObjectSubCellOffset(*worker);
+                const std::array<double, 2> body{
+                    runtimeObjectRenderX(*worker) + foot.x, runtimeObjectRenderY(*worker) + foot.y
+                };
                 const bool inside = runtimeSlaveMinerWorkerAtRefinery(probe, *worker, *host);
                 const auto previous = lastCells.find(id);
                 if (previous == lastCells.end()) {
+                    const auto slotOffset = worldObjectSubCellOffset(*worker);
+                    const double bodyX = worker->renderX + slotOffset.x;
+                    const double bodyY = worker->renderY + slotOffset.y;
                     const bool emerging = worker->renderMoveActive && worker->hasRenderPosition
-                        && worker->renderX >= 8.0 && worker->renderX <= 9.0
-                        && worker->renderY >= 8.0 && worker->renderY <= 9.0;
-                    if (!inside && !emerging) return fail("new worker appeared on surrounding ground");
+                        && bodyX >= 8.0 && bodyX <= 9.0
+                        && bodyY >= 8.0 && bodyY <= 9.0;
+                    if (!inside && !emerging) {
+                        std::ostringstream details;
+                        details << "new worker appeared on surrounding ground"
+                                << " tick=" << probe.tick << " worker=" << id
+                                << " refinery=" << host->instanceId
+                                << " logical=" << cell.x << ',' << cell.y
+                                << " rendered=" << worker->renderX << ',' << worker->renderY
+                                << " renderActive=" << worker->renderMoveActive
+                                << " hasRenderPosition=" << worker->hasRenderPosition
+                                << " subcell=" << worker->subCell
+                                << " target=" << task.targetOre.x << ',' << task.targetOre.y;
+                        const auto order = probe.behaviors.find(id);
+                        if (order != probe.behaviors.end()) {
+                            details << " command="
+                                    << runtimeMultiplayerSnapshotBehaviorRecord(id, order->second);
+                        }
+                        return fail(details.str());
+                    }
                 } else {
                     if (std::abs(cell.x - previous->second.x) > 1
-                        || std::abs(cell.y - previous->second.y) > 1)
-                        return fail("worker teleported instead of walking");
+                        || std::abs(cell.y - previous->second.y) > 1) {
+                        const auto& priorBody = previousWorkerBodies.at(id);
+                        std::ostringstream detail;
+                        detail << "worker teleported instead of walking tick=" << probe.tick << " id=" << id
+                               << " logical=" << previous->second.x << ',' << previous->second.y
+                               << "->" << cell.x << ',' << cell.y
+                               << " actual=" << priorBody[0] << ',' << priorBody[1]
+                               << "->" << body[0] << ',' << body[1] << " inside=" << inside
+                               << " closed=" << mustStayInside
+                               << " phase=" << runtimeSlaveMinerPhaseName(task.phase);
+                        if (const auto before = previousWorkerOrders.find(id); before != previousWorkerOrders.end())
+                            detail << " previousOrder=" << before->second;
+                        const auto order = probe.behaviors.find(id);
+                        if (order != probe.behaviors.end())
+                            detail << " order=" << runtimeMultiplayerSnapshotBehaviorRecord(id, order->second);
+                        return fail(detail.str());
+                    }
                     if (!inside && runtimeCellDistanceToObjectFootprint(probe, previous->second, *host) == 0.0
                         && (!worker->renderMoveActive || !worker->hasRenderPosition))
                         return fail("worker left without interpolated walk animation");
@@ -223,6 +274,19 @@ bool runRuntimeSlaveMinerEmergenceSmokeProbe(RuntimeWindowState& live, std::stri
                 if (mustStayInside && !inside) return fail("worker escaped through a closed wall ring");
                 if (!inside) emerged.insert(id);
                 lastCells[id] = cell;
+                previousWorkerBodies[id] = body;
+                const auto activeOrder = probe.behaviors.find(id);
+                if (activeOrder != probe.behaviors.end()) {
+                    const auto& move = activeOrder->second;
+                    std::ostringstream observed;
+                    observed << runtimeMultiplayerSnapshotBehaviorRecord(id, move)
+                             << " recovery=" << runtimeCancelledStructureEntryNeedsRecovery(probe, *worker, move)
+                             << " renderFrom=" << move.renderFrom.x << ',' << move.renderFrom.y
+                             << " renderTo=" << move.renderTo.x << ',' << move.renderTo.y;
+                    previousWorkerOrders[id] = observed.str();
+                } else {
+                    previousWorkerOrders[id].clear();
+                }
             }
             return true;
         };
@@ -460,9 +524,41 @@ bool runRuntimeSlaveMinerSmokeProbe(RuntimeWindowState& live, std::string& error
     const int parkedRefineryId = findRefinery()->instanceId;
     const int parkedCredits = probe.economy.credits;
     const int redeployFixtureTick = probe.tick;
+    const auto secondDepositBails = [&]() {
+        int quantity = 0;
+        for (const auto& cell : probe.world.getTerrainCells()) {
+            if (cell.x >= secondOre.x && cell.x < secondOre.x + 3
+                && cell.y >= secondOre.y && cell.y < secondOre.y + 3) {
+                quantity += runtimeResourceBailCountForTerrain(cell);
+            }
+        }
+        return quantity;
+    };
+    const int availableAtDeployment = secondDepositBails();
     for (int tick = 0; tick < 3500 && probe.economy.credits <= parkedCredits; ++tick) step();
-    if (probe.economy.credits <= parkedCredits)
-        return fail("deployment did not naturally resume the stored workers' collection/delivery");
+    if (probe.economy.credits <= parkedCredits) {
+        const auto* home = findObjectById(probe, parkedRefineryId);
+        std::ostringstream detail;
+        detail << "deployment did not naturally resume the stored workers' collection/delivery"
+               << " started=" << redeployFixtureTick << " ended=" << probe.tick
+               << " availableAtDeployment=" << availableAtDeployment << " remaining=" << secondDepositBails()
+               << " credits=" << parkedCredits << " simulation=" << probe.simulationStatus;
+        if (home) detail << " home=" << home->x << ',' << home->y
+            << " buildTicks=" << home->buildAnimTicksRemaining
+            << " paused=" << home->harvestAutoSearchSuspended;
+        for (const auto& [id, task] : probe.slaveMinerTasks) {
+            const auto* worker = findRuntimeObjectByIdIncludingInactive(probe, id);
+            detail << " worker#" << id << '=' << serializeRuntimeSlaveMinerTask(task);
+            if (worker) detail << " cell=" << worker->x << ',' << worker->y
+                << " body=" << runtimeObjectRenderX(*worker) << ',' << runtimeObjectRenderY(*worker)
+                << " mission=" << worker->mission << " active=" << worker->renderMoveActive
+                << " alive=" << worker->alive << " paused=" << worker->harvestAutoSearchSuspended;
+            const auto order = probe.behaviors.find(id);
+            if (order != probe.behaviors.end()) detail << " order="
+                << runtimeMultiplayerSnapshotBehaviorRecord(id, order->second);
+        }
+        return fail(detail.str());
+    }
     const int resumedDeliveryFixtureTick = probe.tick;
     if (!checkRuntimeHarvesterManualMoveSave(probe, parkedRefineryId, error)) return false;
     for (const auto& [id, cargo] : workerCargo) {
@@ -521,10 +617,46 @@ bool runRuntimeSlaveMinerSmokeProbe(RuntimeWindowState& live, std::string& error
             << ',' << storedFixtureTick << ',' << redeployFixtureTick << ',' << resumedDeliveryFixtureTick;
         return fail(detail.str());
     }
+    const int commandedMinerId = commandedMiner->instanceId;
+    const int mineCommandTick = probe.tick;
+    const auto initialOrder = probe.behaviors.find(commandedMinerId);
+    const std::string startingMove = initialOrder == probe.behaviors.end() ? "none"
+        : runtimeMultiplayerSnapshotBehaviorRecord(commandedMinerId, initialOrder->second);
     for (int tick = 0; tick < 2000 && findRefinery() == nullptr; ++tick) step();
     refinery = findRefinery();
-    if (refinery == nullptr || runtimeCellDistanceToObjectFootprint(probe, secondOre, *refinery) > 1.5)
-        return fail("repacked miner did not drive to the commanded deposit and redeploy: " + probe.economy.status);
+    if (refinery == nullptr || runtimeCellDistanceToObjectFootprint(probe, secondOre, *refinery) > 1.5) {
+        std::ostringstream detail;
+        detail << "repacked miner did not drive to the commanded deposit and redeploy: "
+               << probe.economy.status << " simulation=" << probe.simulationStatus
+               << " ticks=" << mineCommandTick << '-' << probe.tick
+               << " mineBails=" << secondDepositBails() << " initialMove=" << startingMove;
+        if (refinery) detail << " refinery=" << refinery->x << ',' << refinery->y;
+        if (const auto* current = findObjectById(probe, commandedMinerId)) {
+            detail << " miner=" << current->type << '#' << current->instanceId
+                   << " cell=" << current->x << ',' << current->y
+                   << " pose=" << runtimeObjectRenderX(*current) << ',' << runtimeObjectRenderY(*current)
+                   << " mission=" << current->mission << " active=" << current->renderMoveActive
+                   << " paused=" << current->harvestAutoSearchSuspended;
+        }
+        if (const auto order = probe.behaviors.find(commandedMinerId); order != probe.behaviors.end()) {
+            detail << " order=" << runtimeMultiplayerSnapshotBehaviorRecord(commandedMinerId, order->second);
+        }
+        for (const auto& [id, task] : probe.slaveMinerTasks) {
+            const auto* worker = findRuntimeObjectByIdIncludingInactive(probe, id);
+            if (!worker) continue;
+            const auto offset = worldObjectSubCellOffset(*worker);
+            detail << "\n  worker#" << id << '=' << serializeRuntimeSlaveMinerTask(task)
+                   << " cell=" << worker->x << ',' << worker->y
+                   << " body=" << runtimeObjectRenderX(*worker) + offset.x << ','
+                   << runtimeObjectRenderY(*worker) + offset.y
+                   << " mission=" << worker->mission << " alive=" << worker->alive
+                   << " active=" << worker->renderMoveActive;
+            if (const auto order = probe.behaviors.find(id); order != probe.behaviors.end()) {
+                detail << " order=" << runtimeMultiplayerSnapshotBehaviorRecord(id, order->second);
+            }
+        }
+        return fail(detail.str());
+    }
     const int secondRefineryId = refinery->instanceId;
     // A direct transform must preserve damage; normal self-healing while moving is allowed.
     auto* completedRefinery = findMutableObjectById(probe, secondRefineryId);

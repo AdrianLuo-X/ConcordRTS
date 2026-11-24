@@ -13,7 +13,7 @@ bool runRuntimeComputerTacticsInteractionSmoke(const RuntimeConfig& config, std:
     if (!initializeRuntimeTriggers(*stock)) return fail("original scripts unavailable");
     const std::string humanOwner = runtimeSkirmishOwnerForSlot(0);
     const std::string aiOwner = runtimeSkirmishOwnerForSlot(1);
-    const auto makeWorld = [&](const std::string& country) {
+    const auto makeWorld = [&](const std::string& country, RuntimeCellPoint humanYard = {27, 27}) {
         auto probe = std::make_unique<RuntimeWindowState>();
         auto& s = *probe;
         s.config = stock->config; s.config.fixedTickHz = 30;
@@ -42,7 +42,7 @@ bool runRuntimeComputerTacticsInteractionSmoke(const RuntimeConfig& config, std:
         s.triggers.computerAiTriggers.clear(); // Isolate the dispatched stock mission.
         s.triggers.bootstrapComplete = true;
         addRuntimeObjectInstanceForOwner(s, humanOwner, RuntimeBuildKind::Building,
-            "GACNST", {27, 27});
+            "GACNST", humanYard);
         addRuntimeObjectInstanceForOwner(s, aiOwner, RuntimeBuildKind::Building,
             country == "YuriCountry" ? "YACNST" : country == "Russians" ? "NACNST" : "GACNST", {1, 27});
         ensureRuntimeComputerAiStates(s);
@@ -213,7 +213,8 @@ bool runRuntimeComputerTacticsInteractionSmoke(const RuntimeConfig& config, std:
         std::cout << "Computer engineers: stock 08B95EFC-G physical entry=yes factory then power=yes\n";
     }
     for (int mode = 0; mode <= 4; ++mode) {
-        auto probe = makeWorld("Russians"); auto& s = *probe;
+        // Keep the hostile base outside the loaded travel and return routes.
+        auto probe = makeWorld("Russians", {29, 1}); auto& s = *probe;
         RuntimeScriptType script; script.id = "transport-release-modes";
         script.steps = {{14, 0}, {43, 0}, {5, 100000}};
         s.triggers.scripts[script.id] = script;
@@ -248,11 +249,36 @@ bool runRuntimeComputerTacticsInteractionSmoke(const RuntimeConfig& config, std:
         const int missionId = s.triggers.teamMissions.begin()->first;
         if (issueRuntimeTeamMove(s, trucks, {20, 20}) != 2)
             return fail("loaded carriers did not accept movement");
-        for (int tick = 0; tick < 1800 && (s.behaviors.contains(trucks[0]) || s.behaviors.contains(trucks[1])); ++tick) {
+        const auto reachedUnloadArea = [&]() {
+            return std::all_of(trucks.begin(), trucks.end(), [&](int id) {
+                const auto* truck = findObjectById(s, id);
+                return truck != nullptr && !truck->renderMoveActive
+                    && runtimeCellDistance(runtimeCellPointForObject(*truck), {20, 20}) <= 3;
+            }) && loadCount() == 10;
+        };
+        // A fresh guard attack may start after the requested travel has
+        // finished. Capture the actual arrival while both vehicles are loaded.
+        for (int tick = 0; tick < 1800 && !reachedUnloadArea(); ++tick) {
             ++s.tick; advanceRuntimeSimulation(s);
         }
-        if (runtimeCellDistance(runtimeCellPointForObject(*findObjectById(s, trucks[0])), {20, 20}) > 3)
-            return fail("loaded carriers did not physically reach unload area");
+        if (!reachedUnloadArea()) {
+            std::ostringstream diagnostic;
+            diagnostic << "loaded carriers did not physically reach unload area: mode=" << mode
+                       << " tick=" << s.tick << " simulation=" << s.simulationStatus;
+            const auto mission = s.triggers.teamMissions.find(missionId);
+            if (mission != s.triggers.teamMissions.end())
+                diagnostic << " teamStep=" << mission->second.stepIndex;
+            for (int id : trucks) {
+                if (const auto* truck = findObjectById(s, id)) {
+                    diagnostic << " id=" << id << " at=" << truck->x << ',' << truck->y
+                               << " mission=" << truck->mission << " cargo=" << truck->transportPassengerIds.size();
+                }
+                const auto command = s.behaviors.find(id);
+                if (command != s.behaviors.end())
+                    diagnostic << " command=" << runtimeMultiplayerSnapshotBehaviorRecord(id, command->second);
+            }
+            return fail(diagnostic.str());
+        }
         for (int id : trucks) {
             const auto* object = findObjectById(s, id);
             for (int y = object->y - 2; y <= object->y + 2; ++y)
@@ -263,8 +289,18 @@ bool runRuntimeComputerTacticsInteractionSmoke(const RuntimeConfig& config, std:
             || loadCount() != 10 || s.triggers.teamMissions.at(missionId).objectIds.size() != 12)
             return fail("blocked unload released members or skipped cargo");
         for (auto& [key, info] : s.terrainInfoByCell) info.passable = true;
-        if (!unloadRuntimeTeamTransports(s, s.triggers.teamMissions.at(missionId), mode % 4)
-            || loadCount() != 0) return fail("unload did not resume when exits opened");
+        // Ground transports finish each passenger's physical exit on subsequent ticks.
+        bool unloaded = unloadRuntimeTeamTransports(s, s.triggers.teamMissions.at(missionId), mode % 4);
+        for (int tick = 0; tick < 1800 && !unloaded; ++tick) {
+            ++s.tick; advanceRuntimeSimulation(s);
+            const auto mission = s.triggers.teamMissions.find(missionId);
+            if (mission == s.triggers.teamMissions.end())
+                return fail("unloading lost the active mission before releasing its members");
+            unloaded = unloadRuntimeTeamTransports(s, mission->second, mode % 4);
+        }
+        if (!unloaded || loadCount() != 0)
+            return fail("unload did not resume when exits opened: mode=" + std::to_string(mode)
+                + " remaining=" + std::to_string(loadCount()) + describe(s));
         auto retained = s.triggers.teamMissions.at(missionId).objectIds;
         auto expected = mode == 0 ? members : mode == 1 ? trucks
             : (mode == 2 || mode == 4) ? passengers : std::vector<int>{};

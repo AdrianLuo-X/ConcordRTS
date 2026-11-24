@@ -14,7 +14,7 @@ bool resolveRuntimeVoxelWeaponMuzzlePoint(const WorldObjectInstance& object,
         lateralLeptons * modelUnitsPerLepton, heightLeptons * modelUnitsPerLepton};
     RuntimeVoxelCacheEntry* body = nullptr;
     std::string owner = object.type;
-    POINT center = runtimeRenderPlacementNativePoint(bodyCenterPixels);
+    RuntimeInputPixelPoint center = bodyCenterPixels;
     bool turret = false;
     double fitScale = 0.0;
     double bodyFitScale = 0.0;
@@ -22,7 +22,7 @@ bool resolveRuntimeVoxelWeaponMuzzlePoint(const WorldObjectInstance& object,
     RuntimeVehicleBodyPose bodyPose;
     RuntimeVoxelBodyRotation rotation;
     const auto useModelEndpoint = [&](const std::vector<std::string>& images,
-        const std::string& partOwner, double forcedScale, const POINT& pixelOffset) {
+        const std::string& partOwner, double forcedScale, const RuntimeInputPixelPoint& pixelOffset) {
         if (!useBarrelEndpoint || forwardLeptons <= 0) return false;
         for (const auto& image : images) {
             // Match the first drawable candidate, including independent part
@@ -39,9 +39,9 @@ bool resolveRuntimeVoxelWeaponMuzzlePoint(const WorldObjectInstance& object,
                 std::vector<RuntimeVoxelMuzzleEndpoint> ends;
                 std::string error;
                 std::array<double, 3> native{};
-                if (runtimeNativeVoxelMuzzleAnchor(image, source.vxlBytes, source.hvaBytes, native))
+                if (concord::render::voxel::findNativeMuzzleAnchor(image, source.vxlBytes, source.hvaBytes, native))
                     found->second.push_back(native);
-                else if (resolveRuntimeVoxelMuzzleEndpoints(source.vxlBytes, source.firstFrameTransforms, ends, error))
+                else if (concord::render::voxel::resolveMuzzleEndpoints(source.vxlBytes, source.firstFrameTransforms, ends, error))
                     for (const auto& end : ends) found->second.push_back(end.modelPoint);
             }
             if (found->second.empty()) return false;
@@ -79,9 +79,9 @@ bool resolveRuntimeVoxelWeaponMuzzlePoint(const WorldObjectInstance& object,
         const std::string turretOwner = owner;
         const bool barrelEndpoint = useModelEndpoint(
             runtimeStructureTurretBarrelImageCandidates(building->turretAnim, object.type),
-            turretOwner + "|barrel", partScale, POINT{});
+            turretOwner + "|barrel", partScale, RuntimeInputPixelPoint{});
         if (!barrelEndpoint)
-            useModelEndpoint({building->turretAnim}, turretOwner, partScale, POINT{});
+            useModelEndpoint({building->turretAnim}, turretOwner, partScale, RuntimeInputPixelPoint{});
         const auto offset = runtimeStructureTurretAnimScreenOffset(*building, object.type,
             footprint.width, footprint.height, camera);
         const auto recoil = runtimeStructureRecoilScreenOffset(object, *building, context.animationTick,
@@ -109,7 +109,7 @@ bool resolveRuntimeVoxelWeaponMuzzlePoint(const WorldObjectInstance& object,
             if (inserted) {
                 const auto& source = loadRuntimeVoxelSourceFromCache(image, context, cache, false);
                 std::array<double, 3> native{};
-                if (source.loaded && runtimeNativeVoxelMuzzleAnchor(image,
+                if (source.loaded && concord::render::voxel::findNativeMuzzleAnchor(image,
                         source.vxlBytes, source.hvaBytes, native)) found->second.push_back(native);
             }
             if (!found->second.empty()) local = found->second.front();
@@ -122,7 +122,8 @@ bool resolveRuntimeVoxelWeaponMuzzlePoint(const WorldObjectInstance& object,
         if (turret) {
             // The mounting offset is fitted with the body, then each attached
             // part is fitted independently. Do not rescale the mount with BARL.
-            POINT mount = runtimeVoxelTurretOffset(object, context, bodyFitScale);
+            const auto nativeMount = runtimeVoxelTurretOffset(object, context, bodyFitScale);
+            RuntimeInputPixelPoint mount{nativeMount.x, nativeMount.y};
             if (rotation.active()) {
                 const double scale = bodyFitScale > 0.0 ? bodyFitScale : 0.50;
                 const auto axes = runtimeVxlProjectionAxes();
@@ -130,8 +131,8 @@ bool resolveRuntimeVoxelWeaponMuzzlePoint(const WorldObjectInstance& object,
                 const double difference = mount.x / (axes[0] * scale);
                 const auto rotated = rotation.rotate((sum + difference) * 0.5,
                     (sum - difference) * 0.5, 0.0);
-                mount = {static_cast<LONG>(std::lround((rotated[0] - rotated[1]) * axes[0] * scale)),
-                    static_cast<LONG>(std::lround(((rotated[0] + rotated[1]) * axes[1]
+                mount = {static_cast<std::int32_t>(std::lround((rotated[0] - rotated[1]) * axes[0] * scale)),
+                    static_cast<std::int32_t>(std::lround(((rotated[0] + rotated[1]) * axes[1]
                         - rotated[2] * axes[2]) * scale))};
             }
             center.x += mount.x;
@@ -140,12 +141,12 @@ bool resolveRuntimeVoxelWeaponMuzzlePoint(const WorldObjectInstance& object,
             const bool barrelEndpoint = runtimeDrawSeparateUnitVoxelBarrels()
                 && useModelEndpoint(runtimeUnitBarrelImageCandidates(object, context), object.type + "|barrel",
                     shared ? runtimeVoxelPartFitScale(bodyFitScale, runtimeVxlBarrelRelativeScale()) : 0.0,
-                    POINT{runtimeVxlPixelOffset("CONCORD_VXL_BARREL_PIXEL_OFFSET_X"),
+                    RuntimeInputPixelPoint{runtimeVxlPixelOffset("CONCORD_VXL_BARREL_PIXEL_OFFSET_X"),
                         runtimeVxlPixelOffset("CONCORD_VXL_BARREL_PIXEL_OFFSET_Y")});
             if (!barrelEndpoint)
                 useModelEndpoint(runtimeUnitTurretImageCandidates(object, context), object.type + "|turret",
                     shared ? runtimeVoxelPartFitScale(bodyFitScale, runtimeVxlTurretRelativeScale()) : 0.0,
-                    POINT{runtimeVxlPixelOffset("CONCORD_VXL_TURRET_PIXEL_OFFSET_X"),
+                    RuntimeInputPixelPoint{runtimeVxlPixelOffset("CONCORD_VXL_TURRET_PIXEL_OFFSET_X"),
                         runtimeVxlPixelOffset("CONCORD_VXL_TURRET_PIXEL_OFFSET_Y")});
         }
     }
@@ -156,23 +157,16 @@ bool resolveRuntimeVoxelWeaponMuzzlePoint(const WorldObjectInstance& object,
             * 6.283185307179586 / runtimeVoxelFacingBucketCount;
     };
     const double gunYaw = yaw(firingFacing), hullYaw = yaw(object.facing);
-    double x = local[0] * std::cos(gunYaw) - local[1] * std::sin(gunYaw);
-    double y = local[0] * std::sin(gunYaw) + local[1] * std::cos(gunYaw);
-    double z = local[2];
-    if (rotation.active()) {
-        const auto rotated = rotation.rotate(x, y, z - rotation.floorZ);
-        x = rotated[0]; y = rotated[1]; z = rotated[2] + rotation.floorZ;
-    }
+    const auto posedPoint = concord::render::voxel::orientMuzzlePoint(local, gunYaw, rotation);
     if (bodyPose.active() && !bodyPose.hullLocalRoll) {
         const auto bodySizing = runtimeVxlRasterSizingForOwner(object.type);
         const auto bodyProjection = runtimeVxlProjectionParamsForSizing(bodySizing);
         const double support = runtimeVehicleGroundSupportLift(bodyBounds, rotation, hullYaw,
             bodySizing.modelOriginPivot);
-        center.y -= static_cast<LONG>(std::lround(support * bodyFitScale * bodyProjection.heightYScale
+        center.y -= static_cast<std::int32_t>(std::lround(support * bodyFitScale * bodyProjection.heightYScale
             + bodyPose.height * camera.tileHeight));
     }
-    point = {center.x + static_cast<LONG>(std::lround((x - y) * projection.screenXScale * fitScale)),
-        center.y + static_cast<LONG>(std::lround(((x + y) * projection.groundYScale
-            - z * projection.heightYScale) * fitScale))};
+    point = concord::render::voxel::projectMuzzlePoint(center, posedPoint,
+        {projection.screenXScale, projection.groundYScale, projection.heightYScale, fitScale});
     return true;
 }

@@ -4,7 +4,12 @@ include_guard(GLOBAL)
 function(concord_add_world_core_profile target owner profile)
     concord_add_profiled_leaf(${target} src/world/model/GameWorld.cpp ${owner} ${profile})
     target_sources(${target} PRIVATE
-        src/data/maps/MapDatabase.cpp src/data/rules/RulesDatabase.cpp
+        src/data/maps/MapDatabase.cpp
+        src/assets/codecs/RuntimeLzo1xCodec.cpp
+        src/data/maps/MapLzoPayload.cpp
+        src/assets/codecs/RuntimeLcwCodec.cpp
+        src/assets/codecs/RuntimeMapBase64Codec.cpp
+        src/data/rules/RulesDatabase.cpp
         src/data/art/TheaterDatabase.cpp src/data/rules/ProductionRulesLoader.cpp)
 endfunction()
 

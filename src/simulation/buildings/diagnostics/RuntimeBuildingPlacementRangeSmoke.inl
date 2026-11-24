@@ -193,8 +193,22 @@ bool runRuntimeBuildingPlacementRangeSmoke(std::string& error) {
     mcv.instanceId = 20; mcv.kind = WorldObjectKind::Unit; mcv.type = "MCV";
     mcv.owner = "Alpha"; mcv.x = 20; mcv.y = 20; mcv.alive = true; mcv.health = 100;
     state.world.accessObjects().push_back(mcv);
-    if (!deployRuntimeMcv(state, 20, false, RuntimeCellPoint{20, 20})
-        || !runtimeBuildingPlacementInRange(state, probe, {25, 20})) return fail("first MCV deployment");
+    const RuntimeCellPoint deployCenter{20, 20};
+    if (!deployRuntimeMcv(state, 20, false, deployCenter)
+        || findObjectById(state, 20) != nullptr) return fail("first MCV deployment");
+    const auto& objects = state.world.getObjects();
+    const auto firstYard = std::find_if(objects.begin(), objects.end(), [](const auto& object) {
+        return object.alive && object.kind == WorldObjectKind::Structure
+            && object.owner == "Alpha" && object.type == "BASE";
+    });
+    if (firstYard == objects.end()) return fail("first MCV did not build BASE");
+    const RuntimeCellPoint yardCorner = runtimeCellPointForObject(*firstYard);
+    // The deployment input is a center anchor. The synthetic 3x2 yard begins
+    // one cell to its left; Adjacent=2 allows x=24 and rejects x=25.
+    if (yardCorner != RuntimeCellPoint{19, 20}
+        || !runtimeBuildingPlacementInRange(state, probe, {24, 20})
+        || runtimeBuildingPlacementInRange(state, probe, {25, 20}))
+        return fail("first MCV foundation/adjacency boundary");
     std::cout << "Building range: defaults=yes Adjacent=0/1/2/4 foundations=yes wall=yes ally=yes "
         << "preview=yes sameTickLoss=yes readyAtomic=yes remoteAuthority=yes firstMCV=yes rulesHash=yes\n";
     error.clear();

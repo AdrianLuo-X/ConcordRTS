@@ -1,4 +1,5 @@
 #pragma once
+#include "simulation/effects/RuntimeParticlePresentationValues.h"
 
 #include "core/io/IniFile.h"
 #include "data/rules/RulesDatabase.h"
@@ -32,30 +33,12 @@ enum class RuntimeParticleRenderKind {
 // Immutable emission-time geometry, expressed without a viewport or camera.
 // Smoke can reproduce the body's presentation at any zoom after its source or
 // the underlying building has moved/disappeared. No live object pointers/IDs.
-inline constexpr std::size_t runtimeParticleMaximumClearanceRoofs = 64U;
-struct RuntimeParticleClearanceRoof {
-    double cellSum = 0.0;
-    double level = 0.0;
-    int authoredHeight = 0;
-    int nativeSpriteHeight = 0;
-    bool rubble = false;
-    bool operator==(const RuntimeParticleClearanceRoof&) const = default;
-};
+// The shared presentation header owns runtimeParticleMaximumClearanceRoofs.
+// RuntimeParticleClearanceRoof is defined in the shared value header.
 
-struct RuntimeParticleAirbornePresentation {
-    bool enabled = false;
-    double sourceCellSum = 0.0;
-    double sourceLevel = 0.0;
-    int factoryLiftCancellation = -1;
-    // Airport descent fades the complete roof clearance at the captured
-    // flight height. Kept with the frozen geometry for every render zoom.
-    double clearanceFraction = 1.0;
-    // A managed Kirov freezes its already-smoothed display lift at emission.
-    // This optional local presentation value is outside gameplay authority.
-    double resolvedClearanceLevel = -1.0;
-    std::vector<RuntimeParticleClearanceRoof> roofs;
-    bool operator==(const RuntimeParticleAirbornePresentation&) const = default;
-};
+
+// RuntimeParticleAirbornePresentation is defined in the shared value header.
+
 
 // Voxel launch attachments contain both scalable authored offsets and native
 // raster offsets. Freezing all four components preserves them across zooms.

@@ -376,8 +376,20 @@ static bool runRuntimeProjectionHistoryContract(RuntimeWindowState& probe,
             return fail("actual rubble/selling map and paint-to-projection replay differ");
         std::unordered_map<int, std::vector<RuntimeSpriteHitSpan>> actualSpans;
         if (!resolveRuntimeBuildingVisibleHitSpansWin32(probe.world, viewport, context, probe.camera,
-                probe.renderCache, actualSpans) || !actualSpans.contains(base.instanceId))
-            return fail("actual rubble/selling structure did not participate in scene-Z replay");
+                probe.renderCache, actualSpans) || !actualSpans.contains(fixture[1].instanceId))
+            return fail("actual live structure did not participate in scene-Z replay");
+        if (!rubble && !actualSpans.contains(base.instanceId))
+            return fail("actual selling structure did not participate in scene-Z replay");
+        if (rubble) {
+            // Stock rubble paints on the ground without owning building hit spans.
+            if (actualSpans.contains(base.instanceId))
+                return fail("actual ground rubble incorrectly owns scene-Z hit spans");
+            probe.world.accessObjects()[2].rubble = false;
+            const auto inactivePixels = structuralPixels(true);
+            probe.world.accessObjects()[2] = base;
+            if (fastPixels == inactivePixels)
+                return fail("actual ground rubble did not change the map and overlay pixels");
+        }
         const auto placement = runtimeRenderPlacementNative(runtimeObjectWorldRenderPlacementWin32(base, probe.world, viewport,
             context, probe.camera, probe.renderCache));
         RuntimeStructureSpriteGeometry body;

@@ -22,6 +22,15 @@ bool runtimePlayerBeaconVisibleToLocal(const RuntimeProductionHostState& state,
         && (owner == viewer || runtimeOwnersAreAllied(state, owner, viewer));
 }
 
+RuntimePlayerBeacon* runtimePlayerSelectedBeacon(RuntimeProductionHostState& state) {
+    auto& ui=state.playerCommunication;
+    const auto owner=runtimePlayerCommunicationViewerOwner(state);
+    if (ui.selectedBeacon) for (auto& beacon:ui.beacons)
+        if (beacon.owner==owner && beacon.cell==*ui.selectedBeacon && runtimePlayerBeaconVisibleToLocal(state,beacon)) return &beacon;
+    ui.selectedBeacon.reset();
+    return nullptr;
+}
+
 std::optional<std::size_t> runtimePlayerChatSlot(const RuntimeProductionHostState& state,
     const std::string& owner) {
     const auto key = runtimeCanonicalHumanHouseOwner(owner);

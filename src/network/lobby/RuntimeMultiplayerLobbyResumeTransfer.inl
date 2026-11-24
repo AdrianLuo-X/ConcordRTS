@@ -1,15 +1,29 @@
 // Members and helpers of RuntimeMultiplayerLanSession::Impl. Lobby bootstrap
 // never enters deterministic command history or the in-session Load protocol.
-std::optional<RuntimeMultiplayerSnapshotDescriptor> lobbyResumeImage;
-std::vector<std::uint8_t> lobbyResumeBytes;
-RuntimeMultiplayerSnapshotChunkAssembler lobbyResumeAssembler;
-std::optional<RuntimeMultiplayerSnapshotChunk> lobbyResumeLastChunk;
-RuntimeMultiplayerSnapshotChunkAck lobbyResumeLastAck;
-std::chrono::steady_clock::time_point lobbyResumeStartedAt{};
+struct LobbyResumeTransferState {
+    std::optional<RuntimeMultiplayerSnapshotDescriptor> image;
+    std::vector<std::uint8_t> bytes;
+    RuntimeMultiplayerSnapshotChunkAssembler assembler;
+    std::optional<RuntimeMultiplayerSnapshotChunk> lastChunk;
+    RuntimeMultiplayerSnapshotChunkAck lastAck;
+    std::chrono::steady_clock::time_point startedAt{};
+
+    void reset() {
+        image.reset();
+        bytes.clear();
+        assembler.reset();
+        lastChunk.reset();
+        startedAt = {};
+    }
+
+    [[nodiscard]] bool complete() const {
+        return !image || !bytes.empty();
+    }
+} lobbyResume;
 
 bool handleHostLobbyResumePacket(std::uint64_t transportPeerId, const RuntimeMultiplayerMessage& message,
     std::vector<RuntimeMultiplayerLanEvent>& events) {
-    if (message.type == RuntimeMultiplayerMessageType::Ready && lobbyResumeImage
+    if (message.type == RuntimeMultiplayerMessageType::Ready && lobbyResume.image
         && std::get<RuntimeMultiplayerReadyMessage>(message.body).ready) {
         const auto peer = hostPeers.find(transportPeerId);
         if (peer == hostPeers.end() || !peer->second.lobbyResumeProducer.complete()) {
@@ -23,7 +37,7 @@ bool handleHostLobbyResumePacket(std::uint64_t transportPeerId, const RuntimeMul
         && message.type != RuntimeMultiplayerMessageType::LobbyResumeAck) return false;
     const auto found = hostPeers.find(transportPeerId);
     bool accepted = false;
-    if (message.type == RuntimeMultiplayerMessageType::LobbyResumeAck && lobbyResumeImage
+    if (message.type == RuntimeMultiplayerMessageType::LobbyResumeAck && lobbyResume.image
         && found != hostPeers.end() && found->second.admitted && found->second.lobbyResumeOfferSent) {
         const auto& ack = std::get<RuntimeMultiplayerSnapshotChunkAck>(message.body);
         const auto result = found->second.lobbyResumeProducer.acknowledge(ack);
@@ -40,13 +54,13 @@ bool handleHostLobbyResumePacket(std::uint64_t transportPeerId, const RuntimeMul
 
 bool handleClientLobbyResumePacket(const RuntimeMultiplayerMessage& message,
     std::vector<RuntimeMultiplayerLanEvent>& events) {
-    if (message.type == RuntimeMultiplayerMessageType::Start && lobbyResumeImage) {
+    if (message.type == RuntimeMultiplayerMessageType::Start && lobbyResume.image) {
         std::uint64_t fingerprint = 0;
         std::string error;
-        if (lobbyResumeBytes.empty() || !session.matchSetup()
+        if (lobbyResume.bytes.empty() || !session.matchSetup()
             || !runtimeMultiplayerGameplaySetupFingerprint(*session.matchSetup(), fingerprint, error)
-            || fingerprint != lobbyResumeImage->identity.gameplaySetupFingerprint
-            || std::get<RuntimeMultiplayerStartMessage>(message.body).startTick != lobbyResumeImage->identity.snapshotTick + 1) {
+            || fingerprint != lobbyResume.image->identity.gameplaySetupFingerprint
+            || std::get<RuntimeMultiplayerStartMessage>(message.body).startTick != lobbyResume.image->identity.snapshotTick + 1) {
             clientProtocolFailure("host started before a compatible resume snapshot was complete", events);return true;
         }
     }
@@ -59,38 +73,38 @@ bool handleClientLobbyResumePacket(const RuntimeMultiplayerMessage& message,
     if (message.type == RuntimeMultiplayerMessageType::LobbyResumeOffer) {
         const auto& descriptor = std::get<RuntimeMultiplayerSnapshotDescriptor>(message.body);
         if (phase != RuntimeMultiplayerLanPhase::Lobby || !joinAccepted
-            || (lobbyResumeImage && *lobbyResumeImage != descriptor)) {
+            || (lobbyResume.image && *lobbyResume.image != descriptor)) {
             clientProtocolFailure("lobby resume offer changed or arrived outside admission", events);return true;
         }
-        if (lobbyResumeImage) return true;
-        const auto begun = lobbyResumeAssembler.begin(descriptor);
+        if (lobbyResume.image) return true;
+        const auto begun = lobbyResume.assembler.begin(descriptor);
         if (!begun.accepted) { clientProtocolFailure(begun.reason, events);return true; }
-        lobbyResumeImage = descriptor;
-        lobbyResumeStartedAt = std::chrono::steady_clock::now();
+        lobbyResume.image = descriptor;
+        lobbyResume.startedAt = std::chrono::steady_clock::now();
         return true;
     }
     const auto& chunk = std::get<RuntimeMultiplayerSnapshotChunk>(message.body);
     std::string error;
     RuntimeMultiplayerSnapshotChunkAck ack;
-    if (lobbyResumeLastChunk) {
-        if (*lobbyResumeLastChunk != chunk) {
+    if (lobbyResume.lastChunk) {
+        if (*lobbyResume.lastChunk != chunk) {
             clientProtocolFailure("completed lobby resume image received different bytes", events);return true;
         }
-        ack = lobbyResumeLastAck;
+        ack = lobbyResume.lastAck;
     } else {
-        if (phase != RuntimeMultiplayerLanPhase::Lobby || !lobbyResumeImage || !lobbyResumeAssembler.active()) {
+        if (phase != RuntimeMultiplayerLanPhase::Lobby || !lobbyResume.image || !lobbyResume.assembler.active()) {
             clientProtocolFailure("lobby resume chunk arrived without an admitted offer", events);return true;
         }
-        const auto accepted = lobbyResumeAssembler.acceptChunk(chunk);
-        if (!accepted.accepted || !lobbyResumeAssembler.latestAcknowledgement(ack, error)) {
+        const auto accepted = lobbyResume.assembler.acceptChunk(chunk);
+        if (!accepted.accepted || !lobbyResume.assembler.latestAcknowledgement(ack, error)) {
             clientProtocolFailure(accepted.reason.empty() ? error : accepted.reason, events);return true;
         }
         if (accepted.complete) {
-            if (!lobbyResumeAssembler.takeCompletedBytes(lobbyResumeBytes, error)) {
+            if (!lobbyResume.assembler.takeCompletedBytes(lobbyResume.bytes, error)) {
                 clientProtocolFailure(error, events);return true;
             }
-            lobbyResumeLastChunk = chunk;
-            lobbyResumeLastAck = ack;
+            lobbyResume.lastChunk = chunk;
+            lobbyResume.lastAck = ack;
         }
     }
     RuntimeMultiplayerMessage response;
@@ -101,17 +115,17 @@ bool handleClientLobbyResumePacket(const RuntimeMultiplayerMessage& message,
 }
 
 void sendHostLobbyResumeChunks(std::vector<RuntimeMultiplayerLanEvent>& events) {
-    if (phase != RuntimeMultiplayerLanPhase::Lobby || !lobbyResumeImage || lobbyResumeBytes.empty()) return;
+    if (phase != RuntimeMultiplayerLanPhase::Lobby || !lobbyResume.image || lobbyResume.bytes.empty()) return;
     std::vector<std::pair<std::uint64_t, std::string>> failures;
     for (auto& [id, peer] : hostPeers) {
         if (!peer.admitted || peer.kicked || peer.lobbyResumeProducer.complete()) continue;
         std::string error;
         if (!peer.lobbyResumeOfferSent) {
-            const auto begun = peer.lobbyResumeProducer.begin(*lobbyResumeImage, lobbyResumeBytes);
+            const auto begun = peer.lobbyResumeProducer.begin(*lobbyResume.image, lobbyResume.bytes);
             if (!begun.accepted) { failures.emplace_back(id, begun.reason);continue; }
             RuntimeMultiplayerMessage offer;
             offer.type = RuntimeMultiplayerMessageType::LobbyResumeOffer;
-            offer.body = *lobbyResumeImage;
+            offer.body = *lobbyResume.image;
             if (!sendToPeer(id, offer, error)) { failures.emplace_back(id, error);continue; }
             peer.lobbyResumeOfferSent = true;
             peer.lobbyResumeStartedAt = std::chrono::steady_clock::now();
@@ -136,8 +150,8 @@ void sendHostLobbyResumeChunks(std::vector<RuntimeMultiplayerLanEvent>& events) 
 }
 
 void checkClientLobbyResumeDeadline(std::vector<RuntimeMultiplayerLanEvent>& events) {
-    if (phase == RuntimeMultiplayerLanPhase::Lobby && lobbyResumeImage && lobbyResumeBytes.empty()
-        && lobbyResumeStartedAt != std::chrono::steady_clock::time_point{}
-        && std::chrono::steady_clock::now() - lobbyResumeStartedAt >= std::chrono::seconds(180))
+    if (phase == RuntimeMultiplayerLanPhase::Lobby && lobbyResume.image && lobbyResume.bytes.empty()
+        && lobbyResume.startedAt != std::chrono::steady_clock::time_point{}
+        && std::chrono::steady_clock::now() - lobbyResume.startedAt >= std::chrono::seconds(180))
         clientProtocolFailure("lobby resume snapshot transfer timed out", events);
 }

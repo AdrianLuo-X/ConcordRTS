@@ -215,10 +215,10 @@ bool runRuntimeSuperWeaponActivationAudioSmoke(RuntimeWindowState& live, std::st
     struct ActionObserver { std::vector<std::string> previous; std::vector<RuntimeWorldAudioAction> actions; };
     const auto collectActions = [&](RuntimeWindowState& s, ActionObserver& observer) {
         std::vector<std::string> current;
-        for (const auto& action : s.runtimeWorldAudioBackendActionHistory) current.push_back(actionKey(action));
+        for (const auto& action : s.worldAudioBackend.history()) current.push_back(actionKey(action));
         std::size_t overlap = std::min(current.size(), observer.previous.size());
         while (overlap && !std::equal(observer.previous.end() - overlap, observer.previous.end(), current.begin())) --overlap;
-        for (std::size_t i = overlap; i < current.size(); ++i) observer.actions.push_back(s.runtimeWorldAudioBackendActionHistory[i]);
+        for (std::size_t i = overlap; i < current.size(); ++i) observer.actions.push_back(s.worldAudioBackend.history()[i]);
         observer.previous = std::move(current);
     };
     struct IntentObserver { std::vector<std::string> previous, intents; };
@@ -745,7 +745,7 @@ bool runRuntimeSuperWeaponActivationAudioSmoke(RuntimeWindowState& live, std::st
                     << " owner=" << loop->second.owner << " event=" << loop->second.event
                     << " gain=" << loop->second.gainPermille << " nextMs=" << loop->second.nextSampleMilliseconds
                     << " queuedUntil=" << loop->second.queuedUntilMilliseconds;
-                for (const auto& action : s.runtimeWorldAudioBackendActionHistory)
+                for (const auto& action : s.worldAudioBackend.history())
                     if (action.handleId == runtimeDiskMoveSoundHandle(planeId, 0)
                         || action.handleId == runtimeDiskMoveSoundHandle(planeId, 1))
                         detail << " action=[" << actionKey(action) << " source=" << action.sourceObjectId
@@ -865,7 +865,7 @@ bool runRuntimeSuperWeaponActivationAudioSmoke(RuntimeWindowState& live, std::st
         for (auto* restored : {ordinary.get(), exact.get()}) {
             advanceRuntimeChronosphereSelectionAudio(*restored, pausedClock);
             if (restored->localChronosphereMarker || restored->chronosphereSelectionAudio.selected
-                || std::any_of(restored->runtimeWorldAudioBackendActionHistory.begin(), restored->runtimeWorldAudioBackendActionHistory.end(), selectedPlay))
+                || std::any_of(restored->worldAudioBackend.history().begin(), restored->worldAudioBackend.history().end(), selectedPlay))
                 return fail("unfinished private command/attack leaked through a save");
         }
         ++saves; ++snapshots;
@@ -967,7 +967,7 @@ bool runRuntimeSuperWeaponActivationAudioSmoke(RuntimeWindowState& live, std::st
         };
         const auto voiceSet = [&]() {
             std::set<int> playing;
-            for (const auto& [handle, binding] : s.runtimeWorldAudioBackendBindings) {
+            for (const auto& [handle, binding] : s.worldAudioBackend.bindings()) {
                 if (binding.action.eventId != spec->eventId || !s.runtimeVoiceAudio->isPlaying(handle).value_or(false)) continue;
                 const auto probe = s.runtimeVoiceAudio->probe(handle);
                 if (binding.action.sourceObjectId < 0 || handle != runtimeDiskMoveSoundHandle(binding.action.sourceObjectId, 0)
@@ -999,8 +999,8 @@ bool runRuntimeSuperWeaponActivationAudioSmoke(RuntimeWindowState& live, std::st
         if (count(sounds, spec->eventId) != 0) return fail("managed engine also created generic one-shot voices");
         const auto oldHandle = runtimeDiskMoveSoundHandle(planeIds.front(), 0);
         const auto oldSource = s.diskMoveAudio.sources.find(planeIds.front());
-        if (oldSource == s.diskMoveAudio.sources.end() || !s.runtimeWorldAudioLimitEvictedHandles.contains(oldHandle)
-            || s.runtimeWorldAudioBackendBindings.contains(oldHandle) || s.runtimeVoiceAudio->isPlaying(oldHandle).value_or(false))
+        if (oldSource == s.diskMoveAudio.sources.end() || !s.worldAudioBackend.limitEvicted(oldHandle)
+            || s.worldAudioBackend.bindings().contains(oldHandle) || s.runtimeVoiceAudio->isPlaying(oldHandle).value_or(false))
             return fail("oldest engine was not actually evicted by the fourth voice");
         const int evictedOrdinal = oldSource->second.ordinal;
         const auto actionsBefore = actions.actions.size(); const int frozenTick = s.tick;
@@ -1029,8 +1029,8 @@ bool runRuntimeSuperWeaponActivationAudioSmoke(RuntimeWindowState& live, std::st
         if (!finished) return fail("original concurrent support flights/paratroopers did not finish");
         for (int id : planeIds) {
             const auto handle = runtimeDiskMoveSoundHandle(id, 0);
-            if (s.diskMoveAudio.sources.contains(id) || s.runtimeWorldAudioBackendBindings.contains(handle)
-                || s.runtimeWorldAudioLimitEvictedHandles.contains(handle) || s.runtimeVoiceAudio->isPlaying(handle).value_or(false))
+            if (s.diskMoveAudio.sources.contains(id) || s.worldAudioBackend.bindings().contains(handle)
+                || s.worldAudioBackend.limitEvicted(handle) || s.runtimeVoiceAudio->isPlaying(handle).value_or(false))
                 return fail("natural aircraft departure retained its engine voice/source/eviction marker");
         }
         ++nativeChecks; return true;

@@ -12,6 +12,10 @@ add_executable(concord_terrain_tmp_query_contract
     src/assets/terrain/RuntimeTerrainTmpQuery.cpp
     src/data/art/TheaterDatabase.cpp
     src/data/maps/MapDatabase.cpp
+    src/assets/codecs/RuntimeLzo1xCodec.cpp
+    src/data/maps/MapLzoPayload.cpp
+    src/assets/codecs/RuntimeLcwCodec.cpp
+    src/assets/codecs/RuntimeMapBase64Codec.cpp
     src/core/io/IniFile.cpp)
 foreach(tmp_contract IN ITEMS concord_tmp_codec_contract concord_terrain_tmp_query_contract)
     target_include_directories(${tmp_contract} PRIVATE src)

@@ -22,7 +22,9 @@
 #include "render/geometry/RuntimeObjectWorldRenderPlacement.h"
 #include "render/geometry/RuntimeMobileSpriteBoundsProbe.h"
 #include "assets/codecs/RuntimeTmpTypes.h"
+#include "assets/codecs/VoxelMetadataCodec.h"
 #include "assets/terrain/RuntimeTerrainTmpQuery.h"
+#include "assets/sprites/RuntimeAuxiliaryShpBytes.h"
 
 
 #include "data/art/ArtDatabase.h"
@@ -143,38 +145,7 @@ struct RuntimeObjectShpSpriteCacheEntry {
     std::string errorMessage;
 };
 
-struct RuntimeAuxiliaryShpBytesCacheEntry {
-    bool loadAttempted = false;
-    bool loaded = false;
-    std::vector<unsigned char> bytes;
-    std::uint64_t sourceFingerprint = 0;
-    std::string resolvedImageId;
-    std::string sourcePath;
-    int frameCount = 0;
-    std::string errorMessage;
-};
-
-struct RuntimeVoxelMetadata {
-    std::string imageId;
-    std::string vxlPath;
-    std::string hvaPath;
-    int vxlSectionCount = 0;
-    int hvaSectionCount = 0;
-    int hvaFrameCount = 0;
-    std::uint64_t vxlFileSize = 0;
-    std::uint64_t hvaFileSize = 0;
-    std::string vxlSectionSample;
-    std::string hvaSectionSample;
-};
-
-struct RuntimeHvaTransform {
-    bool valid = false;
-    std::array<double, 12> m{
-        1.0, 0.0, 0.0, 0.0,
-        0.0, 1.0, 0.0, 0.0,
-        0.0, 0.0, 1.0, 0.0
-    };
-};
+// RuntimeVoxelMetadata and RuntimeHvaTransform keep their complete canonical asset codec values.
 
 struct RuntimeVoxelSourceCacheEntry {
     bool loadAttempted = false;
@@ -542,7 +513,7 @@ struct RuntimeWaterWakeActor {
     std::string imageId;
 };
 
-struct RuntimeMapRenderCache : RuntimeTerrainTmpCache {
+struct RuntimeMapRenderCache : RuntimeTerrainTmpCache, RuntimeAuxiliaryShpByteCache {
     // Bounded presentation diagnostics only, excluded from authority/save.
     std::uint64_t terrainViewportFillCalls = 0;
     std::uint64_t terrainViewportFillElisions = 0;
@@ -581,8 +552,6 @@ struct RuntimeMapRenderCache : RuntimeTerrainTmpCache {
         objectShpBytesByImage;
     std::unordered_map<std::string, RuntimeObjectShpSpriteCacheEntry>
         auxiliaryShpSpritesByImage;
-    std::unordered_map<std::string, RuntimeAuxiliaryShpBytesCacheEntry>
-        auxiliaryShpBytesByImage;
     // Asset roots are stable across paints; probing their parent directories
     // for every explosion/fire SHP frame otherwise repeats filesystem work.
     bool mixExportsRootResolved = false;
@@ -725,8 +694,6 @@ struct RuntimeMapRenderCache : RuntimeTerrainTmpCache {
     int projectilePaletteCacheMisses = 0;
     int auxiliaryPaletteCacheHits = 0;
     int auxiliaryPaletteCacheMisses = 0;
-    int auxiliaryShpBytesCacheHits = 0;
-    int auxiliaryShpBytesCacheMisses = 0;
     int auxiliaryShpFrameCacheHits = 0;
     int auxiliaryShpFrameCacheMisses = 0;
     int voxelCacheHits = 0;
@@ -738,7 +705,6 @@ struct RuntimeMapRenderCache : RuntimeTerrainTmpCache {
     int auxiliaryEffectKindCacheHits = 0;
     int auxiliaryEffectKindCacheMisses = 0;
     double projectileEffectMs = 0.0;
-    double auxiliaryShpBytesCacheMissMs = 0.0;
     double auxiliaryShpFrameCacheMissMs = 0.0;
     std::string lastProjectileImageId;
     std::string lastProjectilePaletteSource;
@@ -1254,10 +1220,6 @@ bool runRuntimeOwnerRemapPolicyContractCheck(
     const RuntimeMapRenderContext* assetContext = nullptr
 );
 
-bool runRuntimeBuildingDebrisPaletteContractCheck(
-    const RuntimeMapRenderContext& context,
-    std::string& errorMessage
-);
 
 bool runRuntimeArcticArtRenderContractCheck(
     const RuntimeMapRenderContext& temperate, const RuntimeMapRenderContext& snow,
@@ -1832,8 +1794,6 @@ bool runRuntimeCannonImpulseRenderCheck(
     const std::vector<std::vector<RuntimeImpactRenderActor>>& restoredTimeline,
     const std::string& label, std::string& error);
 
-// Exercises original Cheer sequence selection without changing simulation orders.
-bool runRuntimePlayerCheerSequenceCheck(std::string& error);
 bool runRuntimeMagnetronRenderContractCheck(const RuntimeMapRenderContext& context,
     const std::vector<WorldObjectInstance>& objects,
     const std::vector<SpecialMechanismRenderSnapshot>& beams, std::string& error);

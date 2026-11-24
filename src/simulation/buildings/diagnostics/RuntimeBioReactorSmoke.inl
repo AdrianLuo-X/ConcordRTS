@@ -176,14 +176,15 @@ bool runRuntimeBioReactorSmokeProbe(RuntimeWindowState& live, std::string& error
     }
 
     // Real movement and reservations must admit five and leave the sixth outside.
+    constexpr int approachX = 5, firstApproachY = 7;
     const std::array<std::string, 6> group{"E1", "ENGINEER", "DOG", "BRUTE", "JUMPJET", "IVAN"};
     probe.world.accessObjects() = {reactor, consumer};
     for (int index = 0; index < static_cast<int>(group.size()); ++index) {
         auto member = infantry;
         member.instanceId = index + 2;
         member.type = group[index];
-        member.x = 5;
-        member.y = 7 + index;
+        member.x = approachX;
+        member.y = firstApproachY + index;
         member.cell = runtimeCellKey(member.x, member.y);
         member.health = probe.rules.findUnitType("Infantry", member.type)->strength;
         member.airborne = member.type == "JUMPJET";
@@ -278,7 +279,19 @@ bool runRuntimeBioReactorSmokeProbe(RuntimeWindowState& live, std::string& error
     RuntimeTeamMissionState mission;
     mission.objectIds = {2, 3, 4, 5, 6};
     const RuntimeScriptStep step{62, 0};
-    if (issueRuntimeTeamScriptStep(probe, mission, step) != RuntimeTeamStepDisposition::Waiting
+    // Stage the already released roster on the same open approach cells used
+    // by the player test. The AI still has to move each member into the reactor.
+    const auto stageAiApproach = [&]() {
+        for (std::size_t index = 0; index < mission.objectIds.size(); ++index) {
+            auto* member = findMutableObjectById(probe, mission.objectIds[index]);
+            if (member == nullptr || member->health <= 0) return false;
+            setRuntimeObjectCell(probe, *member, {approachX, firstApproachY + static_cast<int>(index)});
+        }
+        refreshRuntimeObjectOccupancyAfterLocalChange(probe);
+        return true;
+    };
+    if (!stageAiApproach() || issueRuntimeTeamScriptStep(probe, mission, step)
+        != RuntimeTeamStepDisposition::Waiting
         || !powerMatches(0)) {
         return fail("AI could not queue ordinary reactor entry");
     }
@@ -302,7 +315,8 @@ bool runRuntimeBioReactorSmokeProbe(RuntimeWindowState& live, std::string& error
     }
     host->owner = probe.economy.owner;
     rebuildRuntimeEconomyPower(probe);
-    if (issueRuntimeTeamScriptStep(probe, mission, step) != RuntimeTeamStepDisposition::Waiting
+    if (!stageAiApproach() || issueRuntimeTeamScriptStep(probe, mission, step)
+        != RuntimeTeamStepDisposition::Waiting
         || !powerMatches(0)) return fail("could not refill after owner-transition evacuation");
     for (int tick = 0; tick < 800 && !probe.pendingTransportTargets.empty(); ++tick) {
         ++probe.tick;

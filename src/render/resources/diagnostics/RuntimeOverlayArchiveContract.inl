@@ -45,14 +45,25 @@ bool runRuntimeOverlayArchiveContract(const RuntimeMapRenderContext& assets, std
         const auto plainStats=drawRuntimeMap(dc,viewport,world,context,camera,plainCache);const auto base=copyPixels();
         if(!plainStats.rendered||!plainStats.texturedTerrainCells)return fail("fixture terrain not rendered");
         for(const char* id:{"GASAND","GAWALL","NAWALL","GAFWLL","CAFNCB","CAFNCW","CAKRMW","CAFNCP"}) {
+            const auto& overlays = rules.getOverlayTypes();
+            const auto wall = std::find_if(overlays.begin(), overlays.end(), [&](const OverlayType& overlay) {
+                return toLowerAscii(overlay.id) == toLowerAscii(id);
+            });
+            if (wall == overlays.end() || !wall->wall) return fail(std::string(id) + " lacks native wall rules");
             const auto* building=rules.findBuildingType(id);
             for(int frame:{0,5,10}) {
                 if(frame&&(!building||!building->wall))continue;
                 RuntimeMapRenderCache reference,actual;
                 const auto* sprite=loadRuntimeAuxiliaryShpSpriteFromCache(id,frame,context,reference,false);
                 if(!sprite||sprite->sourcePath.find('!')==std::string::npos)return fail(std::string(id)+" lacks native archive art");
+                // The stock walls place the global SHP canvas center on the cell.
+                // Convert that target to the generic SHP drawer's foot anchor.
+                const int canvasHeight = sprite->image.globalHeight > 0
+                    ? sprite->image.globalHeight : sprite->image.height;
+                auto expectedFoot = center;
+                expectedFoot.y = center.y + (canvasHeight + 1) / 2 - camera.tileHeight / 2;
                 std::copy(base.begin(),base.end(),pixels);
-                if(!drawRuntimeAuxiliaryShpSprite(dc,viewport,center,context,camera,reference,id,frame,0,0,false,false,false,RGB(255,255,255),nullptr,false))return fail(std::string(id)+" reference");
+                if(!drawRuntimeAuxiliaryShpSprite(dc,viewport,expectedFoot,context,camera,reference,id,frame,0,0,false,false,false,RGB(255,255,255),nullptr,false))return fail(std::string(id)+" reference");
                 const auto expected=copyPixels();std::size_t drawn=0;
                 for(std::size_t p=0;p<expected.size();++p)if(expected[p]!=base[p])++drawn;
                 if(!drawn)return fail(std::string(id)+" reference empty");spritePixels+=drawn;

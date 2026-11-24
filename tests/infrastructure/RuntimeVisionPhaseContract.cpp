@@ -1,3 +1,4 @@
+#include "../gameplay/superweapon_vision/RuntimeSuperWeaponVisionEffectsContract.inl"
 #include "simulation/vision/RuntimeVisionPhase.h"
 #include "network/lockstep/RuntimeMultiplayerGameplayCommand.h"
 #include "core/determinism/RuntimeAuthorityHashPrimitives.h"
@@ -274,5 +275,6 @@ int main() {
         }
     }
     std::cout<<"H036 original vision phase: checks="<<checks<<" observations="<<observations<<" scenarios=32 failures="<<failures<<"\n";
+    if (!superweapon_vision_model_detail::runContract()) ++failures;
     return failures?1:0;
 }

@@ -208,7 +208,7 @@ public:
     bool lastConstructionReused() const noexcept { return lastConstructionReused_; }
     std::size_t retainedCellCount() const noexcept { return sourceCoordinates_.size(); }
     bool layoutIsSharedForDiagnostics() const noexcept { return layout_.isShared(); }
-    const void* sharedLayoutIdentityForDiagnostics() const noexcept {
+    const RuntimePathQueueLayoutData* sharedLayoutIdentityForDiagnostics() const noexcept {
         return layout_.sharedIdentityForDiagnostics();
     }
 
@@ -259,7 +259,7 @@ public:
         return layout_.read().sameMapping(other.layout_.read());
     }
     bool layoutIsSharedForDiagnostics() const noexcept { return layout_.isShared(); }
-    const void* sharedLayoutIdentityForDiagnostics() const noexcept {
+    const RuntimePathQueueLayoutData* sharedLayoutIdentityForDiagnostics() const noexcept {
         return layout_.sharedIdentityForDiagnostics();
     }
     std::size_t ownedTerrainBytesForDiagnostics() const noexcept {

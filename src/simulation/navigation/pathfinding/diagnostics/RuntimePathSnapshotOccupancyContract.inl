@@ -29,8 +29,8 @@ bool runRuntimePathSnapshotOccupancyContract(std::string& error) {
     state.runtimePreferencePersistenceEnabled = false;
     state.structureFootprints["SOLID"] = {3, 3, true};
     state.structureFootprints["DRIVE"] = {4, 3, true};
-    // Much larger than the query area; InvisibleInGame omits navigation's
-    // representative occupant but the two scalar predicates still see it.
+    // The representative navigation map omits invisible buildings. The hard-blocker
+    // query ignores them, while the unexpected-occupant query checks their footprints.
     state.structureFootprints["HIDDEN"] = {64, 48, true};
     state.structureFootprints["GATE"] = {2, 1, true};
     state.structureFootprints["REPAIR"] = {2, 2, true};

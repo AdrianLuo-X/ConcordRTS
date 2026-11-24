@@ -19,56 +19,64 @@ bool dispatchRuntimePlayerWaypointFromUi(RuntimeWindowState& state,
     return accepted;
 }
 
-std::optional<POINT> runtimePlayerWaypointScreenPoint(const RuntimeWindowState& state,
-    const RECT& viewport, const RuntimePlayerWaypoint& point
+std::optional<POINT> runtimePlayerWaypointScreenPoint(const RuntimeGameSessionState& session,
+    const RuntimeMapCamera& camera, const RECT& viewport, const RuntimePlayerWaypoint& point
 ) {
     RuntimeCellPoint cell;
     if (const auto* location = std::get_if<RuntimeMultiplayerGameplayCellTarget>(&point.order.target))
         cell = {location->cell.x, location->cell.y};
     else {
-        const auto* target = findObjectById(state, std::get<RuntimeMultiplayerGameplayObjectTarget>(point.order.target).objectId);
-        if (!target || !runtimeGameplayObjectVisibleToOwner(state, state.economy.owner, *target)) return std::nullopt;
+        const auto* target = findObjectById(session, std::get<RuntimeMultiplayerGameplayObjectTarget>(point.order.target).objectId);
+        if (!target || !runtimeGameplayObjectVisibleToOwner(session, session.economy.owner, *target)) return std::nullopt;
         cell = runtimeCellPointForObject(*target);
     }
-    return runtimeScreenPointForCell(state, viewport, cell, terrainLevelAtRuntimeCell(state, cell.x, cell.y));
+    const int level = terrainLevelAtRuntimeCell(session, cell.x, cell.y);
+    return runtimeScreenPoint(runtimeProjectCellXY(cell.x, cell.y, level, camera), viewport, camera);
 }
 
 bool handleRuntimePlayerWaypointClick(RuntimeWindowState& state, const RECT& viewport, POINT point);
 
-void drawRuntimePlayerWaypoints(HDC dc, const RECT& viewport, const RuntimeWindowState& state) {
+void drawRuntimePlayerWaypoints(HDC dc, const RECT& viewport,
+    const RuntimeGameSessionState& session, const RuntimeMapCamera& camera,
+    std::span<const int> selectedObjects, const RuntimePlayerLocalCommands& local,
+    bool allowPlanningHint
+) {
     const int saved = SaveDC(dc);
     IntersectClipRect(dc, viewport.left, viewport.top, viewport.right, viewport.bottom);
     concord::ui::HudSystemFontWin32 font;
     font.initialize(concord::ui::HudSystemFontRole::WaypointLabels);
     SelectObject(dc, font.nativeFont()); SetBkMode(dc, TRANSPARENT);
-    const auto owner = runtimeCanonicalHumanHouseOwner(state.economy.owner);
+    const auto owner = runtimeCanonicalHumanHouseOwner(session.economy.owner);
     std::set<std::uint64_t> drawnPoints;
     std::set<std::pair<std::uint64_t, std::uint64_t>> drawnEdges;
-    for (const auto& [id, route] : state.playerCommands.waypoints.routes) {
-        if (route.owner != owner || (!state.playerLocalCommands.planning && !selectionContains(state, id))) continue;
-        const auto* actor = findObjectById(state, id);
+    for (const auto& [id, route] : session.playerCommands.waypoints.routes) {
+        if (route.owner != owner || (!local.planning
+            && std::find(selectedObjects.begin(), selectedObjects.end(), id) == selectedObjects.end())) continue;
+        const auto* actor = findObjectById(session, id);
         if (!actor || !actor->alive || runtimeCanonicalHumanHouseOwner(actor->owner) != owner) continue;
         const COLORREF color = route.loopStart ? RGB(98, 235, 145) : RGB(255, 216, 72);
         HPEN pen = CreatePen(PS_SOLID, 1, color); auto oldPen = SelectObject(dc, pen);
         const auto connect = [&](std::size_t from, std::size_t to) {
             if (!drawnEdges.emplace(route.points[from].id, route.points[to].id).second) return;
-            const auto a = runtimePlayerWaypointScreenPoint(state, viewport, route.points[from]);
-            const auto b = runtimePlayerWaypointScreenPoint(state, viewport, route.points[to]);
+            const auto a = runtimePlayerWaypointScreenPoint(session, camera, viewport, route.points[from]);
+            const auto b = runtimePlayerWaypointScreenPoint(session, camera, viewport, route.points[to]);
             if (a && b) { MoveToEx(dc, a->x, a->y, nullptr); LineTo(dc, b->x, b->y); }
         };
         for (std::size_t i = 1; i < route.points.size(); ++i) connect(i - 1, i);
         if (route.loopStart) connect(route.points.size() - 1, route.indexOf(route.loopStart));
         if (!route.points.empty()) {
-            const auto destination = runtimePlayerWaypointScreenPoint(state, viewport, route.points[route.cursor]);
-            const auto origin = runtimeScreenPointForCell(state, viewport, runtimeCellPointForObject(*actor),
-                terrainLevelAtRuntimeCell(state, actor->x, actor->y));
+            const auto destination = runtimePlayerWaypointScreenPoint(session, camera, viewport, route.points[route.cursor]);
+            const auto cell = runtimeCellPointForObject(*actor);
+            const int level = terrainLevelAtRuntimeCell(session, actor->x, actor->y);
+            const auto origin = runtimeScreenPoint(
+                runtimeProjectCellXY(cell.x, cell.y, level, camera), viewport, camera);
             if (destination) { MoveToEx(dc, origin.x, origin.y, nullptr); LineTo(dc, destination->x, destination->y); }
         }
         for (std::size_t i = 0; i < route.points.size(); ++i) {
             if (!drawnPoints.insert(route.points[i].id).second) continue;
-            const auto p = runtimePlayerWaypointScreenPoint(state, viewport, route.points[i]);
+            const auto p = runtimePlayerWaypointScreenPoint(session, camera, viewport, route.points[i]);
             if (!p || !pointInRectInclusive(viewport, *p)) continue;
-            const bool selected = route.points[i].id == state.playerLocalCommands.selectedWaypoint;
+            const bool selected = route.points[i].id == local.selectedWaypoint;
             HBRUSH brush = CreateSolidBrush(selected ? RGB(245, 245, 245) : RGB(18, 31, 29));
             auto oldBrush = SelectObject(dc, brush);
             Ellipse(dc, p->x - 11, p->y - 11, p->x + 12, p->y + 12);
@@ -80,7 +88,7 @@ void drawRuntimePlayerWaypoints(HDC dc, const RECT& viewport, const RuntimeWindo
         }
         SelectObject(dc, oldPen); DeleteObject(pen);
     }
-    if (state.playerLocalCommands.planning && !state.playerCommunication.chatOpen && !state.playerCommunication.diplomacyOpen) {
+    if (local.planning && allowPlanningHint) {
         SetTextColor(dc, RGB(255, 230, 130));
         const std::wstring hint = L"路径规划：点击加点 · 点已有路径点闭环 · Delete 删选中点 · 右键换部队 · Z 全部出发";
         RECT bounds{viewport.left + 12, viewport.bottom - 32, viewport.right - 12, viewport.bottom - 8};

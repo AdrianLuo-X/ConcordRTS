@@ -9,6 +9,21 @@ bool runRuntimeMcvRepackAnimationSmoke(const RuntimeWindowState& live, std::stri
     std::filesystem::create_directories(root);
     IniFile native; RulesDatabase rules;
     if (!native.loadFromFile(live.report.rulesPath) || !rules.loadFromIni(native)) return fail("stock rules unavailable");
+    auto flat = std::make_unique<RuntimeGameSessionState>();
+    flat->rules = rules;
+    flat->world = live.world; flat->world.accessObjects().clear(); flat->world.accessTerrainCells().clear();
+    flat->world.accessTerrainObjects().clear(); flat->world.accessSmudges().clear();
+    for (int y = 48; y <= 84; ++y) for (int x = 48; x <= 84; ++x) {
+        TerrainCell cell; cell.x = x; cell.y = y; cell.cellIndex512 = y * 512 + x;
+        cell.tileIndex = cell.subTileIndex = 0; flat->world.accessTerrainCells().push_back(cell);
+    }
+    if (!resetRuntimeOverlayWallsForSavedProjection(*flat, error))
+        return fail("flat map wall projection: " + error);
+    for (auto& cell : flat->world.accessTerrainCells()) {
+        if (cell.overlayWall.health < 0) continue;
+        cell.overlayWall.health = 0;
+        clearRuntimeOverlayWallSprite(cell);
+    }
     const auto make = [&](const std::string& country, int hz, bool noCooldown) {
         auto box = std::make_unique<RuntimeWindowState>(); auto& s = *box;
         s.config = live.config; s.config.fixedTickHz = hz; s.config.noCooldown = noCooldown;
@@ -20,12 +35,7 @@ bool runRuntimeMcvRepackAnimationSmoke(const RuntimeWindowState& live, std::stri
         s.economy.owner = country; s.economy.credits = 10000; s.economy.skirmishStartApplied = true;
         s.triggers.bootstrapComplete = true; s.runtimeSoundsEnabled = false;
         s.runtimeSuppressPlayerAudioFeedback = true; s.runtimePreferencePersistenceEnabled = false;
-        s.world = live.world; s.world.accessObjects().clear(); s.world.accessTerrainCells().clear();
-        s.world.accessTerrainObjects().clear(); s.world.accessSmudges().clear();
-        for (int y = 48; y <= 84; ++y) for (int x = 48; x <= 84; ++x) {
-            TerrainCell cell; cell.x = x; cell.y = y; cell.cellIndex512 = y * 512 + x;
-            cell.tileIndex = cell.subTileIndex = 0; s.world.accessTerrainCells().push_back(cell);
-        }
+        s.world = flat->world;
         WorldObjectInstance yard; yard.instanceId = 1; yard.type = runtimeConstructionYardForCountry(country);
         yard.kind = WorldObjectKind::Structure; yard.owner = country; yard.alive = true; yard.currentAmmo = -1;
         yard.x = yard.y = 64; yard.cell = runtimeCellKey(64, 64); yard.mission = "Guard";
@@ -292,12 +302,19 @@ bool runRuntimeMcvRepackAnimationSmoke(const RuntimeWindowState& live, std::stri
         {
             auto box = make(country, 30, false); auto& s = *box; RuntimeSnapshotActiveStateScope active(s);
             if (!undeployRuntimeStructure(s, 1)) return fail("blocked fixture");
-            const int total = findObjectById(s, 1)->buildAnimTicksRemaining; int id = 100;
-            for (int y = 58; y <= 70; ++y) for (int x = 58; x <= 70; ++x) {
-                WorldObjectInstance wall; wall.instanceId = id++; wall.type = "GAWALL";
-                wall.kind = WorldObjectKind::Structure; wall.owner = "Neutral"; wall.alive = true;
-                wall.health = 100; wall.x = x; wall.y = y; wall.cell = runtimeCellKey(x, y); wall.mission = "Guard";
-                s.world.accessObjects().push_back(wall);
+            const auto& yard = *findObjectById(s, 1);
+            const int total = yard.buildAnimTicksRemaining;
+            const auto anchor = runtimePlacementAnchorCellForFootprint(
+                runtimeCellPointForObject(yard), runtimeStructureFootprintForObject(s, yard));
+            constexpr int exitRadius = 6;
+            int id = 100;
+            for (int y = anchor.y - exitRadius; y <= anchor.y + exitRadius; ++y) {
+                for (int x = anchor.x - exitRadius; x <= anchor.x + exitRadius; ++x) {
+                    WorldObjectInstance wall; wall.instanceId = id++; wall.type = "GAWALL";
+                    wall.kind = WorldObjectKind::Structure; wall.owner = "Neutral"; wall.alive = true;
+                    wall.health = 100; wall.x = x; wall.y = y; wall.cell = runtimeCellKey(x, y); wall.mission = "Guard";
+                    s.world.accessObjects().push_back(wall);
+                }
             }
             refreshRuntimeObjectOccupancyAfterLocalChange(s);
             for (int i = 0; i < total + 3; ++i) step(s);

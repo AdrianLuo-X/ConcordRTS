@@ -7,6 +7,10 @@
 
 namespace concord::runtime::resource_detail {
 
+RuntimeAuxiliaryShpByteLookup loadRuntimeAuxiliaryShpBytesForContext(
+    const std::string& imageId, const RuntimeMapRenderContext& context, RuntimeMapRenderCache& cache,
+    const ArtType* fallbackArtType = nullptr);
+
 int positiveModulo(int value, int modulus) ;
 
 bool loadBytes(

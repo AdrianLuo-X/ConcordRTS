@@ -9,7 +9,7 @@ public:
     bool campaignMode() override { return state_.campaignMode; }
     RuntimeUiTimeMs nowMs() override { return runtimeUiClockNow(state_); }
     void beginScorePage(RuntimeUiTimeMs now) override { beginRuntimeResultScorePage(state_, now); }
-    bool queueCampaignPostScore() override { return queueRuntimeCampaignPostScore(state_); }
+    bool queueCampaignPostScore() override { return queueRuntimeCampaignPostScore(state_, state_, state_.interactionStatus); }
     void requestRepaint() override { state_.repaintRequested = true; }
     void setExitRequested(bool requested) override { state_.runtimeExitRequested = requested; }
     void destroyWindow() override { DestroyWindow(window_); }

@@ -30,7 +30,12 @@ if(CONCORD_MSVC_FRONTEND)
     concord_target_compile_options(concord_subcell_requested_index_smoke PRIVATE /utf-8 /W4 /O2 /Ob2 /FS)
 endif()
 add_executable(concord_mod_history_noop_smoke tests/infrastructure/RuntimeModExtensionsHistoryNoopSmoke.cpp
-    src/world/model/GameWorld.cpp src/core/io/IniFile.cpp src/data/maps/MapDatabase.cpp src/data/rules/RulesDatabase.cpp src/data/art/TheaterDatabase.cpp)
+    src/world/model/GameWorld.cpp src/core/io/IniFile.cpp src/data/maps/MapDatabase.cpp
+    src/assets/codecs/RuntimeLzo1xCodec.cpp
+    src/data/maps/MapLzoPayload.cpp
+    src/assets/codecs/RuntimeLcwCodec.cpp
+    src/assets/codecs/RuntimeMapBase64Codec.cpp
+    src/data/rules/RulesDatabase.cpp src/data/art/TheaterDatabase.cpp)
 target_include_directories(concord_mod_history_noop_smoke PRIVATE src)
 target_compile_features(concord_mod_history_noop_smoke PRIVATE cxx_std_20)
 if(CONCORD_MSVC_FRONTEND)
@@ -62,11 +67,21 @@ add_executable(concord_shadow_opaque_span_smoke tests/rendering/RuntimeShadowOpa
 target_include_directories(concord_shadow_opaque_span_smoke PRIVATE src)
 target_compile_features(concord_shadow_opaque_span_smoke PRIVATE cxx_std_20)
 add_executable(concord_water_wake_history_smoke tests/rendering/RuntimeWaterWakeHistoryMaintenanceSmoke.cpp
-    src/world/model/GameWorld.cpp src/core/io/IniFile.cpp src/data/maps/MapDatabase.cpp src/data/rules/RulesDatabase.cpp src/data/art/TheaterDatabase.cpp)
+    src/world/model/GameWorld.cpp src/core/io/IniFile.cpp src/data/maps/MapDatabase.cpp
+    src/assets/codecs/RuntimeLzo1xCodec.cpp
+    src/data/maps/MapLzoPayload.cpp
+    src/assets/codecs/RuntimeLcwCodec.cpp
+    src/assets/codecs/RuntimeMapBase64Codec.cpp
+    src/data/rules/RulesDatabase.cpp src/data/art/TheaterDatabase.cpp)
 target_include_directories(concord_water_wake_history_smoke PRIVATE src)
 target_compile_features(concord_water_wake_history_smoke PRIVATE cxx_std_20)
 add_executable(concord_simulation_query_reuse_smoke tests/infrastructure/RuntimeSimulationQueryReuseSmoke.cpp
-    src/world/model/GameWorld.cpp src/core/io/IniFile.cpp src/data/maps/MapDatabase.cpp src/data/rules/RulesDatabase.cpp src/data/art/TheaterDatabase.cpp)
+    src/world/model/GameWorld.cpp src/core/io/IniFile.cpp src/data/maps/MapDatabase.cpp
+    src/assets/codecs/RuntimeLzo1xCodec.cpp
+    src/data/maps/MapLzoPayload.cpp
+    src/assets/codecs/RuntimeLcwCodec.cpp
+    src/assets/codecs/RuntimeMapBase64Codec.cpp
+    src/data/rules/RulesDatabase.cpp src/data/art/TheaterDatabase.cpp)
 target_include_directories(concord_simulation_query_reuse_smoke PRIVATE src)
 target_compile_features(concord_simulation_query_reuse_smoke PRIVATE cxx_std_20)
 if(CONCORD_MSVC_FRONTEND)
@@ -144,7 +159,12 @@ endif()
 
 add_executable(concord_random_map_smoke tests/maps/RuntimeRandomMapSmoke.cpp
     src/data/maps/RuntimeRandomMap.cpp src/core/io/RuntimeAtomicFile.cpp src/runtime/campaign/RuntimeCampaignDataSource.cpp
-    src/core/io/IniFile.cpp src/data/maps/MapDatabase.cpp src/data/art/TheaterDatabase.cpp src/data/rules/RulesDatabase.cpp
+    src/core/io/IniFile.cpp src/data/maps/MapDatabase.cpp
+    src/assets/codecs/RuntimeLzo1xCodec.cpp
+    src/data/maps/MapLzoPayload.cpp
+    src/assets/codecs/RuntimeLcwCodec.cpp
+    src/assets/codecs/RuntimeMapBase64Codec.cpp
+    src/data/art/TheaterDatabase.cpp src/data/rules/RulesDatabase.cpp
     src/simulation/production/RuntimeFactoryDeliveryState.cpp src/assets/archive/MixArchive.cpp src/assets/archive/WestwoodCrypto.cpp)
 target_include_directories(concord_random_map_smoke PRIVATE src)
 target_compile_features(concord_random_map_smoke PRIVATE cxx_std_20)

@@ -68,6 +68,10 @@
 | 原子文件 | 同目录临时文件与替换发布 | [RuntimeAtomicFile.h](src/core/io/RuntimeAtomicFile.h) |
 | 系统随机源 | 有界读取、完整成功与失败清零 | [RuntimeSecureBytes.h](src/core/security/RuntimeSecureBytes.h) |
 | 宿主循环与计时器 | 消息处理、空闲休眠与 begin/end 配对 | [RuntimeHostLoopPort.h](src/runtime/timing/RuntimeHostLoopPort.h)、[RuntimeTimerResolutionScope.h](src/runtime/timing/RuntimeTimerResolutionScope.h) |
+| AI 建造与战术 | 基地目标、战术筛选和队伍推进 | [RuntimeComputerBasePlan.h](src/simulation/ai/RuntimeComputerBasePlan.h)、[RuntimeComputerTacticLifecycle.h](src/simulation/ai/RuntimeComputerTacticLifecycle.h) |
+| 地图压缩块和体素 | 地图负载解码、VXL／HVA 元数据与变换 | [RuntimeLcwCodec.h](src/assets/codecs/RuntimeLcwCodec.h)、[RuntimeLzo1xCodec.h](src/assets/codecs/RuntimeLzo1xCodec.h)、[VoxelMetadataCodec.h](src/assets/codecs/VoxelMetadataCodec.h) |
+| 建筑深度与地形层 | 绘制准备、行光栅和色深缓冲写入 | [RuntimeBuildingDepthFramePreparation.h](src/render/buildings/RuntimeBuildingDepthFramePreparation.h)、[RuntimeTerrainLayerRaster.h](src/render/terrain/RuntimeTerrainLayerRaster.h) |
+| 世界音效会话 | 本地播放绑定和混音 | [RuntimeWorldAudioBackendSession.h](src/audio/world/RuntimeWorldAudioBackendSession.h) |
 
 ## 返回值与对象生命周期
 
@@ -489,6 +493,8 @@ Windows DIB、DC 和 GDI 对象由 [RuntimeSkirmishBackBufferWin32](src/ui/skirm
 
 主菜单音乐、战役地图音频和菜单音效分别通过 [RuntimeMainMenuMusicDevice.h](src/audio/menu/RuntimeMainMenuMusicDevice.h)、[RuntimeCampaignMapAudioDevice.h](src/audio/menu/RuntimeCampaignMapAudioDevice.h) 和 [RuntimeMenuSoundDevice.h](src/audio/events/RuntimeMenuSoundDevice.h) 连接设备。语音路径与传统／异步播放接口位于 [audio/backend](src/audio/backend)，设备原生状态留在私有实现中。无窗口会话使用对应的不支持设备适配，不据此声称能播放音视频。
 
+`RuntimeWorldAudioBackendSession` 持有本地声音句柄、播放顺序和观察历史。`apply()`、`reap()`、`mix()` 和 `stop()` 同步使用 `RuntimeWorldAudioBackendHost` 查询声源、音量、样本及原播放对象。PCM 和设备生命周期仍由 `RuntimeVoiceAudio` 管理。保存和恢复继续使用权威的模拟状态，声音恢复由会话的原显式入口触发。参见 [RuntimeWorldAudioBackendSession.h](src/audio/world/RuntimeWorldAudioBackendSession.h)。
+
 ## TCP 边界与联机快照会话
 
 [RuntimeLanTransport.h](src/network/session/RuntimeLanTransport.h) 保持标准类型和私有实现边界，所选消费者通过 [LanTransportProviders.cmake](cmake/LanTransportProviders.cmake) 链接对应编译约定的生产实现。Winsock 依赖保留在实际 Windows 消费者的私有链接中；该整理没有改变网络协议，保留各调用方的协议、超时、重试与所有权策略。Linux 核心使用实际 POSIX UDP／TCP 提供者，TLS 凭据与证书另由 [RuntimeInternetTlsCredentials.h](src/network/transport/RuntimeInternetTlsCredentials.h) 及私有平台实现管理。
@@ -583,6 +589,12 @@ RuntimeProductionFixedStepResult advanceRuntimeProductionFixedStep(
 
 这些接口提取收入与队列事务职责，完整固定步主循环的调用顺序、轻量路径和其他模拟阶段保持原有编排。
 
+## AI 建造规划与战术推进
+
+`RuntimeComputerBasePlanQueries` 提供现有建造和采矿规则、单位类型及归属查询。`runtimeComputerAiBaseTargets()` 计算目标，`runtimeComputerAiBasePlan()` 从目标生成建筑职责顺序，`appendRuntimeComputerAiBasePlanGoals()` 接收现有数量与攻击阈值。声明见 [RuntimeComputerBasePlan.h](src/simulation/ai/RuntimeComputerBasePlan.h)。
+
+`selectRuntimeComputerTactic()` 同步读取现有世界对象、规则、触发条件和生产模板，并将需要原地执行的超武初始化等动作交回宿主。`advanceRuntimeComputerTactics()` 在一次调用内借用队伍、任务、所有者战术状态和当前 tick。队员预留、征召、排产和下达命令仍在原顺序中使用相同的状态所有者。引用只在调用所约定的生命周期内有效。参见 [战术选择](src/simulation/ai/RuntimeComputerTacticSelection.h)、[战术生命周期](src/simulation/ai/RuntimeComputerTacticLifecycle.h)、[征召](src/simulation/ai/RuntimeComputerTacticRecruitment.h)、[预留](src/simulation/ai/RuntimeComputerTacticReservations.h) 和 [生产](src/simulation/ai/RuntimeComputerTacticProduction.h)。
+
 ## 超时空传送的位置提交
 
 [RuntimeChronosphereRelocation.h](src/simulation/superweapons/RuntimeChronosphereRelocation.h) 将一次位置写入和通知集中为：
@@ -670,6 +682,14 @@ bool loadRuntimeTmpTileBytes(
 接口负责普通 TMP 与 raw format 3 的原完整解码，不执行文件或 MIX 读取。输出包含索引像素、附加图像、Z 数据、地形与雷达元数据。普通瓦片保留地形网格尺寸；不编码该网格的 raw format 3 保持未知。
 
 解码失败可能已经修改 `tileFile` 的部分状态，不能按事务式输出处理；错误和部分成功的警告沿用原语义，调用方应同时检查返回值、文件状态和错误文本。文件选择、调色板投影及实际绘制由资源查询或消费者负责。
+
+### 地图压缩块、体素与辅助动画
+
+`concord::assets::decodeBase64()` 保留地图压缩段的空白及填充规则。`decodeLcwBlock()` 和 `decodeLzo1xBlock()` 读取调用方提供的压缩块范围和预期解码长度，经由引用返回解码字节数和错误信息，并允许省略输出缓冲。调用 LZO1x 块解码前须核对压缩范围，地图段的分块表和警告仍由地图读取层处理。参见 [Base64](src/assets/codecs/RuntimeMapBase64Codec.h)、[LCW](src/assets/codecs/RuntimeLcwCodec.h)、[LZO1x](src/assets/codecs/RuntimeLzo1xCodec.h) 和 [地图 LZO 负载](src/data/maps/MapLzoPayload.h)。
+
+`concord::assets::voxel::render` 提供渲染使用的 VXL／HVA 元数据和指定帧的变换读取。`concord::assets::voxel::inspection` 提供资源检查工具所用的头部、节表和首帧矩阵读取。两组接口各自保持原有输入校验、失败诊断和输出写入约定。参见 [VoxelMetadataCodec.h](src/assets/codecs/VoxelMetadataCodec.h)。
+
+`loadRuntimeAuxiliaryShpBytes()` 根据现有候选和资源根选择 SHP 字节，返回调用方缓存中的条目及候选键。动画时序可通过 `RuntimeAnimationFrame0Validator` 校验已选素材的首帧，再计算序列步数、帧延迟、总时长和中点 tick。对应声明见 [辅助 SHP 字节](src/assets/sprites/RuntimeAuxiliaryShpBytes.h)、[动画序列](src/assets/animation/RuntimeArtAnimationSequence.h) 和 [特殊武器动画时序](src/simulation/superweapons/RuntimeSuperWeaponAnimationTiming.h)。
 
 ## 地形资源与导航查询
 
@@ -792,6 +812,12 @@ RuntimeMapRenderContext runtimeMapRenderContextForTerrainFrame(
 ```
 
 应传入具名的常量帧；右值重载已禁用，避免上下文借用临时帧中的 tint。准备接口不查询几何或视野网格，不改变缓存版本检查时机。离屏入口共用资源与光照准备，同时保留原先稍后调用 `applyVision` 的顺序。窗口、绘图表面和呈现器仍由各自原调用方管理。
+
+### 建筑深度与地形层
+
+建筑深度的屏幕范围、排序键、材质和光栅入口分属绘制准备与光栅模块。`RuntimeBuildingDepthViewportBounds` 汇总与请求视口相交的绘制范围。`runtimeBuildingDepthDrawBefore()` 按墙体条件、纵向位置和原序号保留原顺序。参见 [建筑深度准备](src/render/buildings/RuntimeBuildingDepthFramePreparation.h) 和 [建筑深度光栅](src/render/buildings/RuntimeBuildingDepthRaster.h)。
+
+`RuntimeTerrainLayerPlanes` 同步借用调用方原有的颜色、深度、地形格和表面格缓冲。瓦片的普通填色、带原生深度写入和局部颜色面着色走各自入口。表面归属与地形归属可以分别记录。兼容变体选择及资源读取接口保留原有选择时序。参见 [地形层光栅](src/render/terrain/RuntimeTerrainLayerRaster.h)、[地形变体](src/render/terrain/RuntimeTerrainVisualSelection.h) 和 [地形资源](src/render/terrain/RuntimeTerrainVisualResources.h)。
 
 ## 预览资源会话
 

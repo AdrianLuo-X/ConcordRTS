@@ -4,7 +4,7 @@
 
 
 void resetRuntimePlayerDefeatNoticesAfterLoad(RuntimeWindowState& state) noexcept {
-    resetRuntimePlayerDefeatNotices(state);
+    state.playerDefeatNotices.reset();
     // The next qualified observation sees the fully committed world and roster.
     state.playerDefeatNotices.suppressExisting = true;
 }

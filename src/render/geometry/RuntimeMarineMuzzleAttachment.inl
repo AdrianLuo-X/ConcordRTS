@@ -8,18 +8,15 @@ bool resolveRuntimeMarineWeaponMuzzlePoint(const WorldObjectInstance& object,
     const RuntimeMapCamera& camera, RuntimeMapRenderCache& cache, RuntimeInputPixelPoint& result) {
     if (object.kind != WorldObjectKind::Unit) return false;
     auto* sprite = loadRuntimeObjectShpSpriteFromCache(object, context, cache);
-    if (!sprite || !sprite->loaded
-        || toLowerAscii(sprite->resolvedImageId) != "dlph"
-        || sprite->sourceFingerprint != 8976802777928645145ULL) return false;
+    if (!sprite || !sprite->loaded) return false;
     const auto& image = sprite->image;
     const int width = image.globalWidth > 0 ? image.globalWidth : image.width;
     const int height = image.globalHeight > 0 ? image.globalHeight : image.height;
-    POINT point{};
-    if (!runtimeFindMarineMuzzleAnchor(sprite->resolvedImageId, sprite->frameIndex,
-            width, height, point)) return false;
-    const POINT center = runtimeRenderPlacementNativePoint(centerPixels);
-    result = {center.x - width / 2 + point.x,
-        center.y + camera.tileHeight / 2 - height + point.y
-            + runtimeUnderwaterShpAlignmentOffsetY(object, context, camera, image)};
+    RuntimeInputPixelPoint point{};
+    if (!concord::render::geometry::resolveMarineMuzzleAttachment(
+            {sprite->resolvedImageId, sprite->sourceFingerprint, sprite->frameIndex, width, height},
+            centerPixels, camera.tileHeight, point)) return false;
+    point.y += runtimeUnderwaterShpAlignmentOffsetY(object, context, camera, image);
+    result = point;
     return true;
 }

@@ -214,8 +214,29 @@ bool runRuntimeGarrisonInteractionSmokeProbe(RuntimeWindowState& live, std::stri
         for (int id : smallOccupants) {
             const auto* unit = findObjectById(s, id);
             if (unit == nullptr || !unit->alive || unit->renderMoveActive || unit->hasRenderPosition
-                || !occupiedExitSlots.emplace(unit->x, unit->y, unit->subCell).second)
-                return fail("small house exits did not finish in distinct subcells");
+                || !occupiedExitSlots.emplace(unit->x, unit->y, unit->subCell).second) {
+                std::ostringstream detail;
+                detail << "small house exits did not finish in distinct subcells"
+                       << " hz=" << hz << " tick=" << s.tick;
+                for (int occupantId : smallOccupants) {
+                    const auto* occupant = findObjectById(s, occupantId);
+                    if (occupant == nullptr) {
+                        detail << " missing=" << occupantId;
+                        continue;
+                    }
+                    const auto foot = worldObjectSubCellOffset(*occupant);
+                    detail << " id=" << occupantId << " cell=" << occupant->x << ',' << occupant->y
+                           << " slot=" << occupant->subCell << " render=" << occupant->renderMoveActive
+                           << " pose=" << occupant->hasRenderPosition
+                           << " actual=" << runtimeObjectRenderX(*occupant) + foot.x << ','
+                           << runtimeObjectRenderY(*occupant) + foot.y;
+                    const auto order = s.behaviors.find(occupantId);
+                    if (order != s.behaviors.end()) {
+                        detail << " order=" << runtimeMultiplayerSnapshotBehaviorRecord(occupantId, order->second);
+                    }
+                }
+                return fail(detail.str());
+            }
         }
     }
     std::cout << "Garrison interaction: " << buildingCount << " stock capacities, original person pips; "

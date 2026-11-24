@@ -1,4 +1,6 @@
 #include "runtime/session/detail/RuntimeProductionOperations.h"
+#include "render/geometry/RuntimeAircraftClearanceCapture.h"
+#include "simulation/navigation/terrain/RuntimeTerrainTargetId.h"
 
 namespace concord::runtime::session_detail {
 
@@ -2715,11 +2717,14 @@ bool runtimeCellIsAllowedOccupiedStructureFootprint(
         const auto* worker = mover == nullptr ? nullptr : findRuntimeUnitType(state.rules, *mover);
         const auto* deployed = miner == nullptr ? nullptr
             : findRuntimeBuildingTypeById(state.rules, miner->deploysInto);
+        // Start a return at the stationary miner. A worker already sharing
+        // its cell can still leave while the miner is moving.
         return mover != nullptr && mover->kind == WorldObjectKind::Infantry
             && mover->owner == allowedObject->owner && worker != nullptr && worker->slaved
             && workerTask != state.slaveMinerTasks.end()
             && workerTask->second.refineryId == allowedOccupiedObjectId
-            && (workerTask->second.phase == RuntimeSlaveMinerPhase::Returning
+            && ((workerTask->second.phase == RuntimeSlaveMinerPhase::Returning
+                    && !allowedObject->renderMoveActive)
                 || (workerTask->second.phase != RuntimeSlaveMinerPhase::Stored
                     && runtimeCellPointForObject(*mover) == point))
             && miner != nullptr && miner->resourceGatherer && miner->resourceDestination
@@ -3475,15 +3480,9 @@ bool runtimeInfantryActiveSegmentCrossesTransition(const RuntimeGameSessionState
     return blocked;
 }
 
-bool runtimeFactoryGroundSegmentAdmissionBlocked(const RuntimeGameSessionState& state,
-    const WorldObjectInstance& mover,const RuntimeCellPoint& from,const RuntimeCellPoint& to,
+static bool runtimeGroundVehicleSegmentAdmissionBlocked(const RuntimeGameSessionState& state,
+    const WorldObjectInstance& mover, const RuntimeCellPoint& from, const RuntimeCellPoint& to,
     std::size_t* candidateVisits) {
-    const auto active=state.behaviors.find(mover.instanceId);
-    if(state.factoryDeliveries.leases().empty()
-        && (active==state.behaviors.end() || active->second.factoryExitClearanceHostId<0)) return false;
-    if(from==to || !runtimeFactoryLandVehicleEligible(state,mover)
-        || (!runtimeFactoryLandDeliveryOwnsEgress(state,mover)
-            && (active==state.behaviors.end() || !runtimeFactoryFastClearanceMove(state,mover,active->second)))) return false;
     using Point=std::array<double,2>;
     struct Leg {Point from,to;bool onBridge;};
     const auto dot=[](const Point& a,const Point& b) {return a[0]*b[0]+a[1]*b[1];};
@@ -3588,6 +3587,53 @@ bool runtimeFactoryGroundSegmentAdmissionBlocked(const RuntimeGameSessionState& 
         for(const auto& object:state.world.getObjects()) inspect(object);
     }
     return blocked;
+}
+
+bool runtimeFactoryGroundSegmentAdmissionBlocked(const RuntimeGameSessionState& state,
+    const WorldObjectInstance& mover,const RuntimeCellPoint& from,const RuntimeCellPoint& to,
+    std::size_t* candidateVisits) {
+    const auto active=state.behaviors.find(mover.instanceId);
+    if(state.factoryDeliveries.leases().empty()
+        && (active==state.behaviors.end() || active->second.factoryExitClearanceHostId<0)) return false;
+    if(from==to || !runtimeFactoryLandVehicleEligible(state,mover)
+        || (!runtimeFactoryLandDeliveryOwnsEgress(state,mover)
+            && (active==state.behaviors.end() || !runtimeFactoryFastClearanceMove(state,mover,active->second)))) return false;
+    return runtimeGroundVehicleSegmentAdmissionBlocked(state, mover, from, to, candidateVisits);
+}
+
+RuntimeGroundBodyTransitionAdmission runtimeGroundBodyTransitionAdmission(
+    const RuntimeGameSessionState& state, const WorldObjectInstance& object,
+    const RuntimeCellPoint& from, const RuntimeCellPoint& to, bool deferBody) {
+    RuntimeGroundBodyTransitionAdmission result;
+    // Avoidance keeps whole-cell/factory short circuits before any slot choice.
+    // Its full body scan is deferred until the existing cell-pass test succeeds.
+    if (deferBody && (runtimeFactoryGroundSegmentAdmissionBlocked(state, object, from, to)
+        || runtimeGroundDepartureCapacityHoldsTransition(state, object, from, to))) {
+        result.held = true;
+        return result;
+    }
+    if (object.kind == WorldObjectKind::Infantry && !object.airborne && from != to
+        && !runtimeObjectOffGroundByMagBeam(state, object.instanceId)
+        && runtimeObjectMovementMode(state, object) != PathMovementMode::Air)
+        result.destinationSubCell = runtimeInfantryBodyPreviewDestinationSubcell(state, object, to);
+    // Ore-seeking slave miners can meet their workers between cell centers.
+    // Reject the physical conflict before the vehicle commits the segment,
+    // so the same avoidance search can pick a route around the worker.
+    if (from != to && !state.slaveMinerTasks.empty() && object.kind == WorldObjectKind::Unit
+        && !object.harvestAutoSearchSuspended && runtimeObjectIsMobileSlaveMiner(state, object)) {
+        result.bodyBlocked = runtimeGroundVehicleSegmentAdmissionBlocked(state, object, from, to, nullptr);
+    }
+    if (deferBody) {
+        result.held = runtimeInfantryActiveSegmentCrossesTransition(
+            state, object, from, to, result.destinationSubCell);
+        return result;
+    }
+    result.bodyBlocked = result.bodyBlocked || runtimeInfantryBodySegmentAdmissionBlocked(
+        state, object, from, to, nullptr, -1, nullptr, result.destinationSubCell);
+    result.held = result.bodyBlocked
+        ? runtimeGroundDepartureCapacityHoldsTransition(state, object, from, to)
+        : runtimeGroundDepartureHoldsTransition(state, object, from, to, result.destinationSubCell);
+    return result;
 }
 
 int runtimeInfantryBodyPreviewDestinationSubcell(const RuntimeGameSessionState& state,
@@ -4988,7 +5034,7 @@ const std::vector<PathTerrainCell>& buildRuntimePathTerrainSnapshot(
     dynamicPreparation.prepare(false, visitPreparationRepair, authoredLandTypeAllowsMover);
     auto& workset = dynamicPreparation.workset();
     const RuntimePathDynamicPreparationWorksetExit worksetExit(dynamicPreparation);
-    const auto worksetView = workset.viewFor(&state, &mover, state.tick, snapshot, occupiedByCell);
+    const auto worksetView = dynamicPreparation.view();
     // All allocation/domain/density/metadata admission completed before the
     // first copied-output write. These authored rows have no other dynamic
     // effect; later allowed-foundation restoration and masks remain original.
@@ -6696,6 +6742,29 @@ void submitRuntimeAttackPathRequest(
     }
 }
 
+std::unordered_set<int> runtimeRepackArrivalCellsReservedByPeers(
+    const RuntimeGameSessionState& state,
+    const WorldObjectInstance& mover,
+    const RuntimeObjectBehavior& move) {
+    std::unordered_set<int> cells;
+    if (!move.pendingHasSharedGoal) return cells;
+    for (const auto& [id, peerMove] : state.behaviors) {
+        if (id == mover.instanceId || !peerMove.repackMoveGroup
+            || peerMove.kind != RuntimeBehaviorKind::Move
+            || peerMove.state == RuntimeBehaviorState::Complete
+            || peerMove.state == RuntimeBehaviorState::Idle) continue;
+        const auto& group = *peerMove.repackMoveGroup;
+        if (group.members.size() < 8 || group.center != move.pendingSharedGoal
+            || std::find(group.members.begin(), group.members.end(), mover.instanceId) == group.members.end())
+            continue;
+        const auto* peer = findObjectById(state, id);
+        if (peer && peer->owner == mover.owner) {
+            cells.insert(runtimeCellKey(peerMove.moveTarget.x, peerMove.moveTarget.y));
+        }
+    }
+    return cells;
+}
+
 bool applyRuntimeMovePathResult(
     RuntimeProductionHostState& state,
     WorldObjectInstance& object,
@@ -6730,10 +6799,20 @@ bool applyRuntimeMovePathResult(
         || current == behavior.pendingPathGoal
         || (queuedPath.budgetExhausted && !queuedPath.path.empty())) {
         replaceRuntimeBehaviorPath(behavior, queuedPath.path);
-        if (queuedPath.reachable
-            && queuedPath.goalAdjusted
-            && !queuedPath.sharedApproachHit) {
-            behavior.moveTarget = queuedPath.resolvedGoal;
+        if (queuedPath.reachable && queuedPath.goalAdjusted && !queuedPath.sharedApproachHit) {
+            // A route may cross a reserved cell, but that cell belongs to the
+            // peer's eventual arrival, including while its yard is folding.
+            const auto reserved = runtimeRepackArrivalCellsReservedByPeers(state, object, behavior);
+            bool keepFormationTarget = reserved.contains(runtimeCellKey(queuedPath.resolvedGoal.x, queuedPath.resolvedGoal.y));
+            if (behavior.repackMoveGroup) {
+                const auto center = behavior.repackMoveGroup->center;
+                const auto ring = [&](const RuntimeCellPoint& cell) {
+                    return std::max(std::abs(cell.x - center.x), std::abs(cell.y - center.y));
+                };
+                keepFormationTarget = keepFormationTarget
+                    || ring(queuedPath.resolvedGoal) > std::max(1, ring(behavior.moveTarget));
+            }
+            if (!keepFormationTarget) behavior.moveTarget = queuedPath.resolvedGoal;
         }
         behavior.blockedTicks = 0;
         behavior.state = RuntimeBehaviorState::Queued;
@@ -6779,6 +6858,26 @@ bool applyRuntimeMovePathResult(
     return false;
 }
 
+namespace {
+
+std::unordered_set<int> movePathIgnoredObjects(
+    const RuntimeGameSessionState& state, const RuntimeObjectBehavior& behavior) {
+    auto ignored = behavior.pendingIgnoredObjectIds;
+    if (behavior.repackMoveGroup) {
+        // Settled teammates occupy the route. Keep their group membership
+        // for the arrival radius, format-14 saves, and canonical snapshots.
+        std::erase_if(ignored, [&](int id) {
+            const auto peer = state.behaviors.find(id);
+            return peer == state.behaviors.end() || peer->second.kind != RuntimeBehaviorKind::Move
+                || peer->second.state == RuntimeBehaviorState::Complete
+                || peer->second.state == RuntimeBehaviorState::Idle;
+        });
+    }
+    return ignored;
+}
+
+} // namespace
+
 bool completeRuntimeMovePathRequest(
     RuntimeProductionHostState& state,
     WorldObjectInstance& object,
@@ -6786,8 +6885,7 @@ bool completeRuntimeMovePathRequest(
     RuntimeCellPoint goal = behavior.pendingPathGoal;
     const int allowedOccupiedObjectId = behavior.pendingAllowedOccupiedObjectId;
     const bool allowNearbyTarget = behavior.pendingAllowNearbyTarget;
-    const std::unordered_set<int> ignoredObjectIds =
-        behavior.pendingIgnoredObjectIds;
+    const auto ignoredObjectIds = movePathIgnoredObjects(state, behavior);
     const std::unordered_set<int>* ignoredPtr =
         ignoredObjectIds.empty() ? nullptr : &ignoredObjectIds;
     const RuntimeCellPoint current = runtimeCellPointForObject(object);
@@ -6815,7 +6913,7 @@ bool completeRuntimeMovePathRequest(
             state,
             object,
             goal,
-            static_cast<int>(ignoredObjectIds.size()),
+            static_cast<int>(behavior.pendingIgnoredObjectIds.size()),
             allowNearbyTarget,
             exactMoveTargetRequired,
             !exactMoveTargetRequired && behavior.pendingHasSharedGoal
@@ -7298,12 +7396,12 @@ bool processRuntimePathRequests(RuntimeProductionHostState& state) {
             firstWork.goal = behavior.pendingPathGoal;
             firstWork.allowedOccupiedObjectId =
                 behavior.pendingAllowedOccupiedObjectId;
-            firstWork.ignoredObjectIds = behavior.pendingIgnoredObjectIds;
+            firstWork.ignoredObjectIds = movePathIgnoredObjects(state, behavior);
             firstWork.context = makeRuntimeMovePathApproachContext(
                 state,
                 *object,
                 firstWork.goal,
-                static_cast<int>(firstWork.ignoredObjectIds.size()),
+                static_cast<int>(behavior.pendingIgnoredObjectIds.size()),
                 behavior.pendingAllowNearbyTarget,
                 false,
                 behavior.pendingHasSharedGoal
@@ -7345,13 +7443,12 @@ bool processRuntimePathRequests(RuntimeProductionHostState& state) {
                 candidate.goal = otherBehaviorIt->second.pendingPathGoal;
                 candidate.allowedOccupiedObjectId =
                     otherBehaviorIt->second.pendingAllowedOccupiedObjectId;
-                candidate.ignoredObjectIds =
-                    otherBehaviorIt->second.pendingIgnoredObjectIds;
+                candidate.ignoredObjectIds = movePathIgnoredObjects(state, otherBehaviorIt->second);
                 candidate.context = makeRuntimeMovePathApproachContext(
                     state,
                     *otherObject,
                     candidate.goal,
-                    static_cast<int>(candidate.ignoredObjectIds.size()),
+                    static_cast<int>(otherBehaviorIt->second.pendingIgnoredObjectIds.size()),
                     otherBehaviorIt->second.pendingAllowNearbyTarget,
                     false,
                     otherBehaviorIt->second.pendingHasSharedGoal
@@ -8484,7 +8581,28 @@ bool loadRuntimeRepackMoveGroups(RuntimeGameSessionState& state, const IniFile& 
     for (auto& [id, intent] : records) {
         auto& move = state.behaviors.at(id);
         move.repackMoveGroup = std::move(intent);
-        if (!preserveExactBehavior) refreshRuntimeRepackMoveGroup(state, *findObjectById(state, id), move);
+        if (preserveExactBehavior) continue;
+
+        const auto* actor = findObjectById(state, id);
+        refreshRuntimeRepackMoveGroup(state, *actor, move);
+        if (!move.repackMoveGroup || move.repackMoveGroup->members.size() < 8) continue;
+        const auto center = move.repackMoveGroup->center;
+        const int arrivalRadius = runtimeSharedMoveArrivalRadius(move);
+        // Ordinary saves rebuild their routes. Recover the shared approach
+        // for eligible live members still moving near this group's destination.
+        for (int memberId : move.pendingIgnoredObjectIds) {
+            const auto other = state.behaviors.find(memberId);
+            if (memberId == id || other == state.behaviors.end()) continue;
+            auto& order = other->second;
+            if (order.kind != RuntimeBehaviorKind::Move || order.pendingHasSharedGoal
+                || order.targetObjectId >= 0 || order.pendingAllowedOccupiedObjectId >= 0
+                || order.autoAcquired || order.forceFire || order.attackGround || order.attackBridge
+                || std::max(std::abs(order.moveTarget.x - center.x), std::abs(order.moveTarget.y - center.y))
+                    > arrivalRadius) continue;
+            order.pendingHasSharedGoal = true;
+            order.pendingSharedGoal = center;
+            order.pendingIgnoredObjectIds = move.pendingIgnoredObjectIds;
+        }
     }
     return true;
 }
@@ -9493,8 +9611,13 @@ std::int64_t runtimeKirovClearanceTargetQ16(RuntimeProductionHostState& state,
     const auto* unit = runtimeJumpjetProfile(state, object);
     const double approachSpeed = unit ? unit->jumpjetSpeed * std::clamp(
         runtimeVeterancyAbilityMultiplier(state, object, VeteranAbility::Faster), 0.01, 10.0) : 0.0;
-    const double target = state.geometry->runtimeKirovClearanceTargetLevel(state.world, object,
-        context, state.renderCache, directionX, directionY, approachSpeed);
+    const double target = runtimeSessionGeometryAvailable(state)
+        ? state.geometry->runtimeKirovClearanceTargetLevel(state.world, object,
+            context, state.renderCache, directionX, directionY, approachSpeed)
+        : concord::render::geometry::forecastAircraftClearanceFromResources(state.world, object,
+            context.rules, context.art, concord::render::geometry::aircraftClearanceUsesArcticArt(
+                context.theater, context.mapFacts == nullptr ? std::string_view{} : std::string_view(context.mapFacts->theater)),
+            directionX, directionY, approachSpeed, -runtimeAircraftSpriteLiftPixels(object, true));
     return std::isfinite(target)
         ? std::llround(std::clamp(target, 0.0, 64.0) * runtimeJumpjetCellQ16) : 0;
 }
@@ -9506,7 +9629,6 @@ void initializeRuntimeKirovClearanceMotion(RuntimeProductionHostState& state,
         flight.clearanceTick = -1;
         return;
     }
-    if (!runtimeSessionGeometryAvailable(state)) return;
     // Legacy and newly created flights begin at their old current-position
     // roof pose. Forecasting belongs only to later simulation ticks.
     flight.clearanceLift = runtimeKirovClearanceTargetQ16(state, object, 0.0, 0.0);
@@ -9520,7 +9642,6 @@ void advanceRuntimeKirovClearanceMotion(RuntimeProductionHostState& state,
         flight.clearanceTick = -1;
         return;
     }
-    if (!runtimeSessionGeometryAvailable(state)) return;
     if (flight.clearanceTick < 0) {
         initializeRuntimeKirovClearanceMotion(state, object, flight);
         return;
@@ -10114,9 +10235,19 @@ bool runtimeCancelledStructureEntryNeedsRecovery(
     if (harvester != state.harvesterTasks.end() && harvester->second.targetRefineryId == hostId
         && harvester->second.phase != RuntimeHarvesterPhase::Idle) return false;
     const auto slave = state.slaveMinerTasks.find(object.instanceId);
-    if (slave != state.slaveMinerTasks.end() && slave->second.refineryId == hostId
-        && (slave->second.phase == RuntimeSlaveMinerPhase::Returning
-            || slave->second.phase == RuntimeSlaveMinerPhase::Stored)) return false;
+    if (slave != state.slaveMinerTasks.end() && slave->second.refineryId == hostId) {
+        const auto phase = slave->second.phase;
+        if (phase == RuntimeSlaveMinerPhase::Returning || phase == RuntimeSlaveMinerPhase::Stored) {
+            return false;
+        }
+        // The live refinery attachment grants passage while a worker is
+        // inside it. A route fallback or a replacement order can change the
+        // current goal without changing that attachment.
+        if (hostRules && toUpperAsciiLocal(hostRules->enslaves) == toUpperAsciiLocal(object.type)
+            && runtimeObjectIsAttachedSlaveWorker(state, object)) {
+            return false;
+        }
+    }
     if (std::any_of(state.grinding.relations().begin(), state.grinding.relations().end(),
             [&](const auto& relation) { return relation.sourceId == object.instanceId && relation.hostId == hostId; })) return false;
 
@@ -10475,8 +10606,8 @@ std::optional<WorldObjectInstance> runtimeBridgeAttackTargetObject(
     }
 
     WorldObjectInstance target;
-    target.instanceId = -960000
-        - runtimeCellKey(bridgeTarget->anchor.x, bridgeTarget->anchor.y);
+    target.instanceId = concord::simulation::navigation::terrain_target::encodeBridgeKey(
+        runtimeCellKey(bridgeTarget->anchor.x, bridgeTarget->anchor.y));
     target.kind = WorldObjectKind::Structure;
     target.type = "BRIDGE";
     target.owner = "RuntimeBridge";
@@ -10537,14 +10668,14 @@ int runtimeInitialBridgeSegmentHealth(
     return strength;
 }
 
-void updateRuntimeBridgeSegmentDamageFrame(
-    RuntimeProductionHostState& state, const RuntimeBridgeDamageTarget& target, int health) {
+bool updateRuntimeBridgeSegmentDamageFrame(
+    RuntimeGameSessionState& state, const RuntimeBridgeDamageTarget& target, int health) {
     const int band = runtimeBridgeSegmentDamageBand(state, health);
     bool changed = false;
     if (target.high) {
         const auto found = state.terrainByCell.find(
             runtimeCellKey(target.anchor.x, target.anchor.y));
-        if (found == state.terrainByCell.end() || found->second == nullptr) return;
+        if (found == state.terrainByCell.end() || found->second == nullptr) return false;
         auto& terrain = *const_cast<TerrainCell*>(found->second);
         const int frame = (target.alongX ? 0 : 9) + band;
         if (terrain.overlayFrame != frame) {
@@ -10567,7 +10698,7 @@ void updateRuntimeBridgeSegmentDamageFrame(
             }
         }
     }
-    if (changed) refreshRuntimeBridgeMutationState(state, target.physicalCells);
+    return changed;
 }
 
 RuntimeBridgeDamageResult damageRuntimeBridgeAtCell(
@@ -10599,7 +10730,9 @@ RuntimeBridgeDamageResult damageRuntimeBridgeAtCell(
     health = std::max(0, health - rawDamage);
     result.healthRemaining = health;
     if (health > 0) {
-        updateRuntimeBridgeSegmentDamageFrame(state, *target, health);
+        if (updateRuntimeBridgeSegmentDamageFrame(state, *target, health)) {
+            refreshRuntimeBridgeMutationState(state, target->physicalCells);
+        }
         return result;
     }
 
@@ -10735,23 +10868,17 @@ RuntimeBridgeDamageResult damageRuntimeBridgeAtCell(
     return result;
 }
 
-RuntimeBridgeDamageResult demolishRuntimeBridgeByHut(
-    RuntimeProductionHostState& state, const WorldObjectInstance& hut,
-    int sourceObjectId, const std::string& sourceOwner,
-    RuntimeDeathWeaponCause deathWeaponCause) {
-    RuntimeBridgeDamageResult result;
-    if (!runtimeBridgeHutDemolitionAvailable(state, hut)) return result;
-    const RuntimeBridgeRepairSpan span = state.bridgeRepairSpansByHut.at(hut.instanceId);
-    result.hit = true;
-    result.anchor = span.startHead;
-    result.damage = state.rules.getBridgeStrength();
+static void applyRuntimeBridgeHutDemolition(
+    RuntimeGameSessionState& state,
+    const RuntimeBridgeRepairSpan& span,
+    RuntimeBridgeDamageResult& result,
+    std::vector<RuntimeCellPoint>& changedCells,
+    std::unordered_set<int>& collapsedKeys) {
     int first = std::numeric_limits<int>::max(), last = std::numeric_limits<int>::min();
     for (const auto& cell : span.cells) if (cell.requiresOverlay) {
         const int axis = span.alongX ? cell.point.x : cell.point.y;
         first = std::min(first, axis); last = std::max(last, axis);
     }
-    std::vector<RuntimeCellPoint> changedCells;
-    std::unordered_set<int> collapsedKeys;
     for (const auto& cell : span.cells) {
         const auto found = state.terrainByCell.find(runtimeCellKey(cell.point.x, cell.point.y));
         if (found == state.terrainByCell.end() || !found->second) continue;
@@ -10794,6 +10921,21 @@ RuntimeBridgeDamageResult demolishRuntimeBridgeByHut(
     }
     result.destroyedCellKeys.assign(collapsedKeys.begin(), collapsedKeys.end());
     std::sort(result.destroyedCellKeys.begin(), result.destroyedCellKeys.end());
+}
+
+RuntimeBridgeDamageResult demolishRuntimeBridgeByHut(
+    RuntimeProductionHostState& state, const WorldObjectInstance& hut,
+    int sourceObjectId, const std::string& sourceOwner,
+    RuntimeDeathWeaponCause deathWeaponCause) {
+    RuntimeBridgeDamageResult result;
+    if (!runtimeBridgeHutDemolitionAvailable(state, hut)) return result;
+    const RuntimeBridgeRepairSpan span = state.bridgeRepairSpansByHut.at(hut.instanceId);
+    result.hit = true;
+    result.anchor = span.startHead;
+    result.damage = state.rules.getBridgeStrength();
+    std::vector<RuntimeCellPoint> changedCells;
+    std::unordered_set<int> collapsedKeys;
+    applyRuntimeBridgeHutDemolition(state, span, result, changedCells, collapsedKeys);
     destroyRuntimeBridgeCollapseOccupants(state, collapsedKeys,
         sourceObjectId, sourceOwner, deathWeaponCause);
     if (result.destroyed) {
@@ -10853,7 +10995,7 @@ int runtimeProjectileTerrainDamageAtDistance(
 }
 
 RuntimeTerrainProjectileDamageResult applyRuntimeProjectileTerrainDamage(
-    RuntimeProductionHostState& state,
+    RuntimeGameSessionState& state,
     const RuntimeProjectileEffect& projectile,
     const RuntimeCellPoint& impactCell,
     const WeaponType* weapon,
@@ -10910,16 +11052,6 @@ RuntimeTerrainProjectileDamageResult applyRuntimeProjectileTerrainDamage(
         }
     }
 
-    if (result.objectsDamaged > 0) {
-        invalidateRuntimeObjectProjectionCache(state);
-        state.radarTerrainKey.clear();
-        state.repaintRequested = true;
-    }
-    if (result.objectsDestroyed > 0) {
-        refreshRuntimeObjectOccupancyAfterLocalChange(state);
-        state.pathFailureCache.clear();
-        state.placementChecksCacheTick = -1;
-    }
     return result;
 }
 
@@ -12089,13 +12221,15 @@ RuntimeSharedMoveCrowdSearch findRuntimeCloserSharedMoveSlot(
     std::set<std::pair<int,int>> visitedBody{{runtimeCellKey(current.x,current.y),object.subCell}};
     int best = -1, exactBest=-1;
     std::tuple<int,int,int,int,int> bestScore{INT_MAX,INT_MAX,INT_MAX,INT_MAX,INT_MAX};
+    const auto reserved = runtimeRepackArrivalCellsReservedByPeers(state, object, behavior);
     const int searchRadius = currentRadius+1;
     for (std::size_t index = 0; index < nodes.size(); ++index) {
         const Node node = nodes[index];
         const int cellRadius = radius(node.cell);
-        if (foot && index>0 && node.cell==behavior.moveTarget && exactBest<0)
+        const bool availableToSettle = !reserved.contains(runtimeCellKey(node.cell.x, node.cell.y));
+        if (foot && index>0 && node.cell==behavior.moveTarget && exactBest<0 && availableToSettle)
             exactBest=static_cast<int>(index);
-        if (index > 0 && cellRadius < currentRadius
+        if (index > 0 && cellRadius < currentRadius && availableToSettle
             && (behavior.pendingHasSharedGoal
                 || runtimeCellDistance(node.cell,center)+0.001 < runtimeCellDistance(current,center))) {
             const int dx=node.cell.x-center.x, dy=node.cell.y-center.y;
@@ -12183,6 +12317,8 @@ bool runtimeMoveCanFinishAtCrowdedDestination(
             <= runtimeSharedMoveArrivalRadius(behavior) + 0.001;
     if (current == behavior.moveTarget || (!nearSharedGoal && slotDistance > 2.25)
         || !runtimeMoveAllowsNearbyCrowdArrival(state, object, behavior)) return false;
+    const auto reserved = runtimeRepackArrivalCellsReservedByPeers(state, object, behavior);
+    if (reserved.contains(runtimeCellKey(current.x, current.y))) return false;
 
     const int id = object.instanceId;
     const auto& occupied = runtimeTickOccupancyLookup(state);

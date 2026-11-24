@@ -74,7 +74,7 @@ RECT runtimeDiplomacyCheckboxRect(const RECT& client,int id) {
     return {cx-w/2,cy-h/2,cx-w/2+w,cy-h/2+h};
 }
 
-std::vector<RuntimeDiplomacyRow> runtimeDiplomacyRows(const RuntimeWindowState& state) {
+std::vector<RuntimeDiplomacyRow> runtimeDiplomacyRows(const RuntimeProductionHostState& state) {
     std::vector<RuntimeDiplomacyRow> rows;
     std::set<std::string> added;
     const auto self = runtimeCanonicalHumanHouseOwner(state.economy.owner);
@@ -126,7 +126,7 @@ void openRuntimeDiplomacyPage(RuntimeWindowState& state) {
     openRuntimeDiplomacyPointer(host);
 }
 
-bool runtimeDiplomacyAllianceEnabled(const RuntimeWindowState& state, const RuntimeDiplomacyRow& row) {
+bool runtimeDiplomacyAllianceEnabled(const RuntimeProductionHostState& state, const RuntimeDiplomacyRow& row) {
     RuntimeMultiplayerGameplayPlayerCommunicationCommand command;
     command.kind=RuntimePlayerCommunicationKind::Alliance; command.text=row.owner;
     const auto source=runtimeCanonicalHumanHouseOwner(state.economy.owner);

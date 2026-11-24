@@ -44,6 +44,10 @@ bool runRuntimeAirBodyImpactSmoke(const RuntimeConfig& config, std::string& erro
     const auto rulesHash = assets->rules.getDetailRulesHash();
     const char* output = std::getenv("CONCORD_AIR_BODY_IMPACT_OUTPUT");
     const char* selectedCase = std::getenv("CONCORD_AIR_BODY_IMPACT_CASE");
+    const char* authorityPairOutput = std::getenv("CONCORD_AIR_BODY_AUTHORITY_PAIR_OUTPUT");
+    const bool authorityPairRequested = authorityPairOutput && *authorityPairOutput;
+    const bool wholeGeometryPair = std::getenv("CONCORD_AIR_BODY_AUTHORITY_PAIR_WIDE") != nullptr;
+    bool authorityPairChecked = false;
     constexpr int width = 512, height = 384;
     constexpr std::uint32_t background = 0x001d2935, secondBackground = 0x00d1bd8b;
     const RECT viewport{0, 0, width, height};
@@ -726,9 +730,15 @@ bool runRuntimeAirBodyImpactSmoke(const RuntimeConfig& config, std::string& erro
                             // the real world receives exclusively real weapon
                             // damage. Successive rounds in one Effects pass
                             // use the original armor/prone/veterancy contract.
+                            // Aircraft can round into the next impact cell before their
+                            // one-cell footprint advances. Apply the authored falloff to
+                            // the predicted physical pose, including that boundary.
+                            const auto expectedCell = runtimeProjectileTargetPosition(*prediction, expectedVictim).cell;
+                            const double splashDistance = runtimeCellDistanceToObjectFootprint(
+                                *prediction, expectedCell, expectedVictim);
                             const int nativeDamage = runtimeAuthoredDamageAgainst(s, expectedVictim,
                                 runtimeCombatProjectileAuthoredDamage(s, *terminal, *profile.weapon),
-                                terminal->warheadId, 0.0, terminal->veteranDamageMultiplier);
+                                terminal->warheadId, splashDistance, terminal->veteranDamageMultiplier);
                             expectedVictim.health = std::max(0, expectedVictim.health - nativeDamage);
                             const auto* infantry = expectedVictim.kind == WorldObjectKind::Infantry
                                 ? findRuntimeUnitType(s.rules, expectedVictim) : nullptr;
@@ -933,6 +943,126 @@ bool runRuntimeAirBodyImpactSmoke(const RuntimeConfig& config, std::string& erro
                     stage = "ordinary / canonical in-flight restore";
                     ordinary = checkpoint(s, false); exact = checkpoint(s, true);
                     if (!ordinary || !exact) return fail("flight checkpoint: " + error);
+                    if (authorityPairRequested && !authorityPairChecked && hz == 30 && rank == 0
+                        && sourceType == "AEGIS" && air.id == "ORCA" && !moving) {
+                        auto native = checkpoint(s, true);
+                        auto withoutGeometry = checkpoint(s, true);
+                        if (!native || !withoutGeometry || !runtimeSessionGeometryAvailable(*native)
+                            || !runtimeSessionGeometryAvailable(*withoutGeometry))
+                            return fail("body provider comparison could not restore two identical ready states: " + error);
+                        auto* originalGeometry = withoutGeometry->geometry;
+                        int suppressedImpacts = 0;
+                        bool captureWasSuppressed = false;
+                        if (wholeGeometryPair) {
+                            withoutGeometry->geometry = nullptr;
+                        } else {
+                            withoutGeometry->runtimeProjectileImpactObserver =
+                                [&](const RuntimeProjectileEffect& projectile, bool afterDamage) {
+                                if (projectile.attackerObjectId != 1 || projectile.targetObjectId != targetId
+                                    || projectile.weaponId != "Medusa" || projectile.particleDamagePulse) return;
+                                if (afterDamage) {
+                                    withoutGeometry->geometry = originalGeometry;
+                                } else {
+                                    captureWasSuppressed = runtimeSessionGeometryAvailable(*withoutGeometry);
+                                    withoutGeometry->geometry = nullptr;
+                                    ++suppressedImpacts;
+                                }
+                            };
+                        }
+                        const auto saveWideParticlePair = [&] {
+                            const std::string base(authorityPairOutput);
+                            std::ofstream nativeParticles(base + ".native.particles.ini",
+                                std::ios::binary);
+                            std::ofstream absentParticles(base + ".without-geometry.particles.ini",
+                                std::ios::binary);
+                            native->particles.save(nativeParticles);
+                            withoutGeometry->particles.save(absentParticles);
+                            nativeParticles.close();
+                            absentParticles.close();
+                            return nativeParticles.good() && absentParticles.good();
+                        };
+                        const auto* initialTarget = findObjectById(*native, targetId);
+                        if (!initialTarget || !initialTarget->airborne)
+                            return fail("body provider comparison lacks the original airborne target");
+                        const int healthAtStart = initialTarget->health;
+                        std::set<int> existingImpacts;
+                        for (const auto& impact : native->impactEffects) existingImpacts.insert(impact.projectileActorId);
+                        const auto newHit = [&](const RuntimeGameSessionState& state) {
+                            return std::find_if(state.impactEffects.begin(), state.impactEffects.end(),
+                                [&](const auto& impact) {
+                                    return isActualAaHit(impact) && impact.targetObjectId == targetId
+                                        && !existingImpacts.contains(impact.projectileActorId);
+                                });
+                        };
+                        for (int pairedTicks = 0; pairedTicks <= hz * 18; ++pairedTicks) {
+                            std::string firstError, secondError;
+                            const auto firstHash = runtimeStandaloneSimulationStateHash(*native, firstError);
+                            const auto secondHash = runtimeStandaloneSimulationStateHash(*withoutGeometry, secondError);
+                            if (!firstHash || firstHash != secondHash || !firstError.empty() || !secondError.empty()) {
+                                std::vector<std::pair<std::string, std::uint64_t>> firstTrace, secondTrace;
+                                (void)runtimeStandaloneSimulationStateHash(*native, firstError, &firstTrace);
+                                (void)runtimeStandaloneSimulationStateHash(*withoutGeometry, secondError, &secondTrace);
+                                std::ofstream difference(std::string(authorityPairOutput) + ".difference.txt");
+                                difference << std::setprecision(17) << "tick=" << pairedTicks << " absolute=" << native->tick
+                                    << " wide=" << wholeGeometryPair << " suppressed=" << suppressedImpacts
+                                    << " original=" << firstHash << " without=" << secondHash << '\n';
+                                const auto dump = [&](const char* label, const RuntimeGameSessionState& state,
+                                    const auto& trace) {
+                                    difference << label << " target={"
+                                        << describeObject(findRuntimeObjectByIdIncludingInactive(state, targetId))
+                                        << "} world=" << state.world.deterministicSimulationStateHash()
+                                        << " specials=" << state.specialMechanisms.stateHash()
+                                        << " active=" << state.projectiles.size()
+                                        << " expired=" << state.recentExpiredProjectiles.size()
+                                        << " effects=" << state.impactEffects.size() << '\n';
+                                    for (const auto& step : trace) difference << label << ' ' << step.first << ' ' << step.second << '\n';
+                                    for (const auto& impact : state.impactEffects)
+                                        difference << label << " impact " << runtimeMultiplayerSnapshotImpactRecord(impact) << '\n';
+                                };
+                                dump("native", *native, firstTrace);
+                                dump("without", *withoutGeometry, secondTrace);
+                                if (wholeGeometryPair && !saveWideParticlePair())
+                                    return fail("body provider comparison could not write both particle packs");
+                                return fail("body provider comparison changed authoritative state at paired tick "
+                                    + std::to_string(pairedTicks));
+                            }
+                            const auto drawnHit = newHit(*native);
+                            const auto bareHit = newHit(*withoutGeometry);
+                            if (drawnHit != native->impactEffects.end()
+                                || bareHit != withoutGeometry->impactEffects.end()) {
+                                if (drawnHit == native->impactEffects.end() || bareHit == withoutGeometry->impactEffects.end()
+                                    || drawnHit->projectileActorId != bareHit->projectileActorId
+                                    || drawnHit->renderIntent != bareHit->renderIntent || !drawnHit->bodyCenterAnchored
+                                    || bareHit->bodyCenterAnchored || !drawnHit->hasWorldPosition || !bareHit->hasWorldPosition
+                                    || drawnHit->worldX != bareHit->worldX || drawnHit->worldY != bareHit->worldY
+                                    || drawnHit->worldLevel != bareHit->worldLevel)
+                                    return fail("body provider comparison changed the physical contact or missed the body marker");
+                                const auto* firstTarget = findRuntimeObjectByIdIncludingInactive(*native, targetId);
+                                const auto* secondTarget = findRuntimeObjectByIdIncludingInactive(*withoutGeometry, targetId);
+                                if (!wholeGeometryPair && (!captureWasSuppressed || suppressedImpacts < 1
+                                    || withoutGeometry->geometry != originalGeometry))
+                                    return fail("body provider comparison did not isolate and restore the actual impact query");
+                                if (!firstTarget || !secondTarget || firstTarget->health != secondTarget->health
+                                    || firstTarget->health >= healthAtStart || pairedTicks == 0)
+                                    return fail("body provider comparison did not apply equal real damage");
+                                std::ofstream report(authorityPairOutput);
+                                report << "pairedTicks=" << pairedTicks << " tick=" << native->tick
+                                    << " hash=" << firstHash << " actor=" << drawnHit->projectileActorId
+                                    << " healthBefore=" << healthAtStart << " healthAfter=" << firstTarget->health
+                                    << " nativeAnchor=1 absentAnchor=0\n";
+                                report.close();
+                                if (!report) return fail("body provider comparison could not write the explicit evidence file");
+                                if (wholeGeometryPair && !saveWideParticlePair())
+                                    return fail("body provider comparison could not write both particle packs");
+                                authorityPairChecked = true;
+                                break;
+                            }
+                            if (pairedTicks == hz * 18) break;
+                            step(*native);
+                            step(*withoutGeometry);
+                        }
+                        if (!authorityPairChecked) return fail("body provider comparison never reached a real impact");
+                    }
                     setupProbe(*ordinary, ordinaryProbe); setupProbe(*exact, exactProbe);
                     if (!compare(*ordinary, false, ordinaryProbe) || !compare(*exact, true, exactProbe)) return fail("flight checkpoint: " + error);
                     if (serializeRuntimeActiveJumpjetFlights(s) != serializeRuntimeActiveJumpjetFlights(*ordinary)
@@ -1143,6 +1273,8 @@ bool runRuntimeAirBodyImpactSmoke(const RuntimeConfig& config, std::string& erro
         return true;
     }();
     if (!roofPassed) { failures.push_back(error); std::cout << error << '\n'; error.clear(); }
+    if (authorityPairRequested && !authorityPairChecked)
+        failures.push_back("Air body impact: no actual body-provider pair was verified");
     if (!attemptedScenes) failures.push_back("Air body impact: selected scene label did not match a real combat case");
     if (!(selectedCase && *selectedCase) && (!checkedRecord || snapshotPixelChecks < 1))
         failures.push_back("Air body impact: frozen-center compatibility/hash or post-hit pixel checks did not execute");

@@ -33,8 +33,8 @@
 #include "assets/archive/MixArchive.h"
 #include "ui/resources/RuntimeMenuResourceWatch.h"
 #include "runtime/config/RuntimeConfigPaths.h"
+#include "audio/events/RuntimeMenuSoundPlayback.h"
 #include "audio/events/RuntimeMenuSoundPool.h"
-#include "audio/events/win32/RuntimeMenuSoundWin32.h"
 #include "runtime/performance/RuntimePerfTrace.h"
 
 #include <windows.h>
@@ -517,12 +517,6 @@ bool loadPcxImage(
 
 
 
-std::unique_ptr<concord::audio::MenuSoundDevice> makeRuntimeMenuSoundDevice() {
-    return concord::audio::createMenuSoundDeviceWin32();
-}
-
-#include "audio/events/RuntimeMenuSoundMci.inl"
-
 struct MenuAudio {
     explicit MenuAudio(const RuntimeUiClock& clock = runtimeWin32UiClock())
         : musicDevice(concord::audio::createSkirmishMusicDeviceWin32(
@@ -586,7 +580,7 @@ struct MenuAudio {
             cached = wavePaths.emplace(eventName, std::move(resolved)).first;
         }
         if (cached->second) {
-            runtimeMenuSoundPlayback().play(*cached->second);
+            concord::audio::playSharedMenuSound(*cached->second);
         } else if (beepOnFailure) {
             MessageBeep(MB_OK);
         }
@@ -594,7 +588,7 @@ struct MenuAudio {
 
     void startMusic(const fs::path& path) { music.start(path,enabled,*musicDevice); }
     void ensureMusicPlaying() {
-        if(enabled) runtimeMenuSoundPlayback().collect();
+        if(enabled) concord::audio::collectSharedMenuSounds();
         music.poll(enabled,*musicDevice);
     }
     void stopMusic() { music.stop(*musicDevice); }

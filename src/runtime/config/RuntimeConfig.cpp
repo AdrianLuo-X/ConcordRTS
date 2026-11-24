@@ -4,7 +4,7 @@
 #include "core/io/RuntimeExecutableDirectory.h"
 #include "runtime/config/RuntimeConfigPaths.h"
 #include "runtime/campaign/RuntimeCampaignDataSource.h"
-#include "ui/input/RuntimePlayerCommands.h"
+#include "runtime/contracts/RuntimePlayerKeyBindings.h"
 
 #include <algorithm>
 #include <cctype>

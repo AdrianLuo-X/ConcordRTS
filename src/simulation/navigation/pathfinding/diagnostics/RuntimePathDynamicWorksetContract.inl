@@ -29,7 +29,7 @@ struct Route {
         sparse(route==0),batch(route==0),workset(route!=2) {}
 };
 struct Observation {
-    const void* expected=nullptr;
+    const RuntimeGameSessionState* expected=nullptr;
     bool foreign=false;
     std::vector<RuntimePathDynamicWorksetStats> calls;
     static void append(void* opaque,const void* state,const RuntimePathDynamicWorksetStats& value) {

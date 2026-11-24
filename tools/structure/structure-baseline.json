@@ -2,6 +2,18 @@
   "schema": "ConcordStructureBaseline/v1",
   "scope": "Current ConcordRTS engine; exact entries only.",
   "protectedModules": {
+    "superweapon-vision-effects": [
+      "src/simulation/superweapons/RuntimeSuperWeaponVisionEffects.h",
+      "src/simulation/superweapons/RuntimeSuperWeaponVisionEffects.cpp"
+    ],
+    "nearest-subcell-policy": [
+      "src/simulation/navigation/occupancy/RuntimeNearestSubcellSelection.h",
+      "src/simulation/navigation/occupancy/RuntimeNearestSubcellSelection.cpp"
+    ],
+    "world-audio-backend-session": [
+      "src/audio/world/RuntimeWorldAudioBackendSession.h",
+      "src/audio/world/RuntimeWorldAudioBackendSession.cpp"
+    ],
     "audio-path": [
       "src/assets/audio/AudioSampleResolver.h",
       "src/assets/audio/AudioSampleResolver.cpp",
@@ -173,6 +185,102 @@
       "src/simulation/combat/targeting/RuntimeWeaponFireFlh.h",
       "src/simulation/combat/targeting/RuntimeOpenTransportMuzzle.h",
       "src/simulation/combat/targeting/RuntimeOpenTransportMuzzle.cpp"
+    ],
+    "computer-tactic-selection": [
+      "src/simulation/ai/RuntimeComputerTacticSelection.h",
+      "src/simulation/ai/RuntimeComputerTacticSelection.cpp",
+      "src/simulation/ai/RuntimeComputerAiState.h",
+      "src/simulation/production/RuntimeBuildCatalogItem.h",
+      "src/simulation/production/RuntimeBuildKind.h"
+    ],
+    "computer-tactic-lifecycle": [
+      "src/simulation/ai/RuntimeComputerTacticLifecycle.h",
+      "src/simulation/ai/RuntimeComputerTacticLifecycle.cpp",
+      "src/simulation/ai/RuntimeComputerAiMetrics.h"
+    ],
+    "computer-tactic-reservations": [
+      "src/simulation/ai/RuntimeComputerTacticReservations.h",
+      "src/simulation/ai/RuntimeComputerTacticReservations.cpp"
+    ],
+    "computer-tactic-recruitment": [
+      "src/simulation/ai/RuntimeComputerTacticRecruitment.h",
+      "src/simulation/ai/RuntimeComputerTacticRecruitment.cpp"
+    ],
+    "computer-base-plan": [
+      "src/simulation/ai/RuntimeComputerBasePlan.h",
+      "src/simulation/ai/RuntimeComputerBasePlan.cpp",
+      "src/simulation/ai/RuntimeComputerBasePlanValues.h"
+    ],
+    "computer-tactic-production": [
+      "src/simulation/ai/RuntimeComputerTacticProduction.h",
+      "src/simulation/ai/RuntimeComputerTacticProduction.cpp",
+      "src/simulation/production/RuntimeProductionSpawnValues.h"
+    ],
+    "nuclear-death": [
+      "src/simulation/superweapons/RuntimeNuclearDeathDetonation.h",
+      "src/simulation/superweapons/RuntimeNuclearDeathDetonation.cpp",
+      "src/simulation/projectiles/RuntimeProjectileValues.h",
+      "src/simulation/projectiles/RuntimeVoxelDebrisState.h"
+    ],
+    "mind-overload-effects": [
+      "src/simulation/abilities/psionic/RuntimeMindControlOverloadEffects.h",
+      "src/simulation/abilities/psionic/RuntimeMindControlOverloadEffects.cpp"
+    ],
+    "dominator-control-completion": [
+      "src/simulation/abilities/psionic/RuntimeDominatorControlCompletion.h",
+      "src/simulation/abilities/psionic/RuntimeDominatorControlCompletion.cpp"
+    ],
+    "auxiliary-shp-bytes": [
+      "src/assets/sprites/RuntimeAuxiliaryShpBytes.h",
+      "src/assets/sprites/RuntimeAuxiliaryShpBytes.cpp"
+    ],
+    "art-animation-sequence": [
+      "src/assets/animation/RuntimeArtAnimationSequence.h",
+      "src/assets/animation/RuntimeArtAnimationSequence.cpp"
+    ],
+    "superweapon-animation-timing": [
+      "src/simulation/superweapons/RuntimeSuperWeaponAnimationTiming.h",
+      "src/simulation/superweapons/RuntimeSuperWeaponAnimationTiming.cpp"
+    ],
+    "support-flight-persistence": [
+      "src/simulation/superweapons/RuntimeSupportFlightPersistence.h",
+      "src/simulation/superweapons/RuntimeSupportFlightPersistence.cpp",
+      "src/core/io/RuntimeStrictSaveDouble.h"
+    ],
+    "superweapon-ai-policy": [
+      "src/simulation/superweapons/RuntimeSuperWeaponAiPolicy.h",
+      "src/simulation/superweapons/RuntimeSuperWeaponAiPolicy.cpp"
+    ],
+    "camouflage-stationary": [
+      "src/simulation/abilities/unit_special/RuntimeCamouflageStationary.h",
+      "src/simulation/abilities/unit_special/RuntimeCamouflageStationary.cpp"
+    ],
+    "deployment-missions": [
+      "src/simulation/movement/RuntimeDeploymentMissions.h"
+    ],
+    "chrono-transport-admission": [
+      "src/simulation/abilities/chrono/RuntimeChronoTransportAdmission.h",
+      "src/simulation/abilities/chrono/RuntimeChronoTransportAdmission.cpp"
+    ],
+    "chrono-locomotion-policy": [
+      "src/simulation/abilities/chrono/RuntimeChronoLocomotionPolicy.h",
+      "src/simulation/abilities/chrono/RuntimeChronoLocomotionPolicy.cpp"
+    ],
+    "chrono-state": [
+      "src/simulation/abilities/chrono/RuntimeChronoState.h",
+      "src/simulation/abilities/chrono/RuntimeChronoState.cpp"
+    ],
+    "chrono-cell-occupancy": [
+      "src/simulation/abilities/chrono/RuntimeChronoCellOccupancy.h",
+      "src/simulation/abilities/chrono/RuntimeChronoCellOccupancy.cpp"
+    ],
+    "chrono-terrain-view": [
+      "src/simulation/abilities/chrono/RuntimeChronoTerrainView.h",
+      "src/simulation/abilities/chrono/RuntimeChronoTerrainView.cpp"
+    ],
+    "chrono-warp": [
+      "src/simulation/abilities/chrono/RuntimeChronoWarp.h",
+      "src/simulation/abilities/chrono/RuntimeChronoWarp.cpp"
     ]
   },
   "rootCmakeIncludes": [
@@ -1572,17 +1680,6 @@
       "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling.",
       "owner_step": "S30",
       "follow_up": "H100|H003",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "host-business-inl",
-      "path": "src/runtime/host/RuntimeShell.cpp",
-      "detail": "src/audio/backend/RuntimeWorldAudioBackend.inl",
-      "maxOccurrences": 1,
-      "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling.",
-      "owner_step": "S30",
-      "follow_up": "H003|H101",
       "status": "pending",
       "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
     },
@@ -3998,17 +4095,6 @@
     {
       "rule": "host-business-inl",
       "path": "src/runtime/host/RuntimeShell.cpp",
-      "detail": "src/ui/selection/RuntimeChronosphereSelection.inl",
-      "maxOccurrences": 1,
-      "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling.",
-      "owner_step": "S30",
-      "follow_up": "H325|H023|H014",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "host-business-inl",
-      "path": "src/runtime/host/RuntimeShell.cpp",
       "detail": "src/ui/selection/RuntimeChronosphereSelectionAudio.inl",
       "maxOccurrences": 1,
       "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling.",
@@ -4096,28 +4182,6 @@
     },
     {
       "rule": "host-state-token",
-      "path": "src/audio/backend/RuntimeSfxChannelPoolMci.inl",
-      "detail": "RuntimeWindowState",
-      "maxOccurrences": 1,
-      "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling.",
-      "owner_step": "S30",
-      "follow_up": "H100|H003",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "host-state-token",
-      "path": "src/audio/backend/RuntimeWorldAudioBackend.inl",
-      "detail": "RuntimeWindowState",
-      "maxOccurrences": 1,
-      "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling.",
-      "owner_step": "S30",
-      "follow_up": "H003|H101",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "host-state-token",
       "path": "src/audio/events/RuntimeAircraftAuxRuntime.inl",
       "detail": "RuntimeWindowState",
       "maxOccurrences": 1,
@@ -4129,56 +4193,12 @@
     },
     {
       "rule": "host-state-token",
-      "path": "src/audio/events/RuntimeCreditAudio.inl",
-      "detail": "RuntimeWindowState",
-      "maxOccurrences": 2,
-      "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling.",
-      "owner_step": "S30",
-      "follow_up": "H105",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "host-state-token",
       "path": "src/audio/events/RuntimeDiskDrainAudio.inl",
       "detail": "RuntimeWindowState",
       "maxOccurrences": 1,
       "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling.",
       "owner_step": "S30",
       "follow_up": "H106",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "host-state-token",
-      "path": "src/audio/events/RuntimeObjectAmbientRuntime.inl",
-      "detail": "RuntimeWindowState",
-      "maxOccurrences": 1,
-      "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling.",
-      "owner_step": "S30",
-      "follow_up": "H110",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "host-state-token",
-      "path": "src/audio/events/RuntimeSuperWeaponBuildingAudio.inl",
-      "detail": "RuntimeWindowState",
-      "maxOccurrences": 1,
-      "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling.",
-      "owner_step": "S30",
-      "follow_up": "H111",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "host-state-token",
-      "path": "src/audio/events/RuntimeTurretSoundRuntime.inl",
-      "detail": "RuntimeWindowState",
-      "maxOccurrences": 1,
-      "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling.",
-      "owner_step": "S30",
-      "follow_up": "H113",
       "status": "pending",
       "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
     },
@@ -4758,12 +4778,12 @@
       "rule": "host-state-token",
       "path": "src/runtime/host/RuntimeShell.cpp",
       "detail": "RuntimeWindowState",
-      "maxOccurrences": 799,
-      "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling. S38 scoped review: One UI-only assembly OverlayContext pointer for the same existing FPS/cursor owner. The private callback is synchronous, window-thread checked and never retained or submitted to an executor.",
+      "maxOccurrences": 796,
+      "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling. S38 scoped review: One UI-only assembly OverlayContext pointer for the same existing FPS/cursor owner. The private callback is synchronous, window-thread checked and never retained or submitted to an executor. H003/H101 exact relocation: the existing two-call audio orchestration wrapper moves from the old inl into this host; one existing token is transferred, total host-state-token allowance unchanged. Standard session module remains Root-free.",
       "owner_step": "S30",
       "follow_up": "S30 exact ownership: src/runtime/host/RuntimeShell.cpp",
       "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json; S38/software-frame-20261027-r1/presenter-source-basis-r1.json"
+      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json; S38/software-frame-20261027-r1/presenter-source-basis-r1.json; S30/H003/20261105234701-r1-session/reports/host-glue-boundary-review-r1.json"
     },
     {
       "rule": "host-state-token",
@@ -6100,7 +6120,7 @@
       "rule": "host-state-token",
       "path": "src/simulation/buildings/RuntimeGarrisonPips.inl",
       "detail": "RuntimeWindowState",
-      "maxOccurrences": 2,
+      "maxOccurrences": 1,
       "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling.",
       "owner_step": "S30",
       "follow_up": "H189",
@@ -6507,7 +6527,7 @@
       "rule": "host-state-token",
       "path": "src/simulation/combat/damage/RuntimeOverlayWallCombat.inl",
       "detail": "RuntimeWindowState",
-      "maxOccurrences": 2,
+      "maxOccurrences": 1,
       "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling.",
       "owner_step": "S30",
       "follow_up": "H069|H204|H032",
@@ -7486,7 +7506,7 @@
       "rule": "host-state-token",
       "path": "src/simulation/movement/naval/diagnostics/RuntimeAmphibiousTransportSmoke.inl",
       "detail": "RuntimeWindowState",
-      "maxOccurrences": 8,
+      "maxOccurrences": 7,
       "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling.",
       "owner_step": "S30",
       "follow_up": "S30 exact ownership: src/simulation/movement/naval/diagnostics/RuntimeAmphibiousTransportSmoke.inl",
@@ -8630,7 +8650,7 @@
       "rule": "host-state-token",
       "path": "src/ui/diplomacy/RuntimeDiplomacyPage.inl",
       "detail": "RuntimeWindowState",
-      "maxOccurrences": 13,
+      "maxOccurrences": 11,
       "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling.",
       "owner_step": "S30",
       "follow_up": "H307",
@@ -8645,17 +8665,6 @@
       "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling.",
       "owner_step": "S30",
       "follow_up": "S30 exact ownership: src/ui/diplomacy/diagnostics/RuntimeDiplomacyPageSmoke.inl",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "host-state-token",
-      "path": "src/ui/hud/RuntimeSuperWeaponTimerText.inl",
-      "detail": "RuntimeWindowState",
-      "maxOccurrences": 2,
-      "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling.",
-      "owner_step": "S30",
-      "follow_up": "H308",
       "status": "pending",
       "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
     },
@@ -8696,7 +8705,7 @@
       "rule": "host-state-token",
       "path": "src/ui/input/RuntimeGameplayIntentRouting.inl",
       "detail": "RuntimeWindowState",
-      "maxOccurrences": 2,
+      "maxOccurrences": 1,
       "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling.",
       "owner_step": "S30",
       "follow_up": "H309|H002",
@@ -8729,7 +8738,7 @@
       "rule": "host-state-token",
       "path": "src/ui/input/RuntimeKeyboardMenu.inl",
       "detail": "RuntimeWindowState",
-      "maxOccurrences": 5,
+      "maxOccurrences": 3,
       "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling.",
       "owner_step": "S30",
       "follow_up": "H310|H002",
@@ -8839,7 +8848,7 @@
       "rule": "host-state-token",
       "path": "src/ui/input/RuntimePlayerDefeatNoticeUi.inl",
       "detail": "RuntimeWindowState",
-      "maxOccurrences": 4,
+      "maxOccurrences": 1,
       "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling.",
       "owner_step": "S30",
       "follow_up": "H316|H037",
@@ -8850,7 +8859,7 @@
       "rule": "host-state-token",
       "path": "src/ui/input/RuntimePlayerHotkeysUi.inl",
       "detail": "RuntimeWindowState",
-      "maxOccurrences": 16,
+      "maxOccurrences": 15,
       "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling.",
       "owner_step": "S30",
       "follow_up": "H002|H317",
@@ -8861,7 +8870,7 @@
       "rule": "host-state-token",
       "path": "src/ui/input/RuntimePlayerWaypointsUi.inl",
       "detail": "RuntimeWindowState",
-      "maxOccurrences": 4,
+      "maxOccurrences": 2,
       "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling.",
       "owner_step": "S30",
       "follow_up": "H320|H002",
@@ -8872,7 +8881,7 @@
       "rule": "host-state-token",
       "path": "src/ui/input/RuntimePointerIngressUi.inl",
       "detail": "RuntimeWindowState",
-      "maxOccurrences": 5,
+      "maxOccurrences": 4,
       "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling.",
       "owner_step": "S30",
       "follow_up": "S30 exact ownership: src/ui/input/RuntimePointerIngressUi.inl",
@@ -9213,7 +9222,7 @@
       "rule": "host-state-token",
       "path": "src/ui/loading/RuntimeCountryLoadingRender.inl",
       "detail": "RuntimeWindowState",
-      "maxOccurrences": 2,
+      "maxOccurrences": 1,
       "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling.",
       "owner_step": "S30",
       "follow_up": "H321",
@@ -9277,17 +9286,6 @@
     },
     {
       "rule": "host-state-token",
-      "path": "src/ui/resources/RuntimeInteractionUiResources.inl",
-      "detail": "RuntimeWindowState",
-      "maxOccurrences": 3,
-      "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling.",
-      "owner_step": "S30",
-      "follow_up": "H323",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "host-state-token",
       "path": "src/ui/results/RuntimeMatchScoreAssets.inl",
       "detail": "RuntimeWindowState",
       "maxOccurrences": 1,
@@ -9343,20 +9341,9 @@
     },
     {
       "rule": "host-state-token",
-      "path": "src/ui/selection/RuntimeChronosphereSelection.inl",
-      "detail": "RuntimeWindowState",
-      "maxOccurrences": 2,
-      "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling.",
-      "owner_step": "S30",
-      "follow_up": "H325|H023|H014",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "host-state-token",
       "path": "src/ui/selection/RuntimePaintProjectionSignatureMemo.inl",
       "detail": "RuntimeWindowState",
-      "maxOccurrences": 7,
+      "maxOccurrences": 2,
       "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling.",
       "owner_step": "S30",
       "follow_up": "H328",
@@ -9525,17 +9512,6 @@
       "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling.",
       "owner_step": "S30",
       "follow_up": "S30 exact ownership: src/ui/selection/diagnostics/RuntimeUnitSelectionSpecialSmoke.inl",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "host-state-token",
-      "path": "src/ui/sidebar/RuntimeHealthPipStrip.inl",
-      "detail": "RuntimeWindowState",
-      "maxOccurrences": 1,
-      "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling.",
-      "owner_step": "S30",
-      "follow_up": "H329",
       "status": "pending",
       "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
     },
@@ -9734,39 +9710,6 @@
       "reason": "Existing text/host boundary; diagnostic fragments and frozen oracle includes are retained separately, not new product coupling.",
       "owner_step": "S30",
       "follow_up": "S30 exact ownership: tests/infrastructure/fixtures/PointerIngressOld.inl",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "legacy-replay-discovery",
-      "path": "src/analysis/sandbox/ReplaySandbox.cpp",
-      "detail": "std::filesystem::path(\"build\") / \"Debug\" / \"runtime_replay_events_command.txt\"",
-      "maxOccurrences": 1,
-      "reason": "Original Debug/relative discovery retained; registration only, no implementation.",
-      "owner_step": "S30",
-      "follow_up": "H333",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "legacy-replay-discovery",
-      "path": "src/analysis/sandbox/ReplaySandbox.cpp",
-      "detail": "std::filesystem::path(\"build\") / \"runtime_replay_events_command.txt\",",
-      "maxOccurrences": 1,
-      "reason": "Original Debug/relative discovery retained; registration only, no implementation.",
-      "owner_step": "S30",
-      "follow_up": "H333",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "legacy-replay-discovery",
-      "path": "src/analysis/sandbox/ReplaySandbox.cpp",
-      "detail": "std::filesystem::path(\"runtime_replay_events_command.txt\"),",
-      "maxOccurrences": 1,
-      "reason": "Original Debug/relative discovery retained; registration only, no implementation.",
-      "owner_step": "S30",
-      "follow_up": "H333",
       "status": "pending",
       "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
     },
@@ -10006,17 +9949,6 @@
       "path": "src/simulation/navigation/occupancy/RuntimeMovementEmptyCellProof.h",
       "detail": "void*:terrainObjectData",
       "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P10",
-      "follow_up": "W027",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "opaque-native",
-      "path": "src/simulation/navigation/pathfinding/PathRequestQueue.h",
-      "detail": "void*:sharedLayoutIdentityForDiagnostics",
-      "maxOccurrences": 2,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P10",
       "follow_up": "W027",
@@ -10324,17 +10256,6 @@
       "rule": "opaque-native",
       "path": "src/simulation/navigation/pathfinding/RuntimePathDynamicWorkset.h",
       "detail": "void*:state_",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P10",
-      "follow_up": "W027",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "opaque-native",
-      "path": "src/simulation/navigation/pathfinding/RuntimePathQueueLayoutStorage.h",
-      "detail": "void*:sharedIdentityForDiagnostics",
       "maxOccurrences": 1,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P10",
@@ -10828,17 +10749,6 @@
     },
     {
       "rule": "platform-edge",
-      "path": "src/analysis/cli/main.cpp",
-      "detail": "src/simulation/navigation/pathfinding/PathRequestQueue.h",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P10",
-      "follow_up": "W027",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-edge",
       "path": "src/audio/backend/RuntimeVoiceAudio.cpp",
       "detail": "src/audio/backend/RuntimeAudioPeakLimiter.h",
       "maxOccurrences": 1,
@@ -10885,17 +10795,6 @@
       "rule": "platform-edge",
       "path": "src/render/core/RuntimeMapRenderer.cpp",
       "detail": "src/render/buildings/RuntimeFactoryAirExitForeground.inl",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P06",
-      "follow_up": "W020",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-edge",
-      "path": "src/render/core/RuntimeMapRenderer.cpp",
-      "detail": "src/render/buildings/RuntimeFactoryAirExitRender.inl",
       "maxOccurrences": 1,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P06",
@@ -11522,17 +11421,6 @@
     {
       "rule": "platform-edge",
       "path": "src/render/core/RuntimeMapRenderer.cpp",
-      "detail": "src/render/geometry/RuntimeWeaponMuzzleGeometry.inl",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P06",
-      "follow_up": "W020",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-edge",
-      "path": "src/render/core/RuntimeMapRenderer.cpp",
       "detail": "src/render/geometry/diagnostics/RuntimeGeometryQueryContract.inl",
       "maxOccurrences": 1,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
@@ -11732,17 +11620,6 @@
       "rule": "platform-edge",
       "path": "src/render/core/RuntimeMapRenderer.cpp",
       "detail": "src/render/shadows/diagnostics/RuntimeVehicleGroundShadowIssue22Smoke.inl",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P06",
-      "follow_up": "W020",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-edge",
-      "path": "src/render/core/RuntimeMapRenderer.cpp",
-      "detail": "src/render/terrain/RuntimeBridgeViewportBounds.inl",
       "maxOccurrences": 1,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P06",
@@ -12062,17 +11939,6 @@
       "rule": "platform-edge",
       "path": "src/render/core/RuntimeMapRenderer.cpp",
       "detail": "src/render/voxel/diagnostics/RuntimeGeometryVoxelAnimationContract.inl",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P06",
-      "follow_up": "W020",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-edge",
-      "path": "src/render/core/RuntimeMapRenderer.cpp",
-      "detail": "src/simulation/movement/ground/RuntimeMovementClassification.h",
       "maxOccurrences": 1,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P06",
@@ -12425,17 +12291,6 @@
       "rule": "platform-edge",
       "path": "src/runtime/host/RuntimeShell.cpp",
       "detail": "src/runtime/performance/diagnostics/RuntimeMassMovementRejectionDiagnostics.h",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P03",
-      "follow_up": "W008",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-edge",
-      "path": "src/runtime/host/RuntimeShell.cpp",
-      "detail": "src/runtime/performance/diagnostics/RuntimeSimulationQueryReuseContract.inl",
       "maxOccurrences": 1,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P03",
@@ -12930,17 +12785,6 @@
     {
       "rule": "platform-edge",
       "path": "src/runtime/host/RuntimeShell.cpp",
-      "detail": "src/simulation/mod_extensions/RuntimeModShieldBar.inl",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P05",
-      "follow_up": "W013",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-edge",
-      "path": "src/runtime/host/RuntimeShell.cpp",
       "detail": "src/simulation/mod_extensions/diagnostics/RuntimeModExtensionsSmoke.inl",
       "maxOccurrences": 1,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
@@ -12975,17 +12819,6 @@
       "rule": "platform-edge",
       "path": "src/runtime/host/RuntimeShell.cpp",
       "detail": "src/simulation/movement/aircraft/diagnostics/RuntimeNighthawkLandingSmoke.inl",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P05",
-      "follow_up": "W013",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-edge",
-      "path": "src/runtime/host/RuntimeShell.cpp",
-      "detail": "src/simulation/movement/ground/RuntimeMovementClassification.h",
       "maxOccurrences": 1,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P05",
@@ -13151,17 +12984,6 @@
       "rule": "platform-edge",
       "path": "src/runtime/host/RuntimeShell.cpp",
       "detail": "src/simulation/navigation/occupancy/diagnostics/RuntimeOccupantAnimSmoke.inl",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P05",
-      "follow_up": "W013",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-edge",
-      "path": "src/runtime/host/RuntimeShell.cpp",
-      "detail": "src/simulation/navigation/pathfinding/PathRequestQueue.h",
       "maxOccurrences": 1,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P05",
@@ -14371,17 +14193,6 @@
     {
       "rule": "platform-edge",
       "path": "src/runtime/host/RuntimeShell.cpp",
-      "detail": "src/ui/sidebar/RuntimeHealthPipStrip.inl",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P05",
-      "follow_up": "W014",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-edge",
-      "path": "src/runtime/host/RuntimeShell.cpp",
       "detail": "src/ui/sidebar/RuntimeSidebarPageUi.inl",
       "maxOccurrences": 1,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
@@ -14453,28 +14264,6 @@
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P05",
       "follow_up": "W014",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-edge",
-      "path": "src/runtime/performance/diagnostics/RuntimeSimulationQueryReuseContract.inl",
-      "detail": "src/runtime/performance/diagnostics/RuntimeSimulationQueryReusePrimitiveContract.inl",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P03",
-      "follow_up": "W008",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-edge",
-      "path": "src/runtime/performance/diagnostics/RuntimeSimulationQueryReusePrimitiveContract.inl",
-      "detail": "src/simulation/navigation/pathfinding/PathRequestQueue.h",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P03",
-      "follow_up": "W008",
       "status": "pending",
       "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
     },
@@ -14612,17 +14401,6 @@
     },
     {
       "rule": "platform-edge",
-      "path": "src/simulation/movement/ground/RuntimeMovementClassification.h",
-      "detail": "src/simulation/navigation/pathfinding/PathRequestQueue.h",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P10",
-      "follow_up": "W027",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-edge",
       "path": "src/simulation/navigation/occupancy/RuntimeEmptySubcellAvailability.h",
       "detail": "src/simulation/navigation/occupancy/RuntimeSubcellSystem.h",
       "maxOccurrences": 1,
@@ -14691,28 +14469,6 @@
       "rule": "platform-edge",
       "path": "src/simulation/navigation/occupancy/RuntimeSubcellSystem.h",
       "detail": "src/simulation/navigation/occupancy/RuntimeGroundPoseOccupancy.h",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P10",
-      "follow_up": "W027",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-edge",
-      "path": "src/simulation/navigation/pathfinding/PathRequestQueue.cpp",
-      "detail": "src/simulation/navigation/pathfinding/PathRequestQueue.h",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P10",
-      "follow_up": "W027",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-edge",
-      "path": "src/simulation/navigation/pathfinding/PathRequestQueue.h",
-      "detail": "src/simulation/navigation/pathfinding/RuntimePathQueueLayoutStorage.h",
       "maxOccurrences": 1,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P10",
@@ -15217,17 +14973,6 @@
     },
     {
       "rule": "platform-edge",
-      "path": "tests/gameplay/RuntimeMovementClassificationSmoke.cpp",
-      "detail": "src/simulation/movement/ground/RuntimeMovementClassification.h",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P10",
-      "follow_up": "W027",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-edge",
       "path": "tests/gameplay/RuntimeSubcellRequestedIndexSmoke.cpp",
       "detail": "src/simulation/navigation/occupancy/RuntimeSubcellSystem.h",
       "maxOccurrences": 1,
@@ -15267,39 +15012,6 @@
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P02",
       "follow_up": "W002",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-edge",
-      "path": "tests/infrastructure/RuntimeSimulationQueryReuseSmoke.cpp",
-      "detail": "src/runtime/performance/diagnostics/RuntimeSimulationQueryReusePrimitiveContract.inl",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P03",
-      "follow_up": "W008",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-edge",
-      "path": "tests/pathfinding/PathGoalCandidateDifferential.cpp",
-      "detail": "src/simulation/navigation/pathfinding/PathRequestQueue.h",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P10",
-      "follow_up": "W027",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-edge",
-      "path": "tests/pathfinding/PathRequestQueuePerformanceSmoke.cpp",
-      "detail": "src/simulation/navigation/pathfinding/PathRequestQueue.h",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P03",
-      "follow_up": "W008",
       "status": "pending",
       "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
     },
@@ -23788,7 +23500,7 @@
       "rule": "platform-type",
       "path": "src/render/buildings/RuntimeBuildingDepthRender.inl",
       "detail": "POINT",
-      "maxOccurrences": 4,
+      "maxOccurrences": 1,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P02",
       "follow_up": "W002",
@@ -23799,7 +23511,7 @@
       "rule": "platform-type",
       "path": "src/render/buildings/RuntimeBuildingDepthRender.inl",
       "detail": "RECT",
-      "maxOccurrences": 11,
+      "maxOccurrences": 8,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P02",
       "follow_up": "W002",
@@ -23821,7 +23533,7 @@
       "rule": "platform-type",
       "path": "src/render/buildings/RuntimeBuildingRepairRender.inl",
       "detail": "POINT",
-      "maxOccurrences": 3,
+      "maxOccurrences": 2,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P02",
       "follow_up": "W002",
@@ -23832,7 +23544,7 @@
       "rule": "platform-type",
       "path": "src/render/buildings/RuntimeBuildingRepairRender.inl",
       "detail": "RECT",
-      "maxOccurrences": 4,
+      "maxOccurrences": 2,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P02",
       "follow_up": "W002",
@@ -23866,17 +23578,6 @@
       "path": "src/render/buildings/RuntimeFactoryAirExitForeground.inl",
       "detail": "RECT",
       "maxOccurrences": 2,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P02",
-      "follow_up": "W002",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-type",
-      "path": "src/render/buildings/RuntimeFactoryAirExitRender.inl",
-      "detail": "RECT",
-      "maxOccurrences": 3,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P02",
       "follow_up": "W002",
@@ -24057,7 +23758,7 @@
       "owner_step": "P02",
       "follow_up": "W003",
       "status": "pending",
-      "evidence": "Local validation report; not included in the source distribution. exact selected raw32 colour/container type spelling reduction, original algorithms unchanged."
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -24118,40 +23819,29 @@
       "rule": "platform-type",
       "path": "src/render/core/RuntimeMapRenderer.cpp",
       "detail": "POINT",
-      "maxOccurrences": 251,
+      "maxOccurrences": 249,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P02",
       "follow_up": "W002",
       "status": "pending",
-      "evidence": "Local validation report; not included in the source distribution. original object-SHP bounds point/rect contract only; all five original output writes retained with default false and unconditional private result copy. All original algorithms/branches unchanged."
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
       "path": "src/render/core/RuntimeMapRenderer.cpp",
       "detail": "RECT",
-      "maxOccurrences": 139,
+      "maxOccurrences": 138,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P02",
       "follow_up": "W002",
       "status": "pending",
-      "evidence": "Local validation report; not included in the source distribution. original object-SHP bounds point/rect contract only; all five original output writes retained with default false and unconditional private result copy. All original algorithms/branches unchanged."
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
       "path": "src/render/core/diagnostics/RuntimeCombinedCameraBoundsContract.inl",
       "detail": "RECT",
       "maxOccurrences": 2,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P02",
-      "follow_up": "W002",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-type",
-      "path": "src/render/effects/RuntimeBehindMarkerOcclusion.inl",
-      "detail": "POINT",
-      "maxOccurrences": 4,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P02",
       "follow_up": "W002",
@@ -24552,7 +24242,7 @@
       "owner_step": "P02",
       "follow_up": "W003",
       "status": "pending",
-      "evidence": "Local validation report; not included in the source distribution. exact selected raw32 colour/container type spelling reduction, original algorithms unchanged."
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -25223,7 +24913,7 @@
       "owner_step": "P02",
       "follow_up": "W003",
       "status": "pending",
-      "evidence": "Local validation report; not included in the source distribution. exact selected raw32 colour/container type spelling reduction, original algorithms unchanged."
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -25603,7 +25293,7 @@
       "rule": "platform-type",
       "path": "src/render/geometry/RuntimeAirImpactBodyCenterRender.inl",
       "detail": "POINT",
-      "maxOccurrences": 2,
+      "maxOccurrences": 1,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P02",
       "follow_up": "W002",
@@ -25669,45 +25359,23 @@
       "rule": "platform-type",
       "path": "src/render/geometry/RuntimeInfantryMuzzleAnchors.inl",
       "detail": "POINT",
-      "maxOccurrences": 3,
+      "maxOccurrences": 1,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P02",
       "follow_up": "W002",
       "status": "pending",
       "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-type",
-      "path": "src/render/geometry/RuntimeInfantryMuzzleAttachment.inl",
-      "detail": "POINT",
-      "maxOccurrences": 2,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P02",
-      "follow_up": "W002",
-      "status": "pending",
-      "evidence": "Local validation report; not included in the source distribution. one original infantry muzzle query typed, same late native input snapshot and one-call success-only private bridge; all anchor algorithms unchanged."
     },
     {
       "rule": "platform-type",
       "path": "src/render/geometry/RuntimeMarineMuzzleAnchors.inl",
       "detail": "POINT",
-      "maxOccurrences": 2,
+      "maxOccurrences": 1,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P02",
       "follow_up": "W002",
       "status": "pending",
       "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-type",
-      "path": "src/render/geometry/RuntimeMarineMuzzleAttachment.inl",
-      "detail": "POINT",
-      "maxOccurrences": 2,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P02",
-      "follow_up": "W002",
-      "status": "pending",
-      "evidence": "Local validation report; not included in the source distribution. one original marine muzzle query typed, same late native input snapshot and one-call success-only private bridge; all anchor algorithms unchanged."
     },
     {
       "rule": "platform-type",
@@ -25773,7 +25441,7 @@
       "owner_step": "P02",
       "follow_up": "W002",
       "status": "pending",
-      "evidence": "Local validation report; not included in the source distribution. public diagnostic coordinates now canonical standard values; exact private native locals retain original unite/PtInRect/EqualRect and existing conditional/selection consumers. No public native exception."
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -25784,13 +25452,13 @@
       "owner_step": "P02",
       "follow_up": "W002",
       "status": "pending",
-      "evidence": "Local validation report; not included in the source distribution. inverse native geometry exact, original405/304 voxel and complete402-type/2746-pose geometry passed, two original BMPs exact."
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
       "path": "src/render/geometry/RuntimeStructureMuzzleAnchors.inl",
       "detail": "POINT",
-      "maxOccurrences": 56,
+      "maxOccurrences": 1,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P02",
       "follow_up": "W002",
@@ -25817,7 +25485,7 @@
       "owner_step": "P02",
       "follow_up": "W002",
       "status": "pending",
-      "evidence": "Local validation report; not included in the source distribution. one canonical signed32 point parameter, original geometry body unchanged; exact private native point bridge only."
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -25829,28 +25497,6 @@
       "follow_up": "W002",
       "status": "pending",
       "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-type",
-      "path": "src/render/geometry/RuntimeStructureWeaponMuzzleAttachment.inl",
-      "detail": "POINT",
-      "maxOccurrences": 3,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P02",
-      "follow_up": "W002",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-type",
-      "path": "src/render/geometry/RuntimeWeaponMuzzleGeometry.inl",
-      "detail": "POINT",
-      "maxOccurrences": 7,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P02",
-      "follow_up": "W002",
-      "status": "pending",
-      "evidence": "Local validation report; not included in the source distribution. one original voxel muzzle query typed, same late native input snapshot and one-call success-only private bridge; all anchor algorithms unchanged."
     },
     {
       "rule": "platform-type",
@@ -26081,7 +25727,7 @@
       "owner_step": "P02",
       "follow_up": "W002",
       "status": "pending",
-      "evidence": "Local validation report; not included in the source distribution. original exact assertion retained and complete geometry/pixel contracts verified."
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -26202,7 +25848,7 @@
       "owner_step": "P02",
       "follow_up": "W003",
       "status": "pending",
-      "evidence": "Local validation report; not included in the source distribution. exact selected raw32 colour/container type spelling reduction, original algorithms unchanged."
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -26833,28 +26479,6 @@
     },
     {
       "rule": "platform-type",
-      "path": "src/render/terrain/RuntimeBridgeViewportBounds.inl",
-      "detail": "POINT",
-      "maxOccurrences": 2,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P02",
-      "follow_up": "W002",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-type",
-      "path": "src/render/terrain/RuntimeBridgeViewportBounds.inl",
-      "detail": "RECT",
-      "maxOccurrences": 5,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P02",
-      "follow_up": "W002",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-type",
       "path": "src/render/terrain/RuntimeRadiationTerrainTint.inl",
       "detail": "COLORREF",
       "maxOccurrences": 8,
@@ -26956,7 +26580,7 @@
       "rule": "platform-type",
       "path": "src/render/terrain/RuntimeTerrainWallDepth.inl",
       "detail": "RECT",
-      "maxOccurrences": 2,
+      "maxOccurrences": 1,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P02",
       "follow_up": "W002",
@@ -27863,7 +27487,7 @@
       "owner_step": "P02",
       "follow_up": "W003",
       "status": "pending",
-      "evidence": "Local validation report; not included in the source distribution. exact original mutable output colour local now existing standard full32 value, no algorithm changes."
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -27891,8 +27515,8 @@
       "rule": "platform-type",
       "path": "src/runtime/host/RuntimeShell.cpp",
       "detail": "HBRUSH",
-      "maxOccurrences": 36,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.; W01406 original persistent parent native owner moved out of Root; original native algorithms retained and parent borrow revoked before destroy.",
+      "maxOccurrences": 37,
+      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.; W01406 original persistent parent native owner moved out of Root; original native algorithms retained and parent borrow revoked before destroy. H236 moves the single existing selected shield GDI brush cast from the simulation include into the native selection painter that already owned this draw. The shield layout uses pixel values only. Combined HBRUSH count is unchanged, and no HDC allowance is added.",
       "owner_step": "P06",
       "follow_up": "W019",
       "status": "pending",
@@ -30211,39 +29835,6 @@
     {
       "rule": "platform-type",
       "path": "src/simulation/economy/diagnostics/RuntimeSlaveControlSmoke.inl",
-      "detail": "RECT",
-      "maxOccurrences": 2,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P02",
-      "follow_up": "W002",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-type",
-      "path": "src/simulation/mod_extensions/RuntimeModShieldBar.inl",
-      "detail": "COLORREF",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P02",
-      "follow_up": "W003",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-type",
-      "path": "src/simulation/mod_extensions/RuntimeModShieldBar.inl",
-      "detail": "HBRUSH",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P06",
-      "follow_up": "W019",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-type",
-      "path": "src/simulation/mod_extensions/RuntimeModShieldBar.inl",
       "detail": "RECT",
       "maxOccurrences": 2,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
@@ -36201,7 +35792,7 @@
       "owner_step": "P02",
       "follow_up": "W003",
       "status": "pending",
-      "evidence": "Local validation report; not included in the source distribution. exact original mutable output colour local now existing standard full32 value, no algorithm changes."
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -36261,17 +35852,6 @@
     {
       "rule": "platform-type",
       "path": "src/ui/results/RuntimeMatchScoreRender.inl",
-      "detail": "COLORREF",
-      "maxOccurrences": 3,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P02",
-      "follow_up": "W003",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-type",
-      "path": "src/ui/results/RuntimeMatchScoreRender.inl",
       "detail": "HBRUSH",
       "maxOccurrences": 4,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
@@ -36295,7 +35875,7 @@
       "rule": "platform-type",
       "path": "src/ui/results/RuntimeMatchScoreRender.inl",
       "detail": "RECT",
-      "maxOccurrences": 22,
+      "maxOccurrences": 14,
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P02",
       "follow_up": "W002",
@@ -37433,7 +37013,7 @@
       "owner_step": "P02",
       "follow_up": "W002",
       "status": "pending",
-      "evidence": "Local validation report; not included in the source distribution. public diagnostic coordinates now canonical standard values; exact private native locals retain original unite/PtInRect/EqualRect and existing conditional/selection consumers. No public native exception."
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -37454,17 +37034,6 @@
       "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
       "owner_step": "P02",
       "follow_up": "W002",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "platform-type",
-      "path": "src/ui/sidebar/RuntimeHealthPipStrip.inl",
-      "detail": "HDC",
-      "maxOccurrences": 1,
-      "reason": "Existing exact platform/ISA/opaque-pointer or target-link boundary; static signal only, to narrow with the owning W batch.",
-      "owner_step": "P06",
-      "follow_up": "W019",
       "status": "pending",
       "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
     },
@@ -38823,17 +38392,6 @@
     },
     {
       "rule": "test-source-without-registration",
-      "path": "tests/infrastructure/RuntimeTerrainTmpQueryContract.cpp",
-      "detail": "concord_terrain_tmp_query_contract",
-      "maxOccurrences": 1,
-      "reason": "Historical configured or manually built test; no claim of current execution.",
-      "owner_step": "S03",
-      "follow_up": "S03 local inventory/labels: tests/infrastructure/RuntimeTerrainTmpQueryContract.cpp",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "test-source-without-registration",
       "path": "tests/internet/RuntimeInternetRankedMatchSmoke.cpp",
       "detail": "concord_internet_ranked_match_smoke",
       "maxOccurrences": 1,
@@ -38851,17 +38409,6 @@
       "reason": "Historical configured or manually built test; no claim of current execution.",
       "owner_step": "S03",
       "follow_up": "S03 local inventory/labels: tests/internet/RuntimeInternetRankedServiceSmoke.cpp",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "test-source-without-registration",
-      "path": "tests/maps/RuntimeRandomMapSmoke.cpp",
-      "detail": "concord_random_map_smoke",
-      "maxOccurrences": 1,
-      "reason": "Historical configured or manually built test; no claim of current execution.",
-      "owner_step": "S03",
-      "follow_up": "S03 local inventory/labels: tests/maps/RuntimeRandomMapSmoke.cpp",
       "status": "pending",
       "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
     },
@@ -42723,17 +42270,6 @@
       "reason": "Historical configured or manually built test; no claim of current execution.",
       "owner_step": "S03",
       "follow_up": "S03 local inventory/labels: test:victory_sandbox_all01umd",
-      "status": "pending",
-      "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
-    },
-    {
-      "rule": "test-without-target",
-      "path": "test:terrain_tmp_query_contract_test",
-      "detail": "None",
-      "maxOccurrences": 1,
-      "reason": "Historical configured or manually built test; no claim of current execution.",
-      "owner_step": "S03",
-      "follow_up": "S03 local inventory/labels: test:terrain_tmp_query_contract_test",
       "status": "pending",
       "evidence": "S29-01 frozen current Clang Release candidate-scan-r3.json"
     },
@@ -47719,7 +47255,7 @@
       "owner_step": "P03",
       "follow_up": "W006-02/W030 separately executes native POSIX file cases; this diagnostic remains Windows-only.",
       "status": "reviewed-native-test-only",
-      "evidence": "Local validation report; not included in the source distribution. 133 assertions, failures0/skipped0"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-header",
@@ -47730,7 +47266,7 @@
       "owner_step": "P03",
       "follow_up": "W006-02/W030 separately executes native POSIX file cases; this diagnostic remains Windows-only.",
       "status": "reviewed-native-test-only",
-      "evidence": "Local validation report; not included in the source distribution. 133 assertions, failures0/skipped0"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-link",
@@ -47741,7 +47277,7 @@
       "owner_step": "P03",
       "follow_up": "W006-02/W030 separately executes native POSIX file cases; this diagnostic remains Windows-only.",
       "status": "reviewed-native-test-only",
-      "evidence": "Local validation report; not included in the source distribution. 133 assertions, failures0/skipped0"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-link",
@@ -47752,7 +47288,7 @@
       "owner_step": "P03",
       "follow_up": "W006-02/W030 separately executes native POSIX file cases; this diagnostic remains Windows-only.",
       "status": "reviewed-native-test-only",
-      "evidence": "Local validation report; not included in the source distribution. 133 assertions, failures0/skipped0"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-link",
@@ -47763,7 +47299,7 @@
       "owner_step": "P03",
       "follow_up": "W006-02/W030 separately executes native POSIX file cases; this diagnostic remains Windows-only.",
       "status": "reviewed-native-test-only",
-      "evidence": "Local validation report; not included in the source distribution. 133 assertions, failures0/skipped0"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-link",
@@ -47774,7 +47310,7 @@
       "owner_step": "P03",
       "follow_up": "W006-02/W030 separately executes native POSIX file cases; this diagnostic remains Windows-only.",
       "status": "reviewed-native-test-only",
-      "evidence": "Local validation report; not included in the source distribution. 133 assertions, failures0/skipped0"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -47785,7 +47321,7 @@
       "owner_step": "P03",
       "follow_up": "W006-02/W030 separately executes native POSIX file cases; this diagnostic remains Windows-only.",
       "status": "reviewed-native-test-only",
-      "evidence": "Local validation report; not included in the source distribution. 133 assertions, failures0/skipped0"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -47796,7 +47332,7 @@
       "owner_step": "P03",
       "follow_up": "W006-02/W030 separately executes native POSIX file cases; this diagnostic remains Windows-only.",
       "status": "reviewed-native-test-only",
-      "evidence": "Local validation report; not included in the source distribution. 133 assertions, failures0/skipped0"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -47807,7 +47343,7 @@
       "owner_step": "P03",
       "follow_up": "W006-02/W030 separately executes native POSIX file cases; this diagnostic remains Windows-only.",
       "status": "reviewed-native-test-only",
-      "evidence": "Local validation report; not included in the source distribution. 133 assertions, failures0/skipped0"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -47818,7 +47354,7 @@
       "owner_step": "P03",
       "follow_up": "W006-02/W030 separately executes native POSIX file cases; this diagnostic remains Windows-only.",
       "status": "reviewed-native-test-only",
-      "evidence": "Local validation report; not included in the source distribution. 133 assertions, failures0/skipped0"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "host-business-inl",
@@ -47829,7 +47365,7 @@
       "owner_step": "P03",
       "follow_up": "W007-02 world audio time only; original audio/session implementation owners retain device and final core closure responsibilities.",
       "status": "reviewed-private-clock-assembly",
-      "evidence": "Local validation report; not included in the source distribution. WorldAudioClock256 comparisons26 authority38"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "host-business-inl",
@@ -47840,7 +47376,7 @@
       "owner_step": "P03",
       "follow_up": "W007-02 world audio time only; original audio/session implementation owners retain device and final core closure responsibilities.",
       "status": "reviewed-private-clock-assembly",
-      "evidence": "Local validation report; not included in the source distribution. WorldAudioClock256 comparisons26 authority38"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "host-business-inl",
@@ -47851,7 +47387,7 @@
       "owner_step": "P03",
       "follow_up": "W007-02 world audio time only; original audio/session implementation owners retain device and final core closure responsibilities.",
       "status": "reviewed-private-clock-assembly",
-      "evidence": "Local validation report; not included in the source distribution. WorldAudioClock256 comparisons26 authority38"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "host-state-token",
@@ -47862,7 +47398,7 @@
       "owner_step": "P03",
       "follow_up": "W007-02 world audio time only; original audio/session implementation owners retain device and final core closure responsibilities.",
       "status": "reviewed-private-clock-assembly",
-      "evidence": "Local validation report; not included in the source distribution. WorldAudioClock256 comparisons26 authority38"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "host-state-token",
@@ -47873,7 +47409,7 @@
       "owner_step": "P03",
       "follow_up": "W007-02 world audio time only; original audio/session implementation owners retain device and final core closure responsibilities.",
       "status": "reviewed-private-diagnostic",
-      "evidence": "Local validation report; not included in the source distribution. WorldAudioClock256 comparisons26 authority38"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "host-state-token",
@@ -47884,7 +47420,7 @@
       "owner_step": "P03",
       "follow_up": "W007-02 world audio time only; original audio/session implementation owners retain device and final core closure responsibilities.",
       "status": "reviewed-private-diagnostic",
-      "evidence": "Local validation report; not included in the source distribution. WorldAudioClock256 comparisons26 authority38"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "host-state-token",
@@ -47895,7 +47431,7 @@
       "owner_step": "P03",
       "follow_up": "W007-02 world audio time only; original audio/session implementation owners retain device and final core closure responsibilities.",
       "status": "reviewed-private-diagnostic",
-      "evidence": "Local validation report; not included in the source distribution. WorldAudioClock256 comparisons26 authority38"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "host-state-token",
@@ -47906,7 +47442,7 @@
       "owner_step": "P03",
       "follow_up": "W007-02 world audio time only; original audio/session implementation owners retain device and final core closure responsibilities.",
       "status": "reviewed-private-diagnostic",
-      "evidence": "Local validation report; not included in the source distribution. WorldAudioClock256 comparisons26 authority38"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "host-state-token",
@@ -47917,7 +47453,7 @@
       "owner_step": "P03",
       "follow_up": "W007-02 world audio time only; original audio/session implementation owners retain device and final core closure responsibilities.",
       "status": "reviewed-private-diagnostic",
-      "evidence": "Local validation report; not included in the source distribution. WorldAudioClock256 comparisons26 authority38"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "host-state-token",
@@ -47928,7 +47464,7 @@
       "owner_step": "P03",
       "follow_up": "W007-02 world audio time only; original audio/session implementation owners retain device and final core closure responsibilities.",
       "status": "reviewed-private-clock-assembly",
-      "evidence": "Local validation report; not included in the source distribution. WorldAudioClock256 comparisons26 authority38"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-edge",
@@ -47939,7 +47475,7 @@
       "owner_step": "P03",
       "follow_up": "H109/W021-04 retains original device/pool lifetime owner; this fixture closes only selected100ms time input.",
       "status": "reviewed-native-test-only",
-      "evidence": "Local validation report; not included in the source distribution. initial MCI path failures retained"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-header",
@@ -47950,7 +47486,7 @@
       "owner_step": "P03",
       "follow_up": "H109/W021-04 retains original device/pool lifetime owner; this fixture closes only selected100ms time input.",
       "status": "reviewed-native-test-only",
-      "evidence": "Local validation report; not included in the source distribution. initial MCI path failures retained"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-header",
@@ -47961,7 +47497,7 @@
       "owner_step": "P03",
       "follow_up": "H109/W021-04 retains original device/pool lifetime owner; this fixture closes only selected100ms time input.",
       "status": "reviewed-native-test-only",
-      "evidence": "Local validation report; not included in the source distribution. initial MCI path failures retained"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-link",
@@ -47972,7 +47508,7 @@
       "owner_step": "P03",
       "follow_up": "H109/W021-04 retains original device/pool lifetime owner; this fixture closes only selected100ms time input.",
       "status": "reviewed-native-test-only",
-      "evidence": "Local validation report; not included in the source distribution. initial MCI path failures retained"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-link",
@@ -47983,7 +47519,7 @@
       "owner_step": "P03",
       "follow_up": "H109/W021-04 retains original device/pool lifetime owner; this fixture closes only selected100ms time input.",
       "status": "reviewed-native-test-only",
-      "evidence": "Local validation report; not included in the source distribution. initial MCI path failures retained"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-link",
@@ -47994,7 +47530,7 @@
       "owner_step": "P03",
       "follow_up": "H109/W021-04 retains original device/pool lifetime owner; this fixture closes only selected100ms time input.",
       "status": "reviewed-native-test-only",
-      "evidence": "Local validation report; not included in the source distribution. initial MCI path failures retained"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-link",
@@ -48005,7 +47541,7 @@
       "owner_step": "P03",
       "follow_up": "H109/W021-04 retains original device/pool lifetime owner; this fixture closes only selected100ms time input.",
       "status": "reviewed-native-test-only",
-      "evidence": "Local validation report; not included in the source distribution. initial MCI path failures retained"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-link",
@@ -48016,7 +47552,7 @@
       "owner_step": "P03",
       "follow_up": "H109/W021-04 retains original device/pool lifetime owner; this fixture closes only selected100ms time input.",
       "status": "reviewed-native-test-only",
-      "evidence": "Local validation report; not included in the source distribution. initial MCI path failures retained"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -48027,7 +47563,7 @@
       "owner_step": "P03",
       "follow_up": "H109/W021-04 retains original device/pool lifetime owner; this fixture closes only selected100ms time input.",
       "status": "reviewed-native-test-only",
-      "evidence": "Local validation report; not included in the source distribution. initial MCI path failures retained"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -48038,7 +47574,7 @@
       "owner_step": "P03",
       "follow_up": "H109/W021-04 retains original device/pool lifetime owner; this fixture closes only selected100ms time input.",
       "status": "reviewed-native-test-only",
-      "evidence": "Local validation report; not included in the source distribution. initial MCI path failures retained"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-edge",
@@ -48368,7 +47904,7 @@
       "owner_step": "P03",
       "follow_up": "W007 caller proof only; final W028 owns same real production tick closure. No exception for production/native boundary.",
       "status": "reviewed-private-real-world-clock-diagnostic",
-      "evidence": "Local validation report; not included in the source distribution. declared source reverse exact"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "host-state-token",
@@ -48379,7 +47915,7 @@
       "owner_step": "P03",
       "follow_up": "W007 caller proof only; final W028 owns same real production tick closure. No exception for production/native boundary.",
       "status": "reviewed-private-real-world-clock-diagnostic",
-      "evidence": "Local validation report; not included in the source distribution. declared source reverse exact"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "host-state-token",
@@ -48390,7 +47926,7 @@
       "owner_step": "P03",
       "follow_up": "W007 caller proof only; final W028 owns same real production tick closure. No exception for production/native boundary.",
       "status": "reviewed-private-real-world-clock-diagnostic",
-      "evidence": "Local validation report; not included in the source distribution. declared source reverse exact"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-edge",
@@ -48401,7 +47937,7 @@
       "owner_step": "P03",
       "follow_up": "W008-01 policy owner only; W008-02 timer and W008-03 original pump/pacing remain separate. Non-Windows policy is optional capability, not a Windows ABI emulation.",
       "status": "reviewed-private-process-policy-or-native-reference",
-      "evidence": "Local validation report; not included in the source distribution. 435pure+15real-native;current live120tick mask5/original values exact"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-edge",
@@ -48412,7 +47948,7 @@
       "owner_step": "P03",
       "follow_up": "W008-01 policy owner only; W008-02 timer and W008-03 original pump/pacing remain separate. Non-Windows policy is optional capability, not a Windows ABI emulation.",
       "status": "reviewed-private-process-policy-or-native-reference",
-      "evidence": "Local validation report; not included in the source distribution. 435pure+15real-native;current live120tick mask5/original values exact"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-edge",
@@ -48423,7 +47959,7 @@
       "owner_step": "P03",
       "follow_up": "W008-01 policy owner only; W008-02 timer and W008-03 original pump/pacing remain separate. Non-Windows policy is optional capability, not a Windows ABI emulation.",
       "status": "reviewed-private-process-policy-or-native-reference",
-      "evidence": "Local validation report; not included in the source distribution. 435pure+15real-native;current live120tick mask5/original values exact"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-header",
@@ -48434,7 +47970,7 @@
       "owner_step": "P03",
       "follow_up": "W008-01 policy owner only; W008-02 timer and W008-03 original pump/pacing remain separate. Non-Windows policy is optional capability, not a Windows ABI emulation.",
       "status": "reviewed-private-process-policy-or-native-reference",
-      "evidence": "Local validation report; not included in the source distribution. 435pure+15real-native;current live120tick mask5/original values exact"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-header",
@@ -48445,7 +47981,7 @@
       "owner_step": "P03",
       "follow_up": "W008-01 policy owner only; W008-02 timer and W008-03 original pump/pacing remain separate. Non-Windows policy is optional capability, not a Windows ABI emulation.",
       "status": "reviewed-private-process-policy-or-native-reference",
-      "evidence": "Local validation report; not included in the source distribution. 435pure+15real-native;current live120tick mask5/original values exact"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -48456,7 +47992,7 @@
       "owner_step": "P03",
       "follow_up": "W008-01 policy owner only; W008-02 timer and W008-03 original pump/pacing remain separate. Non-Windows policy is optional capability, not a Windows ABI emulation.",
       "status": "reviewed-private-process-policy-or-native-reference",
-      "evidence": "Local validation report; not included in the source distribution. 435pure+15real-native;current live120tick mask5/original values exact"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -48467,7 +48003,7 @@
       "owner_step": "P03",
       "follow_up": "W008-01 policy owner only; W008-02 timer and W008-03 original pump/pacing remain separate. Non-Windows policy is optional capability, not a Windows ABI emulation.",
       "status": "reviewed-private-process-policy-or-native-reference",
-      "evidence": "Local validation report; not included in the source distribution. 435pure+15real-native;current live120tick mask5/original values exact"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -48478,7 +48014,7 @@
       "owner_step": "P03",
       "follow_up": "W008-01 policy owner only; W008-02 timer and W008-03 original pump/pacing remain separate. Non-Windows policy is optional capability, not a Windows ABI emulation.",
       "status": "reviewed-private-process-policy-or-native-reference",
-      "evidence": "Local validation report; not included in the source distribution. 435pure+15real-native;current live120tick mask5/original values exact"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -48489,7 +48025,7 @@
       "owner_step": "P03",
       "follow_up": "W008-01 policy owner only; W008-02 timer and W008-03 original pump/pacing remain separate. Non-Windows policy is optional capability, not a Windows ABI emulation.",
       "status": "reviewed-private-process-policy-or-native-reference",
-      "evidence": "Local validation report; not included in the source distribution. 435pure+15real-native;current live120tick mask5/original values exact"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -48500,7 +48036,7 @@
       "owner_step": "P03",
       "follow_up": "W008-01 policy owner only; W008-02 timer and W008-03 original pump/pacing remain separate. Non-Windows policy is optional capability, not a Windows ABI emulation.",
       "status": "reviewed-private-process-policy-or-native-reference",
-      "evidence": "Local validation report; not included in the source distribution. 435pure+15real-native;current live120tick mask5/original values exact"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -48511,7 +48047,7 @@
       "owner_step": "P03",
       "follow_up": "W008-01 policy owner only; W008-02 timer and W008-03 original pump/pacing remain separate. Non-Windows policy is optional capability, not a Windows ABI emulation.",
       "status": "reviewed-private-process-policy-or-native-reference",
-      "evidence": "Local validation report; not included in the source distribution. 435pure+15real-native;current live120tick mask5/original values exact"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -48522,7 +48058,7 @@
       "owner_step": "P03",
       "follow_up": "W008-01 policy owner only; W008-02 timer and W008-03 original pump/pacing remain separate. Non-Windows policy is optional capability, not a Windows ABI emulation.",
       "status": "reviewed-private-process-policy-or-native-reference",
-      "evidence": "Local validation report; not included in the source distribution. 435pure+15real-native;current live120tick mask5/original values exact"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -48533,7 +48069,7 @@
       "owner_step": "P03",
       "follow_up": "W008-01 policy owner only; W008-02 timer and W008-03 original pump/pacing remain separate. Non-Windows policy is optional capability, not a Windows ABI emulation.",
       "status": "reviewed-private-process-policy-or-native-reference",
-      "evidence": "Local validation report; not included in the source distribution. 435pure+15real-native;current live120tick mask5/original values exact"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-edge",
@@ -48544,7 +48080,7 @@
       "owner_step": "P03",
       "follow_up": "W008-02 lifetime only; W008-03 pump/sleep/catchup separate. Requested period is not effective precision/performance evidence.",
       "status": "reviewed-private-timer-owner-or-native-reference",
-      "evidence": "Local validation report; not included in the source distribution. 335pure/16native/current4Bink and120tick actualbegin1/end1/MM0"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-edge",
@@ -48555,7 +48091,7 @@
       "owner_step": "P03",
       "follow_up": "W008-02 lifetime only; W008-03 pump/sleep/catchup separate. Requested period is not effective precision/performance evidence.",
       "status": "reviewed-private-timer-owner-or-native-reference",
-      "evidence": "Local validation report; not included in the source distribution. 335pure/16native/current4Bink and120tick actualbegin1/end1/MM0"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-header",
@@ -48566,7 +48102,7 @@
       "owner_step": "P03",
       "follow_up": "W008-02 lifetime only; W008-03 pump/sleep/catchup separate. Requested period is not effective precision/performance evidence.",
       "status": "reviewed-private-timer-owner-or-native-reference",
-      "evidence": "Local validation report; not included in the source distribution. 335pure/16native/current4Bink and120tick actualbegin1/end1/MM0"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-header",
@@ -48577,7 +48113,7 @@
       "owner_step": "P03",
       "follow_up": "W008-02 lifetime only; W008-03 pump/sleep/catchup separate. Requested period is not effective precision/performance evidence.",
       "status": "reviewed-private-timer-owner-or-native-reference",
-      "evidence": "Local validation report; not included in the source distribution. 335pure/16native/current4Bink and120tick actualbegin1/end1/MM0"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-link",
@@ -48588,7 +48124,7 @@
       "owner_step": "P03",
       "follow_up": "W008-02 lifetime only; W008-03 pump/sleep/catchup separate. Requested period is not effective precision/performance evidence.",
       "status": "reviewed-private-timer-owner-or-native-reference",
-      "evidence": "Local validation report; not included in the source distribution. 335pure/16native/current4Bink and120tick actualbegin1/end1/MM0"
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-edge",
@@ -48599,7 +48135,7 @@
       "owner_step": "P03",
       "follow_up": "W008-03 native contract only; no new production native pump or public platform fact. Native1ms sleep observation is not wake precision/performance evidence.",
       "status": "reviewed-private-existing-owner-native-reference",
-      "evidence": "Local validation report; not included in the source distribution. 68native checks/7full pairs;9248pure checks/1728ledgers;real current120ticks same context/mapbytes/hash."
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-edge",
@@ -48610,7 +48146,7 @@
       "owner_step": "P03",
       "follow_up": "W008-03 native contract only; no new production native pump or public platform fact. Native1ms sleep observation is not wake precision/performance evidence.",
       "status": "reviewed-private-existing-owner-native-reference",
-      "evidence": "Local validation report; not included in the source distribution. 68native checks/7full pairs;9248pure checks/1728ledgers;real current120ticks same context/mapbytes/hash."
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-link",
@@ -48621,7 +48157,7 @@
       "owner_step": "P03",
       "follow_up": "W008-03 native contract only; no new production native pump or public platform fact. Native1ms sleep observation is not wake precision/performance evidence.",
       "status": "reviewed-private-existing-owner-native-reference",
-      "evidence": "Local validation report; not included in the source distribution. 68native checks/7full pairs;9248pure checks/1728ledgers;real current120ticks same context/mapbytes/hash."
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -48632,7 +48168,7 @@
       "owner_step": "P03",
       "follow_up": "W008-03 native contract only; no new production native pump or public platform fact. Native1ms sleep observation is not wake precision/performance evidence.",
       "status": "reviewed-private-existing-owner-native-reference",
-      "evidence": "Local validation report; not included in the source distribution. 68native checks/7full pairs;9248pure checks/1728ledgers;real current120ticks same context/mapbytes/hash."
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -48643,7 +48179,7 @@
       "owner_step": "P03",
       "follow_up": "W008-03 native contract only; no new production native pump or public platform fact. Native1ms sleep observation is not wake precision/performance evidence.",
       "status": "reviewed-private-existing-owner-native-reference",
-      "evidence": "Local validation report; not included in the source distribution. 68native checks/7full pairs;9248pure checks/1728ledgers;real current120ticks same context/mapbytes/hash."
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -48654,7 +48190,7 @@
       "owner_step": "P03",
       "follow_up": "W008-03 native contract only; no new production native pump or public platform fact. Native1ms sleep observation is not wake precision/performance evidence.",
       "status": "reviewed-private-existing-owner-native-reference",
-      "evidence": "Local validation report; not included in the source distribution. 68native checks/7full pairs;9248pure checks/1728ledgers;real current120ticks same context/mapbytes/hash."
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -48665,7 +48201,7 @@
       "owner_step": "P03",
       "follow_up": "W008-03 native contract only; no new production native pump or public platform fact. Native1ms sleep observation is not wake precision/performance evidence.",
       "status": "reviewed-private-existing-owner-native-reference",
-      "evidence": "Local validation report; not included in the source distribution. 68native checks/7full pairs;9248pure checks/1728ledgers;real current120ticks same context/mapbytes/hash."
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -48676,7 +48212,7 @@
       "owner_step": "P03",
       "follow_up": "W008-03 native contract only; no new production native pump or public platform fact. Native1ms sleep observation is not wake precision/performance evidence.",
       "status": "reviewed-private-existing-owner-native-reference",
-      "evidence": "Local validation report; not included in the source distribution. 68native checks/7full pairs;9248pure checks/1728ledgers;real current120ticks same context/mapbytes/hash."
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -48687,7 +48223,7 @@
       "owner_step": "P03",
       "follow_up": "W008-03 native contract only; no new production native pump or public platform fact. Native1ms sleep observation is not wake precision/performance evidence.",
       "status": "reviewed-private-existing-owner-native-reference",
-      "evidence": "Local validation report; not included in the source distribution. 68native checks/7full pairs;9248pure checks/1728ledgers;real current120ticks same context/mapbytes/hash."
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -48698,7 +48234,7 @@
       "owner_step": "P03",
       "follow_up": "W008-03 native contract only; no new production native pump or public platform fact. Native1ms sleep observation is not wake precision/performance evidence.",
       "status": "reviewed-private-existing-owner-native-reference",
-      "evidence": "Local validation report; not included in the source distribution. 68native checks/7full pairs;9248pure checks/1728ledgers;real current120ticks same context/mapbytes/hash."
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-header",
@@ -48775,7 +48311,7 @@
       "owner_step": "P04",
       "follow_up": "W010 final original native fixture precondition; normal persistence remains unchanged RuntimeAtomicFile owner.",
       "status": "reviewed-private-native-diagnostic-precondition",
-      "evidence": "Local validation report; not included in the source distribution. original diagnostics reverse byte exact in preference-fixture-edit-r1.json."
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-edge",
@@ -48786,7 +48322,7 @@
       "owner_step": "P04",
       "follow_up": "W010 final original native fixture precondition; normal persistence remains unchanged RuntimeAtomicFile owner.",
       "status": "reviewed-private-native-diagnostic-precondition",
-      "evidence": "Local validation report; not included in the source distribution. original diagnostics reverse byte exact in preference-fixture-edit-r1.json."
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-header",
@@ -48797,7 +48333,7 @@
       "owner_step": "P04",
       "follow_up": "W010 final original native fixture precondition; normal persistence remains unchanged RuntimeAtomicFile owner.",
       "status": "reviewed-private-native-diagnostic-precondition",
-      "evidence": "Local validation report; not included in the source distribution. original diagnostics reverse byte exact in preference-fixture-edit-r1.json."
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -48808,7 +48344,7 @@
       "owner_step": "P04",
       "follow_up": "W010 final original native fixture precondition; normal persistence remains unchanged RuntimeAtomicFile owner.",
       "status": "reviewed-private-native-diagnostic-precondition",
-      "evidence": "Local validation report; not included in the source distribution. original diagnostics reverse byte exact in preference-fixture-edit-r1.json."
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -48819,7 +48355,7 @@
       "owner_step": "P04",
       "follow_up": "W010 final original native fixture precondition; normal persistence remains unchanged RuntimeAtomicFile owner.",
       "status": "reviewed-private-native-diagnostic-precondition",
-      "evidence": "Local validation report; not included in the source distribution. original diagnostics reverse byte exact in preference-fixture-edit-r1.json."
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-edge",
@@ -48962,7 +48498,7 @@
       "status": "reviewed-private-placement-value-adapter-or-oracle",
       "reason": "Exact private Win32 five-field value snapshot/direct same-width point-rect conversion or original native data ABI oracle. Generic canonical DTO/header stays standard with no Win32/device/host dependency. No handles, callbacks, retained references, alternate geometry or copied algorithm.",
       "follow_up": "W002-06 canonical value completed; private Win32 boundary only. Query algorithms/native passes retain S13/S14/R/P06 owners.",
-      "evidence": "Local validation report; not included in the source distribution. exact existing SDK diagnostic declaration belongs to private Win32 boundary, all code/callers/probe/lifetimes unchanged."
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -48973,7 +48509,7 @@
       "status": "reviewed-private-placement-value-adapter-or-oracle",
       "reason": "Exact private Win32 five-field value snapshot/direct same-width point-rect conversion or original native data ABI oracle. Generic canonical DTO/header stays standard with no Win32/device/host dependency. No handles, callbacks, retained references, alternate geometry or copied algorithm.",
       "follow_up": "W002-06 canonical value completed; private Win32 boundary only. Query algorithms/native passes retain S13/S14/R/P06 owners.",
-      "evidence": "Local validation report; not included in the source distribution. original Mobile point/rect value contract only; original memo/capture results including false preserved through owned native memo output and unconditional private bridge. Memo/capture helpers and all algorithms unchanged."
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-edge",
@@ -49578,7 +49114,7 @@
       "status": "reviewed-private-original-startup-recovery-device-or-native-oracle",
       "reason": "Original synchronous MessageBoxA retains null parent, exact ANSI bytes/title/8212flags/IDYES-only policy. Native oracle observes only own thread/dialog/window, real close-disabled/task-modal/API-create-failure paths. Public prompt callback and value target stay standard, no platform or session state exposed.",
       "follow_up": "Only W01302 error prompt device port. Original Main retry/visible mailbox/format/bridge/lifecycle source exact; W014 menus and other platform devices remain their original owners.",
-      "evidence": "Local validation report; not included in the source distribution. actual configured target uses normalized user32 link identity, not assumed .lib suffix."
+      "evidence": "Local validation report; not included in the source distribution."
     },
     {
       "rule": "platform-type",
@@ -57448,17 +56984,6 @@
     {
       "rule": "platform-edge",
       "path": "src/runtime/session/detail/RuntimeProductionOperations.h",
-      "detail": "src/simulation/movement/ground/RuntimeMovementClassification.h",
-      "maxOccurrences": 1,
-      "reason": "Exact shared private dependency reaches only audited non-native identity or diagnostic borrows. The recorded witness contains no SDK header or native type.",
-      "owner_step": "S30/H039-H040",
-      "follow_up": "Keep the original session, diagnostic and device ownership. W028/W030 verify the committed tick and second-system execution.",
-      "status": "reviewed-scoped-private-non-native-edge",
-      "evidence": "Local validation report; not included in the source distribution."
-    },
-    {
-      "rule": "platform-edge",
-      "path": "src/runtime/session/detail/RuntimeProductionOperations.h",
       "detail": "src/simulation/navigation/occupancy/RuntimeEmptySubcellAvailability.h",
       "maxOccurrences": 1,
       "reason": "Exact shared private dependency reaches only audited non-native identity or diagnostic borrows. The recorded witness contains no SDK header or native type.",
@@ -57493,17 +57018,6 @@
       "rule": "platform-edge",
       "path": "src/runtime/session/detail/RuntimeProductionOperations.h",
       "detail": "src/simulation/navigation/occupancy/RuntimeSubcellSystem.h",
-      "maxOccurrences": 1,
-      "reason": "Exact shared private dependency reaches only audited non-native identity or diagnostic borrows. The recorded witness contains no SDK header or native type.",
-      "owner_step": "S30/H039-H040",
-      "follow_up": "Keep the original session, diagnostic and device ownership. W028/W030 verify the committed tick and second-system execution.",
-      "status": "reviewed-scoped-private-non-native-edge",
-      "evidence": "Local validation report; not included in the source distribution."
-    },
-    {
-      "rule": "platform-edge",
-      "path": "src/runtime/session/detail/RuntimeProductionOperations.h",
-      "detail": "src/simulation/navigation/pathfinding/PathRequestQueue.h",
       "maxOccurrences": 1,
       "reason": "Exact shared private dependency reaches only audited non-native identity or diagnostic borrows. The recorded witness contains no SDK header or native type.",
       "owner_step": "S30/H039-H040",
@@ -57559,17 +57073,6 @@
       "rule": "platform-edge",
       "path": "src/runtime/session/detail/RuntimeProductionOperations.h",
       "detail": "src/simulation/navigation/pathfinding/RuntimePathDynamicWorkset.h",
-      "maxOccurrences": 1,
-      "reason": "Exact shared private dependency reaches only audited non-native identity or diagnostic borrows. The recorded witness contains no SDK header or native type.",
-      "owner_step": "S30/H039-H040",
-      "follow_up": "Keep the original session, diagnostic and device ownership. W028/W030 verify the committed tick and second-system execution.",
-      "status": "reviewed-scoped-private-non-native-edge",
-      "evidence": "Local validation report; not included in the source distribution."
-    },
-    {
-      "rule": "platform-edge",
-      "path": "src/runtime/session/detail/RuntimeProductionOperations.h",
-      "detail": "src/simulation/navigation/pathfinding/RuntimePathQueueLayoutStorage.h",
       "maxOccurrences": 1,
       "reason": "Exact shared private dependency reaches only audited non-native identity or diagnostic borrows. The recorded witness contains no SDK header or native type.",
       "owner_step": "S30/H039-H040",
@@ -57647,17 +57150,6 @@
       "rule": "platform-edge",
       "path": "src/runtime/session/detail/RuntimeProductionValueTypes.h",
       "detail": "src/simulation/navigation/occupancy/RuntimeSubcellSystem.h",
-      "maxOccurrences": 1,
-      "reason": "Exact shared private dependency reaches only audited non-native identity or diagnostic borrows. The recorded witness contains no SDK header or native type.",
-      "owner_step": "S30/H039-H040",
-      "follow_up": "Keep the original session, diagnostic and device ownership. W028/W030 verify the committed tick and second-system execution.",
-      "status": "reviewed-scoped-private-non-native-edge",
-      "evidence": "Local validation report; not included in the source distribution."
-    },
-    {
-      "rule": "platform-edge",
-      "path": "src/runtime/session/detail/RuntimeProductionValueTypes.h",
-      "detail": "src/simulation/navigation/pathfinding/PathRequestQueue.h",
       "maxOccurrences": 1,
       "reason": "Exact shared private dependency reaches only audited non-native identity or diagnostic borrows. The recorded witness contains no SDK header or native type.",
       "owner_step": "S30/H039-H040",
@@ -59385,6 +58877,212 @@
       "owner_step": "P12/W030",
       "batch": "W030-linux-native-core",
       "reason": "Ten retired test-local WinSock facts and seven exact shared test facts. No production header reachability or existing budget increase.",
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "date": "2026-11-06",
+      "owner_step": "S30/H003|H101",
+      "batch": "H003-world-audio-backend-session",
+      "reason": "Retire the original World backend textual include and move its sole remaining two-call scheduling wrapper into the actual Host. Exactly one existing host-state occurrence transfers from the inl to Host; total Root token allowance unchanged. No new domain/header/opaque/native-interface exemption or wildcard. Other facts, policy and protected modules unchanged.",
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "date": "2026-11-06",
+      "owner_step": "S30/H005",
+      "batch": "H005-computer-tactic-selection",
+      "reason": "Original owned AI/catalog values and selection policy become protected standard module roots. Four uncalled private helpers/declarations retire. Original exceptions remain byte-for-byte objects, no budget increase or new exception.",
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "date": "2026-11-06",
+      "owner_step": "S30/H006-01",
+      "batch": "H006-01-original-tactic-lifecycle",
+      "reason": "Protect original lifecycle policy and unchanged18-field metrics value; private host assembly remains outside the standard module. Original exceptions, policy,rootInclude order unchanged. Three internal-only lifecycle declarations retire; no newexception or budgetincrease.",
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "date": "2026-11-06",
+      "batch": "S30/H006-02",
+      "description": "Protect original const AI reservation predicates from private GameSession/Host/SDK/erased-owner dependencies; no exception or policy relaxation."
+    },
+    {
+      "date": "2026-11-19",
+      "batch": "S31/R007-01 and R008-01",
+      "owner_step": "S31",
+      "reason": "Maintain the original POINT type at the private adapters. Match their one observed occurrence each.",
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "date": "2026-11-19",
+      "batch": "S31/R007-02",
+      "owner_step": "S31",
+      "reason": "The infantry frame calculation now uses standard pixel values and retires the two original POINT occurrences in this attachment wrapper.",
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "date": "2026-11-19",
+      "batch": "S31/R008-02",
+      "owner_step": "S31",
+      "reason": "The marine frame calculation uses standard pixel values and retires the two original POINT occurrences in this attachment wrapper.",
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "date": "2026-11-19",
+      "batch": "S31/R009",
+      "owner_step": "S31",
+      "reason": "Building muzzle geometry uses standard pixel values. The existing native symbol retains one POINT in its compatibility signature.",
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "date": "2026-11-19",
+      "batch": "S31/R010-02",
+      "owner_step": "S31",
+      "reason": "The Voxel muzzle renderer uses signed standard pixel values at its projection boundary; only the original turret mount API supplies a native value.",
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "date": "2026-11-19",
+      "batch": "S31/R010-02",
+      "owner_step": "S31",
+      "reason": "The original renderer include now passes only standard pixel values. The first actual inspection observed zero remaining instances of this exact SDK edge.",
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "date": "2026-11-19",
+      "batch": "S31/R012",
+      "owner_step": "S31",
+      "reason": "The air-impact center compares signed standard values after the existing renderer capture. The original native draw call retains one native point.",
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "date": "2026-11-19",
+      "batch": "S31/R153",
+      "owner_step": "S31",
+      "reason": "The three bridge viewport consumers pass standard pixel values. The actual scan proved two fewer renderer POINT tokens and the three retired bridge-only exceptions.",
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "date": "2026-11-19",
+      "batch": "S31/R156",
+      "owner_step": "S31",
+      "reason": "Terrain wall viewport reach now uses the signed pixel rectangle value. The current scanner measured one RECT use in the original Win32 adapter.",
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "date": "2026-11-19",
+      "batch": "S31/R015-01",
+      "owner_step": "S31",
+      "reason": "Compact building depth coverage uses signed standard rectangles. The actual scan counted ten remaining RECT uses in native render code.",
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "date": "2026-11-19",
+      "batch": "S31/R015-03",
+      "owner_step": "S31",
+      "reason": "Depth draw record stores the existing signed standard rectangle. The current scan counted nine remaining RECT uses at native render boundaries.",
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "date": "2026-11-20",
+      "batch": "S31/R015-06",
+      "owner_step": "S31",
+      "reason": "Depth replay object state stores the existing signed standard point. The current scan counted three POINT uses at the remaining native boundaries.",
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "date": "2026-11-20",
+      "batch": "S31/R015-07",
+      "owner_step": "S31",
+      "reason": "Depth frame selection computes compact bounds using the standard pixel rectangle. The current scan counted eight RECT uses at the remaining native boundaries.",
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "date": "2026-11-21",
+      "batch": "S31/R110",
+      "owner_step": "S31",
+      "reason": "Marker samples and depth checks now use signed 32-bit standard pixel points. The current scan measured one remaining POINT in the native building-depth adapter and zero in the native marker adapter.",
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "date": "2026-11-21",
+      "batch": "S31/R104",
+      "owner_step": "S31",
+      "reason": "The factory hatch calculation now uses the standard pixel rectangle. The original adapter has no remaining native RECT token or inferred direct native edge.",
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "date": "2026-11-21",
+      "batch": "S31/R102",
+      "owner_step": "S31",
+      "reason": "The repair overlay anchor sum and sprite crop use standard pixel values. The original native adapter retains two POINT and two RECT tokens.",
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "date": "2026-11-21",
+      "batch": "S31/R029",
+      "owner_step": "S31",
+      "reason": "The match score layout now uses the standard signed pixel rectangle and packed RGB values. The original Win32 painter retains 14 RECT positions and zero COLORREF declarations.",
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "date": "2026-11-21",
+      "batch": "S31/R030",
+      "owner_step": "S31",
+      "reason": "The private original debris diagnostic uses the existing Win32 conversion for a standard rectangle.",
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "date": "2026-11-23",
+      "batch": "S30/H189/H307/H310/H320/H321/H323",
+      "owner_step": "S30",
+      "reason": "Reduce the seven observed allowance counts to the actual remaining uses. Original native painters remain in their owning fragments.",
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "batch": "S30/H100 H105 H109 H110 H111",
+      "date": "2026-11-23",
+      "change": "Transfer the one permitted UI production include for the private menu device to its actual private Win32 playback owner. Retire four measured unused host-state token exceptions.",
+      "retiredConsumerFacts": [
+        [
+          "host-state-token",
+          "src/audio/backend/RuntimeSfxChannelPoolMci.inl",
+          "RuntimeWindowState",
+          1
+        ],
+        [
+          "host-state-token",
+          "src/audio/events/RuntimeCreditAudio.inl",
+          "RuntimeWindowState",
+          2
+        ],
+        [
+          "host-state-token",
+          "src/audio/events/RuntimeObjectAmbientRuntime.inl",
+          "RuntimeWindowState",
+          1
+        ],
+        [
+          "host-state-token",
+          "src/audio/events/RuntimeSuperWeaponBuildingAudio.inl",
+          "RuntimeWindowState",
+          1
+        ]
+      ],
+      "originalExistingBudgetsIncreased": 0,
+      "evidence": "Local validation report; not included in the source distribution."
+    },
+    {
+      "batch": "S30/H204",
+      "date": "2026-11-23",
+      "change": "Lower the overlay wall consumer WindowState token budget to the one remaining window boundary.",
+      "measuredBudgetChange": {
+        "rule": "host-state-token",
+        "path": "src/simulation/combat/damage/RuntimeOverlayWallCombat.inl",
+        "detail": "RuntimeWindowState",
+        "before": 2,
+        "after": 1
+      },
+      "originalExistingBudgetsIncreased": 0,
       "evidence": "Local validation report; not included in the source distribution."
     }
   ]

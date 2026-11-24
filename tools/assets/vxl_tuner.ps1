@@ -6,24 +6,85 @@
 # temporary environment variables, renders a smoke-test preview, and displays
 # the generated BMP in the panel on the right.
 
-param([ValidateSet('msvc','clang-cl')][string]$Toolchain='msvc',[string]$BuildDirectory='')
-
+param(
+    [ValidateSet('msvc','clang-cl')][string]$Toolchain='clang-cl',
+    [string]$BuildDirectory='',
+    [string]$ProjectRoot='',
+    [string]$BuildEntry='',
+    [string]$PowerShellExecutable='',
+    [string]$OutputRoot='',
+    [switch]$DryRun
+)
+$ErrorActionPreference = 'Stop'
+function Full-TaskPath([string]$Value, [string]$Base) {
+    if ([IO.Path]::IsPathRooted($Value)) { return [IO.Path]::GetFullPath($Value) }
+    return [IO.Path]::GetFullPath([IO.Path]::Combine($Base, $Value))
+}
+function Quote-TaskWindowsArgument([string]$Value) {
+    if ($Value.Length -gt 0 -and $Value -notmatch '[\s"]') { return $Value }
+    $taskQuoted = [regex]::Replace($Value, '(\\*)"', '$1$1\"')
+    $taskQuoted = [regex]::Replace($taskQuoted, '(\\+)$', '$1$1')
+    return '"' + $taskQuoted + '"'
+}
+if (-not $ProjectRoot) { $ProjectRoot = [IO.Path]::Combine($PSScriptRoot, '../..') }
+$script:RepoRoot = [IO.Path]::GetFullPath($ProjectRoot)
+if (-not $BuildEntry) { $BuildEntry = [IO.Path]::Combine($script:RepoRoot, 'tools', 'Build-Game.ps1') }
+$script:BuildEntry = Full-TaskPath $BuildEntry $script:RepoRoot
+if (-not [IO.File]::Exists($script:BuildEntry)) { throw 'The explicit project build entry is missing.' }
+if (-not $PowerShellExecutable) {
+    $PowerShellExecutable = [IO.Path]::Combine($PSHOME, 'pwsh.exe')
+    if (-not [IO.File]::Exists($PowerShellExecutable)) { $PowerShellExecutable = [IO.Path]::Combine($PSHOME, 'powershell.exe') }
+}
+$script:PowerShellExecutable = Full-TaskPath $PowerShellExecutable $script:RepoRoot
+if (-not [IO.File]::Exists($script:PowerShellExecutable)) { throw 'The explicit PowerShell executable is missing.' }
+$script:BuildDirectory = $BuildDirectory
+$script:Toolchain = $Toolchain
+# An omitted build directory belongs to Build-Game and its current selected toolchain.
+# An explicit directory retains the exact deployed-provenance match requirement.
+$script:RuntimeExe = [IO.Path]::Combine($script:RepoRoot, 'bin', 'concord_runtime.exe')
+$script:DefaultMap = [IO.Path]::Combine($script:RepoRoot, 'local_data', 'resources', 'mix_exports', 'multimd', '2peaks.map')
+$script:ResourceRoot = [IO.Path]::Combine($script:RepoRoot, 'RedAlert2')
+$script:LocalDataRoot = [IO.Path]::Combine($script:RepoRoot, 'local_data')
+if (-not $OutputRoot) {
+    $taskRound = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ') + '-manual-' + [Guid]::NewGuid().ToString('N')
+    $OutputRoot = [IO.Path]::Combine($script:RepoRoot, 'build', 'smoke', 'vxl-tuner', $taskRound)
+}
+$script:OutputRoot = Full-TaskPath $OutputRoot $script:RepoRoot
+$script:PreviewBmp = [IO.Path]::Combine($script:OutputRoot, 'frames', 'vxl_tuner_preview.bmp')
+$script:IsRendering = $false
+function New-OwnedOutputDirectory([string]$Category) {
+    $round = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ') + '-' + [Guid]::NewGuid().ToString('N')
+    $path = [IO.Path]::Combine($script:OutputRoot, $Category, $round)
+    if ([IO.Directory]::Exists($path) -or [IO.File]::Exists($path)) { throw 'Use a fresh VXL output round.' }
+    [void][IO.Directory]::CreateDirectory($path)
+    return $path
+}
+function Get-TaskBuildArguments([string]$BuildEvidenceDirectory) {
+    $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $script:BuildEntry, '-Toolchain', $script:Toolchain)
+    if ($script:BuildDirectory) { $arguments += @('-BuildDirectory', $script:BuildDirectory) }
+    if ($script:Toolchain -eq 'clang-cl' -and $BuildEvidenceDirectory) { $arguments += @('-EvidenceDirectory', $BuildEvidenceDirectory) }
+    return $arguments
+}
+if ($DryRun) {
+    $taskBuildEvidence = [IO.Path]::Combine($script:OutputRoot, 'reports', 'dry-run-build')
+    $taskArguments = @(Get-TaskBuildArguments $taskBuildEvidence)
+    [ordered]@{
+        mode='dry-run'; projectRoot=$script:RepoRoot; toolchain=$script:Toolchain
+        buildDirectory=$script:BuildDirectory; defaultBuildDirectoryOwner='tools/Build-Game.ps1'
+        buildEntry=$script:BuildEntry; powerShellExecutable=$script:PowerShellExecutable
+        buildArguments=$taskArguments
+        buildCommandArguments=(($taskArguments | ForEach-Object { Quote-TaskWindowsArgument ([string]$_) }) -join ' ')
+        runtimeExecutable=$script:RuntimeExe; resourceRoot=$script:ResourceRoot
+        localDataRoot=$script:LocalDataRoot; defaultMap=$script:DefaultMap
+        outputRoot=$script:OutputRoot; firstPreviewPath=$script:PreviewBmp
+        everyPreviewGetsFreshPhysicalOutput=$true; everyChildTempUsesOwnedOutputRoot=$true
+        controlsAndRendererEnvironmentParametersUnchanged=$true
+        buildOrRuntimeOrGUIExecuted=$false; outputCreated=$false
+    } | ConvertTo-Json -Depth 8
+    return
+}
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
-
-$ErrorActionPreference = "Stop"
-
-$script:RepoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
-if(!$BuildDirectory){$BuildDirectory=if($Toolchain -eq 'msvc'){'build/msvc-reference'}else{'build/clang-cl-x64-release'}}
-$script:BuildDirectory=$BuildDirectory
-$script:Toolchain=$Toolchain
-# Preview consumes the verified daily deployment, independent of generator layout.
-$script:RuntimeExe = Join-Path $script:RepoRoot 'bin/concord_runtime.exe'
-$script:DefaultMap = Join-Path $script:RepoRoot "local_data\resources\mix_exports\multimd\2peaks.map"
-$script:ResourceRoot = Join-Path $script:RepoRoot "RedAlert2"
-$script:LocalDataRoot = Join-Path $script:RepoRoot "local_data"
-$script:PreviewBmp = Join-Path $script:RepoRoot "build\vxl_tuner_preview.bmp"
-$script:IsRendering = $false
 
 function Add-LabeledTrackBar {
     param(
@@ -130,6 +191,10 @@ function Invoke-ProcessCapture {
             $psi.Environment[$key] = [string]$Environment[$key]
         }
     }
+
+    $taskTemp = New-OwnedOutputDirectory 'samples'
+    $psi.EnvironmentVariables['TEMP'] = $taskTemp
+    $psi.EnvironmentVariables['TMP'] = $taskTemp
 
     $process = [System.Diagnostics.Process]::Start($psi)
     $stdout = $process.StandardOutput.ReadToEnd()
@@ -405,9 +470,9 @@ function Start-Render {
     try {
         $provenance=Get-Content -LiteralPath (Join-Path $script:RepoRoot 'bin/build-provenance.json') -Raw | ConvertFrom-Json
         $actual=if($provenance.PSObject.Properties['toolchain']){$provenance.toolchain}elseif($provenance.generator -match '^Visual Studio '){'msvc'}else{'unknown'}
-        $expectedBuild=[IO.Path]::GetFullPath($(if([IO.Path]::IsPathRooted($script:BuildDirectory)){$script:BuildDirectory}else{Join-Path $script:RepoRoot $script:BuildDirectory}))
+        $expectedBuild=if([string]::IsNullOrWhiteSpace($script:BuildDirectory)){[IO.Path]::GetFullPath($provenance.buildDirectory)}else{[IO.Path]::GetFullPath($(if([IO.Path]::IsPathRooted($script:BuildDirectory)){$script:BuildDirectory}else{Join-Path $script:RepoRoot $script:BuildDirectory}))}
         $runtime=@($provenance.files | Where-Object name -EQ 'concord_runtime.exe')
-        if($actual -ine $script:Toolchain -or [IO.Path]::GetFullPath($provenance.buildDirectory) -ine $expectedBuild -or $runtime.Count -ne 1 -or (Get-FileHash -LiteralPath $script:RuntimeExe).Hash -ne $runtime[0].sha256){throw 'Deployed runtime does not match the selected toolchain/build. Build successfully before previewing.'}
+        if($actual -ine $script:Toolchain -or [IO.Path]::GetFullPath($provenance.sourceRoot) -ine $script:RepoRoot -or [IO.Path]::GetFullPath($provenance.buildDirectory) -ine $expectedBuild -or $runtime.Count -ne 1 -or (Get-FileHash -LiteralPath $script:RuntimeExe).Hash -ne $runtime[0].sha256){throw 'Deployed runtime does not match the selected toolchain/build. Build successfully before previewing.'}
     } catch {$statusBox.Text=$_.Exception.Message;return}
     if ($script:IsRendering) {
         return
@@ -429,6 +494,7 @@ function Start-Render {
         $objectList = Make-FacingObjectList $unitId
     }
 
+    $script:PreviewBmp = [IO.Path]::Combine((New-OwnedOutputDirectory 'frames'), 'vxl_tuner_preview.bmp')
     $script:IsRendering = $true
     $renderButton.Enabled = $false
     $statusBox.Text = "Rendering..."
@@ -510,12 +576,14 @@ function Start-BuildRuntime {
     $statusBox.Text = "Building concord_runtime..."
 
     try {
-        $buildEntry = Join-Path $script:RepoRoot 'tools/Build-Game.ps1'
+        $buildEntry = $script:BuildEntry
+        $buildEvidence = $(if($script:Toolchain -eq 'clang-cl'){Join-Path (New-OwnedOutputDirectory 'reports') 'clang-build'}else{''})
+        $buildArguments = @(Get-TaskBuildArguments $buildEvidence)
         if($script:BuildDirectory.Contains('"')){throw 'Invalid build directory quote.'}
         [System.Windows.Forms.Application]::DoEvents()
         $result = Invoke-ProcessCapture `
-            -FileName (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') `
-            -Arguments "-NoProfile -ExecutionPolicy Bypass -File `"$buildEntry`" -Toolchain $script:Toolchain -BuildDirectory `"$script:BuildDirectory`"" `
+            -FileName $script:PowerShellExecutable `
+            -Arguments (($buildArguments | ForEach-Object { Quote-TaskWindowsArgument ([string]$_) }) -join ' ') `
             -WorkingDirectory $script:RepoRoot `
             -Environment $null
         $statusBox.Text = "Build exit: $($result.ExitCode)`r`n$($result.Stdout)`r`n$($result.Stderr)"

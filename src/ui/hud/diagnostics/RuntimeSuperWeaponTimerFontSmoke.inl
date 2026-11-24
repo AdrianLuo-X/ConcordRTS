@@ -189,12 +189,12 @@ bool runRuntimeSuperWeaponTimerFontSmoke(const RuntimeConfig& config, std::strin
         const int w = 384, h = 64; const RECT rect{17, 13, index == 12 ? 81 : 365, 31};
         const COLORREF color = index % 2 ? RGB(231, 61, 173) : RGB(53, 187, 241);
         std::vector<std::uint32_t> expected(std::size_t(w) * h, 0x203040U);
-        if (runtimeSuperWeaponTimerTextWidth(state, texts[index]) != raw.width(texts[index]))
+        if (runtimeSuperWeaponTimerTextWidth(runtimeResultBitFont(state), texts[index]) != raw.width(texts[index]))
             return fail("original independent text width differs");
         raw.paint(expected, w, h, rect, texts[index], color, {0, 0, w, h});
         if (index == 12 && raw.fit(texts[index], 64) == texts[index]) return fail("long-name test did not elide");
         if (!compare("glyph-" + std::to_string(index), 30, w, h, 1, 1, 0x203040U, expected,
-            [&](HDC dc) { drawRuntimeSuperWeaponTimerText(dc, rect, state, texts[index], color); }, index == 0 || index == 12)) return false;
+            [&](HDC dc) { drawRuntimeSuperWeaponTimerText(dc, rect, runtimeResultBitFont(state), texts[index], color); }, index == 0 || index == 12)) return false;
         ++directCases;
     }
     SuperWeaponWorldContext context; context.rules = &state.rules; context.superWeaponsAllowed = true;

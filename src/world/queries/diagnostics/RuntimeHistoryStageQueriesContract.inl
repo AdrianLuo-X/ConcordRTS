@@ -87,7 +87,9 @@ bool runRuntimeHistoryStageQueriesContract(std::string& error) {
             state.world.accessObjects().back().mission = std::string(80, 'D') + "eStRoYeD";
         }
         ensureRuntimeSpecialMechanismsInitialized(state);
-        state.parasiteStunUntilTickByObject[999999] = state.tick;
+        auto retainedStunFixture = state.parasiteStunUntilTickByObject.entries();
+        retainedStunFixture[999999] = state.tick;
+        state.parasiteStunUntilTickByObject.restoreValidated(std::move(retainedStunFixture));
         // Plant real camouflage authority so death must execute its cleanup.
         state.specialMechanisms.tickCamouflage(state.world.accessObjects(), state.rules,
             state.tick, [](int) { return true; }, SpecialEventSink{});
@@ -108,7 +110,7 @@ bool runRuntimeHistoryStageQueriesContract(std::string& error) {
         runtimeStableHashMix(result, state.specialMechanisms.stateHash());
         runtimeStableHashMix(result, state.aircraftServices.stateHash());
         runtimeStableHashMix(result, state.economy.credits);
-        runtimeStableHashMix(result, state.parasiteStunUntilTickByObject.size());
+        runtimeStableHashMix(result, state.parasiteStunUntilTickByObject.entries().size());
         for (const auto& event : state.recentReplayEvents) {
             runtimeStableHashMix(result, event.sequence); runtimeStableHashMix(result, event.tick);
             runtimeStableHashMixString(result, event.kind); runtimeStableHashMixString(result, event.reason);
@@ -223,7 +225,7 @@ bool runRuntimeHistoryStageQueriesContract(std::string& error) {
                 || old.autoAcquired != now.autoAcquired || old.returnToDeployed != now.returnToDeployed)
                 return fail("area-fire authority");
         }
-        if (!newState.parasiteStunUntilTickByObject.empty()) return fail("expired parasite stun cleanup was skipped");
+        if (!newState.parasiteStunUntilTickByObject.entries().empty()) return fail("expired parasite stun cleanup was skipped");
         if (step >= 1 && newState.specialMechanisms.camouflageStates().contains(12))
             return fail("dead camouflage authority cleanup was skipped");
         ++checkedTicks;

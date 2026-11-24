@@ -1,6 +1,27 @@
+#include "simulation/movement/RuntimeDeploymentMissions.h"
+#include "runtime/session/detail/RuntimeParasiteStunHostAdapter.h"
+#include "simulation/abilities/unit_special/RuntimeCamouflageStationary.h"
+#include "runtime/session/detail/RuntimeCamouflageStationaryHostAdapter.h"
+#include "core/io/RuntimeStrictSaveDouble.h"
+#include "simulation/superweapons/RuntimeSuperWeaponAiPolicy.h"
 #include "runtime/session/detail/RuntimeProductionOperations.h"
+#include "runtime/session/detail/RuntimeChronoMoveHostAdapter.h"
 
 namespace concord::runtime::session_detail {
+
+RuntimeChronoMoveTerrainView::RuntimeChronoMoveTerrainView(
+    const RuntimeGameSessionState& state, bool reference)
+    : View(state.terrainByCell, reference) {
+    RuntimePerfTraceScope trace("moveCommand.chronoTerrain", state.tick);
+    struct Source final : concord::simulation::abilities::RuntimeChronoTerrainSource {
+        const RuntimeGameSessionState& state;
+        explicit Source(const RuntimeGameSessionState& value) : state(value) {}
+        concord::simulation::abilities::RuntimeChronoTerrainLookup buildLookup() const override {
+            return buildRuntimeTerrainLookup(state.world);
+        }
+    } source(state);
+    selectTerrain(source);
+}
 
 bool runtimeSessionGeometryAvailable(const RuntimeProductionHostState& state) noexcept { return state.geometry && state.geometry->available(); }
 
@@ -2083,14 +2104,7 @@ void ensureRuntimeSpecialMechanismsInitialized(RuntimeGameSessionState& state) {
 }
 
 int runtimeAiSuperDefenseProbabilityIndex(const std::string& difficulty) {
-    const std::string key = toUpperAsciiLocal(trimAsciiLocal(difficulty));
-    if (key == "HARD" || key == "BRUTAL") {
-        return 0;
-    }
-    if (key == "EASY") {
-        return 2;
-    }
-    return 1;
+    return concord::simulation::superweapons::runtimeAiSuperDefenseProbabilityIndex(difficulty);
 }
 
 RuntimeLightingMode runtimeEffectiveLightingModeForTokens(
@@ -2650,17 +2664,15 @@ bool runtimeMissionIsLandingToDeploy(const WorldObjectInstance& object) {
 }
 
 bool runtimeMissionIsMcvDeployPending(const WorldObjectInstance& object) {
-    const auto mission = toLowerAsciiLocal(object.mission);
-    return mission == "mcvdeployturning" || mission == "mcvdeployturningunselected"
-        || mission == "mcvdeployready" || mission == "mcvdeployreadyunselected";
+    return concord::simulation::movement::runtimeMissionIsMcvDeployPending(object.mission);
 }
 
 bool runtimeMissionIsDeploying(const WorldObjectInstance& object) {
-    return toLowerAsciiLocal(object.mission) == "deploying" || runtimeMissionIsMcvDeployPending(object);
+    return concord::simulation::movement::runtimeMissionIsDeploying(object.mission);
 }
 
 bool runtimeMissionIsUndeploying(const WorldObjectInstance& object) {
-    return toLowerAsciiLocal(object.mission) == "undeploying";
+    return concord::simulation::movement::runtimeMissionIsUndeploying(object.mission);
 }
 
 bool runtimeMissionIsTakingOffAfterUndeploy(
@@ -6702,14 +6714,25 @@ bool reconcileRuntimeCloneDeliveryLeases(RuntimeGameSessionState& state) {
         const RuntimeCellPoint anchor = runtimeCellPointForObject(host);
         const int width = std::max(1, footprint.width);
         const int height = std::max(1, footprint.height);
-        const bool cloneClearedDeliveryArea = clone->x < anchor.x - 1
-            || clone->x > anchor.x + width
-            || clone->y < anchor.y - 1
-            || clone->y > anchor.y + height;
-        if (cloneClearedDeliveryArea) {
-            host.specialCloneDeliveryObjectId = -1;
-            changed = true;
+        const auto isInDeliveryArea = [&](RuntimeCellPoint cell) {
+            return cell.x >= anchor.x - 1 && cell.x <= anchor.x + width
+                && cell.y >= anchor.y - 1 && cell.y <= anchor.y + height;
+        };
+        if (isInDeliveryArea(runtimeCellPointForObject(*clone))) continue;
+
+        // Keep the doorway reserved through the departing clone's current segment.
+        if (worldObjectHasGroundRenderPose(*clone)) {
+            const auto move = state.behaviors.find(clone->instanceId);
+            if (clone->renderMoveActive && move != state.behaviors.end()
+                && move->second.renderMoveTicksRemaining > 0
+                && isInDeliveryArea(move->second.renderFrom)) continue;
+
+            const auto context = runtimeGroundPoseContext(state);
+            const auto held = runtimeAdditionalGroundPoseOccupancy(*clone, &context);
+            if (held && isInDeliveryArea({held->x, held->y})) continue;
         }
+        host.specialCloneDeliveryObjectId = -1;
+        changed = true;
     }
     return changed;
 }
@@ -6970,18 +6993,7 @@ bool parseRuntimeStrictBool(const std::string& value, bool& output) {
 }
 
 bool parseRuntimeFiniteDouble(const std::string& value, double& output) {
-    try {
-        const std::string trimmed = trimAsciiLocal(value);
-        std::size_t consumed = 0;
-        const double parsed = std::stod(trimmed, &consumed);
-        if (consumed != trimmed.size() || !std::isfinite(parsed)) {
-            return false;
-        }
-        output = parsed;
-        return true;
-    } catch (...) {
-        return false;
-    }
+    return runtime_save_text::parseRuntimeFiniteDouble(value, output);
 }
 
 bool runtimeRestoreExactSavedObjectRegistration(
@@ -8369,29 +8381,10 @@ bool writeRuntimeStateToStream(
         }
         writeRuntimeCarrierFlightPoses(state, output);
 
-        std::vector<std::pair<int, int>> parasiteStuns;
-        parasiteStuns.reserve(
-            state.parasiteStunUntilTickByObject.size()
+        auto parasiteStuns = state.parasiteStunUntilTickByObject.saveSnapshot(
+            RuntimeParasiteStunReadHostQueries(state), state.tick
         );
-        for (const auto& [objectId, untilTick] :
-                state.parasiteStunUntilTickByObject) {
-            const WorldObjectInstance* object = findObjectById(
-                state,
-                objectId
-            );
-            if (object != nullptr && object->alive
-                && object->health > 0 && untilTick > state.tick) {
-                parasiteStuns.emplace_back(objectId, untilTick);
-            }
-        }
-        std::sort(parasiteStuns.begin(), parasiteStuns.end());
-        output << "\n[ParasiteStuns]\n";
-        output << "Schema=1\n";
-        output << "Count=" << parasiteStuns.size() << "\n";
-        for (std::size_t index = 0; index < parasiteStuns.size(); ++index) {
-            output << index << "=" << parasiteStuns[index].first << "|"
-                   << parasiteStuns[index].second << "\n";
-        }
+        RuntimeParasiteStunState::writeSaveSection(output, parasiteStuns);
 
         savedSuperWeapons.save(output);
 
@@ -11543,7 +11536,7 @@ std::uint64_t runtimeWorldSimulationHash(
     mixSortedIntMap(state.slaveMinerRegenTicks);
     mixSortedIntMap(state.repairingStructureTicks);
     mixSortedIntMap(state.gattlingWeaponTimers);
-    mixSortedIntMap(state.parasiteStunUntilTickByObject);
+    state.parasiteStunUntilTickByObject.mixAuthorityHash(hash);
 
     runtimeStableHashMix(hash, state.nextProjectileActorId);
     runtimeStableHashMix(
@@ -13909,6 +13902,34 @@ void commitRuntimeOwnerTransitionScratch(
 #undef RUNTIME_OWNER_TRANSITION_SWAP
 }
 
+static bool prepareRuntimeOwnerTransitionRoots(
+    const RuntimeGameSessionState& state,
+    const std::vector<RuntimeOwnerTransitionRoot>& roots,
+    std::map<int, std::string>& explicitOwners,
+    std::map<int, std::string>& initialOwners,
+    std::unordered_set<int>& rootObjectIds) {
+    for (const WorldObjectInstance& object : state.world.getObjects()) {
+        initialOwners.emplace(object.instanceId, object.owner);
+    }
+    for (const RuntimeOwnerTransitionRoot& root : roots) {
+        const WorldObjectInstance* object =
+            findRuntimeObjectByIdIncludingInactive(state, root.objectId);
+        if (object == nullptr
+            || root.objectId <= 0
+            || root.newOwner.empty()
+            || object->owner != root.expectedOwner
+            || !runtimeOwnerTransitionObjectIsRetained(state, *object)
+            || state.pendingObjectExitIds.contains(root.objectId)
+            || !rootObjectIds.insert(root.objectId).second) {
+            return false;
+        }
+        if (object->owner != root.newOwner) {
+            explicitOwners.emplace(root.objectId, root.newOwner);
+        }
+    }
+    return true;
+}
+
 RuntimeOwnerTransitionBatchResult applyRuntimeOwnerTransitionBatch(
     RuntimeProductionHostState& state,
     const std::vector<RuntimeOwnerTransitionRoot>& roots,
@@ -13941,25 +13962,10 @@ RuntimeOwnerTransitionBatchResult applyRuntimeOwnerTransitionBatch(
         std::map<int, std::string> explicitOwners;
         std::map<int, std::string> initialOwners;
         std::unordered_set<int> rootObjectIds;
-        for (const WorldObjectInstance& object : state.world.getObjects()) {
-            initialOwners.emplace(object.instanceId, object.owner);
-        }
-        for (const RuntimeOwnerTransitionRoot& root : roots) {
-            const WorldObjectInstance* object =
-                findRuntimeObjectByIdIncludingInactive(state, root.objectId);
-            if (object == nullptr
-                || root.objectId <= 0
-                || root.newOwner.empty()
-                || object->owner != root.expectedOwner
-                || !runtimeOwnerTransitionObjectIsRetained(state, *object)
-                || state.pendingObjectExitIds.contains(root.objectId)
-                || !rootObjectIds.insert(root.objectId).second) {
-                result.error = "invalid or duplicate owner transition root";
-                return result;
-            }
-            if (object->owner != root.newOwner) {
-                explicitOwners.emplace(root.objectId, root.newOwner);
-            }
+        if (!prepareRuntimeOwnerTransitionRoots(
+                state, roots, explicitOwners, initialOwners, rootObjectIds)) {
+            result.error = "invalid or duplicate owner transition root";
+            return result;
         }
         if (explicitOwners.empty()
             && mindControlPreparation == nullptr
@@ -15298,11 +15304,15 @@ bool deployRuntimeMcv(
     }
 
     // Delayed deployment runs outside the command's house scope.
-    // Attribute human builds to the saved source owner, retaining legacy contexts.
+    // Attribute human builds to the saved source owner. A computer player's
+    // deployment must not increment the viewing player's multiplayer ledger.
     RuntimeEconomyState* deploymentEconomy =
         miningEconomy ? miningEconomy : runtimeHumanHouseEconomy(state, oldMcvSnapshot.owner);
-    ++(deploymentEconomy != nullptr ? *deploymentEconomy : economy)
-        .completedBuildings;
+    if (deploymentEconomy != nullptr) {
+        ++deploymentEconomy->completedBuildings;
+    } else if (!state.config.multiplayerActive) {
+        ++economy.completedBuildings;
+    }
     economy.status =
         "deployed " + oldMcvType + " -> " + constructionYard->type
         + " #"
@@ -19326,6 +19336,77 @@ void issueRuntimeMoveCommand(
         mixedLocalWholeBuilt = true;
         mixedLocalComponents.noteWholeMap(moveComponentByCell, nearest);
     };
+    const auto futureRepackedVehicle = [&](const WorldObjectInstance& yard) {
+        const auto* building = findRuntimeBuildingTypeById(state.rules, yard.type);
+        auto mobile = yard;
+        mobile.kind = WorldObjectKind::Unit;
+        mobile.type = building ? building->undeploysInto : "";
+        mobile.mission = "Guard";
+        mobile.buildAnimTicksTotal = mobile.buildAnimTicksRemaining = 0;
+        const auto center = runtimePlacementAnchorCellForFootprint(
+            runtimeCellPointForObject(yard), runtimeStructureFootprintForObject(state, yard));
+        mobile.x = center.x; mobile.y = center.y;
+        mobile.cell = runtimeCellKey(center.x, center.y);
+        clearRuntimeRenderPosition(mobile);
+        return mobile;
+    };
+    std::map<int, RuntimeCellPoint> repackApproachSlots;
+    std::unordered_set<int> compactRepackCells;
+    if (commandObjectIds.size() >= 8) {
+        int foot = 0, wheels = 0;
+        std::vector<int> foldingYards;
+        for (int id : commandObjectIds) {
+            const auto* member = findObjectById(state, id);
+            if (!member) continue;
+            if (runtimeStructureIsRepacking(*member) && member->owner == state.economy.owner) {
+                const auto* building = findRuntimeBuildingTypeById(state.rules, member->type);
+                if (building && building->constructionYard && !building->undeploysInto.empty())
+                    foldingYards.push_back(id);
+            } else if (movingGroupIds.contains(id) && runtimeObjectMovementMode(state, *member) != PathMovementMode::Air) {
+                if (runtimeInfantryUsesGroundSubcells(*member)) ++foot;
+                else ++wheels;
+            }
+        }
+        const int groundSlots = wheels + (foot + 2) / 3 + static_cast<int>(foldingYards.size());
+        if (!foldingYards.empty() && foot + wheels > 0 && groundSlots <= 9) {
+            compactRepackCells.insert(runtimeCellKey(targetCell.x, targetCell.y));
+            for (const auto& adjacent : runtimeNeighborsOf(targetCell)) {
+                compactRepackCells.insert(runtimeCellKey(adjacent.x, adjacent.y));
+            }
+            // Folding vehicles enter a compact mixed formation after the other
+            // units. Give them edge slots on their own approach side so that
+            // early arrivals cannot seal their routes to inner destinations.
+            for (int id : foldingYards) {
+                const auto mobile = futureRepackedVehicle(*findObjectById(state, id));
+                if (!runtimeObjectAllowsMoveToCell(state, mobile, targetCell)) continue;
+                const RuntimeManualFormationMappedFilter mapped(state, mobile, nullptr, manualMappedFilterEnabled);
+                const auto origin = runtimeCellPointForObject(mobile);
+                const auto component = moveComponentByCell.find(runtimeCellKey(origin.x, origin.y));
+                int bestDistance = std::numeric_limits<int>::max();
+                std::optional<RuntimeCellPoint> slot;
+                for (const auto& cell : runtimeNeighborsOf(targetCell)) {
+                    const int key = runtimeCellKey(cell.x, cell.y);
+                    if (reservedTargetCells.contains(key)
+                        || (mapped.restriction() && !mapped.restriction()->allows(cell))
+                        || !runtimeObjectAllowsMoveToCell(state, mobile, cell)) continue;
+                    const auto destinationComponent = moveComponentByCell.find(key);
+                    if (component != moveComponentByCell.end()
+                        && (destinationComponent == moveComponentByCell.end()
+                            || component->second != destinationComponent->second)) continue;
+                    const int dx = cell.x - origin.x, dy = cell.y - origin.y;
+                    const int distance = dx * dx + dy * dy;
+                    if (distance >= bestDistance || !runtimeCellIsPassable(
+                            state, *terrainByCell, groupOccupiedByCell, cell, mobile, id)) continue;
+                    bestDistance = distance;
+                    slot = cell;
+                }
+                if (slot) {
+                    reserveFormationDestination(mobile, *slot);
+                    repackApproachSlots.emplace(id, *slot);
+                }
+            }
+        }
+    }
     state.actionSummary.formationTargets = 0;
     int acceptedHarvesterCount = 0;
     std::vector<int> acceptedMoveGroupIds;
@@ -19336,18 +19417,7 @@ void issueRuntimeMoveCommand(
         WorldObjectInstance* object = findMutableObjectById(state, objectId);
         if (object != nullptr && runtimeStructureIsRepacking(*object)
             && object->owner == state.economy.owner) {
-            const auto* building = findRuntimeBuildingTypeById(state.rules, object->type);
-            WorldObjectInstance mobile = *object;
-            mobile.kind = WorldObjectKind::Unit;
-            mobile.type = building != nullptr ? building->undeploysInto : "";
-            mobile.mission = "Guard";
-            mobile.buildAnimTicksTotal = mobile.buildAnimTicksRemaining = 0;
-            const RuntimeCellPoint mobileCenter = runtimePlacementAnchorCellForFootprint(
-                runtimeCellPointForObject(*object),
-                runtimeStructureFootprintForObject(state, *object));
-            mobile.x = mobileCenter.x; mobile.y = mobileCenter.y;
-            mobile.cell = runtimeCellKey(mobileCenter.x, mobileCenter.y);
-            clearRuntimeRenderPosition(mobile);
+            const auto mobile = futureRepackedVehicle(*object);
             // Plan the future vehicle's whole-tile slot with the same ground
             // reservations as ordinary movers. The real folding foundation
             // remains occupied; this proxy does not join movingGroupIds or
@@ -19360,7 +19430,9 @@ void issueRuntimeMoveCommand(
                 component != moveComponentByCell.end()) objectMoveComponent = component->second;
             std::optional<RuntimeCellPoint> destination;
             const bool repackClickAllowed = runtimeObjectAllowsMoveToCell(state, mobile, targetCell);
-            if (repackClickAllowed) {
+            if (const auto slot = repackApproachSlots.find(objectId); slot != repackApproachSlots.end()) {
+                destination = slot->second;
+            } else if (repackClickAllowed) {
                 const RuntimeManualFormationMappedFilter manualMappedFilter(
                     state, mobile, nullptr, manualMappedFilterEnabled);
                 if (commandObjectIds.size() > 1) {
@@ -19427,7 +19499,7 @@ void issueRuntimeMoveCommand(
         // One-cell spacing uses the existing collision/terrain checks to find
         // the closest legal formation without adding empty rows to small teams.
         const int formationIndex = static_cast<int>(airMover
-            ? reservedAirTargetCells.size() : reservedTargetCells.size());
+            ? reservedAirTargetCells.size() : reservedTargetCells.size() - repackApproachSlots.size());
         const RuntimeCellPoint offset =
             formationOffsetForIndex(formationIndex, 1);
         ++movableIndex;
@@ -19497,8 +19569,8 @@ void issueRuntimeMoveCommand(
                 state, *object, desiredTarget, &reservedAirTargetCells, &movingGroupIds,
                 manualMappedFilter.restriction());
         } else if (commandGroupSize > 1) {
-            passableTarget =
-                findBestRuntimeFormationTargetCellWithOccupancy(
+            const auto chooseGroupSlot = [&](const std::unordered_set<int>* preferredCells) {
+                return findBestRuntimeFormationTargetCellWithOccupancy(
                     state,
                     *object,
                     desiredTarget,
@@ -19506,12 +19578,17 @@ void issueRuntimeMoveCommand(
                     formationReservations,
                     *terrainByCell,
                     groupOccupiedByCell,
-                    nullptr,
+                    preferredCells,
                     moveComponentByCell.empty() ? nullptr : &moveComponentByCell,
                     bestRequiredComponent,
                     manualMappedFilter.restriction(),
                     certifiedUnmappedKeys
                 );
+            };
+            // An adjacent folding slot can already own the preferred offset.
+            // Check the remaining compact cells before using the wider search.
+            if (!repackApproachSlots.empty()) passableTarget = chooseGroupSlot(&compactRepackCells);
+            if (!passableTarget) passableTarget = chooseGroupSlot(nullptr);
         }
         if (!airMover && !slaveHarvest && !slaveWorkerHarvest && !passableTarget.has_value()) {
             materializeMixedLocalComponents(true);
@@ -21008,17 +21085,15 @@ std::optional<RuntimeCellPoint> findRuntimeEngineerEntryCell(
         }
     );
 
+    const bool slaveDelivery = purpose == "slave-delivery";
     for (const RuntimeCellPoint& candidate : footprint) {
-        if (candidate == engineerCell
-            || !findRuntimePath(
-                    state,
-                    engineer,
-                    engineerCell,
-                    candidate,
-                    target.instanceId
-                ).empty()) {
-            return candidate;
-        }
+        if (candidate == engineerCell) return candidate;
+        // A returning worker needs a real free landing inside its refinery.
+        // A path adjusted to the outside of a blocked landing cannot unload.
+        if (slaveDelivery && !findRuntimePassableCellNear(state, engineer, candidate, 0, target.instanceId))
+            continue;
+        const auto path = findRuntimePath(state, engineer, engineerCell, candidate, target.instanceId);
+        if (!path.empty() && (!slaveDelivery || path.back() == candidate)) return candidate;
     }
     return std::nullopt;
 }
@@ -24409,6 +24484,18 @@ RuntimeObjectExitResult finalizeRuntimeObjectExit(
         );
     }
 
+    const WorldObjectInstance* destructionBody = object;
+    std::optional<WorldObjectInstance> bridgeBody;
+    if (request.kind == RuntimeObjectExitKind::Destroyed
+        && request.mission == "BridgeCollapsed" && !object->onBridge
+        && worldObjectHasGroundRenderPose(*object) && object->renderOnBridge) {
+        // A bridge collapse uses the deck body that admitted this exit.
+        // Keep the navigation cell and layer on the actual world object.
+        bridgeBody.emplace(*object);
+        bridgeBody->onBridge = true;
+        destructionBody = &*bridgeBody;
+    }
+
     // Capture the visible pose before interpolation and subcells are cleared.
     // The once-only tombstone above also guards non-projectile deaths.
     if (request.kind == RuntimeObjectExitKind::Destroyed
@@ -24421,8 +24508,8 @@ RuntimeObjectExitResult finalizeRuntimeObjectExit(
             cause.targetObjectId = object->instanceId;
             cause.owner = request.sourceOwner;
             cause.warheadId = request.warheadId;
-            spawnRuntimeUnitDestructionEffects(state, *object, *unit, cause,
-                runtimeProjectileTargetPosition(state, *object), 0, request.wasAliveBeforeDamage);
+            spawnRuntimeUnitDestructionEffects(state, *destructionBody, *unit, cause,
+                runtimeProjectileTargetPosition(state, *destructionBody), 0, request.wasAliveBeforeDamage);
         }
     }
     if (structure && request.kind == RuntimeObjectExitKind::Destroyed) {
@@ -24434,7 +24521,10 @@ RuntimeObjectExitResult finalizeRuntimeObjectExit(
                 cause.warheadId = request.warheadId;
                 spawnRuntimeBuildingDestructionEffects(state, *object, *building, cause,
                     runtimeProjectileTargetPosition(state, *object), 0);
-                if (!building->dieSound.empty()) emitRuntimeSound(state, "sound:" + building->dieSound, runtimeSpatialAudioPositionForObject(*object), true);
+                if (!request.unitDeathSoundHandled && !building->dieSound.empty()) {
+                    emitRuntimeSound(state, "sound:" + building->dieSound,
+                        runtimeSpatialAudioPositionForObject(*object), true);
+                }
             }
             object->rubble = building->leaveRubble;
         }
@@ -24444,7 +24534,7 @@ RuntimeObjectExitResult finalizeRuntimeObjectExit(
     }
     if (!structure && request.kind == RuntimeObjectExitKind::Destroyed
         && unitDeathSoundRequested && !request.unitDeathSoundHandled) {
-        emitRuntimeUnitDeathSound(state, *object, unitDeathSoundPosition, true);
+        emitRuntimeUnitDeathSound(state, *destructionBody, unitDeathSoundPosition, true);
     }
     if (destroyed) {
         object->health = 0;
@@ -26885,34 +26975,6 @@ bool runtimeShouldWaitForMovingBlocker(
     return blockedTicks < waitTicks;
 }
 
-RuntimeGroundBodyTransitionAdmission runtimeGroundBodyTransitionAdmission(
-    const RuntimeGameSessionState& state, const WorldObjectInstance& object,
-    const RuntimeCellPoint& from, const RuntimeCellPoint& to, bool deferBody) {
-    RuntimeGroundBodyTransitionAdmission result;
-    // Avoidance keeps whole-cell/factory short circuits before any slot choice.
-    // Its full body scan is deferred until the existing cell-pass test succeeds.
-    if (deferBody && (runtimeFactoryGroundSegmentAdmissionBlocked(state, object, from, to)
-        || runtimeGroundDepartureCapacityHoldsTransition(state, object, from, to))) {
-        result.held = true;
-        return result;
-    }
-    if (object.kind == WorldObjectKind::Infantry && !object.airborne && from != to
-        && !runtimeObjectOffGroundByMagBeam(state, object.instanceId)
-        && runtimeObjectMovementMode(state, object) != PathMovementMode::Air)
-        result.destinationSubCell = runtimeInfantryBodyPreviewDestinationSubcell(state, object, to);
-    if (deferBody) {
-        result.held = runtimeInfantryActiveSegmentCrossesTransition(
-            state, object, from, to, result.destinationSubCell);
-        return result;
-    }
-    result.bodyBlocked = runtimeInfantryBodySegmentAdmissionBlocked(
-        state, object, from, to, nullptr, -1, nullptr, result.destinationSubCell);
-    result.held = result.bodyBlocked
-        ? runtimeGroundDepartureCapacityHoldsTransition(state, object, from, to)
-        : runtimeGroundDepartureHoldsTransition(state, object, from, to, result.destinationSubCell);
-    return result;
-}
-
 bool tryRuntimeLocalAvoidanceMove(
     RuntimeProductionHostState& state,
     WorldObjectInstance& object,
@@ -26928,6 +26990,11 @@ bool tryRuntimeLocalAvoidanceMove(
 
     const RuntimeCellPoint current = runtimeCellPointForObject(object);
     const bool transportApproach = runtimeUnitTransportApproachAllowsBodyDetour(state, object, behavior);
+    const auto occupyTarget = state.pendingOccupyTargets.find(object.instanceId);
+    const bool occupyApproach = occupyTarget != state.pendingOccupyTargets.end()
+        && occupyTarget->second >= 0
+        && occupyTarget->second == behavior.pendingAllowedOccupiedObjectId
+        && runtimeInfantryAuthorizedSlotlessEntryHostId(state, object, behavior.moveTarget) == occupyTarget->second;
     const bool slaveMinerApproach = [&]() {
         if (behavior.kind != RuntimeBehaviorKind::Move || behavior.autoAcquired
             || behavior.targetObjectId >= 0 || object.kind != WorldObjectKind::Infantry
@@ -26937,8 +27004,23 @@ bool tryRuntimeLocalAvoidanceMove(
         if (task == state.slaveMinerTasks.end()
             || task->second.refineryId != behavior.pendingAllowedOccupiedObjectId) return false;
         const auto* home = findObjectById(state, task->second.refineryId);
-        if (home == nullptr || !home->alive || home->health <= 0
-            || home->kind != WorldObjectKind::Unit) return false;
+        if (home == nullptr || !home->alive || home->health <= 0) return false;
+        if (home->kind == WorldObjectKind::Structure) {
+            const auto* building = runtimeSlaveMinerParentBuilding(state, *home);
+            if (!building || !runtimeObjectIsAttachedSlaveWorker(state, object)
+                || toUpperAsciiLocal(building->enslaves) != toUpperAsciiLocal(object.type)) return false;
+            // Deployed slave miners share the same deferred detour reservation
+            // as mobile miners when workers meet on the ore/refinery approach.
+            if (task->second.phase == RuntimeSlaveMinerPhase::Returning)
+                return runtimeCellIsAllowedOccupiedStructureFootprint(state, behavior.moveTarget,
+                    home->instanceId, &object);
+            const auto ore = task->second.targetOre;
+            return task->second.phase == RuntimeSlaveMinerPhase::MovingToOre
+                && ore.x >= 0 && ore.y >= 0
+                && std::abs(behavior.moveTarget.x - ore.x) <= 1
+                && std::abs(behavior.moveTarget.y - ore.y) <= 1;
+        }
+        if (home->kind != WorldObjectKind::Unit) return false;
         if (task->second.phase == RuntimeSlaveMinerPhase::Returning)
             return behavior.moveTarget == runtimeCellPointForObject(*home)
                 && runtimeCellIsAllowedOccupiedStructureFootprint(state, behavior.moveTarget,
@@ -26987,7 +27069,7 @@ bool tryRuntimeLocalAvoidanceMove(
     for (const RuntimeCellPoint& candidate : runtimeNeighborsOf(current)) {
         const auto candidateAdmission = runtimeGroundBodyTransitionAdmission(
             state, object, current, candidate, true);
-        if (candidateAdmission.held) continue;
+        if (candidateAdmission.held || candidateAdmission.bodyBlocked) continue;
         if (!runtimeCellTransitionIsPassable(
                 state,
                 *terrainByCell,
@@ -27059,6 +27141,7 @@ bool tryRuntimeLocalAvoidanceMove(
             || behavior.kind == RuntimeBehaviorKind::Attack)
         && (behavior.pendingAllowedOccupiedObjectId < 0
             || transportApproach
+            || occupyApproach
             || slaveMinerApproach
             || (behavior.kind == RuntimeBehaviorKind::Attack
                 && behavior.targetObjectId >= 0
@@ -27754,7 +27837,7 @@ bool advanceRuntimeMoveBehavior(
     const RuntimeCellPoint next = behavior.path.front();
     const auto infantryAdmission = runtimeGroundBodyTransitionAdmission(
         state, object, runtimeCellPointForObject(object), next);
-    const bool infantryBodyBlocked = infantryAdmission.bodyBlocked;
+    const bool bodyBlocked = infantryAdmission.bodyBlocked;
     if (infantryAdmission.held) {
         behavior.state=RuntimeBehaviorState::Blocked;
         return false;
@@ -27769,7 +27852,7 @@ bool advanceRuntimeMoveBehavior(
     const std::unordered_map<int, int>& occupiedByCell =
         runtimeTickOccupancyLookup(state);
     const RuntimeCellPoint current = runtimeCellPointForObject(object);
-    if (infantryBodyBlocked || !runtimeCellTransitionIsPassable(
+    if (bodyBlocked || !runtimeCellTransitionIsPassable(
             state,
             *terrainByCell,
             occupiedByCell,
@@ -27779,7 +27862,7 @@ bool advanceRuntimeMoveBehavior(
             behavior.pendingAllowedOccupiedObjectId
         )) {
         int blockerObjectId = -1;
-        if (!infantryBodyBlocked && runtimeShouldWaitForMovingBlocker(
+        if (!bodyBlocked && runtimeShouldWaitForMovingBlocker(
                 state,
                 occupiedByCell,
                 next,
@@ -27825,7 +27908,7 @@ bool advanceRuntimeMoveBehavior(
             return true;
         }
         behavior.path.clear();
-        if (infantryBodyBlocked)
+        if (bodyBlocked && runtimeInfantryUsesGroundSubcells(object))
             releaseRuntimeInfantrySubcellReservation(state, object.instanceId);
         behavior.state = RuntimeBehaviorState::Blocked;
         const std::unordered_set<int> ignoredObjectIds =
@@ -28821,6 +28904,27 @@ bool advanceRuntimeGuardBehavior(RuntimeProductionHostState& state) {
     return changed || state.combatDetails.guardScanAfterObjectId != previousCursor;
 }
 
+namespace camouflage_host_detail {
+class RuntimeCamouflageHostQueries final
+    : public concord::simulation::abilities::RuntimeCamouflageStationaryQueries {
+public:
+    explicit RuntimeCamouflageHostQueries(const RuntimeProductionHostState& state) : state_(state) {}
+    const WorldObjectInstance* findObject(int objectId) const override {
+        return findObjectById(state_, objectId);
+    }
+    const RuntimeObjectBehavior* findBehavior(int objectId) const override {
+        const auto found = state_.behaviors.find(objectId);
+        return found == state_.behaviors.end() ? nullptr : &found->second;
+    }
+private:
+    const RuntimeProductionHostState& state_;
+};
+}
+bool runtimeCamouflageObjectIsStationary(const RuntimeProductionHostState& state, int objectId) {
+    camouflage_host_detail::RuntimeCamouflageHostQueries queries(state);
+    return concord::simulation::abilities::runtimeCamouflageIsStationary(objectId, queries);
+}
+
 bool advanceRuntimeSpecialMechanisms(RuntimeProductionHostState& state) {
     RuntimePerfTraceScope trace("advanceRuntimeSpecialMechanisms", state.tick);
     if (!state.rulesLoaded) {
@@ -28839,30 +28943,15 @@ bool advanceRuntimeSpecialMechanisms(RuntimeProductionHostState& state) {
         && state.specialMechanisms.timedBombs().empty()
         && state.specialMechanisms.pendingParasiteLaunches().empty()
         && state.specialMechanisms.parasiteLinks().empty()
-        && state.parasiteStunUntilTickByObject.empty()
+        && state.parasiteStunUntilTickByObject.entries().empty()
         && !state.specialMechanisms.hasActiveElectricEffects()) {
         return false;
     }
     const SpecialEventSink sink = runtimeSpecialEventSink(state);
     bool changed = false;
 
-    for (auto stun = state.parasiteStunUntilTickByObject.begin();
-         stun != state.parasiteStunUntilTickByObject.end();) {
-        if (state.tick < stun->second) {
-            ++stun;
-            continue;
-        }
-        WorldObjectInstance* object = findMutableObjectById(
-            state,
-            stun->first
-        );
-        if (object != nullptr && object->alive
-            && object->mission == "ParasiteStunned") {
-            object->mission = "Guard";
-        }
-        stun = state.parasiteStunUntilTickByObject.erase(stun);
-        changed = true;
-    }
+    const RuntimeParasiteStunMutableHostQueries stunQueries(state);
+    state.parasiteStunUntilTickByObject.advanceExpired(state.tick, stunQueries, changed);
 
     std::vector<int> activeProjectileIds;
     activeProjectileIds.reserve(state.projectiles.size());
@@ -28951,33 +29040,7 @@ bool advanceRuntimeSpecialMechanisms(RuntimeProductionHostState& state) {
     changed = drainRuntimeObjectExitQueue(state) || changed;
 
     const auto isStationary = [&state](int objectId) {
-        const WorldObjectInstance* object = findObjectById(state, objectId);
-        if (object == nullptr || !object->alive
-            || object->dockedToObjectId >= 0
-            || object->hasRenderPosition
-            || object->deployed
-            || runtimeMissionIsDeploying(*object)
-            || runtimeMissionIsUndeploying(*object)) {
-            return false;
-        }
-        const auto behavior = state.behaviors.find(objectId);
-        if (behavior != state.behaviors.end()) {
-            const auto& action = behavior->second;
-            // Shooting from rest must retain logical camouflage. The weapon's
-            // fake-blink timer reveals its body; pathing/chasing still unmasks it.
-            return action.kind == RuntimeBehaviorKind::Attack
-                && action.path.empty() && !action.pathRequestPending
-                && action.renderMoveTicksRemaining <= 0
-                && action.state != RuntimeBehaviorState::Moving
-                && action.state != RuntimeBehaviorState::Chasing
-                && action.state != RuntimeBehaviorState::Blocked;
-        }
-        const std::string mission = toLowerAsciiLocal(object->mission);
-        return mission == "guard"
-            || mission == "idle"
-            || mission == "idle1"
-            || mission == "idle2"
-            || mission == "deployedidle";
+        return runtimeCamouflageObjectIsStationary(state, objectId);
     };
     changed = state.specialMechanisms.tickCamouflage(
         state.world.accessObjects(),

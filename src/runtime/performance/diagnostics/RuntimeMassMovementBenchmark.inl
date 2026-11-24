@@ -341,8 +341,8 @@ bool issueRuntimeMassMovementOrder(RuntimeWindowState& state,
     destinations.clear();
     RuntimeMassMovementRejectSink rejectDiagnostics;
     {
-        RuntimeMassMovementRejectScope rejectionScope(&state, state.tick,
-            &RuntimeMassMovementRejectSink::receive, &rejectDiagnostics);
+        RuntimeMassMovementRejectScope rejectionScope(static_cast<const RuntimeGameSessionState*>(&state),
+            state.tick, &RuntimeMassMovementRejectSink::receive, &rejectDiagnostics);
         issueRuntimeMoveCommand(state, target, &destinations);
     }
     bool exact = state.lastCommand.acceptedCount == static_cast<int>(destinations.size())

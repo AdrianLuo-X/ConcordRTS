@@ -93,7 +93,7 @@ bool runRuntimeSpatialAudioSmoke(const RuntimeConfig& config, std::string& error
             const auto save = root + "/spatial-" + std::to_string(hz) + ".ini";
             require(saveRuntimeState(s,save,error), "save " + error);
             auto restored = make(hz); require(loadRuntimeState(*restored,save,error), "load " + error);
-            require(!restored->runtimeVoiceAudio && restored->runtimeWorldAudioBackendBindings.empty()
+            require(!restored->runtimeVoiceAudio && restored->worldAudioBackend.bindings().empty()
                 && std::none_of(restored->runtimeSfxMciChannelActive.begin(),restored->runtimeSfxMciChannelActive.end(),[](bool b){return b;}),
                 "native voice survived save/load"); ++saves;
         }
@@ -167,7 +167,7 @@ bool runRuntimeSpatialAudioSmoke(const RuntimeConfig& config, std::string& error
         action.eventId="SpatialScreen";action.sampleName="bgralo1";action.cell={cell.x,cell.y,cell.level};
         action.authoredGainPermille=1000;action.gainPermille=1000;action.backendLoopIterations=-1;
         camera(s,position,320,200);applyRuntimeWorldAudioBackendAction(s,action);
-        require(s.runtimeWorldAudioBackendBindings.size()==1,"world loop backend");
+        require(s.worldAudioBackend.bindings().size()==1,"world loop backend");
         camera(s,position,640,200);advanceRuntimeSpatialAudioMixes(s);
         auto loop=s.runtimeVoiceAudio->probe(action.handleId);
         require(loop.matrix.size()==2 && loop.matrix[0]<loop.matrix[1],"world loop pan update with unchanged gain");

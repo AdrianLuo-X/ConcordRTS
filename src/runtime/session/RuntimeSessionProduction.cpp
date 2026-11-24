@@ -1,4 +1,5 @@
 #include "runtime/session/detail/RuntimeProductionOperations.h"
+#include "runtime/session/detail/RuntimeHarvesterSelectionQuery.h"
 
 namespace concord::runtime::session_detail {
 
@@ -1311,7 +1312,7 @@ void initializeRuntimeEconomy(RuntimeProductionHostState& state) {
     state.playerCommands = {};
     state.playerLocalCommands = {};
     state.playerCommunication = {};
-    resetRuntimePlayerDefeatNotices(state);
+    state.playerDefeatNotices.reset();
     state.playerLastRadarCell.reset();
     state.pendingObjectExits.clear();
     state.pendingObjectExitIds.clear();
@@ -2792,7 +2793,8 @@ bool requestRuntimeFactoryExitClearance(
                 const int key = runtimeCellKey(candidate.x,candidate.y);
                 if (reserved.contains(key) || occupied.contains(key)
                     || !runtimeCellTransitionIsPassable(state,*terrain,occupied,current,
-                        candidate,*object,-1,nullptr,false)) continue;
+                        candidate,*object,-1,nullptr,false)
+                    || runtimeInfantryBodySegmentAdmissionBlocked(state, *object, current, candidate)) continue;
                 eraseRuntimeBehavior(state,object->instanceId);
                 RuntimeObjectBehavior move;move.kind=RuntimeBehaviorKind::Move;
                 move.state=RuntimeBehaviorState::Queued;move.moveTarget=candidate;
@@ -2851,6 +2853,10 @@ bool requestRuntimeFactoryExitClearance(
             return true;
         }
         const RuntimeCellPoint current = runtimeCellPointForObject(*object);
+        const auto footStepBlocked = [&](const RuntimeCellPoint& from, const RuntimeCellPoint& to) {
+            return from == current && runtimeInfantryUsesGroundSubcells(*object)
+                && runtimeInfantryBodySegmentAdmissionBlocked(state, *object, from, to);
+        };
         if (!inCorridor(current) && depth == 0) {
             return false;
         }
@@ -2983,7 +2989,7 @@ bool requestRuntimeFactoryExitClearance(
                 || !runtimeCellTransitionIsPassable(
                     state, *terrain, occupied, current, candidate,
                     *object, -1, nullptr, false
-                )) {
+                ) || footStepBlocked(current, candidate)) {
                 continue;
             }
             if (!preserveInterruptedMove()) return false;
@@ -3028,7 +3034,7 @@ bool requestRuntimeFactoryExitClearance(
                 const int key = runtimeCellKey(candidate.x, candidate.y);
                 if (parent.contains(key) || occupied.contains(key)
                     || !runtimeCellTransitionIsPassable(state, *terrain, occupied, from, candidate,
-                        *object, -1, nullptr, false)) continue;
+                        *object, -1, nullptr, false) || footStepBlocked(from, candidate)) continue;
                 parent.emplace(key, from);
                 if (inCorridor(candidate)) { frontier.push_back(candidate); continue; }
                 if (reserved.contains(key)) continue;
@@ -3395,6 +3401,31 @@ std::optional<RuntimeCellPoint> findRuntimeProductionExitMoveTarget(
     if (!target.has_value() || *target == producedCell) {
         return std::nullopt;
     }
+    if (!runtimeInfantryUsesGroundSubcells(produced)
+        || !runtimeInfantryBodySegmentAdmissionBlocked(state, produced, producedCell, *target)) {
+        return target;
+    }
+
+    // A free infantry subcell can still be behind a stationary body. Keep the
+    // same factory exit, choosing another adjacent outward step when it is clear.
+    std::unordered_map<int, const TerrainCell*> generatedTerrain;
+    const auto* terrain = &state.terrainByCell;
+    if (terrain->empty()) {
+        generatedTerrain = buildRuntimeTerrainLookup(state.world);
+        terrain = &generatedTerrain;
+    }
+    for (const auto& neighbor : runtimeNeighborsOf(producedCell)) {
+        const int outward = (neighbor.x - producedCell.x) * stepX
+            + (neighbor.y - producedCell.y) * stepY;
+        if (outward <= 0 || neighbor == *target
+            || !runtimeCellTransitionIsPassable(state, *terrain, occupiedByCell,
+                producedCell, neighbor, produced, -1, nullptr, false)) {
+            continue;
+        }
+        if (!runtimeInfantryBodySegmentAdmissionBlocked(state, produced, producedCell, neighbor)) {
+            return neighbor;
+        }
+    }
     return target;
 }
 
@@ -3416,6 +3447,18 @@ void queueRuntimeProductionExitMove(
     state.behaviors[produced.instanceId] = std::move(behavior);
     RuntimeObjectBehavior& queuedBehavior =
         state.behaviors[produced.instanceId];
+    const auto here = runtimeCellPointForObject(produced);
+    if (runtimeInfantryUsesGroundSubcells(produced)
+        && std::max(std::abs(target->x - here.x), std::abs(target->y - here.y)) == 1) {
+        const auto& terrain = state.terrainByCell;
+        const auto occupied = buildRuntimeOccupancyLookup(state, produced.instanceId);
+        if (runtimeCellTransitionIsPassable(state, terrain, occupied, here, *target,
+                produced, -1, nullptr, false)
+            && !runtimeInfantryBodySegmentAdmissionBlocked(state, produced, here, *target)) {
+            queuedBehavior.path.push_back(*target);
+            return;
+        }
+    }
     if (runtimeObjectMovementMode(state, produced) == PathMovementMode::Air) {
         // The air mover computes its traffic-only path on its next tick.
         // A ground-queue fallback can move an AI flyer's goal back over
@@ -5340,6 +5383,32 @@ bool runtimeCellHasHarvestableResource(
         && (terrain->overlayIsOre || terrain->overlayIsGem);
 }
 
+bool runtimeSelectedUnitsCanHarvestAt(
+    const RuntimeGameSessionState& state,
+    const std::vector<int>& selectedObjectIds,
+    RuntimeCellPoint cell) {
+    for (const int id : selectedObjectIds) {
+        const auto* object = findObjectById(state, id);
+        if (!object || object->owner != state.economy.owner
+            || !runtimeObjectAllowsMoveToCell(state, *object, cell)) continue;
+        if (runtimeObjectIsAttachedSlaveWorker(state, *object)
+            && runtimeObjectCanReceiveMoveCommand(state, *object)) return true;
+        const UnitType* unit = nullptr;
+        if (object->kind == WorldObjectKind::Structure) {
+            // A deployed Slave Miner handles an ore order by packing and
+            // moving to the new field. Preview its resulting mobile type.
+            if (!runtimeStructureCanRepack(state, *object)) continue;
+            const auto* building = findRuntimeBuildingTypeById(state.rules, object->type);
+            if (building) unit = findRuntimeUnitTypeById(state.rules, building->undeploysInto);
+        } else {
+            if (!runtimeObjectCanReceiveMoveCommand(state, *object)) continue;
+            unit = findRuntimeUnitType(state.rules, *object);
+        }
+        if (unit && (unit->harvester || runtimeUnitIsMobileSlaveMiner(*unit))) return true;
+    }
+    return false;
+}
+
 std::string runtimeResourceTwoDigitSuffix(int value) {
     value = std::clamp(value, 1, 20);
     return (value < 10 ? "0" : "") + std::to_string(value);
@@ -6718,15 +6787,22 @@ bool advanceRuntimeMobileSlaveMinerEconomy(RuntimeProductionHostState& state,
         return false;
     }
 
+    const auto hasOtherMovementInProgress = [&](const WorldObjectInstance& miner) {
+        const auto order = state.behaviors.find(miner.instanceId);
+        if (order == state.behaviors.end()) return false;
+        const auto& move = order->second;
+        return move.kind != RuntimeBehaviorKind::Move || miner.renderMoveActive
+            || move.moveCooldownTicks > 0
+            || (move.state != RuntimeBehaviorState::Blocked && move.blockedTicks < 4);
+    };
     std::vector<int> minerIds;
     for (const WorldObjectInstance& object : state.world.getObjects()) {
         if (!object.alive
             || object.owner != context.owner
             || object.kind != WorldObjectKind::Unit
             || object.buildAnimTicksRemaining > 0
-            || state.behaviors.find(object.instanceId)
-                != state.behaviors.end()
             || object.harvestAutoSearchSuspended
+            || hasOtherMovementInProgress(object)
             || runtimeMissionIsDeploying(object)
             || runtimeMissionIsUndeploying(object)) {
             continue;
@@ -6742,11 +6818,9 @@ bool advanceRuntimeMobileSlaveMinerEconomy(RuntimeProductionHostState& state,
     bool changed = false;
     for (int minerId : minerIds) {
         WorldObjectInstance* miner = findMutableObjectById(state, minerId);
-        if (miner == nullptr
-            || !miner->alive
-            || state.behaviors.find(minerId) != state.behaviors.end()) {
-            continue;
-        }
+        if (miner == nullptr || !miner->alive || hasOtherMovementInProgress(*miner)) continue;
+        const auto blockedOrder = state.behaviors.find(minerId);
+        const bool retrying = blockedOrder != state.behaviors.end();
 
         const UnitType* unit = findRuntimeUnitType(state.rules, *miner);
         if (unit == nullptr || !runtimeUnitIsMobileSlaveMiner(*unit)) {
@@ -6782,10 +6856,16 @@ bool advanceRuntimeMobileSlaveMinerEconomy(RuntimeProductionHostState& state,
                 &deployCell, &context.owner
             );
         if (!distantOre.has_value()) {
-            miner->mission = "Guard";
-            feedback.status = unit->id + " found no ore";
+            if (!retrying) {
+                miner->mission = "Guard";
+                feedback.status = unit->id + " found no ore";
+            }
             continue;
         }
+        // A worker can take the selected deployment footprint after the
+        // miner starts moving. Keep its retry when the site is still suitable;
+        // otherwise drive to the newly verified site on the normal path.
+        if (retrying && blockedOrder->second.moveTarget == *deployCell) continue;
 
         std::optional<RuntimeCellPoint> actualTarget;
         if (issueRuntimeHarvesterMoveToCell(
@@ -7443,15 +7523,16 @@ bool advanceRuntimeSlaveMinerWorkerTask(
     const RuntimeCellPoint workerCell = runtimeCellPointForObject(worker);
     if (runtimeCellDistanceToObjectFootprint(state, workerCell, *refinery) == 0.0) {
         // Unloading permission is not a mining position. Retain the original
-        // ore goal while leaving the foundation; native path/subcell checks
-        // may wait for other workers, but must not finish at the home cell or
-        // replace this departure with a vehicle's adjacent intake approach.
+        // ore goal while leaving the foundation. Other workers can already
+        // occupy the deposit. Use a reachable gathering position when one
+        // is available, with the clicked ore retained in the worker task.
         task.phase = RuntimeSlaveMinerPhase::MovingToOre;
         task.status = "leaving refinery for ore";
         RuntimeObjectBehavior departure;
         departure.kind = RuntimeBehaviorKind::Move;
         departure.state = RuntimeBehaviorState::Queued;
-        departure.moveTarget = task.targetOre;
+        departure.moveTarget = findRuntimeHarvesterResourceApproach(
+            state, worker, task.targetOre, &context.owner).value_or(task.targetOre);
         eraseRuntimeBehavior(state, worker.instanceId);
         worker.mission = "Harvest";
         state.behaviors[worker.instanceId] = std::move(departure);

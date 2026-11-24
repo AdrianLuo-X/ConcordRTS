@@ -101,7 +101,7 @@ bool runRuntimeUiClockSmokeTest(RuntimeWindowState& stock, std::ostream& output)
     if (!expect(!observeRuntimePlayerDefeatNotices(state)
             && clock.reads == reads + 1, "observe samples before campaign guard")) return false;
     state.campaignMode = false;
-    resetRuntimePlayerDefeatNotices(state);
+    state.playerDefeatNotices.reset();
     clock.value = 1000; reads = clock.reads;
     if (!expect(enqueueRuntimePlayerDefeatNotice(state, owner)
             && clock.reads == reads + 1 && state.playerDefeatNotices.lines.front().untilMs == 16000,
@@ -119,7 +119,7 @@ bool runRuntimeUiClockSmokeTest(RuntimeWindowState& stock, std::ostream& output)
     reads = clock.reads;
     drawRuntimePlayerDefeatNotices(nullptr, state, client);
     if (!expect(clock.reads == reads, "empty notice painter never reads time")) return false;
-    resetRuntimePlayerDefeatNotices(state); clock.value = maximum - 1;
+    state.playerDefeatNotices.reset(); clock.value = maximum - 1;
     if (!expect(enqueueRuntimePlayerDefeatNotice(state, owner)
             && state.playerDefeatNotices.lines.front().untilMs == maximum, "production notice saturation")) return false;
     clock.value = maximum;
@@ -244,7 +244,7 @@ bool runRuntimeUiClockSmokeTest(RuntimeWindowState& stock, std::ostream& output)
 
     state.campaignMode = false; state.skirmishMatchFinished = false;
     state.multiplayerLocalSpectator = false; state.resultPresentation = {};
-    resetRuntimePlayerDefeatNotices(state); clock.value = 1000;
+    state.playerDefeatNotices.reset(); clock.value = 1000;
     if (!expect(enqueueRuntimePlayerDefeatNotice(state, owner), "paused notice admission")) return false;
     const auto pausedHash = state.world.deterministicSimulationStateHash();
     const auto pausedCommands = state.playerCommands.serialize();
@@ -311,7 +311,7 @@ bool runRuntimeUiClockSmokeTest(RuntimeWindowState& stock, std::ostream& output)
             "keyboard local timing never changes authority/tick/commands")) return false;
 
     // Use the existing ordinary save/load transaction, including its fault hook.
-    resetRuntimePlayerDefeatNotices(state); state.tick = 21;
+    state.playerDefeatNotices.reset(); state.tick = 21;
     (void)advanceRuntimeParticles(state);
     std::string error;
     const auto savePath = pathString(directory / "ui-clock-load.ini");

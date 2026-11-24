@@ -224,6 +224,57 @@ bool runRuntimeSlaveControlSmoke(RuntimeWindowState& live, std::string& error) {
                 facade(*q);q->runtimeSuppressPlayerAudioFeedback=true;q->runtimeSoundsEnabled=q->runtimePreferencePersistenceEnabled=q->visionEnabled=false;
             }
             if(pairState(*ordinary)!=pairState(s)||pairState(*precise)!=pairState(s))return fail("checkpoint worker/home/body/task/management mismatch");
+            if (stage == "managed-stored-checkpoint") {
+                const int workerId = *managedIds.begin();
+                const auto& originalTask = s.slaveMinerTasks.at(workerId);
+                std::ostringstream before;
+                if (!writeRuntimeStateToStream(*ordinary, before, error))
+                    return fail("stored rejection baseline: " + error);
+                const auto rejectStored = [&](const char* name, const char* cause, const RuntimeSlaveMinerTask* replacement) {
+                    std::ostringstream changed;
+                    bool found = false;
+                    for (const auto& section : base.getSectionNames()) {
+                        changed << '[' << section << "]\n";
+                        for (const auto& [key, value] : *base.getSection(section)) {
+                            const auto separator = value.find('|');
+                            if (section == "SlaveMinerTasks" && separator != std::string::npos
+                                && parseRuntimeIntOrDefault(value.substr(0, separator), -1) == workerId) {
+                                changed << key << '=';
+                                if (replacement) {
+                                    changed << workerId << '|' << serializeRuntimeSlaveMinerTask(*replacement);
+                                }
+                                changed << '\n';
+                                found = true;
+                            } else {
+                                changed << key << '=' << value << '\n';
+                            }
+                        }
+                    }
+                    const auto path = root / (label + "-stored-invalid-" + name + ".ini");
+                    if (!found || !write(path, changed.str())) return fail("stored rejection fixture write failed");
+                    RuntimeSnapshotActiveStateScope active(*ordinary);
+                    std::string rejected;
+                    const auto expected = "invalid stored slave miner worker #" + std::to_string(workerId) + ": " + cause;
+                    std::ostringstream after;
+                    if (loadRuntimeState(*ordinary, pathString(path), rejected) || rejected != expected
+                        || !writeRuntimeStateToStream(*ordinary, after, error) || after.str() != before.str()) {
+                        return fail(std::string("stored transaction ") + name + " did not reject without mutation: " + rejected);
+                    }
+                    std::cout << "Slave storage rejection " << name << " no commit PASS\n";
+                    return true;
+                };
+                auto wrongPhase = originalTask;
+                wrongPhase.phase = RuntimeSlaveMinerPhase::SeekingOre;
+                auto wrongParent = originalTask;
+                wrongParent.refineryId = normalId;
+                auto invalidCargo = originalTask;
+                invalidCargo.cargoUnits = 1;
+                invalidCargo.cargoValue = 25;
+                if (!rejectStored("unlinked", "containment has no stored task", nullptr)
+                    || !rejectStored("phase", "phase and containment disagree", &wrongPhase)
+                    || !rejectStored("authority", "invalid worker or parent authority", &wrongParent)
+                    || !rejectStored("cargo", "invalid stored pose, cargo, or active exit", &invalidCargo)) return false;
+            }
             for(int n=0;n<12;++n) { step(); for(auto* q : {ordinary.get(),precise.get()}) { RuntimeSnapshotActiveStateScope active(*q);++q->tick;advanceRuntimeSimulation(*q,false);completeRuntimeWorldRefresh(*q); }
                 if(pairState(*ordinary)!=pairState(s)||pairState(*precise)!=pairState(s))return fail("actual ordinary/canonical paired worker continuation mismatch");++casePairs;
             }

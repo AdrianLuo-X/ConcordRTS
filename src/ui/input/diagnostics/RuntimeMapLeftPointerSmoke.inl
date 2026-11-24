@@ -73,7 +73,7 @@ bool handleRuntimePlayerWaypointClick(RuntimeWindowState& state, const RECT& vie
     for (const auto& [id, route] : state.playerCommands.waypoints.routes) {
         if (route.owner != owner) continue;
         for (std::size_t i = 0; i < route.points.size(); ++i) {
-            const auto position = runtimePlayerWaypointScreenPoint(state, viewport, route.points[i]);
+            const auto position = runtimePlayerWaypointScreenPoint(state,state.camera, viewport, route.points[i]);
             if (!position) continue;
             const long long dx = point.x - position->x, dy = point.y - position->y;
             const long long distance = dx * dx + dy * dy;
@@ -1956,7 +1956,7 @@ bool runRuntimeMapLeftPointerSmokeProbe(RuntimeWindowState& stock,std::ostream& 
                 body.target=RuntimeMultiplayerGameplayCellTarget{{cell.x+1,cell.y}};
                 if(!need(state.playerCommands.waypoints.append(owner,body),"formal second waypoint append"))return;
                 state.playerLocalCommands.planning=true;
-                const auto marker=runtimePlayerWaypointScreenPoint(state,view,state.playerCommands.waypoints.routes.at(actor).points.front());
+                const auto marker=runtimePlayerWaypointScreenPoint(state,state.camera,view,state.playerCommands.waypoints.routes.at(actor).points.front());
                 if(!need(marker.has_value(),"real native waypoint screen query"))return;
                 const POINT input=mode==2?POINT{marker->x+12,marker->y+1}:mode==1?POINT{marker->x+12,marker->y}:*marker;
                 save("legal-two-point-route",0);clicked(send,input);
@@ -2052,7 +2052,7 @@ bool runRuntimeMapLeftPointerSmokeProbe(RuntimeWindowState& stock,std::ostream& 
         if(!need(target.has_value(),"formal wall initializer/topology validates complete overlay identity"))return std::nullopt;
         bool selected=false;
         for(const auto& object:state.world.getObjects())if(object.alive&&object.owner==state.economy.owner&&object.kind!=WorldObjectKind::Structure){
-            state.selectedObjectIds={object.instanceId};if(runtimeOverlayWallSelectionCanAttack(state,*target)){selected=true;break;}}
+            state.selectedObjectIds={object.instanceId};if(runtimeOverlayWallSelectionCanAttack(state, runtimeCombatSelection(state), *target, state.forceAttackHeld)){selected=true;break;}}
         if(!need(selected,"actual original owned armed unit eligible for overlay wall force-fire"))return std::nullopt;
         RECT rect{};GetClientRect(window.window,&rect);centerRuntimeCameraOnCell(state,rect,*cell);const RECT view=runtimeMapViewport(rect);
         invalidateRuntimeObjectProjectionCache(state);

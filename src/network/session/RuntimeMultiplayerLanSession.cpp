@@ -151,6 +151,40 @@ std::size_t deferredCanonicalPacketBytes(
     return sizeof(packet.type) + packet.payload.size();
 }
 
+class RuntimeMultiplayerReconnectDeferredHostQueue {
+public:
+    struct Packet {
+        std::uint64_t transportPeerId;
+        RuntimeNetworkPacket packet;
+    };
+
+    bool enqueue(std::uint64_t transportPeerId, const RuntimeNetworkPacket& packet) {
+        const std::size_t amount = deferredCanonicalPacketBytes(packet);
+        if (packets_.size() >= runtimeMultiplayerLanMaximumDeferredCanonicalPackets
+            || amount > runtimeMultiplayerLanMaximumDeferredCanonicalBytes
+            || bytes_ > runtimeMultiplayerLanMaximumDeferredCanonicalBytes - amount) {
+            return false;
+        }
+        bytes_ += amount;
+        packets_.push_back({transportPeerId, packet});
+        return true;
+    }
+
+    void takeAll(std::deque<Packet>& queued) {
+        queued.swap(packets_);
+        bytes_ = 0;
+    }
+
+    void clear() {
+        packets_.clear();
+        bytes_ = 0;
+    }
+
+private:
+    std::deque<Packet> packets_;
+    std::size_t bytes_ = 0;
+};
+
 class RuntimeLanSystemNonceNoiseSource final : public runtime_lan_nonce_noise_detail::Source {
 public:
     RuntimeSecureBytesResult fill(std::span<std::uint8_t> bytes) noexcept override {
@@ -231,11 +265,6 @@ struct RuntimeMultiplayerLanSession::Impl {
         std::string disconnectReason;
     };
 
-    struct DeferredHostPacket {
-        std::uint64_t transportPeerId = 0;
-        RuntimeNetworkPacket packet;
-    };
-
     struct ReconnectCanonicalCheckpoint {
         std::uint64_t timelineEpoch = 0;
         int authoritativeTick = -1;
@@ -262,8 +291,7 @@ struct RuntimeMultiplayerLanSession::Impl {
     RuntimeMultiplayerLanJoinOptions joinOptions;
     std::map<std::uint64_t, HostPeer> hostPeers;
     std::map<std::string, SuspendedPeer> suspendedPeers;
-    std::deque<DeferredHostPacket> reconnectDeferredHostPackets;
-    std::size_t reconnectDeferredHostBytes = 0;
+    RuntimeMultiplayerReconnectDeferredHostQueue reconnectDeferredHostPackets;
     std::deque<ReconnectCanonicalCheckpoint> reconnectCanonicalHistory;
     std::size_t reconnectCanonicalHistoryBytes = 0;
     std::vector<RuntimeMultiplayerLanEvent> pendingEvents;
@@ -285,11 +313,23 @@ struct RuntimeMultiplayerLanSession::Impl {
     bool joinPasswordProofRequired = false;
     bool clientCanonicalPacketDeferred = false;
     RuntimeMultiplayerSnapshotSession snapshot{session, snapshotHooks, localPeerId, phase};
-    bool reconnectRecoveryPending = false;
-    std::uint64_t reconnectRecoveryProposalId = 0;
-    std::chrono::steady_clock::time_point reconnectDeadline{};
-    std::chrono::steady_clock::time_point nextReconnectAttempt{};
-    std::uint32_t reconnectAttemptCount = 0;
+    struct ReconnectState {
+        bool recoveryPending = false;
+        std::uint64_t recoveryProposalId = 0;
+        std::chrono::steady_clock::time_point deadline{};
+        std::chrono::steady_clock::time_point nextAttempt{};
+        std::uint32_t attemptCount = 0;
+
+        void beginRecovery() {
+            recoveryPending = true;
+            recoveryProposalId = 0;
+        }
+
+        void finishRecovery() {
+            recoveryPending = false;
+            recoveryProposalId = 0;
+        }
+    } reconnect;
 
     struct SnapshotPort final : RuntimeMultiplayerSnapshotSessionPort {
         Impl& owner;
@@ -622,11 +662,7 @@ struct RuntimeMultiplayerLanSession::Impl {
     void reset() {
         clearSnapshotTransfer(true);
         resetLobbyMapTransfer();
-        lobbyResumeImage.reset();
-        lobbyResumeBytes.clear();
-        lobbyResumeAssembler.reset();
-        lobbyResumeLastChunk.reset();
-        lobbyResumeStartedAt = {};
+        lobbyResume.reset();
         discoveryHost.close();
         browser.close();
         server.close();
@@ -639,7 +675,6 @@ struct RuntimeMultiplayerLanSession::Impl {
         hostPeers.clear();
         suspendedPeers.clear();
         reconnectDeferredHostPackets.clear();
-        reconnectDeferredHostBytes = 0;
         reconnectCanonicalHistory.clear();
         reconnectCanonicalHistoryBytes = 0;
         pendingEvents.clear();
@@ -663,11 +698,10 @@ struct RuntimeMultiplayerLanSession::Impl {
         joinPasswordProofRequired = false;
         clientCanonicalPacketDeferred = false;
         snapshot.state().snapshotSendPollCounter = 0;
-        reconnectRecoveryPending = false;
-        reconnectRecoveryProposalId = 0;
-        reconnectDeadline = {};
-        nextReconnectAttempt = {};
-        reconnectAttemptCount = 0;
+        reconnect.finishRecovery();
+        reconnect.deadline = {};
+        reconnect.nextAttempt = {};
+        reconnect.attemptCount = 0;
         // commandPayloadValidator is application configuration and persists.
         // simulationHooks are application configuration and persist.
         // snapshotHooks are application configuration and persist.
@@ -899,6 +933,13 @@ struct RuntimeMultiplayerLanSession::Impl {
         if (found != hostPeers.end()) found->second.closeAfterPolls = 2;
     }
 
+    void handleHostJoinAdmission(
+        std::uint64_t transportPeerId,
+        HostPeer& binding,
+        const RuntimeMultiplayerMessage& decoded,
+        std::vector<RuntimeMultiplayerLanEvent>& events
+    );
+
     void rejectUnadmittedPeer(
         std::uint64_t transportPeerId,
         const std::string& claimedPeerId,
@@ -1119,14 +1160,13 @@ bool RuntimeMultiplayerLanSession::Impl::beginClientReconnect(
     challengeReceived = false;
     joinAccepted = false;
     admissionToken = 0;
-    reconnectRecoveryPending = true;
-    reconnectRecoveryProposalId = 0;
-    reconnectAttemptCount = 0;
+    reconnect.beginRecovery();
+    reconnect.attemptCount = 0;
     const auto now = std::chrono::steady_clock::now();
-    reconnectDeadline = now + std::chrono::milliseconds(
+    reconnect.deadline = now + std::chrono::milliseconds(
         peerReconnectGraceMilliseconds
     );
-    nextReconnectAttempt = now + std::chrono::milliseconds(
+    reconnect.nextAttempt = now + std::chrono::milliseconds(
         runtimeMultiplayerLanReconnectRetryMilliseconds
     );
 
@@ -1159,8 +1199,7 @@ void RuntimeMultiplayerLanSession::Impl::failClientReconnect(
     client.close();
     clearPendingClientCanonicalPackets();
     clearSnapshotTransfer(true);
-    reconnectRecoveryPending = false;
-    reconnectRecoveryProposalId = 0;
+    reconnect.finishRecovery();
 
     RuntimeMultiplayerLanEvent failed = event(
         RuntimeMultiplayerLanEventKind::ReconnectFailed
@@ -1183,10 +1222,9 @@ void RuntimeMultiplayerLanSession::Impl::failClientReconnect(
 void RuntimeMultiplayerLanSession::Impl::drainReconnectDeferredHostPackets(
     std::vector<RuntimeMultiplayerLanEvent>& events
 ) {
-    std::deque<DeferredHostPacket> deferred;
-    deferred.swap(reconnectDeferredHostPackets);
-    reconnectDeferredHostBytes = 0;
-    for (DeferredHostPacket& item : deferred) {
+    std::deque<RuntimeMultiplayerReconnectDeferredHostQueue::Packet> deferred;
+    reconnectDeferredHostPackets.takeAll(deferred);
+    for (auto& item : deferred) {
         if (phase != RuntimeMultiplayerLanPhase::Running
             || !suspendedPeers.empty()
             || hostPeers.find(item.transportPeerId) == hostPeers.end()) {
@@ -1197,7 +1235,7 @@ void RuntimeMultiplayerLanSession::Impl::drainReconnectDeferredHostPackets(
 }
 
 void RuntimeMultiplayerLanSession::Impl::refreshReconnectRecoveryState() {
-    if (!reconnectRecoveryPending || reconnectRecoveryProposalId == 0) {
+    if (!reconnect.recoveryPending || reconnect.recoveryProposalId == 0) {
         return;
     }
     const auto& handshakes = session.saveLoadHandshakes();
@@ -1206,17 +1244,15 @@ void RuntimeMultiplayerLanSession::Impl::refreshReconnectRecoveryState() {
         handshakes.rend(),
         [this](const RuntimeMultiplayerSaveLoadHandshake& handshake) {
             return handshake.proposal.proposalId
-                == reconnectRecoveryProposalId;
+                == reconnect.recoveryProposalId;
         }
     );
     if (found != handshakes.rend()
         && found->status == RuntimeMultiplayerSaveLoadStatus::Committed) {
-        reconnectRecoveryPending = false;
-        reconnectRecoveryProposalId = 0;
+        reconnect.finishRecovery();
     }
     if (session.status() == RuntimeMultiplayerRoomStatus::Aborted) {
-        reconnectRecoveryPending = false;
-        reconnectRecoveryProposalId = 0;
+        reconnect.finishRecovery();
     }
 }
 
@@ -1257,7 +1293,7 @@ void RuntimeMultiplayerLanSession::Impl::handleHostPeerGone(
     if (runningCombatant && recoverableTransportLoss
         && reconnectGraceMilliseconds > 0
         && !session.hasActiveSaveLoadHandshake()
-        && !reconnectRecoveryPending) {
+        && !reconnect.recoveryPending) {
         SuspendedPeer suspended;
         suspended.logicalPeerId = peer.logicalPeerId;
         suspended.displayName = roomMember->displayName;
@@ -1354,6 +1390,299 @@ void RuntimeMultiplayerLanSession::Impl::handleHostPeerGone(
     }
 }
 
+void RuntimeMultiplayerLanSession::Impl::handleHostJoinAdmission(
+    std::uint64_t transportPeerId,
+    HostPeer& binding,
+    const RuntimeMultiplayerMessage& decoded,
+    std::vector<RuntimeMultiplayerLanEvent>& events
+) {
+    const RuntimeMultiplayerJoinAdmissionRequestMessage& admission =
+        std::get<RuntimeMultiplayerJoinAdmissionRequestMessage>(
+            decoded.body
+        );
+    const std::uint64_t expectedAdmission = hostPasswordProtected
+        ? runtimeLanRoomPasswordAdmissionProof(
+            hostPasswordVerifier,
+            session.config().roomId,
+            admission.request.peerId,
+            roomGeneration,
+            binding.admissionToken
+        )
+        : binding.admissionToken;
+    if (admission.roomGeneration != roomGeneration
+        || admission.admissionToken != expectedAdmission) {
+        const std::string rejection = hostPasswordProtected
+            ? "LAN room password or admission challenge is incorrect"
+            : "multiplayer admission challenge does not match";
+        if (!binding.admitted) {
+            rejectUnadmittedPeer(
+                transportPeerId,
+                admission.request.peerId,
+                rejection,
+                events
+            );
+        } else {
+            RuntimeMultiplayerLanEvent rejected = event(
+                RuntimeMultiplayerLanEventKind::ProtocolRejected,
+                decoded.type
+            );
+            rejected.peerId = binding.logicalPeerId;
+            rejected.reason = rejection;
+            events.push_back(std::move(rejected));
+            server.disconnect(transportPeerId);
+            handleHostPeerGone(
+                transportPeerId,
+                RuntimeMultiplayerSessionAbortReason::ProtocolViolation,
+                "admission challenge mismatch",
+                events
+            );
+        }
+        return;
+    }
+
+    if (admission.reconnect) {
+        const auto suspended = suspendedPeers.find(
+            admission.request.peerId
+        );
+        const auto member = std::find_if(
+            session.members().begin(),
+            session.members().end(),
+            [&admission](const RuntimeMultiplayerRoomMember& candidate) {
+                return candidate.peerId == admission.request.peerId;
+            }
+        );
+        std::vector<RuntimeNetworkPacket> catchUpPackets;
+        const bool checkpointMatches =
+            phase == RuntimeMultiplayerLanPhase::Running
+            && !binding.admitted
+            && suspended != suspendedPeers.end()
+            && member != session.members().end()
+            && member->role == RuntimeMultiplayerRoomMemberRole::Client
+            && member->displayName == admission.request.displayName
+            && member->participation == admission.request.participation
+            && admission.request.compatibility
+                == session.config().compatibility
+            && suspended->second.displayName
+                == admission.request.displayName
+            && suspended->second.participation
+                == admission.request.participation
+            && admission.reconnectTimelineEpoch
+                == suspended->second.timelineEpoch
+            && admission.reconnectTimelineEpoch
+                == session.timelineEpoch()
+            && suspended->second.authoritativeTick == session.authoritativeTick()
+            && suspended->second.sessionStateHash == session.stateHash()
+            && collectReconnectCanonicalCatchUp(admission, catchUpPackets);
+        if (!checkpointMatches) {
+            rejectUnadmittedPeer(
+                transportPeerId,
+                admission.request.peerId,
+                "multiplayer reconnect checkpoint does not match the host",
+                events
+            );
+            if (suspended != suspendedPeers.end()) {
+                RuntimeMultiplayerLanEvent failed = event(
+                    RuntimeMultiplayerLanEventKind::ReconnectFailed
+                );
+                failed.peerId = admission.request.peerId;
+                failed.tick = session.authoritativeTick();
+                failed.reason =
+                    "reconnect checkpoint mismatch; ending the room";
+                events.push_back(std::move(failed));
+                (void)hostAbort(
+                    admission.request.peerId,
+                    RuntimeMultiplayerSessionAbortReason::TransportFailure
+                );
+            }
+            return;
+        }
+
+        binding.logicalPeerId = admission.request.peerId;
+        binding.admitted = true;
+        binding.admissionToken = 0;
+        binding.closeAfterPolls = -1;
+        suspendedPeers.erase(suspended);
+        reconnect.beginRecovery();
+
+        RuntimeMultiplayerJoinAcceptedMessage accepted;
+        accepted.roomGeneration = roomGeneration;
+        accepted.roomId = session.config().roomId;
+        accepted.peerId = binding.logicalPeerId;
+        accepted.reconnected = true;
+        RuntimeMultiplayerMessage acceptedMessage;
+        acceptedMessage.type = RuntimeMultiplayerMessageType::JoinAccepted;
+        acceptedMessage.body = std::move(accepted);
+        std::string sendError;
+        bool reconnectQueued = sendToPeer(
+                transportPeerId,
+                acceptedMessage,
+                sendError
+            );
+        for (const auto& catchUp : catchUpPackets) {
+            if (!reconnectQueued) break;
+            reconnectQueued = server.send(transportPeerId, catchUp, sendError);
+        }
+        if (!reconnectQueued) {
+            server.disconnect(transportPeerId);
+            handleHostPeerGone(
+                transportPeerId,
+                RuntimeMultiplayerSessionAbortReason::TransportFailure,
+                sendError,
+                events
+            );
+            return;
+        }
+
+        RuntimeMultiplayerLanEvent reconnected = event(
+            RuntimeMultiplayerLanEventKind::Reconnected,
+            RuntimeMultiplayerMessageType::JoinAccepted
+        );
+        reconnected.peerId = binding.logicalPeerId;
+        reconnected.tick = session.authoritativeTick();
+        events.push_back(std::move(reconnected));
+        if (suspendedPeers.empty()) {
+            drainReconnectDeferredHostPackets(events);
+        }
+        return;
+    }
+
+    if (phase != RuntimeMultiplayerLanPhase::Lobby) {
+        rejectUnadmittedPeer(
+            transportPeerId,
+            admission.request.peerId,
+            "running rooms accept only a suspended peer reconnect",
+            events
+        );
+        return;
+    }
+
+    RuntimeMultiplayerMessage joinMessage;
+    joinMessage.type = RuntimeMultiplayerMessageType::JoinRequest;
+    joinMessage.body = admission.request;
+
+    if (!binding.admitted) {
+        const bool duplicateIdentity = std::any_of(
+            session.members().begin(),
+            session.members().end(),
+            [&](const RuntimeMultiplayerRoomMember& member) {
+                return member.peerId == admission.request.peerId;
+            }
+        );
+        const std::size_t roleMembers = static_cast<std::size_t>(
+            std::count_if(
+                session.members().begin(),
+                session.members().end(),
+                [&](const RuntimeMultiplayerRoomMember& member) {
+                    return member.participation
+                        == admission.request.participation;
+                }
+            )
+        );
+        const std::size_t roleLimit = admission.request.participation
+                == RuntimeMultiplayerParticipationRole::Combatant
+            ? maximumCombatants
+            : maximumSpectators;
+        if (duplicateIdentity || roleMembers >= roleLimit) {
+            rejectUnadmittedPeer(
+                transportPeerId,
+                admission.request.peerId,
+                duplicateIdentity
+                    ? "peer id is already connected to this room"
+                    : (admission.request.participation
+                            == RuntimeMultiplayerParticipationRole::Combatant
+                        ? "no combatant lobby slot is available"
+                        : "multiplayer spectator limit reached"),
+                events
+            );
+            return;
+        }
+    }
+
+    RuntimeNetworkPacket joinPacket;
+    std::string encodeError;
+    if (!encode(joinMessage, joinPacket, encodeError)) {
+        rejectUnadmittedPeer(
+            transportPeerId,
+            admission.request.peerId,
+            encodeError,
+            events
+        );
+        return;
+    }
+    const std::string_view authenticated = binding.admitted
+        ? std::string_view(binding.logicalPeerId)
+        : std::string_view{};
+    RuntimeMultiplayerMessageApplyResult applied =
+        applyRuntimeMultiplayerMessage(
+            joinPacket,
+            authenticated,
+            session
+        );
+    if (!applied.accepted) {
+        if (!binding.admitted) {
+            rejectUnadmittedPeer(
+                transportPeerId,
+                admission.request.peerId,
+                applied.reason,
+                events
+            );
+        } else {
+            RuntimeMultiplayerLanEvent rejected = event(
+                RuntimeMultiplayerLanEventKind::ProtocolRejected,
+                decoded.type
+            );
+            rejected.peerId = binding.logicalPeerId;
+            rejected.reason = applied.reason;
+            events.push_back(std::move(rejected));
+            server.disconnect(transportPeerId);
+            handleHostPeerGone(
+                transportPeerId,
+                RuntimeMultiplayerSessionAbortReason::ProtocolViolation,
+                applied.reason,
+                events
+            );
+        }
+        return;
+    }
+
+    binding.logicalPeerId = admission.request.peerId;
+    binding.admitted = true;
+    // The challenge response is single-use. From this point onward the
+    // permanent connection binding, not a replayable token, authenticates
+    // all room messages.
+    binding.admissionToken = 0;
+    binding.closeAfterPolls = -1;
+    RuntimeMultiplayerJoinAcceptedMessage accepted;
+    accepted.roomGeneration = roomGeneration;
+    accepted.roomId = session.config().roomId;
+    accepted.peerId = binding.logicalPeerId;
+    RuntimeMultiplayerMessage acceptedMessage;
+    acceptedMessage.type = RuntimeMultiplayerMessageType::JoinAccepted;
+    acceptedMessage.body = std::move(accepted);
+    std::string sendError;
+    if (!sendToPeer(transportPeerId, acceptedMessage, sendError)) {
+        server.disconnect(transportPeerId);
+        handleHostPeerGone(
+            transportPeerId,
+            RuntimeMultiplayerSessionAbortReason::TransportFailure,
+            sendError,
+            events
+        );
+        return;
+    }
+    broadcastLobbySnapshot(sendError);
+    updateAdvertisement(sendError);
+
+    RuntimeMultiplayerLanEvent acceptedEvent = event(
+        RuntimeMultiplayerLanEventKind::JoinAccepted,
+        RuntimeMultiplayerMessageType::JoinAccepted
+    );
+    acceptedEvent.peerId = admission.request.peerId;
+    events.push_back(std::move(acceptedEvent));
+    appendAppliedEvent(joinMessage, applied, events);
+    return;
+}
+
 void RuntimeMultiplayerLanSession::Impl::handleHostPacket(
     std::uint64_t transportPeerId,
     const RuntimeNetworkPacket& packet,
@@ -1392,292 +1721,7 @@ void RuntimeMultiplayerLanSession::Impl::handleHostPacket(
 
     if (decoded.type
         == RuntimeMultiplayerMessageType::JoinAdmissionRequest) {
-        const RuntimeMultiplayerJoinAdmissionRequestMessage& admission =
-            std::get<RuntimeMultiplayerJoinAdmissionRequestMessage>(
-                decoded.body
-            );
-        HostPeer& binding = found->second;
-        const std::uint64_t expectedAdmission = hostPasswordProtected
-            ? runtimeLanRoomPasswordAdmissionProof(
-                hostPasswordVerifier,
-                session.config().roomId,
-                admission.request.peerId,
-                roomGeneration,
-                binding.admissionToken
-            )
-            : binding.admissionToken;
-        if (admission.roomGeneration != roomGeneration
-            || admission.admissionToken != expectedAdmission) {
-            const std::string rejection = hostPasswordProtected
-                ? "LAN room password or admission challenge is incorrect"
-                : "multiplayer admission challenge does not match";
-            if (!binding.admitted) {
-                rejectUnadmittedPeer(
-                    transportPeerId,
-                    admission.request.peerId,
-                    rejection,
-                    events
-                );
-            } else {
-                RuntimeMultiplayerLanEvent rejected = event(
-                    RuntimeMultiplayerLanEventKind::ProtocolRejected,
-                    decoded.type
-                );
-                rejected.peerId = binding.logicalPeerId;
-                rejected.reason = rejection;
-                events.push_back(std::move(rejected));
-                server.disconnect(transportPeerId);
-                handleHostPeerGone(
-                    transportPeerId,
-                    RuntimeMultiplayerSessionAbortReason::ProtocolViolation,
-                    "admission challenge mismatch",
-                    events
-                );
-            }
-            return;
-        }
-
-        if (admission.reconnect) {
-            const auto suspended = suspendedPeers.find(
-                admission.request.peerId
-            );
-            const auto member = std::find_if(
-                session.members().begin(),
-                session.members().end(),
-                [&admission](const RuntimeMultiplayerRoomMember& candidate) {
-                    return candidate.peerId == admission.request.peerId;
-                }
-            );
-            std::vector<RuntimeNetworkPacket> catchUpPackets;
-            const bool checkpointMatches =
-                phase == RuntimeMultiplayerLanPhase::Running
-                && !binding.admitted
-                && suspended != suspendedPeers.end()
-                && member != session.members().end()
-                && member->role == RuntimeMultiplayerRoomMemberRole::Client
-                && member->displayName == admission.request.displayName
-                && member->participation == admission.request.participation
-                && admission.request.compatibility
-                    == session.config().compatibility
-                && suspended->second.displayName
-                    == admission.request.displayName
-                && suspended->second.participation
-                    == admission.request.participation
-                && admission.reconnectTimelineEpoch
-                    == suspended->second.timelineEpoch
-                && admission.reconnectTimelineEpoch
-                    == session.timelineEpoch()
-                && suspended->second.authoritativeTick == session.authoritativeTick()
-                && suspended->second.sessionStateHash == session.stateHash()
-                && collectReconnectCanonicalCatchUp(admission, catchUpPackets);
-            if (!checkpointMatches) {
-                rejectUnadmittedPeer(
-                    transportPeerId,
-                    admission.request.peerId,
-                    "multiplayer reconnect checkpoint does not match the host",
-                    events
-                );
-                if (suspended != suspendedPeers.end()) {
-                    RuntimeMultiplayerLanEvent failed = event(
-                        RuntimeMultiplayerLanEventKind::ReconnectFailed
-                    );
-                    failed.peerId = admission.request.peerId;
-                    failed.tick = session.authoritativeTick();
-                    failed.reason =
-                        "reconnect checkpoint mismatch; ending the room";
-                    events.push_back(std::move(failed));
-                    (void)hostAbort(
-                        admission.request.peerId,
-                        RuntimeMultiplayerSessionAbortReason::TransportFailure
-                    );
-                }
-                return;
-            }
-
-            binding.logicalPeerId = admission.request.peerId;
-            binding.admitted = true;
-            binding.admissionToken = 0;
-            binding.closeAfterPolls = -1;
-            suspendedPeers.erase(suspended);
-            reconnectRecoveryPending = true;
-            reconnectRecoveryProposalId = 0;
-
-            RuntimeMultiplayerJoinAcceptedMessage accepted;
-            accepted.roomGeneration = roomGeneration;
-            accepted.roomId = session.config().roomId;
-            accepted.peerId = binding.logicalPeerId;
-            accepted.reconnected = true;
-            RuntimeMultiplayerMessage acceptedMessage;
-            acceptedMessage.type = RuntimeMultiplayerMessageType::JoinAccepted;
-            acceptedMessage.body = std::move(accepted);
-            std::string sendError;
-            bool reconnectQueued = sendToPeer(
-                    transportPeerId,
-                    acceptedMessage,
-                    sendError
-                );
-            for (const auto& catchUp : catchUpPackets) {
-                if (!reconnectQueued) break;
-                reconnectQueued = server.send(transportPeerId, catchUp, sendError);
-            }
-            if (!reconnectQueued) {
-                server.disconnect(transportPeerId);
-                handleHostPeerGone(
-                    transportPeerId,
-                    RuntimeMultiplayerSessionAbortReason::TransportFailure,
-                    sendError,
-                    events
-                );
-                return;
-            }
-
-            RuntimeMultiplayerLanEvent reconnected = event(
-                RuntimeMultiplayerLanEventKind::Reconnected,
-                RuntimeMultiplayerMessageType::JoinAccepted
-            );
-            reconnected.peerId = binding.logicalPeerId;
-            reconnected.tick = session.authoritativeTick();
-            events.push_back(std::move(reconnected));
-            if (suspendedPeers.empty()) {
-                drainReconnectDeferredHostPackets(events);
-            }
-            return;
-        }
-
-        if (phase != RuntimeMultiplayerLanPhase::Lobby) {
-            rejectUnadmittedPeer(
-                transportPeerId,
-                admission.request.peerId,
-                "running rooms accept only a suspended peer reconnect",
-                events
-            );
-            return;
-        }
-
-        RuntimeMultiplayerMessage joinMessage;
-        joinMessage.type = RuntimeMultiplayerMessageType::JoinRequest;
-        joinMessage.body = admission.request;
-
-        if (!binding.admitted) {
-            const bool duplicateIdentity = std::any_of(
-                session.members().begin(),
-                session.members().end(),
-                [&](const RuntimeMultiplayerRoomMember& member) {
-                    return member.peerId == admission.request.peerId;
-                }
-            );
-            const std::size_t roleMembers = static_cast<std::size_t>(
-                std::count_if(
-                    session.members().begin(),
-                    session.members().end(),
-                    [&](const RuntimeMultiplayerRoomMember& member) {
-                        return member.participation
-                            == admission.request.participation;
-                    }
-                )
-            );
-            const std::size_t roleLimit = admission.request.participation
-                    == RuntimeMultiplayerParticipationRole::Combatant
-                ? maximumCombatants
-                : maximumSpectators;
-            if (duplicateIdentity || roleMembers >= roleLimit) {
-                rejectUnadmittedPeer(
-                    transportPeerId,
-                    admission.request.peerId,
-                    duplicateIdentity
-                        ? "peer id is already connected to this room"
-                        : (admission.request.participation
-                                == RuntimeMultiplayerParticipationRole::Combatant
-                            ? "no combatant lobby slot is available"
-                            : "multiplayer spectator limit reached"),
-                    events
-                );
-                return;
-            }
-        }
-
-        RuntimeNetworkPacket joinPacket;
-        std::string encodeError;
-        if (!encode(joinMessage, joinPacket, encodeError)) {
-            rejectUnadmittedPeer(
-                transportPeerId,
-                admission.request.peerId,
-                encodeError,
-                events
-            );
-            return;
-        }
-        const std::string_view authenticated = binding.admitted
-            ? std::string_view(binding.logicalPeerId)
-            : std::string_view{};
-        RuntimeMultiplayerMessageApplyResult applied =
-            applyRuntimeMultiplayerMessage(
-                joinPacket,
-                authenticated,
-                session
-            );
-        if (!applied.accepted) {
-            if (!binding.admitted) {
-                rejectUnadmittedPeer(
-                    transportPeerId,
-                    admission.request.peerId,
-                    applied.reason,
-                    events
-                );
-            } else {
-                RuntimeMultiplayerLanEvent rejected = event(
-                    RuntimeMultiplayerLanEventKind::ProtocolRejected,
-                    decoded.type
-                );
-                rejected.peerId = binding.logicalPeerId;
-                rejected.reason = applied.reason;
-                events.push_back(std::move(rejected));
-                server.disconnect(transportPeerId);
-                handleHostPeerGone(
-                    transportPeerId,
-                    RuntimeMultiplayerSessionAbortReason::ProtocolViolation,
-                    applied.reason,
-                    events
-                );
-            }
-            return;
-        }
-
-        binding.logicalPeerId = admission.request.peerId;
-        binding.admitted = true;
-        // The challenge response is single-use. From this point onward the
-        // permanent connection binding, not a replayable token, authenticates
-        // all room messages.
-        binding.admissionToken = 0;
-        binding.closeAfterPolls = -1;
-        RuntimeMultiplayerJoinAcceptedMessage accepted;
-        accepted.roomGeneration = roomGeneration;
-        accepted.roomId = session.config().roomId;
-        accepted.peerId = binding.logicalPeerId;
-        RuntimeMultiplayerMessage acceptedMessage;
-        acceptedMessage.type = RuntimeMultiplayerMessageType::JoinAccepted;
-        acceptedMessage.body = std::move(accepted);
-        std::string sendError;
-        if (!sendToPeer(transportPeerId, acceptedMessage, sendError)) {
-            server.disconnect(transportPeerId);
-            handleHostPeerGone(
-                transportPeerId,
-                RuntimeMultiplayerSessionAbortReason::TransportFailure,
-                sendError,
-                events
-            );
-            return;
-        }
-        broadcastLobbySnapshot(sendError);
-        updateAdvertisement(sendError);
-
-        RuntimeMultiplayerLanEvent acceptedEvent = event(
-            RuntimeMultiplayerLanEventKind::JoinAccepted,
-            RuntimeMultiplayerMessageType::JoinAccepted
-        );
-        acceptedEvent.peerId = admission.request.peerId;
-        events.push_back(std::move(acceptedEvent));
-        appendAppliedEvent(joinMessage, applied, events);
+        handleHostJoinAdmission(transportPeerId, found->second, decoded, events);
         return;
     }
 
@@ -1695,14 +1739,7 @@ void RuntimeMultiplayerLanSession::Impl::handleHostPacket(
     if (!suspendedPeers.empty()
         && (decoded.type == RuntimeMultiplayerMessageType::Command
             || decoded.type == RuntimeMultiplayerMessageType::StateHash)) {
-        const std::size_t packetBytes = deferredCanonicalPacketBytes(packet);
-        if (reconnectDeferredHostPackets.size()
-                >= runtimeMultiplayerLanMaximumDeferredCanonicalPackets
-            || packetBytes
-                > runtimeMultiplayerLanMaximumDeferredCanonicalBytes
-            || reconnectDeferredHostBytes
-                > runtimeMultiplayerLanMaximumDeferredCanonicalBytes
-                    - packetBytes) {
+        if (!reconnectDeferredHostPackets.enqueue(transportPeerId, packet)) {
             RuntimeMultiplayerLanEvent failed = event(
                 RuntimeMultiplayerLanEventKind::ReconnectFailed,
                 decoded.type
@@ -1718,10 +1755,6 @@ void RuntimeMultiplayerLanSession::Impl::handleHostPacket(
             );
             return;
         }
-        reconnectDeferredHostBytes += packetBytes;
-        reconnectDeferredHostPackets.push_back(
-            DeferredHostPacket{transportPeerId, packet}
-        );
         return;
     }
     if (decoded.type
@@ -2113,8 +2146,7 @@ void RuntimeMultiplayerLanSession::Impl::handleClientPacket(
         joinAccepted = true;
         if (reconnecting) {
             phase = RuntimeMultiplayerLanPhase::Running;
-            reconnectRecoveryPending = true;
-            reconnectRecoveryProposalId = 0;
+            reconnect.beginRecovery();
             RuntimeMultiplayerLanEvent reconnected = event(
                 RuntimeMultiplayerLanEventKind::Reconnected,
                 RuntimeMultiplayerMessageType::JoinAccepted
@@ -2362,9 +2394,9 @@ void RuntimeMultiplayerLanSession::Impl::handleClientPacket(
         }
         const RuntimeMultiplayerSaveLoadProposal& proposal =
             std::get<RuntimeMultiplayerSaveLoadProposal>(decoded.body);
-        if (reconnectRecoveryPending) {
-            if (reconnectRecoveryProposalId != 0
-                && reconnectRecoveryProposalId != proposal.proposalId) {
+        if (reconnect.recoveryPending) {
+            if (reconnect.recoveryProposalId != 0
+                && reconnect.recoveryProposalId != proposal.proposalId) {
                 clientProtocolFailure(
                     "reconnect recovery proposal identity changed",
                     events
@@ -2382,7 +2414,7 @@ void RuntimeMultiplayerLanSession::Impl::handleClientPacket(
                 );
                 return;
             }
-            reconnectRecoveryProposalId = proposal.proposalId;
+            reconnect.recoveryProposalId = proposal.proposalId;
         }
         if (!snapshotHooks.complete()) {
             clientProtocolFailure(
@@ -2537,7 +2569,7 @@ void RuntimeMultiplayerLanSession::Impl::handleClientSnapshotCommit(
 
 void RuntimeMultiplayerLanSession::Impl::finishSnapshotTerminalState() {
     SnapshotPort port(*this);
-    snapshot.finishSnapshotTerminalState(port, reconnectRecoveryPending, reconnectRecoveryProposalId);
+    snapshot.finishSnapshotTerminalState(port, reconnect.recoveryPending, reconnect.recoveryProposalId);
 }
 
 void RuntimeMultiplayerLanSession::Impl::
@@ -2789,9 +2821,7 @@ RuntimeMultiplayerLanSession::Impl::hostAbort(
     clearSnapshotTransfer(true);
     suspendedPeers.clear();
     reconnectDeferredHostPackets.clear();
-    reconnectDeferredHostBytes = 0;
-    reconnectRecoveryPending = false;
-    reconnectRecoveryProposalId = 0;
+    reconnect.finishRecovery();
     appendAppliedEvent(message, applied, pendingEvents);
     return appliedOperation(
         applied,
@@ -2971,7 +3001,6 @@ RuntimeMultiplayerLanSession::Impl::pollHost(int timeoutMilliseconds) {
                 std::make_move_iterator(terminalEvents.end())
             );
             reconnectDeferredHostPackets.clear();
-            reconnectDeferredHostBytes = 0;
         }
     }
     refreshReconnectRecoveryState();
@@ -3005,7 +3034,7 @@ RuntimeMultiplayerLanSession::Impl::pollClient(int timeoutMilliseconds) {
     if (phase == RuntimeMultiplayerLanPhase::Reconnecting
         && !client.isConnected()) {
         const auto now = std::chrono::steady_clock::now();
-        if (now >= reconnectDeadline) {
+        if (now >= reconnect.deadline) {
             failClientReconnect(
                 "combatant reconnect grace period expired",
                 result.events
@@ -3013,10 +3042,10 @@ RuntimeMultiplayerLanSession::Impl::pollClient(int timeoutMilliseconds) {
             return result;
         }
         if (pendingClientCanonicalPackets.empty()
-            && now >= nextReconnectAttempt) {
+            && now >= reconnect.nextAttempt) {
             const auto remaining = std::chrono::duration_cast<
                 std::chrono::milliseconds
-            >(reconnectDeadline - now).count();
+            >(reconnect.deadline - now).count();
             const int attemptTimeout = static_cast<int>(std::max<long long>(
                 0,
                 std::min<long long>({
@@ -3026,7 +3055,7 @@ RuntimeMultiplayerLanSession::Impl::pollClient(int timeoutMilliseconds) {
                 })
             ));
             std::string reconnectError;
-            ++reconnectAttemptCount;
+            ++reconnect.attemptCount;
             if (client.connect(
                     joinOptions.room.hostAddress,
                     joinOptions.room.sessionPort,
@@ -3044,7 +3073,7 @@ RuntimeMultiplayerLanSession::Impl::pollClient(int timeoutMilliseconds) {
                 connected.reason = client.peerAddress();
                 result.events.push_back(std::move(connected));
             } else {
-                nextReconnectAttempt = now + std::chrono::milliseconds(
+                reconnect.nextAttempt = now + std::chrono::milliseconds(
                     runtimeMultiplayerLanReconnectRetryMilliseconds
                 );
             }
@@ -3146,7 +3175,7 @@ RuntimeMultiplayerLanSession::Impl::pollClient(int timeoutMilliseconds) {
             challengeReceived = false;
             joinAccepted = false;
             admissionToken = 0;
-            nextReconnectAttempt = std::chrono::steady_clock::now()
+            reconnect.nextAttempt = std::chrono::steady_clock::now()
                 + std::chrono::milliseconds(
                     runtimeMultiplayerLanReconnectRetryMilliseconds
                 );
@@ -3796,13 +3825,13 @@ RuntimeMultiplayerLanSession::startMatch(int startTick) {
         return failedOperation("only the LAN lobby host may start the match");
     }
     if (!impl_->mapTransfersComplete()) return failedOperation("waiting for requested map transfers to complete");
-    if (impl_->lobbyResumeImage) {
+    if (impl_->lobbyResume.image) {
         std::uint64_t fingerprint = 0;
         std::string error;
         if (!lobbyResumeAllPeersReady() || !impl_->session.matchSetup()
             || !runtimeMultiplayerGameplaySetupFingerprint(*impl_->session.matchSetup(), fingerprint, error)
-            || fingerprint != impl_->lobbyResumeImage->identity.gameplaySetupFingerprint
-            || startTick != impl_->lobbyResumeImage->identity.snapshotTick + 1)
+            || fingerprint != impl_->lobbyResume.image->identity.gameplaySetupFingerprint
+            || startTick != impl_->lobbyResume.image->identity.snapshotTick + 1)
             return failedOperation("resume start requires all saved seats, verified snapshots and the saved next tick");
     }
     RuntimeMultiplayerMessage message;
@@ -3825,7 +3854,7 @@ RuntimeMultiplayerLanSession::submitCommand(
     }
     if (impl_->role == RuntimeMultiplayerLanRole::Host
         && (!impl_->suspendedPeers.empty()
-            || impl_->reconnectRecoveryPending)) {
+            || impl_->reconnect.recoveryPending)) {
         return deferredOperation(
             "commands are paused for reconnect snapshot recovery"
         );
@@ -3862,7 +3891,7 @@ RuntimeMultiplayerLanSession::advanceAuthoritativeTick(int tick) {
         return failedOperation("only a running LAN host may advance the tick");
     }
     if (!impl_->suspendedPeers.empty()
-        || impl_->reconnectRecoveryPending) {
+        || impl_->reconnect.recoveryPending) {
         return deferredOperation(
             "authoritative advancement is paused for reconnect recovery"
         );
@@ -3888,7 +3917,7 @@ RuntimeMultiplayerLanSession::submitStateHash(
     }
     if (impl_->role == RuntimeMultiplayerLanRole::Host
         && (!impl_->suspendedPeers.empty()
-            || impl_->reconnectRecoveryPending)) {
+            || impl_->reconnect.recoveryPending)) {
         return deferredOperation(
             "state hashes are paused for reconnect recovery"
         );
@@ -4396,7 +4425,7 @@ bool RuntimeMultiplayerLanSession::replaceAuthenticatedReconnectEndpoint(
     impl_->joinOptions.room.hostAddress = "127.0.0.1";
     impl_->joinOptions.room.sessionPort = loopbackPort;
     impl_->joinOptions.localProxyPrelude = std::move(prelude);
-    impl_->nextReconnectAttempt = std::chrono::steady_clock::now();
+    impl_->reconnect.nextAttempt = std::chrono::steady_clock::now();
     errorMessage.clear();
     return true;
 }
@@ -4440,7 +4469,7 @@ bool RuntimeMultiplayerLanSession::lobbyMapTransfersComplete() const {
 bool RuntimeMultiplayerLanSession::setLobbyResumeSnapshot(RuntimeMultiplayerSnapshotDescriptor descriptor,
     std::vector<std::uint8_t> bytes, std::string& errorMessage) {
     if (!impl_ || impl_->role != RuntimeMultiplayerLanRole::Host
-        || impl_->phase != RuntimeMultiplayerLanPhase::Lobby || impl_->lobbyResumeImage
+        || impl_->phase != RuntimeMultiplayerLanPhase::Lobby || impl_->lobbyResume.image
         || descriptor.identity.kind != RuntimeMultiplayerSnapshotKind::Save
         || descriptor.identity.snapshotTick >= runtimeMultiplayerSnapshotMaximumTick
         || !validateRuntimeMultiplayerSnapshotDescriptor(descriptor, errorMessage)
@@ -4450,22 +4479,22 @@ bool RuntimeMultiplayerLanSession::setLobbyResumeSnapshot(RuntimeMultiplayerSnap
         if (errorMessage.empty()) errorMessage = "invalid or already configured lobby resume snapshot";
         return false;
     }
-    impl_->lobbyResumeImage = std::move(descriptor);
-    impl_->lobbyResumeBytes = std::move(bytes);
+    impl_->lobbyResume.image = std::move(descriptor);
+    impl_->lobbyResume.bytes = std::move(bytes);
     errorMessage.clear();return true;
 }
 
 const RuntimeMultiplayerSnapshotDescriptor* RuntimeMultiplayerLanSession::lobbyResumeDescriptor() const {
-    return impl_ && impl_->lobbyResumeImage ? &*impl_->lobbyResumeImage : nullptr;
+    return impl_ && impl_->lobbyResume.image ? &*impl_->lobbyResume.image : nullptr;
 }
 
 bool RuntimeMultiplayerLanSession::lobbyResumeSnapshotReady() const {
-    return impl_ && (!impl_->lobbyResumeImage || !impl_->lobbyResumeBytes.empty());
+    return impl_ && impl_->lobbyResume.complete();
 }
 
 bool RuntimeMultiplayerLanSession::lobbyResumeAllPeersReady() const {
     if (!impl_ || impl_->role != RuntimeMultiplayerLanRole::Host) return false;
-    if (!impl_->lobbyResumeImage) return true;
+    if (!impl_->lobbyResume.image) return true;
     return std::all_of(impl_->hostPeers.begin(), impl_->hostPeers.end(), [](const auto& entry) {
         const auto& peer = entry.second;
         return !peer.admitted || peer.kicked || peer.lobbyResumeProducer.complete();
@@ -4474,21 +4503,21 @@ bool RuntimeMultiplayerLanSession::lobbyResumeAllPeersReady() const {
 
 const std::vector<std::uint8_t>& RuntimeMultiplayerLanSession::lobbyResumeSnapshotBytes() const {
     static const std::vector<std::uint8_t> empty;
-    return impl_ ? impl_->lobbyResumeBytes : empty;
+    return impl_ ? impl_->lobbyResume.bytes : empty;
 }
 
 bool RuntimeMultiplayerLanSession::reconnectPending() const {
     return impl_ && (impl_->phase == RuntimeMultiplayerLanPhase::Reconnecting
         || !impl_->suspendedPeers.empty()
-        || impl_->reconnectRecoveryPending);
+        || impl_->reconnect.recoveryPending);
 }
 
 bool RuntimeMultiplayerLanSession::reconnectReadyForRecovery() const {
     return impl_ && impl_->role == RuntimeMultiplayerLanRole::Host
         && impl_->phase == RuntimeMultiplayerLanPhase::Running
-        && impl_->reconnectRecoveryPending
+        && impl_->reconnect.recoveryPending
         && impl_->suspendedPeers.empty()
-        && impl_->reconnectRecoveryProposalId == 0;
+        && impl_->reconnect.recoveryProposalId == 0;
 }
 
 bool RuntimeMultiplayerLanSession::markReconnectRecoveryProposal(
@@ -4497,16 +4526,16 @@ bool RuntimeMultiplayerLanSession::markReconnectRecoveryProposal(
 ) {
     if (!impl_ || impl_->role != RuntimeMultiplayerLanRole::Host
         || impl_->phase != RuntimeMultiplayerLanPhase::Running
-        || !impl_->reconnectRecoveryPending
+        || !impl_->reconnect.recoveryPending
         || !impl_->suspendedPeers.empty()
         || proposalId == 0
-        || (impl_->reconnectRecoveryProposalId != 0
-            && impl_->reconnectRecoveryProposalId != proposalId)) {
+        || (impl_->reconnect.recoveryProposalId != 0
+            && impl_->reconnect.recoveryProposalId != proposalId)) {
         errorMessage =
             "reconnect recovery proposal cannot be armed in this state";
         return false;
     }
-    impl_->reconnectRecoveryProposalId = proposalId;
+    impl_->reconnect.recoveryProposalId = proposalId;
     errorMessage.clear();
     return true;
 }

@@ -14,10 +14,10 @@ bool runRuntimeCannonImpulseRenderCheck(
     // The previous released renderer used 0.65 for every non-Rocker impact.
     // Keep that calibration only in this comparison, using the same real VXL draw path.
     const auto legacy=[&](RuntimeVehicleBodyPoseRenderScope& scope) {
-        scope.sources.prepare(probe); scope.prepared=true;
+        prepareRuntimeVehicleBodyPoseSources(scope.sources,probe); scope.prepared=true;
         for(auto& source:scope.sources.impacts) {
             const auto* wh=probe.rules->findWarheadType(source.actor->warheadId);
-            source.coefficient=wh->rocker?probe.rules->getSpecialMechanismRules().directRockingCoefficient:0.65;
+            source.presentation.coefficient=wh->rocker?probe.rules->getSpecialMechanismRules().directRockingCoefficient:0.65;
         }
     };
     std::ofstream csv;

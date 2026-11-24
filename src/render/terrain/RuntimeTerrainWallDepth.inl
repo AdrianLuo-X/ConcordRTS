@@ -4,27 +4,13 @@
 static const OverlayType* runtimeTerrainDepthWallRule(const TerrainCell& cell,
     const RuntimeMapRenderContext& context) {
     if (!cell.hasOverlay || !context.rules) return nullptr;
-    const auto& overlays = context.rules->getOverlayTypes();
-    // OverlayPack stores a zero-based registry ordinal. listIndex is the INI
-    // key, which contains gaps; matching it can turn an unrelated rock into
-    // a wall. Resolved map identity is authoritative when it is available.
-    if (cell.overlayIndex >= 0 && cell.overlayIndex < static_cast<int>(overlays.size())) {
-        const auto& type = overlays[static_cast<std::size_t>(cell.overlayIndex)];
-        if (cell.overlayType.empty() || toLowerAscii(type.id) == toLowerAscii(cell.overlayType))
-            return type.wall ? &type : nullptr;
-    }
-    if (!cell.overlayType.empty()) {
-        const auto identity = toLowerAscii(cell.overlayType);
-        for (const auto& type : overlays)
-            if (toLowerAscii(type.id) == identity) return type.wall ? &type : nullptr;
-    }
-    return nullptr;
+    return concord::render::runtimeFindTerrainDepthWallRule(cell, context.rules->getOverlayTypes());
 }
 
 static bool runtimeWorldHasTerrainDepthWalls(const GameWorld& world,
     const RuntimeMapRenderContext& context) {
-    return std::any_of(world.getTerrainCells().begin(), world.getTerrainCells().end(),
-        [&](const TerrainCell& cell) { return runtimeTerrainDepthWallRule(cell, context) != nullptr; });
+    return context.rules && concord::render::runtimeTerrainHasDepthWalls(
+        world.getTerrainCells(), context.rules->getOverlayTypes());
 }
 
 static void drawRuntimeTerrainWallDepthSprites(const GameWorld& world,
@@ -41,16 +27,13 @@ static void drawRuntimeTerrainWallDepthSprites(const GameWorld& world,
             renderCell = &combined;
         }
         const auto* rule = runtimeTerrainDepthWallRule(*renderCell, context);
-        if (!rule || cell.x < 0 || cell.y < 0 || cell.x >= 512 || cell.y >= 512) continue;
+        if (!rule) continue;
+        const auto instanceId = concord::render::runtimeTerrainDepthWallInstanceId(cell.x, cell.y);
+        if (!instanceId) continue;
         const auto center = screenPoint(projectCell(cell, camera), viewport, camera);
-        const RECT bounds{center.x - camera.tileWidth, center.y - camera.tileHeight * 4,
-            center.x + camera.tileWidth, center.y + camera.tileHeight * 3};
-        if (!rectIntersects(bounds, viewport)) continue;
-        WorldObjectInstance wall;
-        wall.kind = WorldObjectKind::Structure; wall.type = rule->id;
-        wall.x = cell.x; wall.y = cell.y; wall.level = cell.level;
-        wall.instanceId = std::numeric_limits<int>::min() + cell.y * 512 + cell.x;
-        wall.alive = wall.poweredOperational = true; wall.health = 1;
+        if (!concord::render::runtimeTerrainDepthWallVisible(runtimeRenderPlacementPixelPoint(center),
+                {camera.tileWidth, camera.tileHeight}, runtimeRenderPlacementPixelRect(viewport))) continue;
+        const auto wall = concord::render::runtimeTerrainDepthWallObject(cell, *rule, *instanceId);
         if (frame.resolved && !frame.participatingIds.contains(wall.instanceId)) continue;
         RuntimeBuildingDepthObjectScope objectScope(wall, center, context);
         RuntimeBuildingDepthPartScope part(RuntimeBuildingDepthLayer::WallSprite);

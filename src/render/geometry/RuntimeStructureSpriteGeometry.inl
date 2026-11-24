@@ -144,7 +144,8 @@ void collectRuntimeMobileBuildingDepthGeometry(const GameWorld& world, const REC
         if (draw.opacity <= 0 || !draw.image || draw.description.width <= 0
             || draw.description.height <= 0) continue;
         RECT clipped{};
-        if (IntersectRect(&clipped, &draw.rect, &viewport)) buildingRects.push_back(clipped);
+        const auto drawRect = runtimeRenderPlacementNativeRect(draw.rect);
+        if (IntersectRect(&clipped, &drawRect, &viewport)) buildingRects.push_back(clipped);
     }
     if (buildingRects.empty()) return;
     const double rectanglesMs = runtimeMaybeElapsedMs(mobileProfile, rectanglesStarted);
@@ -197,11 +198,8 @@ void collectRuntimeMobileBuildingDepthGeometry(const GameWorld& world, const REC
     }
     const double candidateLookupMs = runtimeMaybeElapsedMs(mobileProfile, candidateStarted);
     const auto sortStarted = runtimeMaybeTimingStart(mobileProfile);
-    std::sort(mobileUnits.begin(), mobileUnits.end(), [](const auto& left, const auto& right) {
-        return runtimeWorldObjectRenderOrderLess(left.sortPoint, left.drawLevel,
-            left.cellSum, left.kindBias, left.instanceId, right.sortPoint,
-            right.drawLevel, right.cellSum, right.kindBias, right.instanceId);
-    });
+    std::sort(mobileUnits.begin(), mobileUnits.end(),
+        concord::render::RuntimeWorldObjectRenderOrderLess{});
     const double sortMs = runtimeMaybeElapsedMs(mobileProfile, sortStarted);
     for (const auto& record : mobileUnits) {
         const auto contextStarted = runtimeMaybeTimingStart(mobileProfile);
@@ -252,7 +250,7 @@ void collectRuntimeMobileBuildingDepthGeometry(const GameWorld& world, const REC
             }
             if (overlappingBody || draw.opacity <= 0 || !draw.image
                 || draw.description.width <= 0 || draw.description.height <= 0
-                || !overlapsBuilding(draw.rect)) continue;
+                || !overlapsBuilding(runtimeRenderPlacementNativeRect(draw.rect))) continue;
             // A successful lookup can still contain an entirely transparent
             // frame. Keep fallback selection unless real body pixels exist.
             // VXL cache eviction must not invalidate this coverage check.
@@ -382,11 +380,8 @@ void replayRuntimeBuildingDepthGeometry(const GameWorld& world, const RECT& view
     }
     // Start with the same object order before constructing the ground queue;
     // ties in the queue consequently retain the compositor's submission order.
-    std::sort(buildings.begin(), buildings.end(), [](const auto& left, const auto& right) {
-        return runtimeWorldObjectRenderOrderLess(left.sortPoint, left.drawLevel,
-            left.cellSum, left.kindBias, left.instanceId, right.sortPoint,
-            right.drawLevel, right.cellSum, right.kindBias, right.instanceId);
-    });
+    std::sort(buildings.begin(), buildings.end(),
+        concord::render::RuntimeWorldObjectRenderOrderLess{});
     RuntimeSpriteGeometryCapture capture;
     RuntimeSpriteGeometryScope geometryScope(&capture);
     const auto bodies = buildRuntimeGroundBodyDrawRecords(buildings, {}, 0, camera, nullptr, &context);
@@ -457,7 +452,8 @@ void replayRuntimeBuildingDepthGeometry(const GameWorld& world, const RECT& view
         std::size_t clippedRectanglePixels = 0, translucentDraws = 0;
         for (const auto& draw : frame.draws) {
             RECT clipped{};
-            if (IntersectRect(&clipped, &draw.rect, &viewport))
+            const auto drawRect = runtimeRenderPlacementNativeRect(draw.rect);
+            if (IntersectRect(&clipped, &drawRect, &viewport))
                 clippedRectanglePixels += static_cast<std::size_t>(clipped.right - clipped.left)
                     * static_cast<std::size_t>(clipped.bottom - clipped.top);
             if (draw.opacity > 0 && draw.opacity < 255) ++translucentDraws;
@@ -513,7 +509,8 @@ bool extractRuntimeBuildingVisibleHitSpans(const RuntimeBuildingDepthFrameState&
         rowRanges.assign(static_cast<std::size_t>(height), {frame.width, 0});
         for (const auto& draw : frame.draws) {
             RECT clipped{};
-            if (!IntersectRect(&clipped, &draw.rect, &viewport)) continue;
+            const auto drawRect = runtimeRenderPlacementNativeRect(draw.rect);
+            if (!IntersectRect(&clipped, &drawRect, &viewport)) continue;
             const int left = clipped.left - viewport.left;
             const int right = clipped.right - viewport.left;
             for (int y = clipped.top - viewport.top; y < clipped.bottom - viewport.top; ++y) {
@@ -655,8 +652,8 @@ RuntimeObjectWorldRenderPlacement runtimeObjectWorldRenderPlacement(
                 const auto& record = batch->structures[candidate];
                 if (record.object->instanceId == object.factoryExitHostId) hosts.push_back(record);
             }
-            result.bodyViewport = runtimeRenderPlacementPixelRect(runtimeFactoryAirExitBodyViewport(aircraft, hosts,
-                context, camera, cache, viewport));
+            result.bodyViewport = runtimeFactoryAirExitBodyViewport(aircraft, hosts,
+                context, result.bodyViewport);
             for (const auto& host : hosts)
                 if (runtimeAircraftOverStructureFoundation(aircraft, host))
                     result.factoryForegroundHostId = host.object->instanceId;
@@ -678,7 +675,7 @@ RuntimeObjectWorldRenderPlacement runtimeObjectWorldRenderPlacement(
         if (runtimeAircraftOverStructureFoundation(aircraft, record)) structures.push_back(record);
     }
     result.center.y -= runtimeAircraftBuildingClearanceLiftPixels(aircraft, structures, context, camera, cache);
-    result.bodyViewport = runtimeRenderPlacementPixelRect(runtimeFactoryAirExitBodyViewport(aircraft, structures, context, camera, cache, viewport));
+    result.bodyViewport = runtimeFactoryAirExitBodyViewport(aircraft, structures, context, result.bodyViewport);
     for (const auto& host : structures)
         if (host.object->instanceId == object.factoryExitHostId)
             result.factoryForegroundHostId = host.object->instanceId;

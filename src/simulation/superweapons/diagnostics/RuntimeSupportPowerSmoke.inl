@@ -9,24 +9,43 @@ bool runRuntimeSupportPowerSmokeProbe(RuntimeWindowState& live, std::string& err
     // all01umd supplies the terrain/resource harness but deliberately sets
     // GASPYSAT.SpySat=no for its plot. Test the stock skirmish definitions.
     IniFile stockIni; RulesDatabase stockRules;
-    if (!stockIni.loadFromFile(live.report.rulesPath) || !stockRules.loadFromIni(stockIni))
+    const RuntimeIniSource stockSource = resolveRuntimeIniSource(live.config, RuntimeCampaignIniKind::Rules);
+    if (stockSource.displayPath != live.report.rulesPath) return fail("stock rules source differs from startup");
+    if (!stockSource.load(stockIni) || !stockRules.loadFromIni(stockIni))
         return fail("could not load original skirmish rules");
+    auto terrainFixture = std::make_unique<RuntimeGameSessionState>();
+    terrainFixture->config = live.config;
+    terrainFixture->rules = stockRules;
+    terrainFixture->world = live.world;
+    terrainFixture->world.accessObjects().clear();
+    terrainFixture->world.accessTerrainCells().clear();
+    terrainFixture->world.accessTerrainObjects().clear();
+    terrainFixture->world.accessSmudges().clear();
+    for (int y=70;y<=112;++y) for (int x=70;x<=116;++x) {
+        TerrainCell cell; cell.x=x; cell.y=y; cell.cellIndex512=y*512+x; cell.tileIndex=0;
+        terrainFixture->world.accessTerrainCells().push_back(cell);
+    }
+    // Preserve original map-wall identities for saves while retaining the
+    // same empty, flat terrain used by the support-power cases.
+    if (!resetRuntimeOverlayWallsForSavedProjection(*terrainFixture, error))
+        return fail("flat map wall projection: " + error);
+    for (auto& cell : terrainFixture->world.accessTerrainCells()) {
+        if (cell.overlayWall.health < 0) continue;
+        cell.overlayWall.health = 0;
+        clearRuntimeOverlayWallSprite(cell);
+    }
+
     const auto fixture = [&](const std::string& country = "Americans", int hz = 30) {
         auto storage = std::make_unique<RuntimeWindowState>(); auto& s = *storage;
         s.config=live.config; s.config.fixedTickHz=hz; s.config.computerAiEnabled=false;
         s.config.noCooldown=false; // Ordinary recharge; the dedicated repeat fixture enables its own fast mode.
         s.config.superweapons=true; s.report=live.report; s.rules=stockRules; s.rulesLoaded=true;
         s.art=live.art; s.artLoaded=true; s.theater=live.theater; s.theaterLoaded=live.theaterLoaded;
-        s.world=live.world; s.world.accessObjects().clear(); s.world.accessTerrainCells().clear();
-        s.world.accessTerrainObjects().clear(); s.world.accessSmudges().clear();
+        s.world=terrainFixture->world;
         s.economy.owner="Commander"; s.economy.credits=10000; s.economy.techLevel=10;
         s.economy.skirmishStartApplied=true; s.skirmishCountryByOwner["commander"]=country;
         s.triggers.bootstrapComplete=true; s.runtimeSuppressPlayerAudioFeedback=true;
         s.runtimePreferencePersistenceEnabled=false;
-        for (int y=70;y<=112;++y) for (int x=70;x<=116;++x) {
-            TerrainCell cell; cell.x=x; cell.y=y; cell.cellIndex512=y*512+x; cell.tileIndex=0;
-            s.world.accessTerrainCells().push_back(cell);
-        }
         int id=1;
         const auto addBuilding=[&](const BuildingType& building, int x, int y) {
             WorldObjectInstance object; object.instanceId=id++; object.kind=WorldObjectKind::Structure;

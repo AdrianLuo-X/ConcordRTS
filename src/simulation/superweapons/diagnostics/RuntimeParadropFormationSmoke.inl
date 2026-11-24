@@ -6,8 +6,13 @@
 bool runRuntimeParadropFormationSmoke(RuntimeWindowState& live, std::string& error) {
     std::cout << std::unitbuf;
     IniFile stock, stockArt; RulesDatabase rules; ArtDatabase art;
-    if (!stock.loadFromFile(live.report.rulesPath) || !rules.loadFromIni(stock)
-        || !stockArt.loadFromFile(live.report.artPath) || !art.loadFromIni(stockArt)) {
+    const RuntimeIniSource rulesSource = resolveRuntimeIniSource(live.config, RuntimeCampaignIniKind::Rules);
+    const RuntimeIniSource artSource = resolveRuntimeIniSource(live.config, RuntimeCampaignIniKind::Art);
+    if (rulesSource.displayPath != live.report.rulesPath || artSource.displayPath != live.report.artPath) {
+        error = "Paradrop formation: original rules/art source differs from startup"; return false;
+    }
+    if (!rulesSource.load(stock) || !rules.loadFromIni(stock)
+        || !artSource.load(stockArt) || !art.loadFromIni(stockArt)) {
         error = "Paradrop formation: original rules/art unavailable"; return false;
     }
     const auto* american = rules.findSuperWeaponType("AmericanParaDropSpecial");

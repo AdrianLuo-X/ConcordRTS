@@ -205,7 +205,7 @@ bool runRuntimeDiskDrainSmoke(const RuntimeConfig& config, std::string& error) {
         }
         const auto plays = [&]() {
             std::vector<RuntimeWorldAudioAction> actions;
-            for (const auto& action : s.runtimeWorldAudioBackendActionHistory)
+            for (const auto& action : s.worldAudioBackend.history())
                 if (action.kind == RuntimeWorldAudioActionKind::Play && action.eventId == spec->eventId)
                     actions.push_back(action);
             return actions;

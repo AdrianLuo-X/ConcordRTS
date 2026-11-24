@@ -61,7 +61,12 @@ bool runRuntimeSpecialDamageSmokeRenderContractCheck(const GameWorld& world,
             expectedBody.y+=static_cast<int>(std::lround(flight->sourceNativeFixedY
                 +(flight->sourceScreenOffsetY-flight->sourceNativeFixedY)*camera.tileHeight/30.0))-camera.tileHeight/2;
         }else if(object.airborne){
-            expectedBody.y-=34;int lift=0;bool producing=false;
+            // Use the actual saved takeoff/landing fraction for both the
+            // chassis's fixed offset and the camera-dependent roof lift.
+            const double liftFraction = object.aircraftDockFlightProgress >= 0.0
+                ? std::clamp(object.aircraftDockFlightProgress, 0.0, 1.0) : 1.0;
+            expectedBody.y-=static_cast<int>(std::lround(34.0*liftFraction));
+            int lift=0;bool producing=false;
             for(const auto& roof:world.getObjects()){
                 if(roof.kind!=WorldObjectKind::Structure||!roof.alive)continue;
                 const auto foundation=runtimeObjectFoundationDimensions(roof,context);
@@ -81,7 +86,7 @@ bool runRuntimeSpecialDamageSmokeRenderContractCheck(const GameWorld& world,
                 const auto roofPoint=screenPoint(projectCellXY(roof.x,roof.y,roof.level,camera),viewport,camera);
                 lift=std::max(lift,static_cast<int>(expectedBody.y-(roofPoint.y+camera.tileHeight/2-tall-std::max(4,camera.tileHeight/6))));
             }
-            if(!producing)expectedBody.y-=std::clamp(lift,0,512);
+            if(!producing)expectedBody.y-=static_cast<int>(std::lround(std::clamp(lift,0,512)*liftFraction));
         }
         const auto body=runtimeRenderPlacementNative(runtimeObjectWorldRenderPlacementWin32(object,world,viewport,view,camera,*cache)).center;
         const auto base=projectCellXY(sourceX,sourceY,sourceLevel,camera);

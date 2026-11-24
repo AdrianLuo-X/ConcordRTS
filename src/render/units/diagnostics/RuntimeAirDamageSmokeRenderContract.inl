@@ -10,6 +10,7 @@ bool runRuntimeAirDamageSmokeRenderContractCheck(const RuntimeMapRenderContext& 
     std::ofstream rows(root/"render-anchors.csv");
     rows<<"label,tile_width,body_x,body_y,expected_x,expected_y,actual_x,actual_y,pixel_mismatch,body_drawn,result\n";
     auto cache=std::make_unique<RuntimeMapRenderCache>();auto probe=context;probe.vision=nullptr;probe.shadowsEnabled=false;
+    probe.animationTick=0;
     constexpr int width=320,height=240,columns=3;
     constexpr std::uint32_t background=0x00363d44U;
     const RECT viewport{0,0,width,height};
@@ -69,7 +70,18 @@ bool runRuntimeAirDamageSmokeRenderContractCheck(const RuntimeMapRenderContext& 
             const double z=object.renderMoveActive||(object.factoryExitHostId>=0&&object.hasRenderPosition)?object.renderLevel:double(object.level);
             const auto base=projectCellXY(x,y,z,camera);
             const auto outlet=projectCellXY(x+offset[0]/256.0,y+offset[1]/256.0,z+offset[2]/256.0,camera);
-            const POINT expected{body.x+outlet.x-base.x,body.y+outlet.y-base.y};
+            // Check the raised hull independently. Ground smoke uses the world
+            // emission point while the hover transport's hull bobs above it.
+            const bool hoverTransport = !object.airborne && unit->naval && unit->passengers > 0
+                && !unit->jumpJet && !unit->balloonHover && equalAsciiNoCase(unit->speedType,"Hover")
+                && equalAsciiNoCase(unit->locomotor,"{4A582742-9839-11d1-B709-00A024DDAFD1}");
+            const int hullLift = hoverTransport
+                ? static_cast<int>(std::lround(7.5 * camera.tileHeight / 30.0)) : 0;
+            const RuntimeInputPixelPoint worldBody = runtimeRenderPlacementPixelPoint(
+                screenPoint(projectCellXY(x,y,object.renderLevel,camera),viewport,camera));
+            const bool hullSeparation = !hoverTransport
+                || (body.x == worldBody.x && body.y == worldBody.y - hullLift);
+            const POINT expected{body.x+outlet.x-base.x,body.y+hullLift+outlet.y-base.y};
             auto sample=smoke[index].front();sample.rawX=origin.x;sample.rawY=origin.y;sample.rawZ=origin.z;
             sample.worldX=origin.x/256.0;sample.worldY=origin.y/256.0;sample.worldLevel=origin.z/256.0;
             sample.frameIndex=0;
@@ -86,7 +98,7 @@ bool runRuntimeAirDamageSmokeRenderContractCheck(const RuntimeMapRenderContext& 
             const bool expectedDrawn=palette&&drawRuntimeAuxiliaryShpSpriteWithPalette(nullptr,viewport,expected,probe,camera,*cache,
                 sample.imageId,0,*palette,0,0,false,false,RGB(255,255,255),opacity,true);
             int mismatch=0;for(std::size_t p=0;p<pixels.size();++p)if(pixels[p]!=actualPixels[p])++mismatch;
-            const bool valid=actual.x==expected.x&&actual.y==expected.y&&mismatch==0&&expectedDrawn
+            const bool valid=hullSeparation&&actual.x==expected.x&&actual.y==expected.y&&mismatch==0&&expectedDrawn
                 &&actualStats.particleActorShpDrawn==1&&actualStats.particleActorFallbackDrawn==0;
             ++checked;if(!valid)failure(labels[index]+" tile="+std::to_string(tileWidth)+" anchor="
                 +std::to_string(actual.x-expected.x)+","+std::to_string(actual.y-expected.y)+" pixels="+std::to_string(mismatch));

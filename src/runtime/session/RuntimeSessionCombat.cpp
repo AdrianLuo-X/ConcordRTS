@@ -1,4 +1,36 @@
+#include "simulation/abilities/chrono/RuntimeChronoCellOccupancy.h"
+#include "render/geometry/RuntimeAircraftClearanceCapture.h"
+#include "simulation/abilities/parasites/RuntimeParasiteAdmissionPolicy.h"
+#include "simulation/abilities/parasites/RuntimeParasiteLaunchPolicy.h"
+#include "simulation/abilities/chrono/RuntimeChronoWarp.h"
+#include "simulation/abilities/chrono/RuntimeChronoTransportAdmission.h"
+#include "simulation/abilities/chrono/RuntimeChronoLocomotionPolicy.h"
+#include "simulation/abilities/chrono/RuntimeTemporalAttackPolicy.h"
+#include "simulation/abilities/chrono/RuntimeTemporalFeedbackPolicy.h"
+#include "simulation/abilities/parasites/RuntimeParasiteActionPolicy.h"
+#include "simulation/abilities/parasites/RuntimeParasiteHostDeathPolicy.h"
+#include "simulation/abilities/parasites/RuntimeParasiteAtomicPolicy.h"
+#include "runtime/session/detail/RuntimeParasiteAtomicCandidate.h"
+#include "simulation/abilities/parasites/RuntimeParasiteImpactPolicy.h"
+#include "simulation/abilities/parasites/RuntimeParasiteHostEventPolicy.h"
+#include "simulation/abilities/parasites/RuntimeSquidGrappleWaterPolicy.h"
+#include "simulation/abilities/parasites/RuntimeSquidSplashCodec.h"
+#include "simulation/abilities/parasites/RuntimeParasiteChronoMovePolicy.h"
+#include <utility>
+#include "simulation/superweapons/RuntimeSupportFlightPersistence.h"
+#include "simulation/superweapons/RuntimeSuperWeaponAiPolicy.h"
+#include "runtime/session/detail/RuntimeSuperWeaponAiHostAdapter.h"
+#include "simulation/superweapons/RuntimeSuperWeaponVisionEffects.h"
+#include "simulation/navigation/occupancy/RuntimeNearestSubcellSelection.h"
 #include "runtime/session/detail/RuntimeProductionOperations.h"
+#include "simulation/navigation/terrain/RuntimeTerrainTargetId.h"
+#include "assets/codecs/ShpCodec.h"
+#include "assets/animation/RuntimeArtAnimationSequence.h"
+#include "simulation/superweapons/RuntimeSuperWeaponAnimationTiming.h"
+#include "runtime/session/detail/RuntimeDominatorControlHostAdapter.h"
+#include "simulation/abilities/psionic/RuntimeDominatorControlCompletion.h"
+#include "simulation/superweapons/RuntimeNuclearDeathDetonation.h"
+#include "simulation/abilities/psionic/RuntimeMindControlOverloadEffects.h"
 
 namespace concord::runtime::session_detail {
 
@@ -767,15 +799,8 @@ std::function<void(const SuperWeaponEvent&)> runtimeSuperWeaponEventSink(
                     != toLowerAsciiLocal(evaIntent))) {
             emitRuntimeSound(state, "sound:" + evaIntent);
         }
-        if (state.visionEnabled
-            && (superEvent.kind == "SpyPlaneRevealArea"
-                || superEvent.kind == "PsychicRevealArea")
-            && state.vision.revealArea(
-                superEvent.owner,
-                superEvent.targetCell.x,
-                superEvent.targetCell.y,
-                std::max(1, superEvent.value)
-            )) {
+        if (concord::simulation::superweapons::applyRuntimeSuperWeaponVisionEvent(
+                state.visionEnabled, superEvent, state.vision)) {
             state.radarTerrainKey.clear();
             state.projectedObjectsCacheValid = false;
             state.repaintRequested = true;
@@ -791,14 +816,30 @@ std::function<void(const SuperWeaponEvent&)> runtimeSuperWeaponEventSink(
 }
 
 bool runtimeIsForceShieldSuperWeaponRule(const SuperWeaponRule* rule) {
-    if (rule == nullptr) {
-        return false;
+    return concord::simulation::superweapons::runtimeIsForceShieldSuperWeaponRule(rule);
+}
+
+namespace superweapon_ai_host_detail {
+class RuntimeSuperWeaponAiHostBindings final
+    : public concord::simulation::superweapons::RuntimeSuperWeaponAiBindings {
+public:
+    explicit RuntimeSuperWeaponAiHostBindings(RuntimeProductionHostState& state) : state_(state) {}
+    void updateBaseCenter(RuntimeComputerAiState& ai) override {
+        updateRuntimeComputerAiBaseCenter(state_, ai);
     }
-    const std::string identity = toLowerAsciiLocal(
-        trimAsciiLocal(rule->type) + " " + trimAsciiLocal(rule->action)
-    );
-    return identity.find("forceshield") != std::string::npos
-        || identity.find("force shield") != std::string::npos;
+    bool reservesSuperWeapon(const std::string& owner, const SuperWeaponRule* rule) const override {
+        return runtimeComputerTacticReservesSuperWeapon(state_, owner, rule);
+    }
+private:
+    RuntimeProductionHostState& state_;
+};
+}
+bool advanceRuntimeSuperWeaponAi(RuntimeProductionHostState& state,
+    bool computerAiEnabled, const SuperWeaponWorldContext& context) {
+    superweapon_ai_host_detail::RuntimeSuperWeaponAiHostBindings bindings(state);
+    return concord::simulation::superweapons::advanceRuntimeSuperWeaponAiPolicy(
+        computerAiEnabled, state.computerAiByOwner, state.rules, state.superWeapons,
+        context, state.tick, state.campaignMode, state.economy.owner, bindings);
 }
 
 bool advanceRuntimeSuperWeapons(RuntimeProductionHostState& state) {
@@ -827,74 +868,7 @@ bool advanceRuntimeSuperWeapons(RuntimeProductionHostState& state) {
     if (computerAiEnabled) {
         ensureRuntimeComputerAiStates(state);
     }
-    std::vector<std::string> computerOwners;
-    computerOwners.reserve(state.computerAiByOwner.size());
-    for (const auto& [ownerKey, ai] : state.computerAiByOwner) {
-        (void)ai;
-        computerOwners.push_back(ownerKey);
-    }
-    std::sort(computerOwners.begin(), computerOwners.end());
-    const SpecialMechanismRules& mechanismRules =
-        state.rules.getSpecialMechanismRules();
-    for (const std::string& ownerKey : computerOwners) {
-        if (!computerAiEnabled) {
-            break;
-        }
-        auto found = state.computerAiByOwner.find(ownerKey);
-        if (found == state.computerAiByOwner.end()
-            || !found->second.initialized
-            || trimAsciiLocal(found->second.owner).empty()) {
-            continue;
-        }
-        RuntimeComputerAiState& ai = found->second;
-        updateRuntimeComputerAiBaseCenter(state, ai);
-        const int probabilityIndex =
-            runtimeAiSuperDefenseProbabilityIndex(ai.difficulty);
-        std::string reason;
-        if (state.superWeapons.fireAiDefense(
-                ai.owner,
-                {ai.baseCenter.x, ai.baseCenter.y},
-                mechanismRules.aiSuperDefense.probabilityPercent[
-                    static_cast<std::size_t>(probabilityIndex)
-                ],
-                mechanismRules.aiSuperDefense.alertFrames,
-                mechanismRules.aiSuperDefense.distanceCells,
-                context,
-                &reason
-            )) {
-            changed = true;
-        }
-    }
-
-    // The runtime does not have a separate computer-player command queue
-    // yet.  Fire ready enemy super weapons at a fixed cadence through the
-    // same validated command path used by the player, so AI effects remain
-    // deterministic and replay-visible instead of bypassing the system.
-    if (computerAiEnabled
-        && state.tick > 0
-        && (state.tick % std::max(1, context.fixedTickHz)) == 0) {
-        std::vector<std::pair<std::string, std::string>> aiWeapons;
-        for (const SuperWeaponSidebarSnapshot& snapshot :
-                state.superWeapons.sidebarSnapshots()) {
-            const SuperWeaponRule* rule = state.rules.findSuperWeaponType(
-                snapshot.superWeaponId
-            );
-            if (snapshot.state == SuperWeaponRuntimeState::Ready
-                && !runtimeIsForceShieldSuperWeaponRule(rule)
-                && !runtimeComputerTacticReservesSuperWeapon(state, snapshot.owner, rule)
-                && (state.campaignMode || state.computerAiByOwner.contains(toLowerAsciiLocal(trimAsciiLocal(snapshot.owner))))
-                && toLowerAsciiLocal(trimAsciiLocal(snapshot.owner))
-                    != toLowerAsciiLocal(trimAsciiLocal(state.economy.owner))) {
-                aiWeapons.emplace_back(snapshot.owner, snapshot.superWeaponId);
-            }
-        }
-        for (const auto& [owner, superWeaponId] : aiWeapons) {
-            std::string reason;
-            if (state.superWeapons.fireAi(owner, superWeaponId, context, &reason)) {
-                changed = true;
-            }
-        }
-    }
+    changed = advanceRuntimeSuperWeaponAi(state, computerAiEnabled, context) || changed;
     changed = notifyRuntimeParasiteHostsRelocated(
         state,
         parasiteHostPoses
@@ -2061,9 +2035,7 @@ bool runtimeObjectDisabledByParasite(
         || state.specialMechanisms.isParasiteHostParalyzed(objectId)) {
         return true;
     }
-    const auto stun = state.parasiteStunUntilTickByObject.find(objectId);
-    return stun != state.parasiteStunUntilTickByObject.end()
-        && state.tick < stun->second;
+    return state.parasiteStunUntilTickByObject.isActive(objectId, state.tick);
 }
 
 std::string runtimeDamageFeedbackVoiceField(const UnitType& unit) {
@@ -4120,44 +4092,33 @@ bool loadRuntimeUnitDeaths(RuntimeGameSessionState& state, const IniFile& ini, s
     return true;
 }
 
-void writeRuntimeSquidSplashes(const RuntimeGameSessionState& state, std::ostream& output) {
-    const auto count=std::count_if(state.impactEffects.begin(),state.impactEffects.end(),
-        [](const auto& impact){return impact.lifecycleState=="SquidSplash" && impact.remainingTicks>0;});
-    output<<"\n[SquidSplashAnimations]\nSchema=1\nCount="<<count<<'\n';
-    int index=0;
-    for (const auto& impact:state.impactEffects) {
-        if (impact.lifecycleState=="SquidSplash" && impact.remainingTicks>0)
-            output<<index++<<'='<<runtimeMultiplayerSnapshotImpactRecord(impact)<<'\n';
+// Apply only after the sole original value definitions are relocated correctly.
+// The canonical full value header supplies the unchanged original effect type.
+namespace {
+class RuntimeSquidSplashLegacyCodecs final
+    : public ::concord::simulation::abilities::RuntimeSquidSplashCodecQueries {
+public:
+    std::string runtimeMultiplayerSnapshotImpactRecord(const RuntimeImpactEffect& impact) const override {
+        return ::concord::runtime::session_detail::runtimeMultiplayerSnapshotImpactRecord(impact);
     }
+    bool parseRuntimeMultiplayerSnapshotImpactRecord(const std::string& text,
+        RuntimeImpactEffect& impact) const override {
+        return ::concord::runtime::session_detail::parseRuntimeMultiplayerSnapshotImpactRecord(text, impact);
+    }
+    int runtimeImpactAnimationFrameForStep(const RuntimeImpactEffect& impact, int step) const override {
+        return ::concord::runtime::session_detail::runtimeImpactAnimationFrameForStep(impact, step);
+    }
+};
+}
+void writeRuntimeSquidSplashes(const RuntimeGameSessionState& state, std::ostream& output) {
+    const RuntimeSquidSplashLegacyCodecs codecs;
+    ::concord::simulation::abilities::writeRuntimeSquidSplashes(state.impactEffects, output, codecs);
+}
+bool loadRuntimeSquidSplashes(RuntimeGameSessionState& state, const IniFile& ini, std::string& error) {
+    const RuntimeSquidSplashLegacyCodecs codecs;
+    return ::concord::simulation::abilities::loadRuntimeSquidSplashes(state.impactEffects, ini, error, codecs);
 }
 
-bool loadRuntimeSquidSplashes(RuntimeGameSessionState& state, const IniFile& ini, std::string& error) {
-    const auto schema=ini.getValue("SquidSplashAnimations","Schema","");
-    if (schema.empty()) return true;
-    int count=0;
-    if (schema!="1" || !parseRuntimeInt(ini.getValue("SquidSplashAnimations","Count",""),count)
-        || count<0 || count>65536) { error="invalid SquidSplashAnimations section"; return false; }
-    std::vector<RuntimeImpactEffect> restored;
-    for (int index=0;index<count;++index) {
-        RuntimeImpactEffect impact;
-        if (!parseRuntimeMultiplayerSnapshotImpactRecord(
-                ini.getValue("SquidSplashAnimations",std::to_string(index),""),impact)
-            || impact.lifecycleState!="SquidSplash" || impact.remainingTicks<=0
-            || impact.death || impact.damage!=0 || !impact.warheadId.empty()
-            || !impact.hasWorldPosition || !std::isfinite(impact.worldX) || !std::isfinite(impact.worldY)
-            || !std::isfinite(impact.worldLevel) || impact.warheadImpactIntentId.empty()
-            || impact.animationSequenceSteps<=0 || impact.animationFrameCount<=0) {
-            error="invalid squid splash animation"; return false;
-        }
-        impact.animId=impact.warheadImpactIntentId;
-        impact.renderIntent="squidSplash";
-        impact.frameIndex=runtimeImpactAnimationFrameForStep(impact,
-            (impact.totalTicks-impact.remainingTicks)/impact.animationFrameDelayTicks);
-        restored.push_back(std::move(impact));
-    }
-    for (auto& impact:restored) state.impactEffects.push_back(std::move(impact));
-    return true;
-}
 
 void writeRuntimeSpriteFirings(const RuntimeGameSessionState& state, std::ostream& output) {
     std::vector<const WorldObjectInstance*> active;
@@ -4205,57 +4166,16 @@ bool loadRuntimeSpriteFirings(RuntimeGameSessionState& state, const IniFile& ini
 }
 
 bool runtimeHasSupportFlightPose(const WorldObjectInstance& object) {
-    return object.alive && object.airborne && (object.mission=="ParadropDrop"
-        || object.mission=="SupportFlightEast" || object.mission=="SupportFlightWest");
+    return concord::simulation::superweapons::hasSupportFlightPose(object);
 }
 
 void writeRuntimeSupportFlightPoses(const RuntimeGameSessionState& state, std::ostream& output) {
-    const auto precision=output.precision(); output<<std::setprecision(17);
-    const auto& objects=state.world.getObjects();
-    output<<"\n[SupportFlightPoses]\nVersion=1\nCount="
-        <<std::count_if(objects.begin(),objects.end(),runtimeHasSupportFlightPose)<<"\n";
-    int index=0;
-    for (const auto& object:objects) if (runtimeHasSupportFlightPose(object)) {
-        output<<index++<<"="<<object.instanceId<<"|"<<object.renderX<<"|"<<object.renderY
-            <<"|"<<object.renderLevel<<"|"<<object.movementAnimationDistance<<"\n";
-    }
-    output.precision(precision);
+    concord::simulation::superweapons::writeSupportFlightPoses(state.world.getObjects(), output);
 }
 
 bool restoreRuntimeSupportFlightPoses(const IniFile& ini,
     std::vector<WorldObjectInstance>& objects, std::string& error) {
-    const auto reject=[&]() {error="invalid saved support aircraft/paratrooper pose";return false;};
-    if (!ini.getSection("SupportFlightPoses")) {
-        // Earlier saves retain integer world coordinates but no sub-cell
-        // pose. Resume those flights from that last known position.
-        for (auto& object:objects) if (runtimeHasSupportFlightPose(object)) {
-            object.hasRenderPosition=object.renderMoveActive=true;
-            object.renderX=object.x; object.renderY=object.y; object.renderLevel=object.level;
-        }
-        return true;
-    }
-    int version=0,count=-1;
-    const auto expected=std::count_if(objects.begin(),objects.end(),runtimeHasSupportFlightPose);
-    if (!parseRuntimeInt(ini.getValue("SupportFlightPoses","Version",""),version) || version!=1
-        || !parseRuntimeInt(ini.getValue("SupportFlightPoses","Count",""),count)
-        || count!=expected) return reject();
-    std::unordered_set<int> restored;
-    for (int i=0;i<count;++i) {
-        const auto fields=splitRuntimeSaveFields(ini.getValue("SupportFlightPoses",std::to_string(i),""));
-        int id=-1; double x=0,y=0,z=0,distance=0;
-        if (fields.size()!=5 || !parseRuntimeInt(fields[0],id) || !restored.insert(id).second
-            || !parseRuntimeFiniteDouble(fields[1],x) || !parseRuntimeFiniteDouble(fields[2],y)
-            || !parseRuntimeFiniteDouble(fields[3],z) || !parseRuntimeFiniteDouble(fields[4],distance)
-            || distance<0.0 || distance>1e9) return reject();
-        const auto object=std::find_if(objects.begin(),objects.end(),[&](const auto& candidate){return candidate.instanceId==id;});
-        if (object==objects.end() || !runtimeHasSupportFlightPose(*object)
-            || std::abs(x-object->x)>0.500001 || std::abs(y-object->y)>0.500001
-            || std::abs(z-object->level)>0.500001 || object->flightLevel!=object->level) return reject();
-        object->hasRenderPosition=object->renderMoveActive=true;
-        object->renderX=x; object->renderY=y; object->renderLevel=z;
-        object->movementAnimationDistance=distance;
-    }
-    return true;
+    return concord::simulation::superweapons::restoreSupportFlightPoses(ini, objects, error);
 }
 
 void writeRuntimeFireReveals(const RuntimeGameSessionState& state, std::ostream& output) {
@@ -6030,17 +5950,24 @@ RuntimeProjectileSourcePosition runtimeProjectileSourcePosition(
 }
 
 const SpawnedMissileProfile* runtimeSpawnedMissileProfileForWeapon(
-    const RuntimeGameSessionState& state,
+    const RulesDatabase& rules,
     const WorldObjectInstance& attacker,
     const WeaponType& weapon) {
     if (!weapon.spawner) {
         return nullptr;
     }
-    const UnitType* unit = findRuntimeUnitType(state.rules, attacker);
+    const UnitType* unit = findRuntimeUnitType(rules, attacker);
     if (unit == nullptr || trimAsciiLocal(unit->spawns).empty()) {
         return nullptr;
     }
-    return state.rules.findSpawnedMissileProfile(unit->spawns);
+    return rules.findSpawnedMissileProfile(unit->spawns);
+}
+
+const SpawnedMissileProfile* runtimeSpawnedMissileProfileForWeapon(
+    const RuntimeGameSessionState& state,
+    const WorldObjectInstance& attacker,
+    const WeaponType& weapon) {
+    return runtimeSpawnedMissileProfileForWeapon(state.rules, attacker, weapon);
 }
 
 std::string runtimeWeaponAnimForFacing(
@@ -6517,57 +6444,36 @@ void spawnRuntimeSonicWave(RuntimeProductionHostState& state,
     recordRuntimeProjectileReplayEvent(state, state.projectiles.back(), "ProjectileSpawned");
 }
 
-void notifyRuntimeWeaponFired(RuntimeProductionHostState& state, const WorldObjectInstance& attacker,
+static bool notifyRuntimeWeaponFired(RuntimeGameSessionState& state, const WorldObjectInstance& attacker,
     const WorldObjectInstance& target, const WeaponType& weapon) {
-    if (!state.visionEnabled) return;
+    if (!state.visionEnabled) return false;
     const auto previous = state.vision.revisionFor(state.economy.owner);
     state.vision.notifyWeaponFired(attacker, target, weapon, state.tick, state.config.fixedTickHz);
-    if (state.vision.revisionFor(state.economy.owner) != previous) {
-        state.radarTerrainKey.clear();
-        state.projectedObjectsCacheValid = false;
-        state.repaintRequested = true;
-    }
+    return state.vision.revisionFor(state.economy.owner) != previous;
 }
 
-bool detonateRuntimeNuclearDeathWeapon(
-    RuntimeProductionHostState& state,
-    RuntimeProjectileEffect& projectile,
-    const WorldObjectInstance& source) {
-    if (!runtimeProjectileIsNuclearDeathDetonation(projectile)
-        || projectile.parentActorId >= 0 || projectile.generation != 0) {
-        return false;
-    }
-    const auto center = runtimeProjectileTargetPosition(state, source);
-    projectile.targetObjectId = -1;
-    projectile.sourceAnchorObjectId = -1;
-    projectile.fromCell = projectile.toCell = projectile.currentCell = center.cell;
-    projectile.fromLevel = projectile.toLevel = projectile.currentLevel = center.level;
-    projectile.hasSourcePosition = projectile.hasTargetPosition = true;
-    projectile.sourceX = projectile.targetX = projectile.currentX = center.x;
-    projectile.sourceY = projectile.targetY = projectile.currentY = center.y;
-    projectile.sourceZ = projectile.targetZ = projectile.currentZ = center.level;
-    projectile.sourceScreenOffsetX = projectile.sourceScreenOffsetY = 0;
-    projectile.sourceNativeFixedX = projectile.sourceNativeFixedY = 0;
-    projectile.affectsAllies = projectile.affectsEnemies = true;
-    projectile.spawnTick = projectile.impactTick = state.tick;
-    projectile.speedCellsPerTick = 0.0;
-    projectile.totalTicks = projectile.remainingTicks = 1;
-    projectile.elapsedTicks = 0;
-    recordRuntimeProjectileReplayEvent(state, projectile, "ProjectileSpawned");
-
-    // This value exists only for the synchronous impact. No traveling or
-    // expired missile is retained in saves/snapshots or projected on screen.
-    projectile.remainingTicks = 0;
-    projectile.elapsedTicks = 1;
-    projectile.progress = 1.0;
-    projectile.lifecycle = RuntimeProjectileLifecycleState::Impacting;
-    projectile.lifecycleState = runtimeProjectileLifecycleName(projectile.lifecycle);
-    (void)applyRuntimeProjectileImpact(state, projectile);
-    projectile.lifecycle = RuntimeProjectileLifecycleState::Expired;
-    projectile.lifecycleState = runtimeProjectileLifecycleName(projectile.lifecycle);
-    recordRuntimeProjectileReplayEvent(state, projectile, "ProjectileExpired");
-    state.actionSummary.projectilesInFlight = static_cast<int>(state.projectiles.size());
-    return true;
+class SessionNuclearDeathQueries final : public concord::simulation::superweapons::RuntimeNuclearDeathQueries {
+    const RuntimeGameSessionState& state_;
+public:
+    explicit SessionNuclearDeathQueries(const RuntimeGameSessionState& state) : state_(state) {}
+    bool isNuclearDeath(const RuntimeProjectileEffect& projectile) const override { return runtimeProjectileIsNuclearDeathDetonation(projectile); }
+    RuntimeProjectileTargetPosition targetPosition(const WorldObjectInstance& object) const override { return runtimeProjectileTargetPosition(state_, object); }
+    std::string lifecycleName(RuntimeProjectileLifecycleState lifecycle) const override { return runtimeProjectileLifecycleName(lifecycle); }
+    std::size_t projectileCount() const override { return state_.projectiles.size(); }
+};
+class SessionNuclearDeathEffects final : public concord::simulation::superweapons::RuntimeNuclearDeathEffects {
+    RuntimeProductionHostState& state_;
+public:
+    explicit SessionNuclearDeathEffects(RuntimeProductionHostState& state) : state_(state) {}
+    void recordReplay(const RuntimeProjectileEffect& projectile, const std::string& kind) override { recordRuntimeProjectileReplayEvent(state_, projectile, kind); }
+    bool applyImpact(const RuntimeProjectileEffect& projectile) override { return applyRuntimeProjectileImpact(state_, projectile); }
+};
+bool detonateRuntimeNuclearDeathWeapon(RuntimeProductionHostState& state,
+    RuntimeProjectileEffect& projectile, const WorldObjectInstance& source) {
+    const SessionNuclearDeathQueries queries(state);
+    SessionNuclearDeathEffects effects(state);
+    return concord::simulation::superweapons::detonateRuntimeNuclearDeathWeapon(
+        state.tick, state.actionSummary.projectilesInFlight, queries, effects, projectile, source);
 }
 
 void spawnRuntimeProjectile(
@@ -6964,7 +6870,8 @@ void spawnRuntimeProjectile(
     spawnRuntimeSonicWave(state, spawnedProjectile, weapon);
     if (parentActorId < 0 && generation == 0 && !shrapnel && deathWeaponCascadeId == 0
         && allowSpawnedMissileProfile && airstrikeStrikeId == 0) {
-        notifyRuntimeWeaponFired(state, attacker, target, weapon);
+        if (notifyRuntimeWeaponFired(state, attacker, target, weapon))
+            RuntimeSessionVisionPhaseOperations(state).invalidateLocalProjection();
     }
     spawnRuntimeWeaponMuzzleEffect(state, spawnedProjectile, weaponProfile.occupied, openToppedMuzzle);
     spawnRuntimeWeaponAttachedParticleSystem(
@@ -8099,51 +8006,15 @@ void initializeRuntimeImpactAnimationTimeline(
 
     impact.animationFrameCount = frameCount;
     impact.animationFrameDelayTicks = runtimeImpactAnimationFrameDelayTicks(art, state.config.fixedTickHz);
-    impact.animationStartFrame = std::clamp(
-        art->hasAnimationStart ? art->animationStart : 0,
-        0,
-        frameCount - 1
-    );
-    impact.animationEndFrame = frameCount;
-    if (art->hasAnimationEnd) {
-        impact.animationEndFrame = std::clamp(
-            impact.animationStartFrame + std::max(1, art->animationEnd),
-            impact.animationStartFrame + 1,
-            frameCount
-        );
-    }
-    impact.animationLoopStartFrame = std::clamp(
-        art->hasAnimationLoopStart
-            ? art->animationLoopStart
-            : impact.animationStartFrame,
-        impact.animationStartFrame,
-        impact.animationEndFrame - 1
-    );
-    impact.animationLoopEndFrame = std::clamp(
-        art->hasAnimationLoopEnd
-            ? art->animationLoopEnd
-            : impact.animationEndFrame,
-        impact.animationLoopStartFrame + 1,
-        impact.animationEndFrame
-    );
-    impact.animationLoopCount = art->hasAnimationLoopEnd
-        ? std::clamp(art->animationLoopCount, 1, 1000)
-        : 1;
-    const int introSteps = std::max(
-        0,
-        impact.animationLoopStartFrame - impact.animationStartFrame
-    );
-    const int loopSpan = std::max(
-        1,
-        impact.animationLoopEndFrame - impact.animationLoopStartFrame
-    );
-    const int outroSteps = std::max(
-        0,
-        impact.animationEndFrame - impact.animationLoopEndFrame
-    );
-    impact.animationSequenceSteps = introSteps
-        + (loopSpan * impact.animationLoopCount)
-        + outroSteps;
+    const auto sequence = concord::assets::animation::resolveRuntimeArtAnimationSequence(art, frameCount);
+    impact.animationStartFrame = sequence.startFrame;
+    impact.animationEndFrame = sequence.endFrame;
+    impact.animationLoopStartFrame = sequence.loopStartFrame;
+    impact.animationLoopEndFrame = sequence.loopEndFrame;
+    impact.animationLoopCount = sequence.loopCount;
+    impact.animationSequenceSteps = sequence.sequenceSteps;
+    const int introSteps = sequence.introSteps;
+    const int loopSpan = sequence.loopSpan;
     impact.frameIndex = impact.animationStartFrame;
     impact.totalTicks = std::max(
         impact.totalTicks,
@@ -8874,7 +8745,8 @@ std::optional<WorldObjectInstance> runtimeGroundAttackTargetObject(
         return std::nullopt;
     }
     WorldObjectInstance target;
-    target.instanceId = -1960000 - runtimeCellKey(cell.x, cell.y);
+    target.instanceId = concord::simulation::navigation::terrain_target::encodeGroundKey(
+        runtimeCellKey(cell.x, cell.y));
     target.kind = WorldObjectKind::Structure;
     target.type = "RuntimeGround";
     target.owner = "RuntimeGround";
@@ -9462,15 +9334,30 @@ void refreshRuntimeOverlayWallTopology(RuntimeGameSessionState& state) {
     }
 }
 
-RuntimeTerrainProjectileDamageResult applyRuntimeProjectileOverlayWallDamage(
-    RuntimeProductionHostState& state, const RuntimeProjectileEffect& projectile,
-    const RuntimeCellPoint& impactCell, const WeaponType* weapon, const WarheadType* warhead) {
+bool runtimeOverlayWallSelectionCanAttack(
+    const RuntimeGameSessionState& state,
+    const std::vector<int>& selectedCombatIds,
+    const WorldObjectInstance& target,
+    bool forceAttack) {
+    for (int id : selectedCombatIds) {
+        const auto* source = findObjectById(state, id);
+        if (!source || !source->alive || source->health <= 0 || source->owner != state.economy.owner
+            || runtimeObjectDisabledByParasite(state, id) || !runtimeObjectHasAttackAmmo(state.rules, *source)) continue;
+        const auto profile = runtimeWeaponProfileForObject(state, *source, &target, forceAttack);
+        if (profile.weapon && profile.weapon->damage > 0 && profile.weapon->range > 0
+            && (!profile.projectile || profile.projectile->ag)) return true;
+    }
+    return false;
+}
+
+static RuntimeTerrainProjectileDamageResult applyRuntimeProjectileOverlayWallDamage(
+    RuntimeGameSessionState& state, const RuntimeProjectileEffect& projectile,
+    const RuntimeCellPoint& impactCell, const WeaponType* weapon, const WarheadType* warhead, std::vector<int>& changed) {
     RuntimeTerrainProjectileDamageResult result;
     if (!projectile.ag || !warhead || (!warhead->wall && !warhead->wood)
         || warhead->mindControl || warhead->electricAssault || warhead->temporal
         || warhead->ivanBomb || warhead->bombDisarm) return result;
     const double radius = std::max(0.0, projectile.cellSpread);
-    std::vector<int> changed;
     for (auto& cell : state.world.accessTerrainCells()) {
         if (cell.overlayWall.health <= 0 || !runtimeOverlayWallRuleForCell(state, cell)
             || !runtimeOverlayWallUsesCurrentOverlay(cell)) continue;
@@ -9496,23 +9383,7 @@ RuntimeTerrainProjectileDamageResult applyRuntimeProjectileOverlayWallDamage(
         if (cell.overlayWall.health == 0) ++result.objectsDestroyed;
         changed.push_back(runtimeCellKey(cell.x, cell.y));
     }
-    if (changed.empty()) return result;
-    refreshRuntimeOverlayWallTopology(state);
-    for (int key : changed) {
-        const auto found = state.terrainByCell.find(key);
-        if (found != state.terrainByCell.end() && found->second)
-            state.terrainInfoByCell[key] = runtimeNavigationTerrainInfoForCell(state, *found->second);
-    }
-    state.attackApproachCache.clear(); state.pathFailureCache.clear();
-    state.pathTerrainCache.valid = false; state.pathTerrainCache.terrainCellCount = 0;
-    state.pathTerrainCache.staticCells.clear(); state.pathTerrainCache.dynamicValid = false;
-    state.pathTerrainCache.dynamicCells.clear();
-    invalidateRuntimeTickOccupancyCache(state); invalidateRuntimeObjectProjectionCache(state);
-    state.renderCache.terrainLayer = RuntimeTerrainLayerCache{};
-    state.placementChecksCacheTick = -1;
-    state.radarTerrainKey.clear(); state.radarProjectionCacheValid = false;
-    state.navigationRefreshPending = true;
-    state.repaintRequested = true;
+    if (!changed.empty()) refreshRuntimeOverlayWallTopology(state);
     return result;
 }
 
@@ -10778,11 +10649,39 @@ bool applyRuntimeProjectileImpact(
                 sonicAmbientPulse ? nullptr : weapon,
                 projectileWarhead
             );
+    if (terrainDamage.objectsDamaged > 0) {
+        invalidateRuntimeObjectProjectionCache(state);
+        state.radarTerrainKey.clear();
+        state.repaintRequested = true;
+    }
+    if (terrainDamage.objectsDestroyed > 0) {
+        refreshRuntimeObjectOccupancyAfterLocalChange(state);
+        state.pathFailureCache.clear();
+        state.placementChecksCacheTick = -1;
+    }
+    std::vector<int> changedWallCells;
     const RuntimeTerrainProjectileDamageResult overlayWallDamage =
         suppressEnvironmentalDamage || timedBombRelationshipWarhead || psychedelicImpact
             ? RuntimeTerrainProjectileDamageResult{}
             : applyRuntimeProjectileOverlayWallDamage(state, projectile, impactCell,
-                sonicAmbientPulse ? nullptr : weapon, projectileWarhead);
+                sonicAmbientPulse ? nullptr : weapon, projectileWarhead, changedWallCells);
+    if (!changedWallCells.empty()) {
+        for (int key : changedWallCells) {
+            const auto found = state.terrainByCell.find(key);
+            if (found != state.terrainByCell.end() && found->second)
+                state.terrainInfoByCell[key] = runtimeNavigationTerrainInfoForCell(state, *found->second);
+        }
+        state.attackApproachCache.clear(); state.pathFailureCache.clear();
+        state.pathTerrainCache.valid = false; state.pathTerrainCache.terrainCellCount = 0;
+        state.pathTerrainCache.staticCells.clear(); state.pathTerrainCache.dynamicValid = false;
+        state.pathTerrainCache.dynamicCells.clear();
+        invalidateRuntimeTickOccupancyCache(state); invalidateRuntimeObjectProjectionCache(state);
+        state.renderCache.terrainLayer = RuntimeTerrainLayerCache{};
+        state.placementChecksCacheTick = -1;
+        state.radarTerrainKey.clear(); state.radarProjectionCacheValid = false;
+        state.navigationRefreshPending = true;
+        state.repaintRequested = true;
+    }
     if (!psychedelicImpact
         && !timedBombRelationshipWarhead
         && projectileWarhead != nullptr
@@ -11820,6 +11719,27 @@ RuntimeParticleSpriteAttachment runtimeVehicleDamageSmokeSpriteAttachment(
     return {};
 }
 
+namespace {
+class ResourceAircraftSmokeBatch final : public RuntimeSessionAirPresentationBatch {
+public:
+    ResourceAircraftSmokeBatch(const GameWorld& world, const RulesDatabase* rules,
+        const ArtDatabase* art, bool snowy) : query_(world, rules, art, snowy) {}
+
+    bool capture(const WorldObjectInstance& aircraft, RuntimeParticleAirbornePresentation& presentation,
+        std::string* error) override {
+        return query_.capture(aircraft, presentation, error);
+    }
+
+    RuntimeAircraftAirbornePresentationBatch::Statistics statistics() const override {
+        const auto result = query_.statistics();
+        return {result.worldObjectsScanned, result.structuresIndexed, result.queries, result.candidatesVisited};
+    }
+
+private:
+    concord::render::geometry::AircraftClearanceBatch query_;
+};
+}
+
 bool runtimeVehicleDamageSmokePresentation(
     RuntimeProductionHostState& state, const WorldObjectInstance& object, int screenOffsetY,
     RuntimeParticleAirbornePresentation& presentation, std::string& error,
@@ -11827,9 +11747,19 @@ bool runtimeVehicleDamageSmokePresentation(
     presentation = {};
     error.clear();
     if (screenOffsetY >= 0) return true;
-    if (!runtimeSessionGeometryAvailable(state)) return true;
     if (sharedBatch != nullptr && *sharedBatch)
         return (*sharedBatch)->capture(object, presentation, &error);
+    if (!runtimeSessionGeometryAvailable(state)) {
+        const auto* art = state.artLoaded ? &state.art : nullptr;
+        const bool snowy = concord::render::geometry::aircraftClearanceUsesArcticArt(
+            state.theaterLoaded ? &state.theater : nullptr);
+        if (sharedBatch == nullptr) {
+            concord::render::geometry::AircraftClearanceBatch query(state.world, &state.rules, art, snowy);
+            return query.capture(object, presentation, &error);
+        }
+        *sharedBatch = std::make_unique<ResourceAircraftSmokeBatch>(state.world, &state.rules, art, snowy);
+        return (*sharedBatch)->capture(object, presentation, &error);
+    }
     RuntimeMapRenderContext context;
     context.rules = &state.rules;
     context.art = state.artLoaded ? &state.art : nullptr;
@@ -13545,47 +13475,57 @@ void destroyRuntimeTransportPassengers(
     }
 }
 
+namespace chrono_transport_host_detail {
+class Queries final:public concord::simulation::abilities::RuntimeChronoTransportQueries {
+public:
+    explicit Queries(const RuntimeGameSessionState& state):state_(state) {}
+    const UnitType* unitType(const WorldObjectInstance& object) const override {
+        return findRuntimeUnitType(state_.rules,object);
+    }
+    std::optional<int> pendingHostId(int objectId) const override {
+        const auto found=state_.pendingTransportTargets.find(objectId);
+        if(found==state_.pendingTransportTargets.end())return std::nullopt;
+        return found->second;
+    }
+    const WorldObjectInstance* findIncludingInactive(int objectId) const override {
+        return findRuntimeObjectByIdIncludingInactive(state_,objectId);
+    }
+    const RuntimeObjectBehavior* behavior(int objectId) const override {
+        const auto found=state_.behaviors.find(objectId);
+        return found==state_.behaviors.end()?nullptr:&found->second;
+    }
+    bool canEnter(const WorldObjectInstance& passenger,const WorldObjectInstance& host) const override {
+        return runtimeObjectCanEnterTransport(state_,passenger,host,true,true);
+    }
+    const ChronoMoveState* moveState(int objectId) const override {
+        return state_.specialMechanisms.chronoMoveState(objectId);
+    }
+    bool inTransit(int objectId) const override {
+        return state_.specialMechanisms.isChronoInTransit(objectId);
+    }
+private:
+    const RuntimeGameSessionState& state_;
+};
+}
+
 bool runtimePersonalChronoTransportPassenger(
     const RuntimeGameSessionState& state, const WorldObjectInstance& passenger) {
-    const auto* type = findRuntimeUnitType(state.rules, passenger);
-    return passenger.kind == WorldObjectKind::Infantry && type
-        && type->teleporter && !type->harvester;
+    const chrono_transport_host_detail::Queries queries(state);
+    return concord::simulation::abilities::runtimePersonalChronoTransportPassenger(passenger,queries);
 }
 
 std::optional<bool> runtimeChronoTransportDestinationAdmission(
     const RuntimeGameSessionState& state, const WorldObjectInstance& passenger,
     const RuntimeCellPoint& destination) {
-    if (!runtimePersonalChronoTransportPassenger(state, passenger)) return std::nullopt;
-    const auto pending = state.pendingTransportTargets.find(passenger.instanceId);
-    if (pending == state.pendingTransportTargets.end()) return std::nullopt;
-    const auto* host = findRuntimeObjectByIdIncludingInactive(state, pending->second);
-    if (!host || host->kind != WorldObjectKind::Unit) return std::nullopt;
-    const auto move = state.behaviors.find(passenger.instanceId);
-    if (move == state.behaviors.end() || move->second.kind != RuntimeBehaviorKind::Move
-        || move->second.pendingAllowedOccupiedObjectId != host->instanceId
-        || move->second.moveTarget != destination || runtimeCellPointForObject(*host) != destination
-        || host->airborne || host->renderMoveActive
-        || !runtimeObjectCanEnterTransport(state, passenger, *host, true, true)) return false;
-    const auto* warp = state.specialMechanisms.chronoMoveState(passenger.instanceId);
-    if (warp && state.specialMechanisms.isChronoInTransit(passenger.instanceId)
-        && (warp->destination.x != destination.x || warp->destination.y != destination.y
-            || warp->destinationLevel != host->level)) return false;
-    return true;
+    const chrono_transport_host_detail::Queries queries(state);
+    return concord::simulation::abilities::runtimeChronoTransportDestinationAdmission(passenger,destination,queries);
 }
 
 bool runtimeChronoTransportArrivalReady(
     const RuntimeGameSessionState& state, const WorldObjectInstance& passenger,
     const WorldObjectInstance& host) {
-    const auto* warp = state.specialMechanisms.chronoMoveState(passenger.instanceId);
-    const auto admitted = runtimeChronoTransportDestinationAdmission(
-        state, passenger, runtimeCellPointForObject(host));
-    return admitted && *admitted && warp
-        && (warp->phase == ChronoPhase::WarpIn || warp->phase == ChronoPhase::Cooldown)
-        && warp->completeTick <= state.tick
-        && warp->destination.x == host.x && warp->destination.y == host.y
-        && warp->destinationLevel == host.level
-        && runtimeCellPointForObject(passenger) == runtimeCellPointForObject(host)
-        && passenger.level == host.level && !passenger.renderMoveActive;
+    const chrono_transport_host_detail::Queries queries(state);
+    return concord::simulation::abilities::runtimeChronoTransportArrivalReady(passenger,host,state.tick,queries);
 }
 
 bool completeRuntimeTransportEntry(
@@ -16004,97 +15944,47 @@ bool spawnRuntimeDeathWeaponProjectile(
     return true;
 }
 
+namespace {
+class ParasiteAdmissionHostQueries final
+    : public concord::simulation::abilities::RuntimeParasiteAdmissionQueries {
+    const RuntimeGameSessionState& state_;
+public:
+    explicit ParasiteAdmissionHostQueries(const RuntimeGameSessionState& state) noexcept : state_(state) {}
+    const std::vector<WorldObjectInstance>& objects() const noexcept override { return state_.world.getObjects(); }
+    const RuntimeParasiteStunState& stunState() const noexcept override { return state_.parasiteStunUntilTickByObject; }
+    const int& tick() const noexcept override { return state_.tick; }
+    bool hasPendingEngineerCapture(int id) const noexcept override { return state_.pendingEngineerCaptures.find(id) != state_.pendingEngineerCaptures.end(); }
+    bool hasPendingOccupyTarget(int id) const noexcept override { return state_.pendingOccupyTargets.find(id) != state_.pendingOccupyTargets.end(); }
+    bool hasPendingTransportTarget(int id) const noexcept override { return state_.pendingTransportTargets.find(id) != state_.pendingTransportTargets.end(); }
+    bool hasPendingTimedBombIntent(int id) const noexcept override { return state_.pendingTimedBombIntents.find(id) != state_.pendingTimedBombIntents.end(); }
+    bool repairDepotsInitialized() const noexcept override { return state_.repairDepotsInitialized; }
+    const std::vector<RuntimeRepairDepotRelation>& repairRelations() const noexcept override { return state_.repairDepots.relations(); }
+    const std::vector<RuntimeFactoryDeliveryLease>& factoryLeases() const noexcept override { return state_.factoryDeliveries.leases(); }
+    bool specialMechanismsInitialized() const noexcept override { return state_.specialMechanismsInitialized; }
+    bool isCarrierChild(int id) const noexcept override { return state_.specialMechanisms.isCarrierChild(id); }
+    bool isCarrierParent(int id) const noexcept override { return state_.specialMechanisms.carrierParents().find(id) != state_.specialMechanisms.carrierParents().end(); }
+};
+}
+
 bool runtimeParasiteObjectIsContained(
     const RuntimeGameSessionState& state,
     const WorldObjectInstance& object) {
-    if (object.garrisonHostObjectId >= 0
-        || !object.garrisonOccupantIds.empty()
-        || !object.transportPassengerIds.empty()) {
-        return true;
-    }
-    for (const WorldObjectInstance& candidate : state.world.getObjects()) {
-        if (std::find(
-                candidate.transportPassengerIds.begin(),
-                candidate.transportPassengerIds.end(),
-                object.instanceId
-            ) != candidate.transportPassengerIds.end()) {
-            return true;
-        }
-    }
-    return false;
+    const ParasiteAdmissionHostQueries queries(state);
+    return concord::simulation::abilities::runtimeParasiteObjectIsContained(queries, object);
 }
 
 bool runtimeParasiteObjectHasExclusiveAuthority(
     const RuntimeGameSessionState& state,
     const WorldObjectInstance& object,
     bool asHost) {
-    const auto stun = state.parasiteStunUntilTickByObject.find(
-        object.instanceId
-    );
-    if ((stun != state.parasiteStunUntilTickByObject.end()
-            && stun->second > state.tick)
-        || runtimeParasiteObjectIsContained(state, object)
-        || object.dockedToObjectId >= 0 || object.dockIndex >= 0
-        || state.pendingEngineerCaptures.find(object.instanceId)
-            != state.pendingEngineerCaptures.end()
-        || state.pendingOccupyTargets.find(object.instanceId)
-            != state.pendingOccupyTargets.end()
-        || state.pendingTransportTargets.find(object.instanceId)
-            != state.pendingTransportTargets.end()
-        || state.pendingTimedBombIntents.find(object.instanceId)
-            != state.pendingTimedBombIntents.end()) {
-        return true;
-    }
-    if (state.repairDepotsInitialized) {
-        for (const RuntimeRepairDepotRelation& relation :
-                state.repairDepots.relations()) {
-            if (relation.unitId == object.instanceId
-                || relation.hostId == object.instanceId) {
-                return true;
-            }
-        }
-    }
-    for (const RuntimeFactoryDeliveryLease& lease :
-            state.factoryDeliveries.leases()) {
-        if (lease.producedObjectId == object.instanceId
-            || lease.hostId == object.instanceId) {
-            return true;
-        }
-    }
-    if (state.specialMechanismsInitialized
-        && (state.specialMechanisms.isCarrierChild(object.instanceId)
-            // The host stays in the world, so its aircraft can remain attached.
-            // A parasite source would enter limbo and cannot own such children.
-            || (!asHost && state.specialMechanisms.carrierParents().find(
-                object.instanceId
-            ) != state.specialMechanisms.carrierParents().end()))) {
-        return true;
-    }
-    return false;
+    const ParasiteAdmissionHostQueries queries(state);
+    return concord::simulation::abilities::runtimeParasiteObjectHasExclusiveAuthority(queries, object, asHost);
 }
 
 bool runtimeParasiteWarheadIsExclusive(
     const WeaponType& weapon,
     const WarheadType& warhead) {
-    return weapon.limboLaunch && warhead.parasite
-        && std::max(1, weapon.burst) == 1
-        && !weapon.spawner
-        && !weapon.sonic
-        && !weapon.radBeam
-        && !weapon.electricBolt
-        && !weapon.magBeam
-        && !warhead.psychedelic
-        && !warhead.psychicDamage
-        && !warhead.ivanBomb
-        && !warhead.bombDisarm
-        && !warhead.airstrike
-        && !warhead.isLocomotor
-        && !warhead.mindControl
-        && !warhead.temporal
-        && !warhead.radiation
-        && !warhead.electricAssault
-        && trimAsciiLocal(warhead.particle).empty()
-        && trimAsciiLocal(warhead.particleSystem).empty();
+    return concord::simulation::abilities::runtimeParasiteWarheadIsExclusive(weapon, warhead);
 }
 
 bool runtimeProjectileIsParasiteLeap(
@@ -16146,160 +16036,42 @@ std::optional<RuntimeCellPoint> runtimeParasitePlacementCell(
     );
 }
 
+namespace {
+class ParasiteActionQueries final : public concord::simulation::abilities::RuntimeParasiteActionQueries {
+public:
+    explicit ParasiteActionQueries(const RuntimeGameSessionState& state) noexcept : state_(state) {}
+    const WorldObjectInstance* objectIncludingInactive(int id) const override {
+        return findRuntimeObjectByIdIncludingInactive(state_, id);
+    }
+    std::optional<RuntimeCellPoint> placementCell(const WorldObjectInstance& source,
+        const SpecialCell& requested, const std::unordered_set<int>* reserved,
+        int terminatingHostId) const override {
+        return runtimeParasitePlacementCell(state_, source, requested, reserved, terminatingHostId);
+    }
+    int cellKey(int x, int y) const override { return runtimeCellKey(x, y); }
+    std::string canonicalOwner(const std::string& owner) const override {
+        return runtimeRepairDepotCanonicalOwnerId(state_, owner);
+    }
+    bool exclusiveAuthority(const WorldObjectInstance& object, bool asHost) const override {
+        return runtimeParasiteObjectHasExclusiveAuthority(state_, object, asHost);
+    }
+private:
+    const RuntimeGameSessionState& state_;
+};
+}
 std::vector<SpecialMechanismAction> prepareRuntimeParasiteActions(
     const RuntimeGameSessionState& state,
     const std::vector<SpecialMechanismAction>& actions) {
-    std::vector<SpecialMechanismAction> prepared = actions;
-    std::unordered_set<int> reservedPlacementCells;
-    for (SpecialMechanismAction& action : prepared) {
-        if (action.kind
-                != SpecialMechanismActionKind::ParasiteReturnFromLimbo
-            && action.kind != SpecialMechanismActionKind::ParasiteEject) {
-            continue;
-        }
-        const WorldObjectInstance* source =
-            findRuntimeObjectByIdIncludingInactive(state, action.objectId);
-        const std::optional<RuntimeCellPoint> placement =
-            source == nullptr
-                ? std::nullopt
-                : runtimeParasitePlacementCell(
-                    state,
-                    *source,
-                    action.cell,
-                    &reservedPlacementCells,
-                    action.replacesTerminatingHost
-                        ? action.targetObjectId : -1
-                );
-        if (!placement.has_value()) {
-            action.kind = SpecialMechanismActionKind::ParasiteKillParasite;
-            action.suppressDeathWeapon = true;
-            action.replacesTerminatingHost = false;
-            action.stunTicks = 0;
-            action.reason += "; no legal host placement";
-            continue;
-        }
-        action.cell = {placement->x, placement->y};
-        reservedPlacementCells.insert(
-            runtimeCellKey(placement->x, placement->y)
-        );
-    }
-    return prepared;
+    const ParasiteActionQueries queries(state);
+    return concord::simulation::abilities::prepareRuntimeParasiteActions(actions, queries);
 }
 
 bool validateRuntimeParasiteActionBatch(
     const RuntimeGameSessionState& state,
     const std::vector<SpecialMechanismAction>& actions) {
-    std::unordered_set<int> returningSources;
-    std::unordered_set<int> terminalObjects;
-    for (const SpecialMechanismAction& action : actions) {
-        if (action.kind == SpecialMechanismActionKind::TimedBombDetonate) {
-            continue;
-        }
-        if (action.tick < 0 || action.projectileId == 0
-            || action.objectId < 0 || action.targetObjectId < 0) {
-            return false;
-        }
-        const WorldObjectInstance* source =
-            findRuntimeObjectByIdIncludingInactive(state, action.objectId);
-        const WorldObjectInstance* target =
-            findRuntimeObjectByIdIncludingInactive(
-                state,
-                action.targetObjectId
-            );
-        if (action.replacesTerminatingHost
-            && (source == nullptr || target == nullptr
-                || source->instanceId == target->instanceId
-                || action.stunTicks != 0
-                || !((action.kind
-                        == SpecialMechanismActionKind::ParasiteReturnFromLimbo
-                        && target->kind == WorldObjectKind::Infantry)
-                    || (action.kind == SpecialMechanismActionKind::ParasiteEject
-                        && target->kind == WorldObjectKind::Unit)))) {
-            return false;
-        }
-        if (action.sourceWasAttachedToHost
-            && action.kind != SpecialMechanismActionKind::ParasiteEject
-            && action.kind != SpecialMechanismActionKind::ParasiteKillParasite) {
-            return false;
-        }
-        if (source != nullptr && !action.owner.empty()
-            && runtimeRepairDepotCanonicalOwnerId(state, source->owner)
-                != runtimeRepairDepotCanonicalOwnerId(
-                    state,
-                    action.owner
-                )) {
-            return false;
-        }
-        switch (action.kind) {
-        case SpecialMechanismActionKind::ParasiteEnterLimbo:
-            if (source == nullptr || !source->alive || source->health <= 0
-                || state.pendingObjectExitIds.find(source->instanceId)
-                    != state.pendingObjectExitIds.end()
-                || runtimeParasiteObjectHasExclusiveAuthority(
-                    state,
-                    *source
-                )) {
-                return false;
-            }
-            break;
-        case SpecialMechanismActionKind::ParasiteAttachHost:
-            if (source == nullptr || source->alive || source->health <= 0
-                || source->mission != "ParasiteLimbo"
-                || target == nullptr || !target->alive
-                || target->health <= 0
-                || runtimeParasiteObjectHasExclusiveAuthority(
-                    state,
-                    *target,
-                    true
-                )) {
-                return false;
-            }
-            break;
-        case SpecialMechanismActionKind::ParasiteReturnFromLimbo:
-        case SpecialMechanismActionKind::ParasiteEject:
-            if (source == nullptr || source->alive || source->health <= 0
-                || source->mission != "ParasiteLimbo"
-                || !returningSources.insert(source->instanceId).second
-                || !runtimeParasitePlacementCell(
-                    state,
-                    *source,
-                    action.cell,
-                    nullptr,
-                    action.replacesTerminatingHost
-                        ? action.targetObjectId : -1
-                ).has_value()) {
-                return false;
-            }
-            break;
-        case SpecialMechanismActionKind::ParasiteDamage:
-            if (target == nullptr || !target->alive || target->health <= 0
-                || action.damage < 0) {
-                return false;
-            }
-            break;
-        case SpecialMechanismActionKind::ParasiteKillTarget:
-            if (target == nullptr || !target->alive || target->health <= 0
-                || !terminalObjects.insert(target->instanceId).second
-                || state.pendingObjectExitIds.find(target->instanceId)
-                    != state.pendingObjectExitIds.end()) {
-                return false;
-            }
-            break;
-        case SpecialMechanismActionKind::ParasiteKillParasite:
-            if (source != nullptr && source->health > 0
-                && (!terminalObjects.insert(source->instanceId).second
-                    || state.pendingObjectExitIds.find(source->instanceId)
-                        != state.pendingObjectExitIds.end())) {
-                return false;
-            }
-            break;
-        case SpecialMechanismActionKind::ParasiteReleaseTarget:
-            break;
-        case SpecialMechanismActionKind::TimedBombDetonate:
-            break;
-        }
-    }
-    return true;
+    const ParasiteActionQueries queries(state);
+    return concord::simulation::abilities::validateRuntimeParasiteActionBatch(
+        actions, state.pendingObjectExitIds, queries);
 }
 
 bool runtimeObjectReselectsAfterParasiteLimbo(
@@ -16316,391 +16088,105 @@ bool runtimeObjectRejoinsTeamAfterParasiteLimbo(
     return rules != nullptr && rules->rejoinTeamIfLimboed;
 }
 
+namespace {
+class ParasiteAtomicPrimitivePorts final : public concord::simulation::abilities::RuntimeParasiteAtomicPorts {
+    RuntimeProductionHostState& state_;
+public:
+    explicit ParasiteAtomicPrimitivePorts(RuntimeProductionHostState& state) noexcept : state_(state) {}
+    const WorldObjectInstance* objectIncludingInactive(int id) const override { return findRuntimeObjectByIdIncludingInactive(state_, id); }
+    WorldObjectInstance* mutableObjectIncludingInactive(int id) override { return findMutableRuntimeObjectByIdIncludingInactive(state_, id); }
+    std::optional<RuntimeCellPoint> placementCell(const WorldObjectInstance& source, const SpecialCell& requested,
+        const std::unordered_set<int>* reserved, int terminatingHostId) const override {
+        return runtimeParasitePlacementCell(state_, source, requested, reserved, terminatingHostId);
+    }
+    int cellKey(int x, int y) const override { return runtimeCellKey(x, y); }
+    std::string canonicalOwner(const std::string& owner) const override { return runtimeRepairDepotCanonicalOwnerId(state_, owner); }
+    bool exclusiveAuthority(const WorldObjectInstance& object, bool asHost) const override { return runtimeParasiteObjectHasExclusiveAuthority(state_, object, asHost); }
+    bool damageIsTypeImmune(const WorldObjectInstance& target, int sourceId, int damage) const override {
+        return runtimeDamageIsTypeImmune(state_, target, runtimeTypeImmuneSource(state_, sourceId), damage);
+    }
+    int authoredDamage(const WorldObjectInstance& target, int damage, const std::string& warhead, double distance, double modifier) const override {
+        return runtimeAuthoredDamageAgainst(state_, target, damage, warhead, distance, modifier);
+    }
+    RuntimeCellPoint objectCell(const WorldObjectInstance& object) const override { return runtimeCellPointForObject(object); }
+    const int& liveTick() const noexcept override { return state_.tick; }
+    const std::unordered_set<int>& pendingExitIds() const noexcept override { return state_.pendingObjectExitIds; }
+    RuntimeParasiteStunState& stuns() noexcept override { return state_.parasiteStunUntilTickByObject; }
+    const std::vector<RuntimeProjectileEffect>& projectiles() const noexcept override { return state_.projectiles; }
+    const std::string& localOwner() const noexcept override { return state_.economy.owner; }
+    void setStatus(const char* message) override { state_.simulationStatus = message; }
+    bool selected(int id) const override { return selectionContains(state_, id); }
+    std::size_t eraseReselect(int id) override { return state_.parasiteReselectAfterLimboObjectIds.erase(id); }
+    void insertReselect(int id) override { state_.parasiteReselectAfterLimboObjectIds.insert(id); }
+    bool reselectsAfterLimbo(const WorldObjectInstance& object) const override { return runtimeObjectReselectsAfterParasiteLimbo(state_, object); }
+    void removeSelection(int id) override { removeRuntimeSelection(state_, id); }
+    bool rejoinsTeamAfterLimbo(const WorldObjectInstance& object) const override { return runtimeObjectRejoinsTeamAfterParasiteLimbo(state_, object); }
+    void detachFromTeam(int id) override { detachRuntimeObjectFromTeamMembership(state_, id); }
+    void eraseBehavior(int id) override { eraseRuntimeBehavior(state_, id); }
+    void clearRenderPosition(WorldObjectInstance& object) override { clearRuntimeRenderPosition(object); }
+    void cancelPendingOccupy(int id, const std::string& reason) override { cancelRuntimePendingOccupyForTarget(state_, id, reason); }
+    void activateObject(WorldObjectInstance& object) override { activateRuntimeWorldObject(state_, object); }
+    void setObjectCell(WorldObjectInstance& object, const RuntimeCellPoint& cell, bool resetRenderPosition) override { setRuntimeObjectCell(state_, object, cell, resetRenderPosition); }
+    void assignInfantrySubcell(WorldObjectInstance& object) override { assignRuntimeInfantrySubcellAtCurrentLocation(state_, object); }
+    WorldObjectCellOffset subcellOffset(const WorldObjectInstance& object) const noexcept override { return worldObjectSubCellOffset(object); }
+    double renderX(const WorldObjectInstance& object) const override { return runtimeObjectRenderX(object); }
+    double renderY(const WorldObjectInstance& object) const override { return runtimeObjectRenderY(object); }
+    double drawLevel(const WorldObjectInstance& object) const override { return runtimeDrawLevelForObject(object); }
+    bool ownersAllied(const std::string& first, const std::string& second) const override { return runtimeOwnersAreAllied(state_, first, second); }
+    void addSelection(int id) override { addSelectedObject(state_, id); }
+    RuntimeObjectExitQueueResult queueExit(RuntimeObjectExitRequest&& request) override { return queueRuntimeObjectExit(state_, std::move(request)); }
+    RuntimeSpatialAudioPosition spatialPosition(const WorldObjectInstance& object) const override { return runtimeSpatialAudioPositionForObject(object); }
+    bool projectileIsParasiteLeap(const RuntimeProjectileEffect& projectile) const override { return runtimeProjectileIsParasiteLeap(state_, projectile); }
+    void invalidateTickOccupancy() override { invalidateRuntimeTickOccupancyCache(state_); }
+    void invalidateObjectProjection() override { invalidateRuntimeObjectProjectionCache(state_); }
+    void requestNavigationRefresh() override { state_.navigationRefreshPending = true; }
+};
+}
+
 RuntimeParasiteActionApplyResult applyRuntimeParasiteActionsAtomically(
     RuntimeProductionHostState& state,
     const std::vector<SpecialMechanismAction>& actions,
     const RuntimeDeathWeaponCause& inheritedDeathWeaponCause,
     int fallbackSourceObjectId,
     bool suppressUnitDeathSounds) {
-    RuntimeParasiteActionApplyResult result;
-    if (actions.empty()) {
-        return result;
-    }
-    const std::vector<SpecialMechanismAction> prepared =
-        prepareRuntimeParasiteActions(state, actions);
-    if (!validateRuntimeParasiteActionBatch(state, prepared)) {
-        result.accepted = false;
-        state.simulationStatus =
-            "parasite action batch rejected atomically";
-        return result;
-    }
+    ParasiteAtomicPrimitivePorts ports(state);
+    ParasiteAtomicCandidateFactory factory(state.specialMechanisms);
+    return concord::simulation::abilities::applyRuntimeParasiteActionsAtomically(
+        ports, factory, actions, inheritedDeathWeaponCause, fallbackSourceObjectId,
+        suppressUnitDeathSounds);
+}
 
-    RuntimeSpecialMechanismState parasiteDeathCandidate =
-        state.specialMechanisms;
-    std::vector<SpecialMechanismAction> parasiteDeathActions;
-    bool hasParasiteCausedHostDeath = false;
-    for (const SpecialMechanismAction& action : prepared) {
-        if (action.kind != SpecialMechanismActionKind::ParasiteDamage
-            && action.kind
-                != SpecialMechanismActionKind::ParasiteKillTarget) {
-            continue;
-        }
-        const WorldObjectInstance* target =
-            findRuntimeObjectByIdIncludingInactive(
-                state,
-                action.targetObjectId
-            );
-        if (target == nullptr || !target->alive || target->health <= 0) {
-            continue;
-        }
-        if (action.kind == SpecialMechanismActionKind::ParasiteDamage
-            && runtimeDamageIsTypeImmune(state, *target,
-                runtimeTypeImmuneSource(state, action.objectId), action.damage)) continue;
-        bool lethal = action.kind
-            == SpecialMechanismActionKind::ParasiteKillTarget;
-        if (!lethal) {
-            const int appliedDamage = runtimeAuthoredDamageAgainst(
-                state,
-                *target,
-                action.damage,
-                action.warheadId,
-                0.0,
-                1.0
-            );
-            lethal = appliedDamage >= target->health;
-        }
-        const auto link = parasiteDeathCandidate.parasiteLinks().find(
-            action.targetObjectId
-        );
-        if (!lethal
-            || link == parasiteDeathCandidate.parasiteLinks().end()) {
-            continue;
-        }
-        const WorldObjectInstance* source =
-            findRuntimeObjectByIdIncludingInactive(
-                state,
-                link->second.sourceObjectId
-            );
-        const RuntimeCellPoint targetCell =
-            runtimeCellPointForObject(*target);
-        const std::optional<RuntimeCellPoint> ejectCell = source == nullptr
-            ? std::nullopt
-            : runtimeParasitePlacementCell(
-                state,
-                *source,
-                {targetCell.x, targetCell.y},
-                nullptr,
-                target->instanceId
-            );
-        ParasiteHostEventRequest hostDeath;
-        hostDeath.currentTick = state.tick;
-        hostDeath.targetObjectId = action.targetObjectId;
-        hostDeath.event = ParasiteHostEventKind::DestroyedByParasite;
-        hostDeath.ejectCellAvailable = ejectCell.has_value();
-        if (ejectCell.has_value()) {
-            hostDeath.ejectCell = {ejectCell->x, ejectCell->y};
-        }
-        const ParasiteOperationResult handled =
-            parasiteDeathCandidate.handleParasiteHostEvent(
-                hostDeath,
-                SpecialEventSink{}
-            );
-        if (!handled.accepted) {
-            result.accepted = false;
-            state.simulationStatus =
-                "parasite-caused host death rejected atomically";
-            return result;
-        }
-        parasiteDeathActions.insert(
-            parasiteDeathActions.end(),
-            handled.actions.begin(),
-            handled.actions.end()
-        );
-        hasParasiteCausedHostDeath = true;
+namespace {
+class ParasiteLaunchHostQueries final : public concord::simulation::abilities::RuntimeParasiteLaunchQueries {
+    RuntimeProductionHostState& state_;
+    const RuntimeWeaponProfile& profile_;
+    ParasiteAdmissionHostQueries admission_;
+public:
+    ParasiteLaunchHostQueries(RuntimeProductionHostState& state, const RuntimeWeaponProfile& profile) noexcept
+        : state_(state), profile_(profile), admission_(state) {}
+    const UnitType* unitType(const WorldObjectInstance& object) const override { return findRuntimeUnitType(state_.rules, object); }
+    const ProjectileType* projectileType(const std::string& id) const override { return findRuntimeProjectileType(state_.rules, id); }
+    bool hasSpawnedMissileProfile(const WorldObjectInstance& source, const WeaponType& weapon) const override { return runtimeSpawnedMissileProfileForWeapon(state_, source, weapon) != nullptr; }
+    bool weaponCanTargetObject(const WeaponType& weapon, const WorldObjectInstance& target) const override { return runtimeWeaponCanTargetObject(state_, weapon, target); }
+    bool superWeaponsInitialized() const noexcept override { return state_.superWeaponsInitialized; }
+    bool isObjectProtected(int id, int tick) const override { return state_.superWeapons.isObjectProtected(id, tick); }
+    const concord::simulation::abilities::RuntimeParasiteAdmissionQueries& admission() const noexcept override { return admission_; }
+    int& nextActorId() noexcept override { return state_.nextProjectileActorId; }
+    int allocateActorId() override { return nextRuntimeProjectileActorId(state_); }
+    const int& fixedTickHz() const noexcept override { return state_.config.fixedTickHz; }
+    const double& conditionRed() const noexcept override { return state_.specialMechanisms.rules().conditionRed; }
+    const double& conditionYellow() const noexcept override { return state_.specialMechanisms.rules().conditionYellow; }
+    std::string& status() noexcept override { return state_.simulationStatus; }
+    void spawnProjectile(const WorldObjectInstance& source, const WorldObjectInstance& target,
+        const WeaponType& weapon, int damage, int projectileActorId) override {
+        spawnRuntimeProjectile(state_, source, target, weapon, profile_, damage,
+            -1, 0, false, -1, -1.0, 0, 0, 0, true, nullptr, projectileActorId);
     }
-    if (hasParasiteCausedHostDeath) {
-        parasiteDeathActions = prepareRuntimeParasiteActions(
-            state,
-            parasiteDeathActions
-        );
-        std::vector<SpecialMechanismAction> combined = prepared;
-        combined.insert(
-            combined.end(),
-            parasiteDeathActions.begin(),
-            parasiteDeathActions.end()
-        );
-        if (!validateRuntimeParasiteActionBatch(state, combined)) {
-            result.accepted = false;
-            state.simulationStatus =
-                "parasite death/eject batch rejected atomically";
-            return result;
-        }
-        state.specialMechanisms = std::move(parasiteDeathCandidate);
-        const RuntimeParasiteActionApplyResult ejected =
-            applyRuntimeParasiteActionsAtomically(
-                state,
-                parasiteDeathActions,
-                inheritedDeathWeaponCause,
-                fallbackSourceObjectId,
-                suppressUnitDeathSounds
-            );
-        if (!ejected.accepted) {
-            result.accepted = false;
-            return result;
-        }
-        result.changed = ejected.changed;
-    }
-
-    for (const SpecialMechanismAction& action : prepared) {
-        if (action.kind == SpecialMechanismActionKind::TimedBombDetonate) {
-            continue;
-        }
-        WorldObjectInstance* source =
-            findMutableRuntimeObjectByIdIncludingInactive(
-                state,
-                action.objectId
-            );
-        WorldObjectInstance* target =
-            findMutableRuntimeObjectByIdIncludingInactive(
-                state,
-                action.targetObjectId
-            );
-        switch (action.kind) {
-        case SpecialMechanismActionKind::ParasiteEnterLimbo: {
-            const bool wasSelected = selectionContains(
-                state,
-                action.objectId
-            );
-            state.parasiteReselectAfterLimboObjectIds.erase(
-                action.objectId
-            );
-            if (wasSelected
-                && runtimeObjectReselectsAfterParasiteLimbo(
-                    state,
-                    *source
-                )) {
-                state.parasiteReselectAfterLimboObjectIds.insert(
-                    action.objectId
-                );
-            }
-            removeRuntimeSelection(state, action.objectId);
-            if (!runtimeObjectRejoinsTeamAfterParasiteLimbo(
-                    state,
-                    *source
-                )) {
-                detachRuntimeObjectFromTeamMembership(
-                    state,
-                    action.objectId
-                );
-            }
-            eraseRuntimeBehavior(state, action.objectId);
-            clearRuntimeRenderPosition(*source);
-            source->alive = false;
-            source->mission = "ParasiteLimbo";
-            source->subCell = -1;
-            source->dockedToObjectId = -1;
-            source->dockIndex = -1;
-            result.changed = true;
-            break;
-        }
-        case SpecialMechanismActionKind::ParasiteAttachHost:
-            eraseRuntimeBehavior(state, action.targetObjectId);
-            cancelRuntimePendingOccupyForTarget(
-                state,
-                action.targetObjectId,
-                "parasite attached"
-            );
-            target->mission = action.paralyzes > 0
-                ? "ParasiteParalyzed"
-                : target->mission;
-            result.changed = true;
-            break;
-        case SpecialMechanismActionKind::ParasiteReturnFromLimbo:
-        case SpecialMechanismActionKind::ParasiteEject: {
-            const bool reselect =
-                state.parasiteReselectAfterLimboObjectIds.erase(
-                    action.objectId
-                ) > 0;
-            activateRuntimeWorldObject(state, *source);
-            source->health = std::max(1, source->health);
-            setRuntimeObjectCell(
-                state,
-                *source,
-                {action.cell.x, action.cell.y},
-                false
-            );
-            source->mission = action.stunTicks > 0
-                ? "ParasiteStunned"
-                : "Guard";
-            assignRuntimeInfantrySubcellAtCurrentLocation(state, *source);
-            if (action.replacesTerminatingHost && target != nullptr
-                && action.cell.x == target->x && action.cell.y == target->y) {
-                // The host has not been drained yet. Preserve its last visible
-                // feet, including subcells and an in-progress slope/bridge pose.
-                const auto hostSubcell = worldObjectSubCellOffset(*target);
-                const auto sourceSubcell = worldObjectSubCellOffset(*source);
-                const bool hostHasContinuousLevel = target->renderMoveActive
-                    || worldObjectHasStoppedGroundPose(*target);
-                source->level = target->level;
-                source->onBridge = target->onBridge;
-                source->hasRenderPosition = true;
-                source->renderMoveActive = false;
-                source->renderX = runtimeObjectRenderX(*target)
-                    + hostSubcell.x - sourceSubcell.x;
-                source->renderY = runtimeObjectRenderY(*target)
-                    + hostSubcell.y - sourceSubcell.y;
-                source->renderLevel = runtimeDrawLevelForObject(*target);
-                source->renderOnBridge = hostHasContinuousLevel
-                    ? target->renderOnBridge : target->onBridge;
-            }
-            if (action.stunTicks > 0) {
-                state.parasiteStunUntilTickByObject[source->instanceId] =
-                    std::max(
-                        state.tick,
-                        action.tick
-                    ) + action.stunTicks;
-            } else {
-                state.parasiteStunUntilTickByObject.erase(
-                    source->instanceId
-                );
-            }
-            if (reselect
-                && runtimeOwnersAreAllied(
-                    state,
-                    state.economy.owner,
-                    source->owner
-                )) {
-                addSelectedObject(state, source->instanceId);
-            }
-            if (action.kind == SpecialMechanismActionKind::ParasiteEject
-                && target != nullptr && target->alive
-                && target->mission == "ParasiteParalyzed") {
-                target->mission = "Guard";
-            }
-            result.changed = true;
-            break;
-        }
-        case SpecialMechanismActionKind::ParasiteDamage:
-            if (target != nullptr && !runtimeDamageIsTypeImmune(state, *target,
-                    runtimeTypeImmuneSource(state, action.objectId), action.damage)) {
-                const int appliedDamage = runtimeAuthoredDamageAgainst(
-                    state,
-                    *target,
-                    action.damage,
-                    action.warheadId,
-                    0.0,
-                    1.0
-                );
-                target->health = std::max(0, target->health - appliedDamage);
-                result.changed = appliedDamage > 0 || result.changed;
-                if (target->health <= 0) {
-                    RuntimeObjectExitRequest targetExit;
-                    targetExit.objectId = target->instanceId;
-                    targetExit.kind = RuntimeObjectExitKind::Destroyed;
-                    targetExit.tick = action.tick;
-                    targetExit.mission = "Destroyed";
-                    targetExit.reason = action.reason.empty()
-                        ? "parasite bite was lethal"
-                        : action.reason;
-                    targetExit.sourceObjectId = action.objectId;
-                    targetExit.sourceOwner = action.owner;
-                    targetExit.deathWeaponCause =
-                        inheritedDeathWeaponCause;
-                    (void)queueRuntimeObjectExit(
-                        state,
-                        std::move(targetExit)
-                    );
-                }
-            }
-            break;
-        case SpecialMechanismActionKind::ParasiteKillTarget:
-        case SpecialMechanismActionKind::ParasiteKillParasite: {
-            const bool killSource = action.kind
-                == SpecialMechanismActionKind::ParasiteKillParasite;
-            if (killSource) {
-                state.parasiteReselectAfterLimboObjectIds.erase(
-                    action.objectId
-                );
-            }
-            if (killSource && target != nullptr && target->alive
-                && target->mission == "ParasiteParalyzed") {
-                target->mission = "Guard";
-                result.changed = true;
-            }
-            const int objectId = killSource
-                ? action.objectId
-                : action.targetObjectId;
-            const WorldObjectInstance* killed =
-                findRuntimeObjectByIdIncludingInactive(state, objectId);
-            if (killed == nullptr || killed->health <= 0) {
-                break;
-            }
-            RuntimeObjectExitRequest dependentExit;
-            dependentExit.objectId = objectId;
-            dependentExit.kind = RuntimeObjectExitKind::Destroyed;
-            dependentExit.tick = action.tick;
-            dependentExit.mission = "Destroyed";
-            dependentExit.reason = action.reason;
-            dependentExit.sourceObjectId = fallbackSourceObjectId >= 0
-                ? fallbackSourceObjectId
-                : action.objectId;
-            dependentExit.sourceOwner = action.owner;
-            dependentExit.deathWeaponCause = inheritedDeathWeaponCause;
-            dependentExit.suppressDeathWeapon =
-                action.suppressDeathWeapon;
-            dependentExit.unitDeathSoundHandled = suppressUnitDeathSounds;
-            if (killSource && action.sourceWasAttachedToHost
-                && target != nullptr) {
-                // Attached parasites retain their old launch cell in limbo.
-                // Capture the current host before its exit clears that pose.
-                dependentExit.unitDeathSoundPosition =
-                    runtimeSpatialAudioPositionForObject(*target);
-            } else if (killSource && !action.sourceWasAttachedToHost) {
-                const auto actor = std::find_if(state.projectiles.begin(), state.projectiles.end(),
-                    [&](const RuntimeProjectileEffect& projectile) {
-                        return projectile.actorId == action.projectileId
-                            && projectile.attackerObjectId == objectId
-                            && runtimeProjectileIsParasiteLeap(state, projectile);
-                    });
-                if (actor != state.projectiles.end()) {
-                    dependentExit.unitDeathSoundPosition = RuntimeSpatialAudioPosition{
-                        actor->currentX, actor->currentY, actor->currentZ};
-                }
-            }
-            result.changed = queueRuntimeObjectExit(
-                state,
-                std::move(dependentExit)
-            ) == RuntimeObjectExitQueueResult::Queued || result.changed;
-            break;
-        }
-        case SpecialMechanismActionKind::ParasiteReleaseTarget:
-            if (target != nullptr && target->alive
-                && target->mission == "ParasiteParalyzed") {
-                target->mission = "Guard";
-                result.changed = true;
-            }
-            break;
-        case SpecialMechanismActionKind::TimedBombDetonate:
-            break;
-        }
-    }
-    if (result.changed) {
-        invalidateRuntimeTickOccupancyCache(state);
-        invalidateRuntimeObjectProjectionCache(state);
-        state.navigationRefreshPending = true;
-    }
-    return result;
+};
 }
 
 int runtimeParasiteRuleFramesToTicks(int frames, int fixedTickHz) {
-    return std::max(
-        1,
-        static_cast<int>(std::lround(
-            static_cast<double>(std::max(0, frames))
-                * static_cast<double>(std::max(1, fixedTickHz))
-                / 15.0
-        ))
-    );
+    return concord::simulation::abilities::runtimeParasiteRuleFramesToTicks(frames, fixedTickHz);
 }
 
 bool launchRuntimeParasiteProjectile(
@@ -16711,368 +16197,69 @@ bool launchRuntimeParasiteProjectile(
     const RuntimeWeaponProfile& weaponProfile) {
     ensureRuntimeSpecialMechanismsInitialized(state);
     const WarheadType* warhead = weaponProfile.warhead;
-    const UnitType* sourceType = findRuntimeUnitType(state.rules, source);
-    const UnitType* targetType = findRuntimeUnitType(state.rules, target);
-    const ProjectileType* projectileType =
-        findRuntimeProjectileType(state.rules, weapon.projectile);
-    const bool validTargetKind = target.kind == WorldObjectKind::Infantry
-        || (target.kind == WorldObjectKind::Unit
-            && !target.authoredAircraft && !target.airborne);
-    if (warhead == nullptr || sourceType == nullptr || targetType == nullptr
-        || !runtimeParasiteWarheadIsExclusive(weapon, *warhead)
-        || projectileType == nullptr
-        || runtimeSpawnedMissileProfileForWeapon(
-            state,
-            source,
-            weapon
-        ) != nullptr
-        || projectileType->airburst || projectileType->shrapnelCount > 0
-        || !trimAsciiLocal(projectileType->airburstWeapon).empty()
-        || !trimAsciiLocal(projectileType->shrapnelWeapon).empty()
-        || !source.alive || source.health <= 0
-        || !target.alive || target.health <= 0
-        || source.instanceId == target.instanceId
-        || !validTargetKind
-        || (target.kind == WorldObjectKind::Unit
-            && !targetType->parasiteable)
-        || runtimeParasiteObjectHasExclusiveAuthority(state, source)
-        || runtimeParasiteObjectHasExclusiveAuthority(state, target, true)
-        || !runtimeWeaponCanTargetObject(state, weapon, target)
-        || (state.superWeaponsInitialized
-            && state.superWeapons.isObjectProtected(
-                target.instanceId,
-                state.tick
-            ))) {
-        state.simulationStatus = "parasite launch rejected by host";
-        return false;
-    }
-
-    const int previousNextActorId = state.nextProjectileActorId;
-    const int projectileActorId = nextRuntimeProjectileActorId(state);
-    ParasiteLaunchRequest request;
-    request.projectileId = projectileActorId;
-    request.currentTick = state.tick;
-    request.sourceObjectId = source.instanceId;
-    request.targetObjectId = target.instanceId;
-    request.sourceOwner = source.owner;
-    request.sourceTypeId = source.type;
-    request.targetTypeId = target.type;
-    request.weaponId = weapon.id;
-    request.warheadId = warhead->id;
-    request.targetKind = target.kind == WorldObjectKind::Infantry
-        ? ParasiteTargetKind::Infantry
-        : ParasiteTargetKind::Vehicle;
-    const RuntimeCellPoint targetCell = runtimeCellPointForObject(target);
-    request.targetCell = {targetCell.x, targetCell.y};
-    request.damage = std::max(0, weapon.damage);
-    request.sourceOrganic = sourceType->organic;
-    request.sourceElite = source.veterancy >= 2;
-    request.damageIntervalTicks = runtimeParasiteRuleFramesToTicks(
-        request.sourceOrganic ? 36 : std::max(1, weapon.rof),
-        state.config.fixedTickHz
-    );
-    request.paralyzes = std::max(0, warhead->paralyzes);
-    request.targetMaximumHealth = std::max(1, targetType->strength);
-    request.targetParasiteable = target.kind == WorldObjectKind::Infantry
-        || targetType->parasiteable;
-    request.culling = warhead->culling;
-    request.normalCullingThresholdPermyriad =
-        static_cast<int>(std::lround(
-            std::clamp(
-                state.specialMechanisms.rules().conditionRed,
-                0.0,
-                1.0
-            ) * 10000.0
-        ));
-    request.eliteCullingThresholdPermyriad =
-        static_cast<int>(std::lround(
-            std::clamp(
-                state.specialMechanisms.rules().conditionYellow,
-                0.0,
-                1.0
-            ) * 10000.0
-        ));
-
-    RuntimeSpecialMechanismState specialCandidate =
-        state.specialMechanisms;
-    const ParasiteOperationResult began = specialCandidate.beginParasiteLaunch(
-        request,
-        SpecialEventSink{}
-    );
-    if (!began.accepted || began.idempotent || began.actions.size() != 1U
-        || !validateRuntimeParasiteActionBatch(
-            state,
-            prepareRuntimeParasiteActions(state, began.actions)
-        )) {
-        state.nextProjectileActorId = previousNextActorId;
-        state.simulationStatus = began.reason.empty()
-            ? "parasite launch action rejected atomically"
-            : "parasite launch rejected: " + began.reason;
-        return false;
-    }
-
-    spawnRuntimeProjectile(
-        state,
-        source,
-        target,
-        weapon,
-        weaponProfile,
-        request.damage,
-        -1,
-        0,
-        false,
-        -1,
-        -1.0,
-        0,
-        0,
-        0,
-        true,
-        nullptr,
-        projectileActorId
-    );
-    state.specialMechanisms = std::move(specialCandidate);
-    const RuntimeParasiteActionApplyResult applied =
-        applyRuntimeParasiteActionsAtomically(
-            state,
-            began.actions,
-            {},
-            source.instanceId
-        );
-    if (!applied.accepted) {
-        state.simulationStatus =
-            "parasite launch commit rejected unexpectedly";
-        return false;
-    }
-    state.simulationStatus = "parasite launched #"
-        + std::to_string(source.instanceId)
-        + " -> #" + std::to_string(target.instanceId);
-    return true;
+    ParasiteLaunchHostQueries queries(state, weaponProfile);
+    ParasiteAtomicPrimitivePorts atomicPorts(state);
+    ParasiteAtomicCandidateFactory factory(state.specialMechanisms);
+    return concord::simulation::abilities::launchRuntimeParasiteProjectile(
+        queries, atomicPorts, factory, source, target, weapon, warhead);
 }
 
-bool applyRuntimeParasiteProjectileImpactExclusive(
-    RuntimeProductionHostState& state,
-    const RuntimeProjectileEffect& projectile) {
-    const auto pendingIt =
-        state.specialMechanisms.pendingParasiteLaunches().find(
-            projectile.actorId
-        );
-    if (pendingIt
-        == state.specialMechanisms.pendingParasiteLaunches().end()) {
-        return false;
-    }
-    const ParasitePendingLaunchState pending = pendingIt->second;
-    const WorldObjectInstance* source =
-        findRuntimeObjectByIdIncludingInactive(
-            state,
-            pending.sourceObjectId
-        );
-    const WorldObjectInstance* target = findObjectById(
-        state,
-        projectile.targetObjectId
-    );
-    const WarheadType* warhead =
-        findRuntimeWarheadType(state.rules, projectile.warheadId);
-    const WeaponType* weapon =
-        findRuntimeWeaponType(state.rules, projectile.weaponId);
-    const UnitType* targetType = target == nullptr
-        ? nullptr
-        : findRuntimeUnitType(state.rules, *target);
-    const bool targetKindMatches = target != nullptr
-        && ((pending.targetKind == ParasiteTargetKind::Infantry
-                && target->kind == WorldObjectKind::Infantry)
-            || (pending.targetKind == ParasiteTargetKind::Vehicle
-                && target->kind == WorldObjectKind::Unit
-                && !target->authoredAircraft && !target->airborne));
-    const bool causalIdentityMatches = source != nullptr
-        && source->health > 0 && !source->alive
-        && source->mission == "ParasiteLimbo"
-        && source->type == pending.sourceTypeId
-        && projectile.attackerObjectId == pending.sourceObjectId
-        && projectile.targetObjectId == pending.targetObjectId
-        && projectile.owner == pending.owner
-        && projectile.weaponId == pending.weaponId
-        && projectile.warheadId == pending.warheadId;
-    const bool strictWeapon = weapon != nullptr && warhead != nullptr
-        && runtimeParasiteWarheadIsExclusive(*weapon, *warhead);
-    const bool legalHit = causalIdentityMatches && strictWeapon
-        && target != nullptr && target->alive && target->health > 0
-        && target->type == pending.targetTypeId && targetKindMatches
-        && targetType != nullptr
-        && (pending.targetKind == ParasiteTargetKind::Infantry
-            || targetType->parasiteable)
-        && runtimeProjectileCanHitTarget(state, projectile, *target)
-        && runtimeWarheadArmorMultiplier(
-            warhead,
-            runtimeTargetArmor(state, *target)
-        ) > 0.0
-        && !runtimeParasiteObjectHasExclusiveAuthority(state, *target, true)
-        && (!state.superWeaponsInitialized
-            || !state.superWeapons.isObjectProtected(
-                target->instanceId,
-                state.tick
-            ));
-
-    const RuntimeCellPoint impactCell = target != nullptr && target->alive
-        ? runtimeCellPointForObject(*target)
-        : projectile.toCell;
-    const std::optional<RuntimeCellPoint> returnCell = source == nullptr
-        ? std::nullopt
-        : runtimeParasitePlacementCell(
-            state,
-            *source,
-            {impactCell.x, impactCell.y},
-            nullptr,
-            legalHit && pending.targetKind == ParasiteTargetKind::Infantry
-                ? target->instanceId : -1
-        );
-    ParasiteImpactRequest request;
-    request.projectileId = projectile.actorId;
-    request.currentTick = state.tick;
-    request.impact = legalHit
-        ? ParasiteImpactKind::Hit
-        : ParasiteImpactKind::Miss;
-    request.targetObjectId = target == nullptr
-        ? pending.targetObjectId
-        : target->instanceId;
-    request.targetTypeId = target == nullptr
-        ? pending.targetTypeId
-        : target->type;
-    request.targetKind = pending.targetKind;
-    request.targetPresent = target != nullptr;
-    request.targetAlive = target != nullptr && target->alive
-        && target->health > 0;
-    request.targetParasiteable = targetType != nullptr
-        && (target->kind == WorldObjectKind::Infantry
-            || targetType->parasiteable);
-    request.targetMaximumHealth = targetType == nullptr
-        ? std::max(1, pending.targetMaximumHealth)
-        : std::max(1, targetType->strength);
-    request.impactCell = {impactCell.x, impactCell.y};
-    request.returnCellAvailable = returnCell.has_value();
-    if (returnCell.has_value()) {
-        request.returnCell = {returnCell->x, returnCell->y};
-    }
-
-    RuntimeSpecialMechanismState specialCandidate =
-        state.specialMechanisms;
-    const ParasiteOperationResult resolved =
-        specialCandidate.resolveParasiteImpact(
-            request,
-            SpecialEventSink{}
-        );
-    const std::vector<SpecialMechanismAction> prepared =
-        prepareRuntimeParasiteActions(state, resolved.actions);
-    if (!resolved.accepted
-        || !validateRuntimeParasiteActionBatch(state, prepared)) {
-        state.simulationStatus = resolved.reason.empty()
-            ? "parasite impact action rejected atomically"
-            : "parasite impact rejected: " + resolved.reason;
-        return true;
-    }
-
-    state.specialMechanisms = std::move(specialCandidate);
-    const RuntimeParasiteActionApplyResult applied =
-        applyRuntimeParasiteActionsAtomically(
-            state,
-            prepared,
-            runtimeDeathWeaponCauseForProjectile(projectile),
-            pending.sourceObjectId
-        );
-    if (!applied.accepted) {
-        state.simulationStatus =
-            "parasite impact commit rejected unexpectedly";
-        return true;
-    }
-    RuntimeProjectileEffect relationshipImpact = projectile;
-    relationshipImpact.impactAnimId.clear();
-    relationshipImpact.particleId.clear();
-    relationshipImpact.damage = 0;
-    relationshipImpact.cellSpread = 0.0;
-    relationshipImpact.bright = false;
-    relationshipImpact.reportSoundId.clear();
-    recordRuntimeProjectileReplayEvent(
-        state,
-        relationshipImpact,
-        "ProjectileImpact"
-    );
-    ++state.actionSummary.impactsThisTick;
-    (void)drainRuntimeObjectExitQueue(state);
-    state.simulationStatus = legalHit
-        ? "parasite impact accepted"
-        : "parasite impact resolved as miss";
-    return true;
+namespace {
+class ParasiteImpactHostQueries final : public concord::simulation::abilities::RuntimeParasiteImpactQueries {
+ RuntimeProductionHostState& state_;
+ ParasiteAdmissionHostQueries admission_;
+public:
+ explicit ParasiteImpactHostQueries(RuntimeProductionHostState& state) noexcept : state_(state), admission_(state) {}
+ const std::map<int, ParasitePendingLaunchState>& pendingLaunches() const override { return state_.specialMechanisms.pendingParasiteLaunches(); }
+ const WorldObjectInstance* findObject(int id) const override { return findObjectById(state_, id); }
+ const WarheadType* warheadType(const std::string& id) const override { return findRuntimeWarheadType(state_.rules, id); }
+ const WeaponType* weaponType(const std::string& id) const override { return findRuntimeWeaponType(state_.rules, id); }
+ const UnitType* unitType(const WorldObjectInstance& target) const override { return findRuntimeUnitType(state_.rules, target); }
+ bool projectileCanHitTarget(const RuntimeProjectileEffect& p, const WorldObjectInstance& target) const override { return runtimeProjectileCanHitTarget(state_, p, target); }
+ std::string targetArmor(const WorldObjectInstance& target) const override { return runtimeTargetArmor(state_, target); }
+ double warheadArmorMultiplier(const WarheadType* warhead, const std::string& armor) const override { return runtimeWarheadArmorMultiplier(warhead, armor); }
+ const concord::simulation::abilities::RuntimeParasiteAdmissionQueries& admission() const noexcept override { return admission_; }
+ bool superWeaponsInitialized() const noexcept override { return state_.superWeaponsInitialized; }
+ bool isObjectProtected(int objectId, int tick) const override { return state_.superWeapons.isObjectProtected(objectId, tick); }
+ RuntimeDeathWeaponCause deathWeaponCause(const RuntimeProjectileEffect& p) const override { return runtimeDeathWeaponCauseForProjectile(p); }
+ void recordReplay(const RuntimeProjectileEffect& p, const std::string& event) override { recordRuntimeProjectileReplayEvent(state_, p, event); }
+ int& impactsThisTick() noexcept override { return state_.actionSummary.impactsThisTick; }
+ void drainObjectExitQueue() override { (void)drainRuntimeObjectExitQueue(state_); }
+ std::string& status() noexcept override { return state_.simulationStatus; }
+};
+}
+bool applyRuntimeParasiteProjectileImpactExclusive(RuntimeProductionHostState& state, const RuntimeProjectileEffect& projectile) {
+ ParasiteImpactHostQueries queries(state);
+ ParasiteAtomicPrimitivePorts atomicPorts(state);
+ ParasiteAtomicCandidateFactory factory(state.specialMechanisms);
+ return concord::simulation::abilities::applyRuntimeParasiteProjectileImpactExclusive(queries, atomicPorts, factory, projectile);
 }
 
+namespace {
+class ParasiteHostEventHostQueries final : public concord::simulation::abilities::RuntimeParasiteHostEventQueries {
+    const RuntimeGameSessionState& state_;
+    ParasiteActionQueries actions_;
+public:
+    explicit ParasiteHostEventHostQueries(const RuntimeGameSessionState& state) noexcept : state_(state), actions_(state) {}
+    const std::map<int, ParasiteLinkState>& links() const override { return state_.specialMechanisms.parasiteLinks(); }
+    const int& liveTick() const noexcept override { return state_.tick; }
+    const std::unordered_set<int>& pendingExitIds() const noexcept override { return state_.pendingObjectExitIds; }
+    const concord::simulation::abilities::RuntimeParasiteActionQueries& actions() const noexcept override { return actions_; }
+    RuntimeCellPoint objectCell(const WorldObjectInstance& object) const override { return runtimeCellPointForObject(object); }
+};
+}
 bool handleRuntimeParasiteHostEvent(
     RuntimeProductionHostState& state,
     int targetObjectId,
     ParasiteHostEventKind event,
     int stunTicks) {
     ensureRuntimeSpecialMechanismsInitialized(state);
-    const auto link = state.specialMechanisms.parasiteLinks().find(
-        targetObjectId
-    );
-    if (link == state.specialMechanisms.parasiteLinks().end()) {
-        return true;
-    }
-    const int sourceObjectId = link->second.sourceObjectId;
-    const WorldObjectInstance* target =
-        findRuntimeObjectByIdIncludingInactive(state, targetObjectId);
-    const WorldObjectInstance* source =
-        findRuntimeObjectByIdIncludingInactive(
-            state,
-            sourceObjectId
-        );
-    const RuntimeCellPoint targetCell = target == nullptr
-        ? RuntimeCellPoint{}
-        : runtimeCellPointForObject(*target);
-    const std::optional<RuntimeCellPoint> ejectCell = source == nullptr
-        ? std::nullopt
-        : runtimeParasitePlacementCell(
-            state,
-            *source,
-            {targetCell.x, targetCell.y}
-        );
-    ParasiteHostEventRequest request;
-    request.currentTick = state.tick;
-    request.targetObjectId = targetObjectId;
-    request.event = event;
-    request.ejectCellAvailable = ejectCell.has_value();
-    if (ejectCell.has_value()) {
-        request.ejectCell = {ejectCell->x, ejectCell->y};
-    }
-    request.stunTicks = std::max(0, stunTicks);
-
-    RuntimeSpecialMechanismState specialCandidate =
-        state.specialMechanisms;
-    const ParasiteOperationResult handled =
-        specialCandidate.handleParasiteHostEvent(
-            request,
-            SpecialEventSink{}
-        );
-    const std::vector<SpecialMechanismAction> prepared =
-        prepareRuntimeParasiteActions(state, handled.actions);
-    if (!handled.accepted
-        || !validateRuntimeParasiteActionBatch(state, prepared)) {
-        state.simulationStatus = handled.reason.empty()
-            ? "parasite host event rejected atomically"
-            : "parasite host event rejected: " + handled.reason;
-        return false;
-    }
-    state.specialMechanisms = std::move(specialCandidate);
-    const RuntimeParasiteActionApplyResult applied =
-        applyRuntimeParasiteActionsAtomically(
-            state,
-            prepared,
-            {},
-            sourceObjectId
-        );
-    if (!applied.accepted) {
-        state.simulationStatus =
-            "parasite host event commit rejected unexpectedly";
-        return false;
-    }
-    return true;
+    ParasiteHostEventHostQueries queries(state);
+    ParasiteAtomicPrimitivePorts atomicPorts(state);
+    ParasiteAtomicCandidateFactory factory(state.specialMechanisms);
+    return concord::simulation::abilities::handleRuntimeParasiteHostEvent(
+        queries, atomicPorts, factory, state.simulationStatus,
+        targetObjectId, event, stunTicks);
 }
 
 bool preflightRuntimeParasiteHostEvent(
@@ -17081,484 +16268,443 @@ bool preflightRuntimeParasiteHostEvent(
     ParasiteHostEventKind event,
     int stunTicks) {
     ensureRuntimeSpecialMechanismsInitialized(state);
-    const auto link = state.specialMechanisms.parasiteLinks().find(
-        targetObjectId
-    );
-    if (link == state.specialMechanisms.parasiteLinks().end()) {
-        return true;
-    }
-    const int sourceObjectId = link->second.sourceObjectId;
-    const WorldObjectInstance* target =
-        findRuntimeObjectByIdIncludingInactive(state, targetObjectId);
-    const WorldObjectInstance* source =
-        findRuntimeObjectByIdIncludingInactive(state, sourceObjectId);
-    const RuntimeCellPoint targetCell = target == nullptr
-        ? RuntimeCellPoint{}
-        : runtimeCellPointForObject(*target);
-    const std::optional<RuntimeCellPoint> ejectCell = source == nullptr
-        ? std::nullopt
-        : runtimeParasitePlacementCell(
-            state,
-            *source,
-            {targetCell.x, targetCell.y}
-        );
-    ParasiteHostEventRequest request;
-    request.currentTick = state.tick;
-    request.targetObjectId = targetObjectId;
-    request.event = event;
-    request.ejectCellAvailable = ejectCell.has_value();
-    if (ejectCell.has_value()) {
-        request.ejectCell = {ejectCell->x, ejectCell->y};
-    }
-    request.stunTicks = std::max(0, stunTicks);
-
-    RuntimeSpecialMechanismState specialCandidate =
-        state.specialMechanisms;
-    const ParasiteOperationResult handled =
-        specialCandidate.handleParasiteHostEvent(
-            request,
-            SpecialEventSink{}
-        );
-    const std::vector<SpecialMechanismAction> prepared =
-        prepareRuntimeParasiteActions(state, handled.actions);
-    return handled.accepted
-        && validateRuntimeParasiteActionBatch(state, prepared);
+    ParasiteHostEventHostQueries queries(state);
+    ParasiteAtomicCandidateFactory factory(state.specialMechanisms);
+    return concord::simulation::abilities::preflightRuntimeParasiteHostEvent(
+        queries, factory, targetObjectId, event, stunTicks);
 }
 
+namespace {
+class ParasiteChronoMoveCandidateFactory;
+class ParasiteChronoMoveOwnedCandidate final {
+    RuntimeSpecialMechanismState value_;
+    friend class ParasiteChronoMoveCandidateFactory;
+public:
+    explicit ParasiteChronoMoveOwnedCandidate(const RuntimeSpecialMechanismState& source) : value_(source) {}
+    ParasiteChronoMoveOwnedCandidate(const ParasiteChronoMoveOwnedCandidate&) = delete;
+    ParasiteChronoMoveOwnedCandidate(ParasiteChronoMoveOwnedCandidate&&) = delete;
+    ParasiteChronoMoveOwnedCandidate& operator=(const ParasiteChronoMoveOwnedCandidate&) = delete;
+    ParasiteChronoMoveOwnedCandidate& operator=(ParasiteChronoMoveOwnedCandidate&&) = delete;
+    const std::map<int, ParasiteLinkState>& links() const { return value_.parasiteLinks(); }
+    ParasiteOperationResult handle(const ParasiteHostEventRequest& request) {
+        return value_.handleParasiteHostEvent(request, SpecialEventSink{});
+    }
+};
+class ParasiteChronoMoveCandidateFactory {
+    RuntimeSpecialMechanismState& canonical_;
+    const RulesDatabase& rules_;
+    const int& tick_;
+    const int& fixedTickHz_;
+public:
+    ParasiteChronoMoveCandidateFactory(RuntimeSpecialMechanismState& canonical,
+        const RulesDatabase& rules, const int& tick, const int& fixedTickHz) noexcept
+        : canonical_(canonical), rules_(rules), tick_(tick), fixedTickHz_(fixedTickHz) {}
+    ParasiteChronoMoveOwnedCandidate copyCandidate() const { return ParasiteChronoMoveOwnedCandidate(canonical_); }
+    bool requestMove(ParasiteChronoMoveOwnedCandidate& candidate,
+        std::vector<WorldObjectInstance>& objects, int objectId,
+        SpecialCell destination, int destinationLevel,
+        const SpecialCellPredicate& cellIsLegal, const SpecialCellPredicate& cellIsOccupied,
+        std::string& reason) const {
+        return candidate.value_.requestChronoMove(objects, rules_, objectId,
+            destination, destinationLevel, tick_, cellIsLegal, cellIsOccupied,
+            SpecialEventSink{}, reason, fixedTickHz_);
+    }
+    void commitCandidate(ParasiteChronoMoveOwnedCandidate& candidate) {
+        canonical_ = std::move(candidate.value_);
+    }
+};
+class ParasiteChronoMoveHostQueries final : public concord::simulation::abilities::RuntimeParasiteChronoMoveQueries {
+    RuntimeProductionHostState& state_;
+    ParasiteActionQueries actions_;
+public:
+    explicit ParasiteChronoMoveHostQueries(RuntimeProductionHostState& state) noexcept : state_(state), actions_(state) {}
+    bool managedByAirstrike(int id) const override { return runtimeObjectManagedByAirstrike(state_, id); }
+    bool suspendedByMagBeam(int id) const override { return runtimeObjectSuspendedByMagBeam(state_, id); }
+    const WorldObjectInstance* canonicalObject(int id) const override { return findObjectById(state_, id); }
+    bool allowsMoveToCell(const WorldObjectInstance& object, const RuntimeCellPoint& point) const override {
+        return runtimeObjectAllowsMoveToCell(state_, object, point);
+    }
+    std::vector<WorldObjectInstance> copyObjects() const override { return state_.world.getObjects(); }
+    const concord::simulation::abilities::RuntimeParasiteActionQueries& actions() const noexcept override { return actions_; }
+    const std::unordered_set<int>& pendingExitIds() const noexcept override { return state_.pendingObjectExitIds; }
+    RuntimeCellPoint objectCell(const WorldObjectInstance& object) const override { return runtimeCellPointForObject(object); }
+    const int& liveTick() const noexcept override { return state_.tick; }
+    const int& fixedTickHz() const noexcept override { return state_.config.fixedTickHz; }
+};
+class ParasiteChronoMoveHostPorts final : public concord::simulation::abilities::RuntimeParasiteChronoMoveHostPorts {
+    RuntimeProductionHostState& state_;
+public:
+    explicit ParasiteChronoMoveHostPorts(RuntimeProductionHostState& state) noexcept : state_(state) {}
+    void ensureInitialized() override { ensureRuntimeSpecialMechanismsInitialized(state_); }
+    WorldObjectInstance* mutableCanonicalObject(int id) override { return findMutableObjectById(state_, id); }
+    void warpOutAndClearBorrowed(WorldObjectInstance& moved, int objectId, std::string& reason) override {
+        runtimeSpecialEventSink(state_)({"ChronoWarpOut", state_.tick, objectId, -1, 0,
+            {moved.x, moved.y}, reason});
+        clearRuntimeRenderPosition(moved);
+    }
+};
+}
 bool requestRuntimeChronoMoveWithParasite(
-    RuntimeProductionHostState& state,
-    int objectId,
-    SpecialCell destination,
-    int destinationLevel,
-    const SpecialCellPredicate& cellIsLegal,
-    const SpecialCellPredicate& cellIsOccupied,
-    std::string& reason) {
-    if (runtimeObjectManagedByAirstrike(state, objectId)) {
-        reason = "chrono move rejected: Airstrike owns plane";
-        return false;
-    }
-    if (runtimeObjectSuspendedByMagBeam(state, objectId)) {
-        reason = "chrono move rejected: mag beam owns locomotor";
-        return false;
-    }
-    const auto* mover = findObjectById(state, objectId);
-    if (mover != nullptr && !runtimeObjectAllowsMoveToCell(state, *mover, {destination.x, destination.y})) {
-        reason = "chrono move rejected: destination is shrouded for the unit's owner";
-        return false;
-    }
-    ensureRuntimeSpecialMechanismsInitialized(state);
-    RuntimeSpecialMechanismState specialCandidate =
-        state.specialMechanisms;
-    std::vector<WorldObjectInstance> objectCandidate =
-        state.world.getObjects();
-    if (!specialCandidate.requestChronoMove(
-            objectCandidate,
-            state.rules,
-            objectId,
-            destination,
-            destinationLevel,
-            state.tick,
-            cellIsLegal,
-            cellIsOccupied,
-            SpecialEventSink{},
-            reason,
-            state.config.fixedTickHz
-        )) {
-        return false;
-    }
-
-    std::vector<SpecialMechanismAction> parasiteActions;
-    const auto link = specialCandidate.parasiteLinks().find(objectId);
-    if (link != specialCandidate.parasiteLinks().end()) {
-        const WorldObjectInstance* target = findObjectById(state, objectId);
-        const WorldObjectInstance* source =
-            findRuntimeObjectByIdIncludingInactive(
-                state,
-                link->second.sourceObjectId
-            );
-        const RuntimeCellPoint targetCell = target == nullptr
-            ? RuntimeCellPoint{}
-            : runtimeCellPointForObject(*target);
-        const std::optional<RuntimeCellPoint> ejectCell = source == nullptr
-            ? std::nullopt
-            : runtimeParasitePlacementCell(
-                state,
-                *source,
-                {targetCell.x, targetCell.y}
-            );
-        ParasiteHostEventRequest teleporting;
-        teleporting.currentTick = state.tick;
-        teleporting.targetObjectId = objectId;
-        teleporting.event = ParasiteHostEventKind::Teleporting;
-        teleporting.ejectCellAvailable = ejectCell.has_value();
-        if (ejectCell.has_value()) {
-            teleporting.ejectCell = {ejectCell->x, ejectCell->y};
-        }
-        teleporting.stunTicks = std::max(1, state.config.fixedTickHz);
-        const ParasiteOperationResult handled =
-            specialCandidate.handleParasiteHostEvent(
-                teleporting,
-                SpecialEventSink{}
-            );
-        parasiteActions = prepareRuntimeParasiteActions(
-            state,
-            handled.actions
-        );
-        if (!handled.accepted
-            || !validateRuntimeParasiteActionBatch(
-                state,
-                parasiteActions
-            )) {
-            reason = handled.reason.empty()
-                ? "parasite teleport event rejected atomically"
-                : handled.reason;
-            return false;
-        }
-    }
-
-    const auto shadow = std::find_if(
-        objectCandidate.begin(),
-        objectCandidate.end(),
-        [objectId](const WorldObjectInstance& object) {
-            return object.instanceId == objectId;
-        }
-    );
-    WorldObjectInstance* live = findMutableObjectById(state, objectId);
-    if (shadow == objectCandidate.end() || live == nullptr || !live->alive) {
-        reason = "chrono object disappeared before commit";
-        return false;
-    }
-    state.specialMechanisms = std::move(specialCandidate);
-    live->mission = shadow->mission;
-    const RuntimeParasiteActionApplyResult applied =
-        applyRuntimeParasiteActionsAtomically(
-            state,
-            parasiteActions,
-            {},
-            objectId
-        );
-    if (!applied.accepted) {
-        reason = "parasite teleport action commit rejected";
-        return false;
-    }
-    if (auto* moved = findMutableObjectById(state, objectId)) {
-        runtimeSpecialEventSink(state)({"ChronoWarpOut", state.tick, objectId, -1, 0,
-            {moved->x, moved->y}, reason});
-        clearRuntimeRenderPosition(*moved);
-    }
-    return true;
+    RuntimeProductionHostState& state, int objectId, SpecialCell destination,
+    int destinationLevel, const SpecialCellPredicate& cellIsLegal,
+    const SpecialCellPredicate& cellIsOccupied, std::string& reason) {
+    ParasiteChronoMoveHostQueries queries(state);
+    ParasiteChronoMoveHostPorts hostPorts(state);
+    ParasiteAtomicPrimitivePorts atomicPorts(state);
+    ParasiteChronoMoveCandidateFactory chronoFactory(
+        state.specialMechanisms, state.rules, state.tick, state.config.fixedTickHz);
+    ParasiteAtomicCandidateFactory atomicFactory(state.specialMechanisms);
+    return concord::simulation::abilities::requestRuntimeChronoMoveWithParasite(
+        queries, hostPorts, atomicPorts, chronoFactory, atomicFactory, objectId,
+        destination, destinationLevel, cellIsLegal, cellIsOccupied, reason);
 }
 
+namespace {
+class SessionChronoOccupancyQueries final : public concord::simulation::abilities::RuntimeChronoOccupancyQueries {
+    const RuntimeGameSessionState& state_;
+public:
+    explicit SessionChronoOccupancyQueries(const RuntimeGameSessionState& state) : state_(state) {}
+    const WorldObjectInstance* findObject(int objectId) const override { return findObjectById(state_, objectId); }
+    bool usesGroundSubcells(const WorldObjectInstance& object) const override { return runtimeInfantryUsesGroundSubcells(object); }
+    std::vector<int> availableSubcells(const WorldObjectInstance& object, const RuntimeCellPoint& destination) const override {
+        return runtimeAvailableInfantrySubcells(state_, object, destination);
+    }
+    int cellKey(int x, int y) const override { return runtimeCellKey(x, y); }
+};
+}
 bool runtimeChronoCellIsOccupied(
-    const RuntimeGameSessionState& state, const std::unordered_map<int,int>& occupied,
-    int x, int y, int objectId) {
-    const auto* object=findObjectById(state,objectId);
-    if(object && runtimeInfantryUsesGroundSubcells(*object))
-        return runtimeAvailableInfantrySubcells(state,*object,{x,y}).empty();
-    const auto found=occupied.find(runtimeCellKey(x,y));
-    return found!=occupied.end() && found->second!=objectId;
+    const RuntimeGameSessionState& state,const std::unordered_map<int,int>& occupied,
+    int x,int y,int objectId) {
+    const SessionChronoOccupancyQueries queries(state);
+    return concord::simulation::abilities::runtimeChronoCellIsOccupied(occupied, x, y, objectId, queries);
 }
 
+namespace {
+class SessionChronoWarpQueries final : public concord::simulation::abilities::RuntimeChronoWarpQueries {
+    RuntimeProductionHostState& state_;
+public:
+    explicit SessionChronoWarpQueries(RuntimeProductionHostState& state) : state_(state) {}
+    WorldObjectInstance* mutableObject(int id) override { return findMutableObjectById(state_, id); }
+    std::optional<bool> destinationAdmission(const WorldObjectInstance& object, const RuntimeCellPoint& point) const override {
+        return runtimeChronoTransportDestinationAdmission(state_, object, point);
+    }
+    const int* pendingTarget(int id) const override {
+        const auto pending = state_.pendingTransportTargets.find(id);
+        return pending == state_.pendingTransportTargets.end() ? nullptr : &pending->second;
+    }
+    const WorldObjectInstance* object(int id) const override { return findObjectById(state_, id); }
+    int canonicalCell(int x, int y) const override { return runtimeCellKey(x, y); }
+    bool bridge(int x, int y) const override { return runtimeCellIsBridge(state_, x, y); }
+    bool groundSubcells(const WorldObjectInstance& object) const override { return runtimeInfantryUsesGroundSubcells(object); }
+    const SpecialMechanismRules& specialRules() const override { return state_.rules.getSpecialMechanismRules(); }
+    WorldObjectCellOffset subcellOffset(const WorldObjectInstance& object) const override { return worldObjectSubCellOffset(object); }
+    concord::simulation::abilities::RuntimeChronoBoardingPose boardingPose(const WorldObjectInstance& object) const override {
+        const auto hull = runtimeTransportMotionBody(object);
+        return {hull.x, hull.y, hull.level};
+    }
+    const UnitType* unitType(const WorldObjectInstance& object) const override { return findRuntimeUnitType(state_.rules, object); }
+    RuntimeSpatialAudioPosition spatialPosition(const WorldObjectInstance& object) const override { return runtimeSpatialAudioPositionForObject(object); }
+};
+class SessionChronoWarpArrival final : public concord::simulation::abilities::RuntimeChronoWarpArrivalActions {
+    RuntimeProductionHostState& state_;
+public:
+    explicit SessionChronoWarpArrival(RuntimeProductionHostState& state) : state_(state) {}
+    void releaseSubcellReservation(int id) override { releaseRuntimeInfantrySubcellReservation(state_, id); }
+    void assignSubcell(WorldObjectInstance& object) override { assignRuntimeInfantrySubcellAtCurrentLocation(state_, object); }
+    void clearRenderPosition(WorldObjectInstance& object) override { clearRuntimeRenderPosition(object); }
+    void refreshOccupancy() override { refreshRuntimeObjectOccupancyAfterLocalChange(state_); }
+    void invalidateProjection() override { invalidateRuntimeObjectProjectionCache(state_); }
+};
+class SessionChronoWarpFeedback final : public concord::simulation::abilities::RuntimeChronoWarpFeedback {
+    RuntimeProductionHostState& state_;
+    std::optional<RuntimeImpactEffect> effect_;
+public:
+    explicit SessionChronoWarpFeedback(RuntimeProductionHostState& state) : state_(state) {}
+    void beginEffect(const WorldObjectInstance& object) override {
+        effect_.emplace();
+        auto& effect = *effect_;
+        effect.attackerObjectId = object.instanceId;
+        effect.targetObjectId = object.instanceId;
+        effect.owner = object.owner;
+        effect.cell = {object.x, object.y};
+        effect.level = object.level;
+        effect.hasWorldPosition = true;
+    }
+    void worldPosition(double x, double y, double level) noexcept override {
+        effect_->worldX = x; effect_->worldY = y; effect_->worldLevel = level;
+    }
+    void facingAndLifecycle(int facing, const char* lifecycle) override {
+        effect_->facing = facing;
+        effect_->lifecycleState = lifecycle;
+        effect_->renderIntent = "chronoWarp";
+    }
+    void animation(const std::string& id) override { effect_->animId = id; }
+    const std::string& animation() const noexcept override { return effect_->animId; }
+    void initializeAndAppend() override {
+        initializeRuntimeImpactAnimationTimeline(state_, *effect_, true);
+        state_.impactEffects.push_back(std::move(*effect_));
+    }
+    void sound(const std::string& intent, RuntimeSpatialAudioPosition position) override { emitRuntimeSound(state_, intent, position); }
+};
+}
 void spawnRuntimeChronoWarpEffect(
     RuntimeProductionHostState& state, const SpecialMechanismEvent& event, bool playSound) {
-    WorldObjectInstance* object = findMutableObjectById(state, event.objectId);
-    if (object == nullptr || !object->alive) return;
-    const bool reinforcement = event.kind == "ChronoReinforcementIn";
-    const bool arriving = reinforcement || event.kind == "ChronoWarpIn";
-    const auto boarding = arriving && !reinforcement
-        ? runtimeChronoTransportDestinationAdmission(state, *object, runtimeCellPointForObject(*object))
-        : std::optional<bool>{};
-    const auto pendingHost = state.pendingTransportTargets.find(object->instanceId);
-    const auto* boardingHost = boarding && *boarding && pendingHost != state.pendingTransportTargets.end()
-        ? findObjectById(state, pendingHost->second) : nullptr;
-    if (arriving) {
-        // The standalone mechanism uses a packed 512-wide cell identifier;
-        // runtime occupancy and saves use the canonical runtime cell key.
-        object->cell = runtimeCellKey(object->x, object->y);
-        object->onBridge = runtimeCellIsBridge(state, object->x, object->y);
-        if(runtimeInfantryUsesGroundSubcells(*object)) {
-            releaseRuntimeInfantrySubcellReservation(state,object->instanceId);
-            if (boardingHost) object->subCell = -1;
-            else assignRuntimeInfantrySubcellAtCurrentLocation(state,*object);
-        }
-        clearRuntimeRenderPosition(*object);
-        refreshRuntimeObjectOccupancyAfterLocalChange(state);
-        invalidateRuntimeObjectProjectionCache(state);
-    }
-    const auto& rules = state.rules.getSpecialMechanismRules();
-    RuntimeImpactEffect effect;
-    effect.attackerObjectId = object->instanceId;
-    effect.targetObjectId = object->instanceId;
-    effect.owner = object->owner;
-    effect.cell = {object->x, object->y};
-    effect.level = object->level;
-    effect.hasWorldPosition = true;
-    const auto offset = worldObjectSubCellOffset(*object);
-    effect.worldX = (object->hasRenderPosition ? object->renderX : object->x) + offset.x;
-    effect.worldY = (object->hasRenderPosition ? object->renderY : object->y) + offset.y;
-    effect.worldLevel = object->hasRenderPosition ? object->renderLevel : object->level;
-    if (boardingHost) {
-        const auto hull = runtimeTransportMotionBody(*boardingHost);
-        effect.worldX = hull.x; effect.worldY = hull.y; effect.worldLevel = hull.level;
-    }
-    effect.facing = object->facing;
-    effect.lifecycleState = reinforcement ? "ChronoReinforcementIn"
-        : arriving ? "ChronoWarpIn" : "ChronoWarpOut";
-    effect.renderIntent = "chronoWarp";
-    // Retail TeleportLocomotionClass uses Rules::WarpOut at BOTH ends.
-    // WarpIn is a separate, red animation used by chrono reinforcements.
-    effect.animId = reinforcement ? rules.warpInAnim : rules.warpOutAnim;
-    if (!effect.animId.empty() && toLowerAsciiLocal(effect.animId) != "none") {
-        initializeRuntimeImpactAnimationTimeline(state, effect, true);
-        state.impactEffects.push_back(std::move(effect));
-    }
-    if (playSound) {
-        const UnitType* unit = findRuntimeUnitType(state.rules, *object);
-        std::string sound = unit == nullptr ? std::string()
-            : (arriving ? unit->chronoInSound : unit->chronoOutSound);
-        if (trimAsciiLocal(sound).empty()) sound = arriving ? rules.chronoInSound : rules.chronoOutSound;
-        if (!trimAsciiLocal(sound).empty()) emitRuntimeSound(state, "sound:" + trimAsciiLocal(sound), runtimeSpatialAudioPositionForObject(*object));
-    }
+    SessionChronoWarpQueries queries(state);
+    SessionChronoWarpArrival arrival(state);
+    SessionChronoWarpFeedback feedback(state);
+    concord::simulation::abilities::applyRuntimeChronoWarpEvent(event, playSound, queries, arrival, feedback);
 }
 
+namespace {
+class SessionChronoRecoveryMoveQueries final:
+    public concord::simulation::abilities::RuntimeChronoRecoveryQueries,
+    public concord::simulation::abilities::RuntimeChronoMoveQueries {
+public:
+    explicit SessionChronoRecoveryMoveQueries(const RuntimeGameSessionState& value):state(value){}
+    bool movementLocked(int id,int currentTick)const override{return state.specialMechanisms.isChronoMovementLocked(id,currentTick);}
+    bool inTransit(int id)const override{return state.specialMechanisms.isChronoInTransit(id);}
+    const UnitType* unitType(const WorldObjectInstance& object)const override{return findRuntimeUnitType(state.rules,object);}
+    std::optional<bool> transportAdmission(const WorldObjectInstance& object,const RuntimeCellPoint& destination)const override{return runtimeChronoTransportDestinationAdmission(state,object,destination);}
+private:
+    const RuntimeGameSessionState& state;
+};
+class SessionChronoPoseEffects final:public concord::simulation::abilities::RuntimeChronoPoseEffects {
+public:
+    void clearRenderPosition(WorldObjectInstance& object)override{concord::runtime::session_detail::clearRuntimeRenderPosition(object);}
+};
+// The original request locals retain their construction and reverse destruction
+// order through the complete policy call, including its post-request effects.
+struct SessionChronoMoveRequestScratch {
+    using PendingIterator=decltype(std::declval<RuntimeProductionHostState&>().pendingTransportTargets.find(0));
+    const std::unordered_map<int,const TerrainCell*> generatedTerrain;
+    const std::unordered_map<int,const TerrainCell*>& terrain;
+    const std::unordered_map<int,int> occupied;
+    const SpecialCellPredicate legal;
+    const SpecialCellPredicate blocked;
+    std::string reason;
+    const PendingIterator pendingHost;
+    const WorldObjectInstance* host;
+    const int destinationLevel;
+    SessionChronoMoveRequestScratch(RuntimeProductionHostState& state,WorldObjectInstance& object,
+        const RuntimeCellPoint& destination,const std::optional<bool>& transportAdmission):
+        generatedTerrain(state.terrainByCell.empty()?buildRuntimeTerrainLookup(state.world):std::unordered_map<int,const TerrainCell*>{}),
+        terrain(state.terrainByCell.empty()?generatedTerrain:state.terrainByCell),
+        occupied(buildRuntimeOccupancyLookup(state)),
+        legal([&state,&object,&terrain=this->terrain,&occupied=this->occupied](int x,int y,int ignoredId){
+            if(const auto entry=runtimeChronoTransportDestinationAdmission(state,object,{x,y}))return *entry;
+            return runtimeCellIsPassable(state,terrain,occupied,{x,y},object,ignoredId);
+        }),
+        blocked([&state,&object,&occupied=this->occupied](int x,int y,int ignoredId){
+            if(const auto entry=runtimeChronoTransportDestinationAdmission(state,object,{x,y}))return !*entry;
+            return runtimeChronoCellIsOccupied(state,occupied,x,y,ignoredId);
+        }),
+        reason(),pendingHost(state.pendingTransportTargets.find(object.instanceId)),
+        host(transportAdmission&&pendingHost!=state.pendingTransportTargets.end()?findObjectById(state,pendingHost->second):nullptr),
+        destinationLevel(host?host->level:terrainLevelAtRuntimeCell(state,destination.x,destination.y)){}
+    SessionChronoMoveRequestScratch(const SessionChronoMoveRequestScratch&)=delete;
+    SessionChronoMoveRequestScratch& operator=(const SessionChronoMoveRequestScratch&)=delete;
+};
+class SessionChronoLocomotionEffects final:public concord::simulation::abilities::RuntimeChronoLocomotionEffects {
+public:
+    explicit SessionChronoLocomotionEffects(RuntimeProductionHostState& value):state(value){}
+    bool requestMove(WorldObjectInstance& object,const RuntimeCellPoint& destination,const std::optional<bool>& admission)override{
+        scratch.emplace(state,object,destination,admission);auto& scope=*scratch;
+        return requestRuntimeChronoMoveWithParasite(state,object.instanceId,{destination.x,destination.y},scope.destinationLevel,scope.legal,scope.blocked,scope.reason);
+    }
+    void releaseInfantrySubcellReservation(int id)override{concord::runtime::session_detail::releaseRuntimeInfantrySubcellReservation(state,id);}
+    void clearRenderPosition(WorldObjectInstance& object)override{concord::runtime::session_detail::clearRuntimeRenderPosition(object);}
+    void finishRequestScope()noexcept override{scratch.reset();}
+private:
+    RuntimeProductionHostState& state;
+    std::optional<SessionChronoMoveRequestScratch> scratch;
+};
+}
 bool holdRuntimeChronoRecovery(
     RuntimeGameSessionState& state, WorldObjectInstance& object, RuntimeObjectBehavior& behavior) {
-    if (!state.specialMechanismsInitialized
-        || !state.specialMechanisms.isChronoMovementLocked(object.instanceId, state.tick)) return false;
-    clearRuntimeRenderPosition(object);
-    behavior.state = RuntimeBehaviorState::Cooldown;
-    if (!state.specialMechanisms.isChronoInTransit(object.instanceId)) object.mission = "ChronoFrozen";
-    return true;
+    const SessionChronoRecoveryMoveQueries queries(state);SessionChronoPoseEffects effects;
+    return concord::simulation::abilities::holdRuntimeChronoRecovery(state.specialMechanismsInitialized,object,behavior,state.tick,queries,effects);
 }
 
 std::optional<bool> advanceRuntimeTeleporterMove(
     RuntimeProductionHostState& state, WorldObjectInstance& object,
     RuntimeObjectBehavior& behavior, RuntimeCellPoint destination) {
-    const UnitType* unit = findRuntimeUnitType(state.rules, object);
-    // Harvesters manage their drive-to-ore / blink-to-refinery cycle separately.
-    if (unit == nullptr || !unit->teleporter || unit->harvester) return std::nullopt;
-    const auto transportAdmission = runtimeChronoTransportDestinationAdmission(state, object, destination);
-    if (transportAdmission && !*transportAdmission) {
-        behavior.state = RuntimeBehaviorState::Blocked;
-        return false;
-    }
-    if (runtimeCellPointForObject(object) == destination && !transportAdmission) return std::nullopt;
-    const auto generatedTerrain = state.terrainByCell.empty()
-        ? buildRuntimeTerrainLookup(state.world) : std::unordered_map<int, const TerrainCell*>{};
-    const auto& terrain = state.terrainByCell.empty() ? generatedTerrain : state.terrainByCell;
-    const auto occupied = buildRuntimeOccupancyLookup(state);
-    const SpecialCellPredicate legal = [&](int x, int y, int ignoredId) {
-        if (const auto entry = runtimeChronoTransportDestinationAdmission(state, object, {x, y})) return *entry;
-        return runtimeCellIsPassable(state, terrain, occupied, {x, y}, object, ignoredId);
-    };
-    const SpecialCellPredicate blocked = [&](int x, int y, int ignoredId) {
-        if (const auto entry = runtimeChronoTransportDestinationAdmission(state, object, {x, y})) return !*entry;
-        return runtimeChronoCellIsOccupied(state,occupied,x,y,ignoredId);
-    };
-    std::string reason;
-    const auto pendingHost = state.pendingTransportTargets.find(object.instanceId);
-    const auto* host = transportAdmission && pendingHost != state.pendingTransportTargets.end()
-        ? findObjectById(state, pendingHost->second) : nullptr;
-    const int destinationLevel = host ? host->level : terrainLevelAtRuntimeCell(state, destination.x, destination.y);
-    if (!requestRuntimeChronoMoveWithParasite(state, object.instanceId,
-            {destination.x, destination.y}, destinationLevel,
-            legal, blocked, reason)) {
-        behavior.state = RuntimeBehaviorState::Blocked;
-        return false;
-    }
-    behavior.path.clear();
-    behavior.pathRequestPending = false;
-    behavior.moveCooldownTicks = 0;
-    behavior.renderMoveTicksRemaining = 0;
-    behavior.blockedTicks = 0;
-    behavior.state = RuntimeBehaviorState::Cooldown;
-    releaseRuntimeInfantrySubcellReservation(state, object.instanceId);
-    clearRuntimeRenderPosition(object);
-    return true;
+    const SessionChronoRecoveryMoveQueries queries(state);SessionChronoLocomotionEffects effects(state);
+    return concord::simulation::abilities::advanceRuntimeTeleporterMove(object,behavior,destination,queries,effects);
 }
 
+namespace {
+class SessionTemporalAttackQueries final : public concord::simulation::abilities::RuntimeTemporalAttackQueries {
+public:
+    explicit SessionTemporalAttackQueries(RuntimeProductionHostState& value) : state(value) {}
+    const WorldObjectInstance* target(int id) const override { return findObjectById(state,id); }
+    const WorldObjectInstance* sourceIncludingInactive(int id) const override { return findRuntimeObjectByIdIncludingInactive(state,id); }
+    const RuntimeObjectBehavior* order(int id) const override {
+        const auto found=state.behaviors.find(id);return found==state.behaviors.end()?nullptr:&found->second;
+    }
+    const RuntimeCombatFireCursor* cursor(int id) const override {
+        const auto found=state.combatDetails.fireCursors.find(id);return found==state.combatDetails.fireCursors.end()?nullptr:&found->second;
+    }
+    bool canAct(const WorldObjectInstance& object) const override { return runtimeCombatCanAct(state,object); }
+    bool deckProtected(const WorldObjectInstance& object) const override { return runtimeCarrierAircraftHasDeckProtection(state,object); }
+    bool allied(const std::string& a,const std::string& b) const override { return runtimeOwnersAreAllied(state,a,b); }
+    bool validPassenger(const WorldObjectInstance& source,const WorldObjectInstance& host) const override { return runtimeCombatValidPassenger(source,host); }
+    const UnitType* unitType(const WorldObjectInstance& source) const override { return findRuntimeUnitType(state.rules,source); }
+    concord::simulation::abilities::RuntimeTemporalAttackWeaponView selectWeapon(bool valid,
+        const WorldObjectInstance* source,const WorldObjectInstance* target,
+        const WorldObjectInstance* host,bool forceFire) override {
+        profile.emplace(!valid ? RuntimeWeaponProfile{}
+            : host ? runtimeCombatPassengerWeaponProfile(state,*source,target,forceFire)
+            : runtimeWeaponProfileForObject(state,*source,target,forceFire));
+        return {profile->weapon,profile->warhead};
+    }
+    void finishWeaponScope() noexcept override { profile.reset(); }
+    WorldObjectInstance firingPose(const WorldObjectInstance& source,const WorldObjectInstance* host) const override { return runtimeCombatFiringPose(source,host); }
+    double openToppedWarpDistance() const override { return state.rules.getCombatDetailRules().openToppedWarpDistance; }
+    double effectiveWeaponRange(const WorldObjectInstance& pose,const WorldObjectInstance& target,const WeaponType& weapon) const override { return runtimeEffectiveWeaponRange(state,pose,target,weapon); }
+    double cellDistance(const WorldObjectInstance& host,const WorldObjectInstance& target) const override { return runtimeCellDistanceToObjectFootprint(state,runtimeCellPointForObject(host),target); }
+    double weaponDistance(const WorldObjectInstance& pose,const WorldObjectInstance& target,const WeaponType& weapon) const override { return runtimeWeaponDistanceToTarget(state,pose,target,weapon); }
+    bool visible(const std::string& owner,const WorldObjectInstance& target) const override { return runtimeObjectVisibleToOwner(state,owner,target); }
+    bool lineOfSight(const WorldObjectInstance& pose,const WorldObjectInstance& target,const WeaponType& weapon) const override { return runtimeWeaponHasLineOfSight(state,pose,target,weapon); }
+private:
+    RuntimeProductionHostState& state;
+    std::optional<RuntimeWeaponProfile> profile;
+};
+class SessionTemporalAttackEffects final : public concord::simulation::abilities::RuntimeTemporalAttackEffects {
+public:
+    explicit SessionTemporalAttackEffects(RuntimeProductionHostState& value) : state(value) {}
+    SpecialEventSink eventSink() override { return runtimeSpecialEventSink(state); }
+    bool beginTick(int targetId,int tick) override { return state.specialMechanisms.beginTemporalTick(targetId,tick); }
+    void clearAttacker(int attackerId,int targetId,int tick,const SpecialEventSink& sink,const std::string& reason) override {
+        state.specialMechanisms.clearTemporalAttacker(attackerId,targetId,tick,sink,reason);
+    }
+    bool applyHit(int attackerId,int targetId,int progress,int required,int tick,
+        const SpecialEventSink& sink,bool& completed,std::string& reason,bool forceFire) override {
+        return state.specialMechanisms.applyTemporalHit(state.world.accessObjects(),state.rules,
+            attackerId,targetId,progress,required,tick,
+            [this](const std::string& a,const std::string& b){return runtimeOwnersAreAllied(state,a,b);},
+            sink,completed,reason,forceFire);
+    }
+    void queueTemporalExit(int targetId,int attackerId,const WorldObjectInstance& source) override {
+        RuntimeObjectExitRequest exit;
+        exit.objectId=targetId;
+        exit.kind=RuntimeObjectExitKind::TemporalDestroyed;
+        exit.tick=state.tick;
+        exit.mission="TemporalRemoved";
+        exit.reason="temporal continuous erasure complete";
+        exit.sourceObjectId=attackerId;
+        exit.sourceOwner=source.owner;
+        exit.suppressDeathWeapon=true;
+        queueRuntimeObjectExit(state,std::move(exit));
+    }
+    bool drainExitQueue() override { return drainRuntimeObjectExitQueue(state); }
+    void emitUnitLostSound() override { emitRuntimeSound(state,runtimeSoundIntentUnitLost); }
+private:
+    RuntimeProductionHostState& state;
+};
+}
 bool advanceRuntimeTemporalAttacks(RuntimeProductionHostState& state) {
-    if (state.specialMechanisms.temporalTargets().empty()) return false;
-    // Work from IDs: completion and interruption mutate the relationship map.
-    const auto targets = state.specialMechanisms.temporalTargets();
-    const auto sink = runtimeSpecialEventSink(state);
-    bool changed = false;
-    bool playerObjectLost = false;
-    for (const auto& [targetId, temporal] : targets) {
-        const int previousTick = temporal.lastAdvancedTick < 0
-            ? std::max(0, state.tick - 1) : temporal.lastAdvancedTick;
-        if (!state.specialMechanisms.beginTemporalTick(targetId, state.tick)) continue;
-        const auto frames = runtimeRuleFrameAtTick(state.tick, state.config.fixedTickHz)
-            - runtimeRuleFrameAtTick(previousTick, state.config.fixedTickHz);
-        for (const auto& [attackerId, unusedProgress] : temporal.progressByAttacker) {
-            const auto* target = findObjectById(state, targetId);
-            const auto* source = findRuntimeObjectByIdIncludingInactive(state, attackerId);
-            const WorldObjectInstance* host = nullptr;
-            const auto explicitOrder = state.behaviors.find(attackerId);
-            const bool forceFire = explicitOrder != state.behaviors.end()
-                && explicitOrder->second.kind == RuntimeBehaviorKind::Attack
-                && explicitOrder->second.targetObjectId == targetId && explicitOrder->second.forceFire;
-            bool valid = source && target && target->health > 0 && runtimeCombatCanAct(state, *source)
-                && !runtimeCarrierAircraftHasDeckProtection(state, *target)
-                && (forceFire || !runtimeOwnersAreAllied(state, source->owner, target->owner));
-            if (valid && !source->alive) {
-                const auto cursor = state.combatDetails.fireCursors.find(attackerId);
-                if (cursor != state.combatDetails.fireCursors.end()
-                    && cursor->second.lastTargetObjectId == targetId)
-                    host = findObjectById(state, cursor->second.sourceAnchorObjectId);
-                valid = host && runtimeCombatValidPassenger(*source, *host) && runtimeCombatCanAct(state, *host);
-            } else if (valid) {
-                const auto order = state.behaviors.find(attackerId);
-                const auto cursor = state.combatDetails.fireCursors.find(attackerId);
-                const auto* unit = findRuntimeUnitType(state.rules, *source);
-                const bool independentMoveFire = unit && unit->opportunityFire && !unit->noMovingFire
-                    && order != state.behaviors.end() && order->second.kind == RuntimeBehaviorKind::Move
-                    && cursor != state.combatDetails.fireCursors.end()
-                    && cursor->second.lastTargetObjectId == targetId;
-                valid = order != state.behaviors.end() && order->second.kind == RuntimeBehaviorKind::Attack
-                    && order->second.targetObjectId == targetId;
-                valid = valid || independentMoveFire;
-            }
-            const auto hostOrder = host == nullptr ? state.behaviors.end()
-                : state.behaviors.find(host->instanceId);
-            const bool profileForceFire = forceFire
-                || (hostOrder != state.behaviors.end()
-                    && hostOrder->second.kind == RuntimeBehaviorKind::Attack
-                    && hostOrder->second.targetObjectId == targetId
-                    && hostOrder->second.forceFire);
-            const auto profile = !valid ? RuntimeWeaponProfile{}
-                : host ? runtimeCombatPassengerWeaponProfile(state, *source, target, profileForceFire)
-                : runtimeWeaponProfileForObject(state, *source, target, profileForceFire);
-            valid = valid && profile.weapon && profile.warhead && profile.warhead->temporal;
-            if (valid) {
-                const auto pose = runtimeCombatFiringPose(*source, host);
-                const double range = host ? state.rules.getCombatDetailRules().openToppedWarpDistance
-                    : runtimeEffectiveWeaponRange(state, pose, *target, *profile.weapon);
-                const double distance = host
-                    ? runtimeCellDistanceToObjectFootprint(state, runtimeCellPointForObject(*host), *target)
-                    : runtimeWeaponDistanceToTarget(state, pose, *target, *profile.weapon);
-                valid = distance <= range && distance + 0.001 >= profile.weapon->minimumRange
-                    && runtimeObjectVisibleToOwner(state, source->owner, *target)
-                    && runtimeWeaponHasLineOfSight(state, pose, *target, *profile.weapon);
-            }
-            if (!valid) {
-                state.specialMechanisms.clearTemporalAttacker(attackerId, targetId, state.tick,
-                    sink, "temporal source or target no longer available");
-                changed = true;
-                continue;
-            }
-            if (frames <= 0) continue;
-            // Temporal ignores armor verses, difficulty health and ordinary
-            // firepower bonuses. ElitePrimary supplies its own authored Damage.
-            const int progress = static_cast<int>(std::min<std::int64_t>(
-                std::numeric_limits<int>::max(), std::max(0, profile.weapon->damage) * frames));
-            bool completed = false;
-            std::string reason;
-            changed = state.specialMechanisms.applyTemporalHit(state.world.accessObjects(), state.rules,
-                attackerId, targetId, progress, temporal.requiredProgress, state.tick,
-                [&state](const std::string& a, const std::string& b) { return runtimeOwnersAreAllied(state, a, b); },
-                sink, completed, reason, forceFire) || changed;
-            if (completed) {
-                playerObjectLost = playerObjectLost || (target->kind != WorldObjectKind::Structure && target->owner == state.economy.owner);
-                RuntimeObjectExitRequest exit;
-                exit.objectId = targetId;
-                exit.kind = RuntimeObjectExitKind::TemporalDestroyed;
-                exit.tick = state.tick;
-                exit.mission = "TemporalRemoved";
-                exit.reason = "temporal continuous erasure complete";
-                exit.sourceObjectId = attackerId;
-                exit.sourceOwner = source->owner;
-                exit.suppressDeathWeapon = true;
-                queueRuntimeObjectExit(state, std::move(exit));
-                break;
-            }
-        }
-    }
-    changed = drainRuntimeObjectExitQueue(state) || changed;
-    if (playerObjectLost && state.tick - state.runtimeLastUnitLostSoundTick
-            >= std::max(1, state.config.fixedTickHz * 2)) {
-        emitRuntimeSound(state, runtimeSoundIntentUnitLost);
-        state.runtimeLastUnitLostSoundTick = state.tick;
-    }
-    return changed;
+    SessionTemporalAttackQueries queries(state);SessionTemporalAttackEffects effects(state);
+    return concord::simulation::abilities::advanceRuntimeTemporalAttacks(
+        {state.specialMechanisms.temporalTargets(),state.tick,state.config.fixedTickHz,
+            state.economy.owner,state.runtimeLastUnitLostSoundTick},queries,effects);
 }
 
+namespace {
+class SessionTemporalBeamQueries final : public concord::simulation::abilities::RuntimeTemporalBeamQueries {
+public:
+    explicit SessionTemporalBeamQueries(RuntimeProductionHostState& value) : state(value) {}
+    const WorldObjectInstance* sourceIncludingInactive(int id) const override { return findRuntimeObjectByIdIncludingInactive(state, id); }
+    const WorldObjectInstance* object(int id) const override { return findObjectById(state, id); }
+    bool validPassenger(const WorldObjectInstance& source, const WorldObjectInstance& host) const override { return runtimeCombatValidPassenger(source, host); }
+    concord::simulation::abilities::RuntimeTemporalBeamWeaponView selectWeapon(const WorldObjectInstance& source,
+        const WorldObjectInstance* target, const WorldObjectInstance* host, bool forceFire) override {
+        profile.emplace(host ? runtimeCombatPassengerWeaponProfile(state, source, target, forceFire)
+            : runtimeWeaponProfileForObject(state, source, target, forceFire));
+        profile->openTransport = host != nullptr;
+        return {profile->weapon, profile->warhead};
+    }
+    void finishWeaponScope() noexcept override { profile.reset(); }
+    WorldObjectInstance firingPose(const WorldObjectInstance& source, const WorldObjectInstance* host) const override { return runtimeCombatFiringPose(source, host); }
+    int firingFacing(const WorldObjectInstance& pose, const WorldObjectInstance& target) const override { return runtimeWeaponFiringFacing(state, pose, target); }
+    concord::simulation::abilities::RuntimeTemporalBeamMuzzle sourcePosition(const WorldObjectInstance& pose, int facing) const override {
+        const auto value = runtimeProjectileSourcePosition(state, pose, *profile, facing);
+        return {value.x, value.y, value.z, value.screenOffsetX, value.screenOffsetY, value.nativeFixedX, value.nativeFixedY};
+    }
+    void alignMuzzle(const WorldObjectInstance& pose, int facing, concord::simulation::abilities::RuntimeTemporalBeamMuzzle& muzzle) const override {
+        RuntimeProjectileSourcePosition value{muzzle.x, muzzle.y, muzzle.z, muzzle.screenOffsetX, muzzle.screenOffsetY, muzzle.nativeFixedX, muzzle.nativeFixedY};
+        alignRuntimeWeaponMuzzleToSprite(state, pose, *profile, facing, value);
+        muzzle = {value.x, value.y, value.z, value.screenOffsetX, value.screenOffsetY, value.nativeFixedX, value.nativeFixedY};
+    }
+    RuntimeProjectileTargetPosition targetPosition(const WorldObjectInstance& target) const override { return runtimeProjectileTargetPosition(state, target); }
+    std::string beamColor() const override { return state.rules.getAudioVisualValue("ChronoBeamColor"); }
+private:
+    RuntimeProductionHostState& state;
+    std::optional<RuntimeWeaponProfile> profile;
+};
+class SessionTemporalEraseQueries final : public concord::simulation::abilities::RuntimeTemporalEraseQueries {
+public:
+    explicit SessionTemporalEraseQueries(RuntimeProductionHostState& value) : state(value) {}
+    const WorldObjectInstance* object(int id) const override { return findObjectById(state, id); }
+    WorldObjectCellOffset subcellOffset(const WorldObjectInstance& object) const override { return worldObjectSubCellOffset(object); }
+    double renderX(const WorldObjectInstance& object) const override { return runtimeObjectRenderX(object); }
+    double renderY(const WorldObjectInstance& object) const override { return runtimeObjectRenderY(object); }
+    double drawLevel(const WorldObjectInstance& object) const override { return runtimeDrawLevelForObject(object); }
+    const std::string& warpAwayAnimation() const override { return state.rules.getSpecialMechanismRules().warpAwayAnim; }
+    const std::string* reportSound(const std::string& animation) const override {
+        const auto* art = state.art.findArtType(animation);
+        return art ? &art->reportSound : nullptr;
+    }
+private:
+    RuntimeProductionHostState& state;
+};
+class SessionTemporalEraseFeedback final : public concord::simulation::abilities::RuntimeTemporalEraseFeedback {
+public:
+    explicit SessionTemporalEraseFeedback(RuntimeProductionHostState& value) : state(value) {}
+    void beginEffect(int attackerId, const WorldObjectInstance& target) override {
+        effect.emplace();
+        effect->attackerObjectId = attackerId;
+        effect->targetObjectId = target.instanceId;
+        effect->owner = target.owner;
+        effect->cell = {target.x, target.y};
+        effect->level = target.level;
+        effect->hasWorldPosition = true;
+    }
+    void worldX(double value) noexcept override { effect->worldX = value; }
+    void worldY(double value) noexcept override { effect->worldY = value; }
+    void worldLevel(double value) noexcept override { effect->worldLevel = value; }
+    void facingAndLifecycle(int facing, const char* lifecycle, const char* intent) override {
+        effect->facing = facing;
+        effect->lifecycleState = lifecycle;
+        effect->renderIntent = intent;
+    }
+    void animation(const std::string& id) override { effect->animId = id; }
+    const std::string& animation() const noexcept override { return effect->animId; }
+    void initializeTimeline() override { initializeRuntimeImpactAnimationTimeline(state, *effect, true); }
+    RuntimeSpatialAudioPosition spatialPosition() const override { return runtimeSpatialAudioPositionForImpact(*effect); }
+    void sound(const std::string& intent, RuntimeSpatialAudioPosition position, bool force) override { emitRuntimeSound(state, intent, position, force); }
+    void appendEffect() override { state.impactEffects.push_back(std::move(*effect)); }
+private:
+    RuntimeProductionHostState& state;
+    std::optional<RuntimeImpactEffect> effect;
+};
+}
 void resolveRuntimeTemporalBeamEndpoints(RuntimeProductionHostState& state) {
+    SessionTemporalBeamQueries queries(state);
     for (auto& snapshot : state.specialMechanismRenderSnapshots) {
-        if (snapshot.kind != "temporalBeam") continue;
-        const auto* source = findRuntimeObjectByIdIncludingInactive(state, snapshot.objectId);
-        const auto* target = findObjectById(state, snapshot.targetObjectId);
-        if (source == nullptr || target == nullptr) continue;
-        const WorldObjectInstance* host = nullptr;
-        if (!source->alive) {
-            const auto cursor = state.combatDetails.fireCursors.find(source->instanceId);
-            if (cursor != state.combatDetails.fireCursors.end())
-                host = findObjectById(state, cursor->second.sourceAnchorObjectId);
-            if (!host || !runtimeCombatValidPassenger(*source, *host)) continue;
-        }
-        const auto sourceOrder = state.behaviors.find(snapshot.objectId);
-        const auto hostOrder = host == nullptr ? state.behaviors.end()
-            : state.behaviors.find(host->instanceId);
-        const bool profileForceFire = (sourceOrder != state.behaviors.end()
-            && sourceOrder->second.kind == RuntimeBehaviorKind::Attack
-            && sourceOrder->second.targetObjectId == snapshot.targetObjectId
-            && sourceOrder->second.forceFire)
-            || (hostOrder != state.behaviors.end()
-                && hostOrder->second.kind == RuntimeBehaviorKind::Attack
-                && hostOrder->second.targetObjectId == snapshot.targetObjectId
-                && hostOrder->second.forceFire);
-        auto profile = host ? runtimeCombatPassengerWeaponProfile(state, *source, target, profileForceFire)
-            : runtimeWeaponProfileForObject(state, *source, target, profileForceFire);
-        profile.openTransport = host != nullptr;
-        if (profile.weapon == nullptr || !profile.weapon->radBeam
-            || profile.warhead == nullptr || !profile.warhead->temporal) continue;
-        const auto pose = runtimeCombatFiringPose(*source, host);
-        auto muzzle = runtimeProjectileSourcePosition(state, pose, profile,
-            runtimeWeaponFiringFacing(state, pose, *target));
-        alignRuntimeWeaponMuzzleToSprite(state, pose, profile, runtimeWeaponFiringFacing(state, pose, *target), muzzle);
-        const auto endpoint = runtimeProjectileTargetPosition(state, *target);
-        snapshot.sourceX = muzzle.x;
-        snapshot.sourceY = muzzle.y;
-        snapshot.sourceLevel = muzzle.z;
-        snapshot.sourceScreenOffsetX = muzzle.screenOffsetX;
-        snapshot.sourceNativeFixedX = muzzle.nativeFixedX;
-        snapshot.sourceScreenOffsetY = muzzle.screenOffsetY;
-        snapshot.sourceNativeFixedY = muzzle.nativeFixedY;
-        snapshot.targetX = endpoint.x;
-        snapshot.targetY = endpoint.y;
-        snapshot.targetLevel = endpoint.level;
-        snapshot.color = state.rules.getAudioVisualValue("ChronoBeamColor");
-        if (snapshot.color.empty()) snapshot.color = "128,200,255";
-        snapshot.owner = source->owner;
-        snapshot.hasBeamEndpoints = true;
+        concord::simulation::abilities::resolveRuntimeTemporalBeamEndpoints(
+            {snapshot.kind, snapshot.objectId, snapshot.targetObjectId,
+                snapshot.sourceX, snapshot.sourceY, snapshot.sourceLevel,
+                snapshot.sourceScreenOffsetX, snapshot.sourceNativeFixedX,
+                snapshot.sourceScreenOffsetY, snapshot.sourceNativeFixedY,
+                snapshot.targetX, snapshot.targetY, snapshot.targetLevel,
+                snapshot.color, snapshot.owner, snapshot.hasBeamEndpoints},
+            state.behaviors, state.combatDetails.fireCursors, queries);
     }
 }
-
-void spawnRuntimeTemporalEraseEffect(
-    RuntimeProductionHostState& state, const SpecialMechanismEvent& event) {
-    const auto* target = findObjectById(state, event.targetObjectId);
-    if (target == nullptr) return;
-    RuntimeImpactEffect effect;
-    effect.attackerObjectId = event.objectId;
-    effect.targetObjectId = target->instanceId;
-    effect.owner = target->owner;
-    effect.cell = {target->x, target->y};
-    effect.level = target->level;
-    effect.hasWorldPosition = true;
-    const auto offset = worldObjectSubCellOffset(*target);
-    effect.worldX = runtimeObjectRenderX(*target) + offset.x;
-    effect.worldY = runtimeObjectRenderY(*target) + offset.y;
-    effect.worldLevel = runtimeDrawLevelForObject(*target);
-    effect.facing = target->facing;
-    effect.lifecycleState = "TemporalErase";
-    effect.renderIntent = "temporalErase";
-    effect.animId = state.rules.getSpecialMechanismRules().warpAwayAnim;
-    if (effect.animId.empty() || toLowerAsciiLocal(effect.animId) == "none") return;
-    initializeRuntimeImpactAnimationTimeline(state, effect, true);
-    if (const auto* art = state.art.findArtType(effect.animId)) {
-        if (!art->reportSound.empty()) emitRuntimeSound(state, "sound:" + art->reportSound, runtimeSpatialAudioPositionForImpact(effect), true);
-    }
-    state.impactEffects.push_back(std::move(effect));
+void spawnRuntimeTemporalEraseEffect(RuntimeProductionHostState& state, const SpecialMechanismEvent& event) {
+    SessionTemporalEraseQueries queries(state);
+    SessionTemporalEraseFeedback feedback(state);
+    concord::simulation::abilities::spawnRuntimeTemporalEraseEffect(event, queries, feedback);
 }
 
 int runtimeCrewSide(const RuntimeGameSessionState& state, const std::string& owner) {
@@ -17985,23 +17131,11 @@ bool runtimePrismPrimaryWeaponMatches(
             == toLowerAsciiLocal(trimAsciiLocal(weapon.id));
 }
 
-void clearRuntimeTemporalAttack(
-    RuntimeProductionHostState& state,
-    int attackerObjectId,
-    const RuntimeObjectBehavior& behavior,
-    const std::string& reason) {
-    if (!state.specialMechanismsInitialized
-        || behavior.kind != RuntimeBehaviorKind::Attack
-        || behavior.targetObjectId < 0) {
-        return;
-    }
-    state.specialMechanisms.clearTemporalAttacker(
-        attackerObjectId,
-        behavior.targetObjectId,
-        state.tick,
-        runtimeSpecialEventSink(state),
-        reason
-    );
+void clearRuntimeTemporalAttack(RuntimeProductionHostState& state,int attackerObjectId,
+    const RuntimeObjectBehavior& behavior,const std::string& reason) {
+    SessionTemporalAttackEffects effects(state);
+    concord::simulation::abilities::clearRuntimeTemporalAttack(state.specialMechanismsInitialized,
+        attackerObjectId,behavior,state.tick,effects,reason);
 }
 
 bool advanceRuntimeGarrisonAttackBehavior(
@@ -18412,7 +17546,8 @@ bool launchRuntimeSpawnedMissileVolley(RuntimeProductionHostState& state,
         ++launched;
         if (launched >= std::max(1, weapon.burst)) break;
     }
-    if (launched > 0) notifyRuntimeWeaponFired(state, parent, target, weapon);
+    if (launched > 0 && notifyRuntimeWeaponFired(state, parent, target, weapon))
+        RuntimeSessionVisionPhaseOperations(state).invalidateLocalProjection();
     return launched > 0;
 }
 
@@ -18767,7 +17902,8 @@ bool beginRuntimeDiskDrain(RuntimeProductionHostState& state, WorldObjectInstanc
         drains.sources.insert_or_assign(source.instanceId, std::move(drain));
         state.powerRefreshPending = true;
         if (weapon.decloakToFire) runtimeDecloakObject(state, source, "drain");
-        notifyRuntimeWeaponFired(state, source, target, weapon);
+        if (notifyRuntimeWeaponFired(state, source, target, weapon))
+            RuntimeSessionVisionPhaseOperations(state).invalidateLocalProjection();
         ++state.actionSummary.attacksThisTick;
     }
     // DrainWeapon establishes a link, not a damaging projectile or a paid burst.
@@ -20045,98 +19181,96 @@ bool advanceRuntimeGattlingWeaponTimers(RuntimeGameSessionState& state) {
     return changed;
 }
 
-bool advanceRuntimeMindControlOverload(RuntimeProductionHostState& state, const SpecialEventSink& sink) {
-    const auto pulses = state.specialMechanisms.tickMindControlOverload(
-        state.world.getObjects(), state.rules, state.tick, state.config.fixedTickHz);
-    const auto& rules = state.rules.getSpecialMechanismRules();
-    bool changed = false;
-    for (const auto& pulse : pulses) {
-        auto* controller = findMutableObjectById(state, pulse.controllerObjectId);
-        if (controller == nullptr || !controller->alive) continue;
-        int applied = 0;
-        if (!runtimeObjectIgnoresDamage(state, *controller)
-            && !(state.superWeaponsInitialized
-                && state.superWeapons.isObjectProtected(controller->instanceId, state.tick))) {
-            // Retail calls ReceiveDamage on the controller with C4Warhead and
-            // no attacker. This damages only the controller, never its victims.
-            applied = runtimeAuthoredDamageAgainst(state, *controller, pulse.damage, rules.c4Warhead);
-            controller->health = std::max(0, controller->health - applied);
-            if (applied > 0) runtimeRevealObjectAfterDamage(state, *controller, "mindControlOverload");
-            changed = changed || applied > 0;
-        }
-        if (pulse.playSound && !rules.masterMindOverloadDeathSound.empty())
-            emitRuntimeSound(state, "sound:" + rules.masterMindOverloadDeathSound, runtimeSpatialAudioPositionForObject(*controller));
-        if (sink) sink({"MindControlOverload", state.tick, controller->instanceId, -1, applied,
-            {controller->x, controller->y}, "controlled=" + std::to_string(pulse.controlledCount)});
-        if (controller->health <= 0) {
-            RuntimeObjectExitRequest exit;
-            exit.objectId = controller->instanceId;
-            exit.kind = RuntimeObjectExitKind::Destroyed;
-            exit.tick = state.tick;
-            exit.mission = "Destroyed";
-            exit.reason = "mind-control overload";
-            (void)queueRuntimeObjectExit(state, std::move(exit));
-        }
+namespace {
+using concord::simulation::psionic::RuntimeMindControlOverloadRulesView;
+class RuntimeMindControlOverloadHostQueries final
+    : public concord::simulation::psionic::RuntimeMindControlOverloadQueries {
+public:
+    explicit RuntimeMindControlOverloadHostQueries(RuntimeProductionHostState& state):state_(state){}
+    std::vector<MindControlOverloadDamageEvent> collectPulses() override {
+        return state_.specialMechanisms.tickMindControlOverload(
+            state_.world.getObjects(),state_.rules,state_.tick,state_.config.fixedTickHz);
     }
-    return drainRuntimeObjectExitQueue(state) || changed;
+    RuntimeMindControlOverloadRulesView rulesView() override {
+        const auto& rules=state_.rules.getSpecialMechanismRules();
+        return {rules.c4Warhead,rules.masterMindOverloadDeathSound};
+    }
+    WorldObjectInstance* findController(int objectId) override { return findMutableObjectById(state_,objectId); }
+    bool ignoresDamage(const WorldObjectInstance& object) override {return runtimeObjectIgnoresDamage(state_,object);}
+    bool protectionInitialized() override {return state_.superWeaponsInitialized;}
+    bool isProtected(int objectId,int tick) override {return state_.superWeapons.isObjectProtected(objectId,tick);}
+    int damageAgainst(const WorldObjectInstance& object,int damage,const std::string& warhead) override {
+        return runtimeAuthoredDamageAgainst(state_,object,damage,warhead);
+    }
+    RuntimeSpatialAudioPosition spatialPosition(const WorldObjectInstance& object) override {
+        return runtimeSpatialAudioPositionForObject(object);
+    }
+private: RuntimeProductionHostState& state_;
+};
+class RuntimeMindControlOverloadHostEffects final
+    : public concord::simulation::psionic::RuntimeMindControlOverloadEffects {
+public:
+    explicit RuntimeMindControlOverloadHostEffects(RuntimeProductionHostState& state):state_(state){}
+    void revealAfterDamage(WorldObjectInstance& object,const std::string& reason) override {
+        (void)runtimeRevealObjectAfterDamage(state_,object,reason);
+    }
+    void emitSound(const std::string& token,RuntimeSpatialAudioPosition position) override {
+        emitRuntimeSound(state_,token,position);
+    }
+    void queueDestroyedExit(int objectId,int tick) override {
+        RuntimeObjectExitRequest exit;
+        exit.objectId=objectId;
+        exit.kind=RuntimeObjectExitKind::Destroyed;
+        exit.tick=tick;
+        exit.mission="Destroyed";
+        exit.reason="mind-control overload";
+        (void)queueRuntimeObjectExit(state_,std::move(exit));
+    }
+    bool drainExits() override {return drainRuntimeObjectExitQueue(state_);}
+private: RuntimeProductionHostState& state_;
+};
+}
+bool advanceRuntimeMindControlOverload(RuntimeProductionHostState& state,const SpecialEventSink& sink) {
+    RuntimeMindControlOverloadHostQueries queries(state);
+    RuntimeMindControlOverloadHostEffects effects(state);
+    return concord::simulation::psionic::advanceRuntimeMindControlOverloadEffects(state.tick,sink,queries,effects);
 }
 
-bool advanceRuntimeSquidGrappleWater(RuntimeProductionHostState& state) {
-    bool changed = false;
-    for (const auto& [targetId, link] : state.specialMechanisms.parasiteLinks()) {
-        if (!link.organic || toLowerAsciiLocal(link.sourceTypeId) != "sqd") continue;
-        const int age = state.tick - link.attachedTick;
-        if (age <= 0) continue;
-        const int before = runtimeSquidGrappleNativeAge(age - 1, state.config.fixedTickHz);
-        const int now = runtimeSquidGrappleNativeAge(age, state.config.fixedTickHz);
-        // Retail state 4 spawns three splashes when a ten-pose rocking strip
-        // finishes. Integer boundary crossing also works at non-multiple Hz.
-        const int cycle = (now - 30) / 40;
-        if (now < 70 || before >= 30 + cycle * 40) continue;
-        const auto* target = findObjectById(state, targetId);
-        const auto* unit = target ? findRuntimeUnitType(state.rules, *target) : nullptr;
-        if (!target || !unit || !unit->naval || unit->organic) continue;
-        auto splashes = splitRuntimeTokenList(state.rules.getAudioVisualValue("SplashList"));
-        splashes.erase(std::remove_if(splashes.begin(), splashes.end(), [&](const auto& id) {
-            return state.art.findArtType(id) == nullptr;
-        }), splashes.end());
-        if (splashes.empty()) continue;
-        std::uint64_t seed = runtimeStableHashString("SquidGrappleSplash/1");
-        runtimeStableHashMix(seed, link.sourceObjectId);
-        runtimeStableHashMix(seed, targetId);
-        runtimeStableHashMix(seed, link.projectileId);
-        runtimeStableHashMix(seed, cycle);
-        const double yaw = (worldObjectArtFacingBucket(target->facing, 256) - 64)
-            * 6.283185307179586 / 256;
-        for (int slot = 0; slot < 3; ++slot) {
-            runtimeStableHashMix(seed, slot);
-            // Retail offsets: -128, 0, +128 longitudinal and +/-64 lateral
-            // leptons, rotated with the host. Positions remain on the water.
-            const double forward = (slot - 1) * 0.5;
-            const double lateral = (seed & 1U) ? -0.25 : 0.25;
-            RuntimeProjectileTargetPosition position;
-            position.x = target->x + forward * std::cos(yaw) - lateral * std::sin(yaw);
-            position.y = target->y + forward * std::sin(yaw) + lateral * std::cos(yaw);
-            position.level = target->level;
-            position.cell = {static_cast<int>(std::lround(position.x)), static_cast<int>(std::lround(position.y))};
-            const std::string& image = splashes[(seed >> 1U) % splashes.size()];
-            spawnRuntimeImpact(state, position.cell, position.level, false, image,
-                "", 0, 0.0, false, "", nullptr, &position);
-            auto& splash = state.impactEffects.back();
-            splash.lifecycleState = "SquidSplash";
-            splash.renderIntent = "squidSplash";
-            // Snapshot transfer retains effect intent IDs, while discarding
-            // cached image/frame fields. This intent is an animation, not a
-            // damaging warhead, and reconstructs the same chosen resource.
-            splash.warheadImpactIntentId = image;
-            splash.attackerObjectId = link.sourceObjectId;
-            splash.targetObjectId = targetId;
-            splash.owner = link.owner;
-            initializeRuntimeImpactAnimationTimeline(state, splash, true);
-            changed = true;
-        }
+
+// Private composition fragment. Apply only after the canonical full value relocation.
+// The original complete spawn owner, its defaults, both timeline calls and all callers stay intact.
+namespace {
+class RuntimeSquidWaterHostEffects final
+    : public concord::simulation::abilities::RuntimeSquidWaterEffects {
+public:
+    explicit RuntimeSquidWaterHostEffects(RuntimeProductionHostState& state) : state_(state) {}
+    const WorldObjectInstance* activeObject(int objectId) const override {
+        return findObjectById(state_, objectId);
     }
-    return changed;
+    const UnitType* unitType(const RulesDatabase& rules, const WorldObjectInstance& object) const override {
+        return findRuntimeUnitType(rules, object);
+    }
+    void spawnImpact(const RuntimeCellPoint& cell, int level, bool death,
+        const std::string& animId, const std::string& warheadId, int damage,
+        double cellSpread, bool bright, const std::string& particleId,
+        const RuntimeProjectileEffect* projectile,
+        const RuntimeProjectileTargetPosition* precisePosition) override {
+        spawnRuntimeImpact(state_, cell, level, death, animId, warheadId, damage,
+            cellSpread, bright, particleId, projectile, precisePosition);
+    }
+    std::vector<RuntimeImpactEffect>& impacts() noexcept override { return state_.impactEffects; }
+    void initializeTimeline(RuntimeImpactEffect& impact, bool fullSequence) override {
+        initializeRuntimeImpactAnimationTimeline(state_, impact, fullSequence);
+    }
+private:
+    RuntimeProductionHostState& state_;
+};
+}
+bool advanceRuntimeSquidGrappleWater(RuntimeProductionHostState& state) {
+    RuntimeSquidWaterHostEffects effects(state);
+    return concord::simulation::abilities::advanceRuntimeSquidGrappleWater(
+        state.specialMechanisms.parasiteLinks(), state.tick, state.config.fixedTickHz,
+        state.rules, state.art, effects);
 }
 
 void clearRuntimeCarrierAttackPreservingPose(RuntimeProductionHostState& state,
@@ -20948,32 +20082,63 @@ void initializeRuntimeSuperWeaponAnimation(RuntimeProductionHostState& state, Ru
     initializeRuntimeImpactAnimationTimeline(state, animation, true);
     if (animation.animationSequenceSteps <= 0) return;
     const auto* art = state.art.findArtType(animation.animId);
-    const int hz = std::max(1, state.config.fixedTickHz);
-    // artmd Rate is frames per game minute (900 original ticks), not ticks
-    // in this host's 30/60 Hz simulation.
-    animation.animationFrameDelayTicks = art && art->rate > 0
-        ? std::max(1, std::max(1, 900 / art->rate) * hz / 15)
-        : std::max(1, hz / 15); // AnimTypeClass default delay is one native frame.
+    animation.animationFrameDelayTicks =
+        concord::assets::animation::runtimeSuperWeaponAnimationFrameDelayTicks(art, state.config.fixedTickHz);
     animation.totalTicks = animation.remainingTicks =
         animation.animationSequenceSteps * animation.animationFrameDelayTicks;
+}
+
+namespace {
+class RuntimeSuperWeaponFrame0Validator final
+    : public concord::simulation::superweapons::RuntimeAnimationFrame0Validator {
+public:
+    bool validate(const std::vector<unsigned char>& bytes, const std::string& sourcePath,
+        std::string& error) override {
+        ShpIndexedFrame frame;
+        return decodeShpIndexedFrame(bytes, sourcePath, 0, ShpDecodePolicy::Runtime, frame, error);
+    }
+};
+
+concord::simulation::superweapons::RuntimeSuperWeaponAnimationTiming runtimeSpecialDetailAnimationTiming(
+    RuntimeProductionHostState& state, const std::string& animationId) {
+    const ArtType* art = state.art.findArtType(animationId);
+    if (art == nullptr) return {};
+    RuntimeMapRenderContext context;
+    context.theater = state.theaterLoaded ? &state.theater : nullptr;
+    context.art = state.artLoaded ? &state.art : nullptr;
+    context.rules = state.rulesLoaded ? &state.rules : nullptr;
+    context.mapFacts = state.mapFactsLoaded ? &state.mapFacts : nullptr;
+    context.tileRootPath = runtimeTileRootPath(state.config, state.report.map);
+    context.palettePath = runtimePalettePath(state.config, state.report.map);
+    context.assetRootPath = runtimeAssetRootPath(state.config);
+    context.structureRootPath = runtimeStructureRootPath(
+        state.config,
+        state.report.map
+    );
+    context.structurePalettePath = runtimeStructurePalettePath(
+        state.config,
+        state.report.map
+    );
+    context.animationTick = state.tick;
+    context.fixedTickHz = state.config.fixedTickHz;
+
+    auto lookup = concord::runtime::resource_detail::loadRuntimeAuxiliaryShpBytesForContext(
+        animationId, context, state.renderCache, nullptr);
+    RuntimeSuperWeaponFrame0Validator validator;
+    return concord::simulation::superweapons::resolveRuntimeSuperWeaponAnimationTiming(
+        art, state.config.fixedTickHz, lookup.entry, validator);
+}
 }
 
 int runtimeSpecialDetailAnimationDurationTicks(RuntimeProductionHostState& state,
     const std::string& animationId) {
     if (animationId.empty() || !state.artLoaded) return 0;
-    RuntimeImpactEffect animation;
-    animation.animId = animationId;
-    initializeRuntimeSuperWeaponAnimation(state, animation);
-    return animation.animationSequenceSteps > 0
-        ? animation.animationSequenceSteps * animation.animationFrameDelayTicks : 0;
+    return runtimeSpecialDetailAnimationTiming(state, animationId).durationTicks;
 }
 
 int runtimeSpecialDetailAnimationMidpointTicks(RuntimeProductionHostState& state,
     const std::string& animationId) {
-    RuntimeImpactEffect animation; animation.animId=animationId;
-    initializeRuntimeSuperWeaponAnimation(state,animation);
-    return animation.animationSequenceSteps > 0
-        ? (animation.animationSequenceSteps/2+1)*animation.animationFrameDelayTicks : 0;
+    return runtimeSpecialDetailAnimationTiming(state, animationId).midpointTicks;
 }
 
 bool runtimeSupportPowerCanPlace(const RuntimeGameSessionState& state,
@@ -21004,16 +20169,8 @@ int runtimeSupportPowerParatrooperSubcell(const RuntimeGameSessionState& state,
     const auto available = state.subcells.availableSubCells(state.world.getObjects(),
         state.world.getTerrainObjects(), runtimeSubcellLocationForCell(state, {x, y}),
         {object.instanceId}, runtimeGateSubcellContext(state, &grounded));
-    int selected = -1;
-    double nearest = std::numeric_limits<double>::infinity();
-    for (int slot : available) {
-        grounded.subCell = slot;
-        const auto offset = worldObjectSubCellOffset(grounded);
-        const double distance = std::pow(x + offset.x - desiredX, 2)
-            + std::pow(y + offset.y - desiredY, 2);
-        if (distance < nearest) { nearest = distance; selected = slot; }
-    }
-    return selected;
+    return concord::simulation::navigation::selectNearestAvailableSubCell(
+        available, grounded, x, y, desiredX, desiredY);
 }
 
 void consumeRuntimeSuperWeaponRelocationEvent(RuntimeGameSessionState& state,
@@ -21037,6 +20194,32 @@ void invalidateRuntimeSuperWeaponWorldQueries(RuntimeProductionHostState& state)
     state.navigationRefreshPending = true;
     state.projectedObjectsCacheValid = false;
     state.repaintRequested = true;
+}
+
+namespace dominator_control_detail {
+class RuntimeDominatorControlHostTargets final
+    : public concord::simulation::psionic::RuntimeDominatorControlTargets {
+public:
+    explicit RuntimeDominatorControlHostTargets(RuntimeProductionHostState& state):state_(state){}
+    WorldObjectInstance* findTarget(int objectId) override {return findMutableObjectById(state_,objectId);}
+private: RuntimeProductionHostState& state_;
+};
+class RuntimeDominatorControlHostLinks final
+    : public concord::simulation::psionic::RuntimeDominatorControlLinks {
+public:
+    explicit RuntimeDominatorControlHostLinks(RuntimeProductionHostState& state):state_(state){}
+    void establishPermanentControl(int objectId,const std::string& newOwner,
+        const std::string& originalOwner,int tick) override {
+        state_.specialMechanisms.establishDominatorControl(objectId,newOwner,originalOwner,tick);
+    }
+private: RuntimeProductionHostState& state_;
+};
+}
+void completeRuntimeDominatorOwnerChanges(RuntimeProductionHostState& state,
+    const std::vector<SuperWeaponObjectLifecycleEvent>& events) {
+    dominator_control_detail::RuntimeDominatorControlHostTargets targets(state);
+    dominator_control_detail::RuntimeDominatorControlHostLinks links(state);
+    concord::simulation::psionic::completeRuntimeDominatorControl(events,targets,links);
 }
 
 bool flushRuntimeSuperWeaponHostEvents(RuntimeProductionHostState& state) {
@@ -21093,14 +20276,7 @@ bool flushRuntimeSuperWeaponHostEvents(RuntimeProductionHostState& state) {
         const auto result = applyRuntimeOwnerTransitionBatch(state, owners,
             RuntimeOwnerTransitionRepairPolicy::CaptureDockedUnits, "psychicDominatorOwnerChanged");
         if (!result.applied) state.simulationStatus = "psychic dominator ownership failed: " + result.error;
-        else for (const auto& event : objects) {
-            if (event.kind != SuperWeaponObjectLifecycleKind::OwnerChanged) continue;
-            auto* target = findMutableObjectById(state, event.objectId);
-            if (!target || target->owner != event.newOwner) continue;
-            state.specialMechanisms.establishDominatorControl(event.objectId,
-                event.newOwner, event.oldOwner, event.tick);
-            target->mission = "MindControlledPermanent";
-        }
+        else completeRuntimeDominatorOwnerChanges(state,objects);
     }
     // Landing/teleportation can occur with no active movement behaviors.
     // Commit ground slots here; the idle simulation path may return before

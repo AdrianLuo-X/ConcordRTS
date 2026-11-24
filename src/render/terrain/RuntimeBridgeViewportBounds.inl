@@ -2,8 +2,8 @@
 // geometry after the ordinary cell rectangle misses the paint area.
 bool runtimeBridgeSpriteIntersectsPaintArea(
     const TerrainCell& sourceCell,
-    const POINT& center,
-    const RECT& paintArea,
+    RuntimeInputPixelPoint center,
+    RuntimeInputPixelRect paintArea,
     const RuntimeMapRenderContext& context,
     const RuntimeMapCamera& camera,
     RuntimeMapRenderCache& cache
@@ -38,22 +38,20 @@ bool runtimeBridgeSpriteIntersectsPaintArea(
         return false;
     }
     const int frame = runtimeResourceOverlayFrame(cell, mapFact);
-    POINT bridgeCenter = center;
-    if (runtimeOverlayLooksLikeHighBridge(cell)) {
-        bridgeCenter.x -= camera.tileWidth / 2;
-        bridgeCenter.y -= camera.tileHeight / 2 + 1;
-    }
+    const auto bridgeCenter = concord::render::runtimeBridgeViewportCenter(
+        center, {camera.tileWidth, camera.tileHeight}, runtimeOverlayLooksLikeHighBridge(cell));
     const std::string segment = runtimeLowBridgeSegmentImageId(cell);
     const std::string imageId = cell.overlayImage.empty()
         ? cell.overlayType : cell.overlayImage;
     const std::string preferred = segment.empty() ? imageId : segment;
     const std::vector<std::string> roots{
         context.assetRootPath, context.tileRootPath, context.structureRootPath};
-    const auto intersectsPaint = [&](const RECT& bounds) {
-        return bounds.right > bounds.left && bounds.bottom > bounds.top
-            && rectIntersects(bounds, paintArea);
-    };
-    const auto tmpBounds = [&](const std::string& name) -> std::optional<RECT> {
+    const auto tmpBounds = [&](const std::string& name, bool candidate)
+        -> std::optional<RuntimeInputPixelRect> {
+        if (candidate && (!runtimeResourceCandidateLooksTmp(name)
+            || !runtimeBridgeCandidateMatchesSegment(name, segment))) {
+            return std::nullopt;
+        }
         if (name.empty()) return std::nullopt;
         for (const auto& fileName : resolveAuxiliaryTmpFileNameCandidates(name, context)) {
             auto* file = loadRuntimeTmpTileByNameFromCache(
@@ -61,44 +59,32 @@ bool runtimeBridgeSpriteIntersectsPaintArea(
             if (file == nullptr) continue;
             // Authored empty side frames must retain the painter's no-op.
             if (runtimeTerrainSubTileIsAuthoredEmpty(*file, frame))
-                return RECT{0, 0, 0, 0};
+                return RuntimeInputPixelRect{};
             const auto* image = findRuntimeTerrainSubTileImage(*file, frame);
             if (image == nullptr || image->width <= 0 || image->height <= 0
                 || image->pixels.size() < static_cast<std::size_t>(image->width)
                     * static_cast<std::size_t>(image->height)) continue;
-            const int globalWidth = image->globalWidth > 0
-                ? image->globalWidth : image->width;
-            const int globalHeight = image->globalHeight > 0
-                ? image->globalHeight : image->height;
-            const LONG left = bridgeCenter.x - globalWidth / 2 + image->offsetX;
-            const LONG top = bridgeCenter.y - globalHeight / 2 + image->offsetY;
-            return RECT{left, top, left + image->width, top + image->height};
+            return concord::render::runtimeBridgeViewportTmpBounds(bridgeCenter, *image);
         }
         return std::nullopt;
     };
-    if (const auto bounds = tmpBounds(preferred))
-        return intersectsPaint(*bounds);
-    if (runtimeBridgeMapFactHasCandidates(mapFact)) {
-        for (const auto& fileName : mapFact->overlayResource.candidateFileNames) {
-            if (!runtimeResourceCandidateLooksTmp(fileName)
-                || !runtimeBridgeCandidateMatchesSegment(fileName, segment)) continue;
-            if (const auto bounds = tmpBounds(fileName))
-                return intersectsPaint(*bounds);
+    const auto shpBounds = [&](const std::string& name, bool candidate)
+        -> std::optional<RuntimeInputPixelRect> {
+        if (candidate && (!runtimeResourceCandidateLooksShp(name)
+            || !runtimeBridgeCandidateMatchesSegment(name, segment))) {
+            return std::nullopt;
         }
-    }
-    const auto shpIntersects = [&](const std::string& name) {
         auto* sprite = loadRuntimeAuxiliaryShpSpriteFromCache(
             name, frame, context, cache, false);
-        return sprite != nullptr && runtimeResourceShpLooksSane(sprite->image, camera)
-            && intersectsPaint(runtimeShpFrameScreenRect(
-                bridgeCenter, camera, sprite->image));
-    };
-    if (runtimeBridgeMapFactHasCandidates(mapFact)) {
-        for (const auto& fileName : mapFact->overlayResource.candidateFileNames) {
-            if (runtimeResourceCandidateLooksShp(fileName)
-                && runtimeBridgeCandidateMatchesSegment(fileName, segment)
-                && shpIntersects(fileName)) return true;
+        if (sprite == nullptr || !runtimeResourceShpLooksSane(sprite->image, camera)) {
+            return std::nullopt;
         }
-    }
-    return !imageId.empty() && shpIntersects(imageId);
+        return runtimeRenderPlacementPixelRect(runtimeShpFrameScreenRect(
+            runtimeRenderPlacementNativePoint(bridgeCenter), camera, sprite->image));
+    };
+    const std::span<const std::string> candidates = runtimeBridgeMapFactHasCandidates(mapFact)
+        ? std::span<const std::string>{mapFact->overlayResource.candidateFileNames}
+        : std::span<const std::string>{};
+    return concord::render::runtimeBridgeViewportResourceIntersects(
+        preferred, imageId, candidates, paintArea, tmpBounds, shpBounds);
 }

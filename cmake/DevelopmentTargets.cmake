@@ -22,9 +22,15 @@ target_include_directories(concord_runtime_object_index_smoke PRIVATE src)
 add_executable(concord_path_request_queue_performance_smoke
     tests/pathfinding/PathRequestQueuePerformanceSmoke.cpp
     src/simulation/navigation/pathfinding/PathRequestQueue.cpp
+    src/simulation/navigation/pathfinding/PathRequestSearch.cpp
+    src/simulation/navigation/pathfinding/PathRequestFailureCache.cpp
     src/world/model/GameWorld.cpp
     src/core/io/IniFile.cpp
     src/data/maps/MapDatabase.cpp
+    src/assets/codecs/RuntimeLzo1xCodec.cpp
+    src/data/maps/MapLzoPayload.cpp
+    src/assets/codecs/RuntimeLcwCodec.cpp
+    src/assets/codecs/RuntimeMapBase64Codec.cpp
     src/data/rules/RulesDatabase.cpp
     src/data/art/TheaterDatabase.cpp
 )
@@ -232,11 +238,12 @@ add_executable(concord_garrison_system_smoke
 target_include_directories(concord_garrison_system_smoke PRIVATE src)
 
 add_executable(concord_subcell_system_smoke
+    src/simulation/navigation/occupancy/RuntimeNearestSubcellSelection.cpp
     tests/gameplay/RuntimeSubcellSystemSmoke.cpp
-    src/core/io/IniFile.cpp
     src/simulation/navigation/occupancy/RuntimeSubcellSystem.cpp
 )
 target_include_directories(concord_subcell_system_smoke PRIVATE src)
+target_link_libraries(concord_subcell_system_smoke PRIVATE concord_world_core_hash_contract_leaf)
 
 add_executable(concord_subcell_selective_batch_smoke
     tests/gameplay/RuntimeSubcellSelectiveBatchSmoke.cpp
@@ -272,6 +279,10 @@ add_executable(concord_aircraft_service_system_smoke
     src/world/model/GameWorld.cpp
     src/core/io/IniFile.cpp
     src/data/maps/MapDatabase.cpp
+    src/assets/codecs/RuntimeLzo1xCodec.cpp
+    src/data/maps/MapLzoPayload.cpp
+    src/assets/codecs/RuntimeLcwCodec.cpp
+    src/assets/codecs/RuntimeMapBase64Codec.cpp
     src/data/rules/RulesDatabase.cpp
     src/simulation/ai/RuntimeAircraftServiceSystem.cpp
     src/data/art/TheaterDatabase.cpp
@@ -400,9 +411,26 @@ add_executable(concord_psychic_status_system_smoke
 target_include_directories(concord_psychic_status_system_smoke PRIVATE src)
 
 add_executable(concord_special_mechanisms_smoke
+    src/simulation/abilities/chrono/RuntimeChronoTransportAdmission.cpp
+    src/simulation/abilities/chrono/RuntimeChronoLocomotionPolicy.cpp
+    tests/simulation/abilities/chrono/RuntimeChronoTransportPrivateContract.cpp
+    src/simulation/abilities/unit_special/RuntimeCamouflageStationary.cpp
     tests/gameplay/RuntimeSpecialMechanismsSmoke.cpp
     src/core/io/IniFile.cpp
     src/data/rules/RulesDatabase.cpp
+    src/simulation/abilities/chrono/RuntimeChronoState.cpp
+    src/simulation/abilities/chrono/RuntimeTemporalState.cpp
+    src/simulation/abilities/chrono/RuntimeTemporalAttackPolicy.cpp
+    src/simulation/abilities/chrono/RuntimeTemporalFeedbackPolicy.cpp
+    src/simulation/abilities/parasites/RuntimeParasiteState.cpp
+    src/simulation/abilities/parasites/RuntimeParasiteActionPolicy.cpp
+    src/simulation/abilities/parasites/RuntimeParasiteHostDeathPolicy.cpp
+    src/simulation/abilities/parasites/RuntimeParasiteStunState.cpp
+    src/simulation/abilities/parasites/RuntimeParasiteAdmissionPolicy.cpp
+    src/simulation/abilities/parasites/RuntimeParasiteLaunchPolicy.cpp
+    src/simulation/abilities/chrono/RuntimeChronoCellOccupancy.cpp
+    src/simulation/abilities/chrono/RuntimeChronoTerrainView.cpp
+    src/simulation/abilities/chrono/RuntimeChronoWarp.cpp
     src/simulation/abilities/unit_special/RuntimeSpecialMechanisms.cpp
 )
 target_include_directories(concord_special_mechanisms_smoke PRIVATE src)
@@ -412,6 +440,10 @@ add_executable(concord_special_building_system_smoke
     src/world/model/GameWorld.cpp
     src/core/io/IniFile.cpp
     src/data/maps/MapDatabase.cpp
+    src/assets/codecs/RuntimeLzo1xCodec.cpp
+    src/data/maps/MapLzoPayload.cpp
+    src/assets/codecs/RuntimeLcwCodec.cpp
+    src/assets/codecs/RuntimeMapBase64Codec.cpp
     src/data/rules/RulesDatabase.cpp
     src/simulation/buildings/RuntimeSpecialBuildingSystem.cpp
     src/simulation/vision/RuntimeVision.cpp
@@ -424,6 +456,10 @@ add_executable(concord_hospital_armory_mod_compat_smoke
     src/world/model/GameWorld.cpp
     src/core/io/IniFile.cpp
     src/data/maps/MapDatabase.cpp
+    src/assets/codecs/RuntimeLzo1xCodec.cpp
+    src/data/maps/MapLzoPayload.cpp
+    src/assets/codecs/RuntimeLcwCodec.cpp
+    src/assets/codecs/RuntimeMapBase64Codec.cpp
     src/data/rules/RulesDatabase.cpp
     src/simulation/buildings/RuntimeInfantryServiceSystem.cpp
     src/data/art/TheaterDatabase.cpp
@@ -437,6 +473,10 @@ add_executable(concord_cooperative_scenario_smoke
     src/data/campaign/CooperativeScenarioDatabase.cpp
     src/core/io/IniFile.cpp
     src/data/maps/MapDatabase.cpp
+    src/assets/codecs/RuntimeLzo1xCodec.cpp
+    src/data/maps/MapLzoPayload.cpp
+    src/assets/codecs/RuntimeLcwCodec.cpp
+    src/assets/codecs/RuntimeMapBase64Codec.cpp
     src/data/art/TheaterDatabase.cpp
 )
 target_include_directories(concord_cooperative_scenario_smoke PRIVATE src)
@@ -447,6 +487,10 @@ add_executable(concord_cooperative_session_system_smoke
     src/data/campaign/CooperativeScenarioDatabase.cpp
     src/core/io/IniFile.cpp
     src/data/maps/MapDatabase.cpp
+    src/assets/codecs/RuntimeLzo1xCodec.cpp
+    src/data/maps/MapLzoPayload.cpp
+    src/assets/codecs/RuntimeLcwCodec.cpp
+    src/assets/codecs/RuntimeMapBase64Codec.cpp
     src/data/art/TheaterDatabase.cpp
 )
 target_include_directories(
@@ -818,6 +862,10 @@ add_executable(concord_multiplayer_menu_smoke
     src/data/campaign/CooperativeScenarioDatabase.cpp
     src/core/io/IniFile.cpp
     src/data/maps/MapDatabase.cpp
+    src/assets/codecs/RuntimeLzo1xCodec.cpp
+    src/data/maps/MapLzoPayload.cpp
+    src/assets/codecs/RuntimeLcwCodec.cpp
+    src/assets/codecs/RuntimeMapBase64Codec.cpp
     src/data/art/TheaterDatabase.cpp
     src/network/maps/RuntimeMultiplayerCompatibilityFingerprint.cpp
     src/network/lobby/RuntimeMultiplayerLobbyModel.cpp

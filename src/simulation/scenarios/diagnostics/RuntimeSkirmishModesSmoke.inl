@@ -86,6 +86,12 @@ bool runRuntimeSkirmishModesSmoke(const RuntimeConfig& config, std::string& erro
             return decision.canQueue == wanted || fail(id + (wanted ? " remains locked: "
                 : " unlocked early: ") + decision.reason);
         };
+        const auto finishBuildAnimations = [&] {
+            for (int tick = 0; tick < 240; ++tick) {
+                ++state.tick;
+                advanceRuntimeBuildAnimations(state);
+            }
+        };
         const auto build = [&](const std::string& id) {
             const auto* found = findRuntimeGameplayCatalogItem(state, state.economy.owner, id);
             if (!found) return fail("cannot build missing " + id);
@@ -105,10 +111,7 @@ bool runRuntimeSkirmishModesSmoke(const RuntimeConfig& config, std::string& erro
             const auto cell = findRuntimePlacementCellNearBase(state, item);
             if (!cell || !placeRuntimeReadyBuilding(state, *cell))
                 return fail(id + " placement failed: " + state.economy.status);
-            for (int tick = 0; tick < 240; ++tick) {
-                ++state.tick;
-                advanceRuntimeBuildAnimations(state);
-            }
+            finishBuildAnimations();
             return true;
         };
         {
@@ -123,9 +126,20 @@ bool runRuntimeSkirmishModesSmoke(const RuntimeConfig& config, std::string& erro
                 return fail("mobile opening was defeated or could not deploy");
             ensureRuntimeComputerAiStates(state);
             auto& enemy = state.computerAiByOwner.at("skirmishplayer2");
-            if (!deployRuntimeComputerAiMcvs(state, enemy)
-                || !runtimeOwnerHasConstructionYard(state, enemy.owner))
+            if (!deployRuntimeComputerAiMcvs(state, enemy))
+                return fail("computer could not request its opening MCV deployment");
+            {
+                RuntimeSnapshotActiveStateScope active(state);
+                const int deadline = std::max(1, state.config.fixedTickHz) * 6;
+                for (int frame = 0; frame < deadline
+                    && !runtimeOwnerHasConstructionYard(state, enemy.owner); ++frame) {
+                    ++state.tick;
+                    advanceRuntimeMcvDeployTurns(state);
+                }
+            }
+            if (!runtimeOwnerHasConstructionYard(state, enemy.owner))
                 return fail("computer could not deploy its opening MCV");
+            finishBuildAnimations();
         }
         if (naval) {
             for (const auto& object : state.world.getObjects())

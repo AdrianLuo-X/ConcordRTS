@@ -4,6 +4,9 @@
 #include "core/io/IniFile.h"
 #include "data/rules/RulesDatabase.h"
 #include "simulation/abilities/unit_special/RuntimeTimedBomb.h"
+#include "simulation/abilities/chrono/RuntimeChronoState.h"
+#include "simulation/abilities/chrono/RuntimeTemporalState.h"
+#include "simulation/abilities/parasites/RuntimeParasiteState.h"
 
 #include <cstdint>
 #include <functional>
@@ -37,34 +40,6 @@ struct CamouflageState {
     int lastActivityTick = 0;
     int rearmUntilTick = 0;
     int fakeBlinkUntilTick = 0;
-};
-
-enum class ChronoPhase {
-    None,
-    WarpOut,
-    InTransit,
-    WarpIn,
-    Cooldown
-};
-
-struct ChronoMoveState {
-    int objectId = -1;
-    ChronoPhase phase = ChronoPhase::None;
-    SpecialCell source;
-    SpecialCell destination;
-    int sourceLevel = 0;
-    int destinationLevel = 0;
-    int startTick = 0;
-    int completeTick = 0;
-    int cooldownUntilTick = 0;
-};
-
-struct TemporalTargetState {
-    int targetObjectId = -1;
-    int requiredProgress = 0;
-    bool frozen = false;
-    std::map<int, int> progressByAttacker;
-    int lastAdvancedTick = -1;
 };
 
 struct ElectricArcState {
@@ -128,138 +103,6 @@ struct RadiationDamageEvent {
     int sourceObjectId = -1;
     std::string sourceOwner;
     std::string warheadId;
-};
-
-enum class ParasiteTargetKind {
-    Infantry,
-    Vehicle
-};
-
-enum class ParasiteImpactKind {
-    Hit,
-    Miss
-};
-
-enum class ParasiteHostEventKind {
-    Healed,
-    SonicHit,
-    Teleporting,
-    DestroyedExternally,
-    DestroyedByParasite
-};
-
-// The host resolves rules and live-world facts before beginning a launch.
-// Keeping the complete value snapshot here prevents an in-flight parasite
-// from changing behaviour if the source, weapon, or rules disappear later.
-struct ParasiteLaunchRequest {
-    int projectileId = -1;
-    int currentTick = -1;
-    int sourceObjectId = -1;
-    int targetObjectId = -1;
-    std::string sourceOwner;
-    std::string sourceTypeId;
-    std::string targetTypeId;
-    std::string weaponId;
-    std::string warheadId;
-    ParasiteTargetKind targetKind = ParasiteTargetKind::Vehicle;
-    SpecialCell targetCell;
-    int damage = 0;
-    int damageIntervalTicks = 1;
-    int paralyzes = 0;
-    int targetMaximumHealth = 1;
-    bool targetParasiteable = false;
-    bool sourceOrganic = false;
-    bool sourceElite = false;
-    bool culling = false;
-    // Permyriad health ratios supplied from the authoritative rules snapshot.
-    // Stock callers pass ConditionRed for normal and ConditionYellow for elite.
-    int normalCullingThresholdPermyriad = 0;
-    int eliteCullingThresholdPermyriad = 0;
-};
-
-struct ParasiteImpactRequest {
-    int projectileId = -1;
-    int currentTick = -1;
-    ParasiteImpactKind impact = ParasiteImpactKind::Miss;
-    int targetObjectId = -1;
-    std::string targetTypeId;
-    ParasiteTargetKind targetKind = ParasiteTargetKind::Vehicle;
-    bool targetPresent = false;
-    bool targetAlive = false;
-    bool targetParasiteable = false;
-    int targetMaximumHealth = 1;
-    SpecialCell impactCell;
-    bool returnCellAvailable = false;
-    SpecialCell returnCell;
-};
-
-struct ParasiteHostEventRequest {
-    int currentTick = -1;
-    int targetObjectId = -1;
-    ParasiteHostEventKind event = ParasiteHostEventKind::Healed;
-    bool ejectCellAvailable = false;
-    SpecialCell ejectCell;
-    int stunTicks = 0;
-};
-
-struct ParasitePendingLaunchState {
-    int projectileId = -1;
-    int sourceObjectId = -1;
-    int targetObjectId = -1;
-    std::string owner;
-    std::string sourceTypeId;
-    std::string targetTypeId;
-    std::string weaponId;
-    std::string warheadId;
-    ParasiteTargetKind targetKind = ParasiteTargetKind::Vehicle;
-    SpecialCell targetCell;
-    int launchedTick = 0;
-    int damage = 0;
-    int damageIntervalTicks = 1;
-    int paralyzes = 0;
-    int targetMaximumHealth = 1;
-    int cullingThresholdPerMyriad = 0;
-    bool targetParasiteable = false;
-    bool organic = false;
-    bool sourceElite = false;
-    bool culling = false;
-};
-
-struct ParasiteResolvedLaunchState {
-    int projectileId = -1;
-    int sourceObjectId = -1;
-    int targetObjectId = -1;
-    int resolvedTick = -1;
-    bool hostTerminated = false;
-};
-
-struct ParasiteLinkState {
-    int projectileId = -1;
-    int targetObjectId = -1;
-    int sourceObjectId = -1;
-    std::string owner;
-    std::string sourceTypeId;
-    std::string targetTypeId;
-    std::string weaponId;
-    std::string warheadId;
-    int damage = 0;
-    int attachedTick = 0;
-    int nextDamageTick = 0;
-    int damageIntervalTicks = 1;
-    bool organic = false;
-    bool sourceElite = false;
-    int paralyzes = 0;
-    bool culling = false;
-    int cullingThresholdPerMyriad = 0;
-    int targetMaximumHealth = 1;
-    bool sourceExpectedInLimbo = true;
-};
-
-struct ParasiteOperationResult {
-    bool accepted = false;
-    bool idempotent = false;
-    std::string reason;
-    std::vector<SpecialMechanismAction> actions;
 };
 
 enum class CarrierChildPhase {
@@ -397,7 +240,7 @@ struct SpecialMechanismRenderSnapshot {
 
 using SpecialAlliancePredicate =
     std::function<bool(const std::string&, const std::string&)>;
-using SpecialCellPredicate = std::function<bool(int, int, int)>;
+
 
 
 class RuntimeSpecialMechanismState {
@@ -491,18 +334,8 @@ public:
 
     bool isChronoInTransit(int objectId) const;
     bool isChronoMovementLocked(int objectId, int tick) const;
-    bool cancelChronoMoveInTransit(int objectId) {
-        const auto found = chronoByObject_.find(objectId);
-        if (found == chronoByObject_.end()
-            || (found->second.phase != ChronoPhase::WarpOut
-                && found->second.phase != ChronoPhase::InTransit)) return false;
-        chronoByObject_.erase(found);
-        return true;
-    }
-    const ChronoMoveState* chronoMoveState(int objectId) const {
-        const auto found = chronoByObject_.find(objectId);
-        return found == chronoByObject_.end() ? nullptr : &found->second;
-    }
+    bool cancelChronoMoveInTransit(int objectId) { return chrono_.cancelChronoMoveInTransit(objectId); }
+    const ChronoMoveState* chronoMoveState(int objectId) const { return chrono_.chronoMoveState(objectId); }
     // A Chronosphere relocates immediately, then uses the same persisted
     // recovery state and command/attack locks as an ordinary chrono unit.
     void beginChronosphereRecovery(WorldObjectInstance& object, int tick,
@@ -527,18 +360,13 @@ public:
 
     bool isTemporalFrozen(int objectId) const;
     bool hasTemporalAttacker(int attackerObjectId, int targetObjectId) const {
-        const auto target = temporalByTarget_.find(targetObjectId);
-        return target != temporalByTarget_.end()
-            && target->second.progressByAttacker.contains(attackerObjectId);
+        return temporal_.hasTemporalAttacker(attackerObjectId, targetObjectId);
     }
     const std::map<int, TemporalTargetState>& temporalTargets() const {
-        return temporalByTarget_;
+        return temporal_.records();
     }
     bool beginTemporalTick(int targetObjectId, int tick) {
-        const auto target = temporalByTarget_.find(targetObjectId);
-        if (target == temporalByTarget_.end() || tick <= target->second.lastAdvancedTick) return false;
-        target->second.lastAdvancedTick = tick;
-        return true;
+        return temporal_.beginTemporalTick(targetObjectId, tick);
     }
 
     // Owner transitions must not leave a progress edge whose alliance
@@ -827,7 +655,7 @@ public:
     const std::map<int, MindControlLinkState>& mindControlLinks() const;
     const std::map<int, CamouflageState>& camouflageStates() const;
     bool hasActiveChronoTemporalStates() const {
-        return !chronoByObject_.empty() || !temporalByTarget_.empty();
+        return !chrono_.empty() || !temporal_.empty();
     }
     const std::map<int, RadiationAreaState>& radiationAreas() const;
     const std::map<int, CarrierParentState>& carrierParents() const;
@@ -845,17 +673,14 @@ private:
     std::map<int, MindControlLinkState> mindControlByTarget_;
     std::map<int, MindControlOverloadState> mindControlOverloadByController_;
     std::map<int, CamouflageState> camouflageByObject_;
-    std::map<int, ChronoMoveState> chronoByObject_;
-    std::map<int, TemporalTargetState> temporalByTarget_;
+    RuntimeChronoState chrono_;
+    RuntimeTemporalState temporal_;
     std::map<int, ElectricDisableState> electricDisableByObject_;
     std::map<int, ElectricChargeState> electricChargeByTarget_;
     std::map<int, ElectricArcState> electricArcs_;
     std::map<int, RadiationAreaState> radiationAreas_;
     RuntimeTimedBombState timedBombs_;
-    std::map<int, ParasitePendingLaunchState> parasitePendingByProjectile_;
-    std::map<int, ParasiteLinkState> parasiteByTarget_;
-    std::map<int, ParasiteResolvedLaunchState>
-        parasiteResolvedByProjectile_;
+    RuntimeParasiteState parasite_;
     std::map<int, CarrierParentState> carrierParents_;
     std::map<int, CarrierChildState> carrierChildren_;
     std::map<int, SpawnedMissileState> spawnedMissiles_;

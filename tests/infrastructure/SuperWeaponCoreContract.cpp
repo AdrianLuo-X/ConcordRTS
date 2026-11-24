@@ -19,6 +19,9 @@ using superweapon_detail::superWeaponObjectCellKey;
 #include "simulation/superweapons/diagnostics/SuperWeaponForceShieldGroundSmoke.inl"
 #include "simulation/superweapons/diagnostics/SuperWeaponChronosphereGroundSmoke.inl"
 
+#include "../simulation/superweapons/lifecycle/RuntimeSupportFlightPersistenceContract.inl"
+#include "../simulation/superweapons/lifecycle/RuntimeSuperWeaponAiPolicyContract.inl"
+
 int main() {
     if (!smokeSuperWeaponChronosphereGround() || !smokeSuperWeaponForceShieldGround()
         || !smokeSuperWeaponConcurrentRecharge() || !smokeSuperWeaponNoCooldown()
@@ -49,5 +52,7 @@ int main() {
     }
     std::cout << "superweapon pure core: original five complete fixtures; "
               << observations << " continued full-byte/hash observations passed\n";
+    if (!support_flight_pose_model_detail::runContract()
+        || !superweapon_ai_model_detail::runContract()) return 5;
     return 0;
 }

@@ -55,6 +55,48 @@ MAP_DRAW_VALUES = {"src/render/core/MapDrawCommands.h", "src/render/core/Runtime
                    "src/render/core/MapSpriteMaterial.h",
                    "src/ui/input/RuntimeInputPixelValues.h", "src/ui/values/RuntimeColorValues.h"}
 DEFAULT_MODULES = {
+    "parasite-action-policy": ["src/simulation/abilities/parasites/RuntimeParasiteActionPolicy.h","src/simulation/abilities/parasites/RuntimeParasiteActionPolicy.cpp"],
+    "parasite-host-death-policy": ["src/simulation/abilities/parasites/RuntimeParasiteHostDeathPolicy.h","src/simulation/abilities/parasites/RuntimeParasiteHostDeathPolicy.cpp"],
+    "parasite-lifecycle-values": ["src/simulation/lifecycle/RuntimeObjectExitValues.h","src/simulation/abilities/parasites/RuntimeParasiteActionResult.h"],
+    "parasite-atomic-policy": ["src/simulation/abilities/parasites/RuntimeParasiteAtomicPolicy.h"],
+    "parasite-admission-policy": ["src/simulation/abilities/parasites/RuntimeParasiteAdmissionPolicy.h","src/simulation/abilities/parasites/RuntimeParasiteAdmissionPolicy.cpp"],
+    "parasite-launch-policy": ["src/simulation/abilities/parasites/RuntimeParasiteLaunchPolicy.h","src/simulation/abilities/parasites/RuntimeParasiteLaunchPolicy.cpp"],
+    "parasite-impact-policy": ["src/simulation/abilities/parasites/RuntimeParasiteImpactPolicy.h"],
+    "parasite-host-event-policy": ["src/simulation/abilities/parasites/RuntimeParasiteHostEventPolicy.h"],
+    "parasite-chrono-move-policy": ["src/simulation/abilities/parasites/RuntimeParasiteChronoMovePolicy.h"],
+    "parasite-saved-authority-policy": ["src/simulation/abilities/parasites/RuntimeParasiteSavedAuthorityPolicy.h","src/simulation/abilities/parasites/RuntimeParasiteSavedAuthorityPolicy.cpp"],
+    "squid-grapple-water-policy": ["src/simulation/abilities/parasites/RuntimeSquidGrappleWaterPolicy.h","src/simulation/abilities/parasites/RuntimeSquidGrappleWaterPolicy.cpp"],
+    "squid-splash-codec": ["src/simulation/abilities/parasites/RuntimeSquidSplashCodec.h","src/simulation/abilities/parasites/RuntimeSquidSplashCodec.cpp"],
+    "impact-effect-values": ["src/simulation/effects/RuntimeImpactEffectValues.h","src/simulation/effects/RuntimeParticlePresentationValues.h"],
+    "parasite-stun-state": ["src/simulation/abilities/parasites/RuntimeParasiteStunState.h","src/simulation/abilities/parasites/RuntimeParasiteStunState.cpp"],
+    "parasite-state": ["src/simulation/abilities/parasites/RuntimeParasiteValues.h","src/simulation/abilities/parasites/RuntimeParasiteState.h","src/simulation/abilities/parasites/RuntimeParasiteState.cpp"],
+    "temporal-state": ["src/simulation/abilities/chrono/RuntimeTemporalState.h","src/simulation/abilities/chrono/RuntimeTemporalState.cpp"],
+    "temporal-attack-policy": ["src/simulation/abilities/chrono/RuntimeTemporalAttackPolicy.h","src/simulation/abilities/chrono/RuntimeTemporalAttackPolicy.cpp"],
+    "temporal-feedback-policy": ["src/simulation/abilities/chrono/RuntimeTemporalFeedbackPolicy.h","src/simulation/abilities/chrono/RuntimeTemporalFeedbackPolicy.cpp"],
+    "chrono-warp": ["src/simulation/abilities/chrono/RuntimeChronoWarp.h","src/simulation/abilities/chrono/RuntimeChronoWarp.cpp"],
+    "chrono-cell-occupancy": ["src/simulation/abilities/chrono/RuntimeChronoCellOccupancy.h","src/simulation/abilities/chrono/RuntimeChronoCellOccupancy.cpp"],
+    "chrono-terrain-view": ["src/simulation/abilities/chrono/RuntimeChronoTerrainView.h","src/simulation/abilities/chrono/RuntimeChronoTerrainView.cpp"],
+    "chrono-locomotion-policy": ["src/simulation/abilities/chrono/RuntimeChronoLocomotionPolicy.h","src/simulation/abilities/chrono/RuntimeChronoLocomotionPolicy.cpp"],
+    "chrono-state": ["src/simulation/abilities/chrono/RuntimeChronoState.h","src/simulation/abilities/chrono/RuntimeChronoState.cpp"],
+    "chrono-transport-admission": ["src/simulation/abilities/chrono/RuntimeChronoTransportAdmission.h","src/simulation/abilities/chrono/RuntimeChronoTransportAdmission.cpp"],
+    "camouflage-stationary": ["src/simulation/abilities/unit_special/RuntimeCamouflageStationary.h","src/simulation/abilities/unit_special/RuntimeCamouflageStationary.cpp"],
+    "deployment-missions": ["src/simulation/movement/RuntimeDeploymentMissions.h"],
+    "support-flight-persistence": ["src/simulation/superweapons/RuntimeSupportFlightPersistence.h","src/simulation/superweapons/RuntimeSupportFlightPersistence.cpp","src/core/io/RuntimeStrictSaveDouble.h"],
+    "superweapon-ai-policy": ["src/simulation/superweapons/RuntimeSuperWeaponAiPolicy.h","src/simulation/superweapons/RuntimeSuperWeaponAiPolicy.cpp"],
+    "superweapon-vision-effects": ["src/simulation/superweapons/RuntimeSuperWeaponVisionEffects.h","src/simulation/superweapons/RuntimeSuperWeaponVisionEffects.cpp"],
+    "nearest-subcell-policy": ["src/simulation/navigation/occupancy/RuntimeNearestSubcellSelection.h","src/simulation/navigation/occupancy/RuntimeNearestSubcellSelection.cpp"],
+    "auxiliary-shp-bytes": ["src/assets/sprites/RuntimeAuxiliaryShpBytes.h","src/assets/sprites/RuntimeAuxiliaryShpBytes.cpp"],
+    "art-animation-sequence": ["src/assets/animation/RuntimeArtAnimationSequence.h","src/assets/animation/RuntimeArtAnimationSequence.cpp"],
+    "superweapon-animation-timing": ["src/simulation/superweapons/RuntimeSuperWeaponAnimationTiming.h","src/simulation/superweapons/RuntimeSuperWeaponAnimationTiming.cpp"],
+    "dominator-control-completion": ["src/simulation/abilities/psionic/RuntimeDominatorControlCompletion.h","src/simulation/abilities/psionic/RuntimeDominatorControlCompletion.cpp"],
+    "mind-overload-effects": ["src/simulation/abilities/psionic/RuntimeMindControlOverloadEffects.h","src/simulation/abilities/psionic/RuntimeMindControlOverloadEffects.cpp"],
+    "nuclear-death": ["src/simulation/superweapons/RuntimeNuclearDeathDetonation.h","src/simulation/superweapons/RuntimeNuclearDeathDetonation.cpp","src/simulation/projectiles/RuntimeProjectileValues.h","src/simulation/projectiles/RuntimeVoxelDebrisState.h"],
+    "computer-tactic-reservations": ["src/simulation/ai/RuntimeComputerTacticReservations.h","src/simulation/ai/RuntimeComputerTacticReservations.cpp"],
+    "computer-tactic-recruitment": ["src/simulation/ai/RuntimeComputerTacticRecruitment.h","src/simulation/ai/RuntimeComputerTacticRecruitment.cpp"],
+    "computer-base-plan": ["src/simulation/ai/RuntimeComputerBasePlan.h","src/simulation/ai/RuntimeComputerBasePlan.cpp","src/simulation/ai/RuntimeComputerBasePlanValues.h"],
+    "computer-tactic-production": ["src/simulation/ai/RuntimeComputerTacticProduction.h","src/simulation/ai/RuntimeComputerTacticProduction.cpp","src/simulation/production/RuntimeProductionSpawnValues.h"],
+    "computer-tactic-lifecycle": ["src/simulation/ai/RuntimeComputerTacticLifecycle.h","src/simulation/ai/RuntimeComputerTacticLifecycle.cpp","src/simulation/ai/RuntimeComputerAiMetrics.h"],
+    "computer-tactic-selection": ["src/simulation/ai/RuntimeComputerTacticSelection.h", "src/simulation/ai/RuntimeComputerTacticSelection.cpp", "src/simulation/ai/RuntimeComputerAiState.h", "src/simulation/production/RuntimeBuildCatalogItem.h", "src/simulation/production/RuntimeBuildKind.h"],
     "superweapon-production": ["src/simulation/superweapons/SuperWeaponSystem.h", "src/simulation/superweapons/SuperWeaponSystem.cpp", "src/simulation/superweapons/RuntimeChronosphereRelocation.cpp", "src/simulation/superweapons/private/SuperWeaponObjectCellKey.h"],
     "computer-tactics-codec": ["src/simulation/ai/RuntimeComputerTacticsCodec.h", "src/simulation/ai/RuntimeComputerTacticsCodec.cpp", "src/core/io/RuntimeSaveTextFields.h"],
     "service-console": ["src/network/internet/RuntimeInternetServiceProcess.h", "src/network/internet/private/RuntimeInternetServiceConsoleControl.h"],
@@ -912,6 +954,82 @@ def scan(root, build, inventory, trace, modules=None):
                         or (module == "menu-draw" and target in MENU_DRAW_VALUES)
                         or (module in ("map-draw", "map-tile-preparation") and target in MAP_DRAW_VALUES)):
                     add("protected-dependency", start, module + ":" + target, witness=witness)
+                if module in ("auxiliary-shp-bytes", "art-animation-sequence", "superweapon-animation-timing"):
+                    if target.startswith("src/render/") or re.search(
+                            r'\b(?:RuntimeMapRenderCache|RuntimeMapRenderContext|RuntimeShpFrameImage|RuntimeObjectShpSpriteCacheEntry)\b',
+                            code_views.get(target, "")):
+                        add("animation-resource-drawing-state", start, module + ":" + target, witness=witness)
+                if module == "nearest-subcell-policy":
+                    if target.startswith("src/render/") or re.search(
+                            r'\b(?:RuntimeMapRenderCache|RuntimeMapRenderContext|RuntimeShpFrameImage|RuntimeObjectShpSpriteCacheEntry)\b',
+                            code_views.get(target, "")):
+                        add("nearest-subcell-drawing-state", start, module + ":" + target, witness=witness)
+                if module == "support-flight-persistence":
+                    if target.startswith("src/render/") or re.search(
+                            r'\b(?:RuntimeMapRenderCache|RuntimeMapRenderContext|RuntimeShpFrameImage|RuntimeObjectShpSpriteCacheEntry)\b',
+                            code_views.get(target, "")):
+                        add("support-flight-persistence-drawing-state", start, module + ":" + target, witness=witness)
+                if module == "camouflage-stationary":
+                    if target.startswith("src/render/") or re.search(
+                            r'\b(?:RuntimeMapRenderCache|RuntimeMapRenderContext|RuntimeShpFrameImage|RuntimeObjectShpSpriteCacheEntry)\b',
+                            code_views.get(target, "")):
+                        add("camouflage-stationary-drawing-state", start, module + ":" + target, witness=witness)
+                if module == "deployment-missions":
+                    if target.startswith("src/render/") or re.search(
+                            r'\b(?:RuntimeMapRenderCache|RuntimeMapRenderContext|RuntimeShpFrameImage|RuntimeObjectShpSpriteCacheEntry)\b',
+                            code_views.get(target, "")):
+                        add("deployment-missions-drawing-state", start, module + ":" + target, witness=witness)
+                if module == "chrono-transport-admission":
+                    if target.startswith("src/render/") or re.search(
+                            r'\b(?:RuntimeMapRenderCache|RuntimeMapRenderContext|RuntimeShpFrameImage|RuntimeObjectShpSpriteCacheEntry)\b',
+                            code_views.get(target, "")):
+                        add("chrono-transport-admission-drawing-state", start, module + ":" + target, witness=witness)
+                if module == "chrono-locomotion-policy":
+                    if target.startswith("src/render/") or re.search(
+                            r'\b(?:RuntimeMapRenderCache|RuntimeMapRenderContext|RuntimeShpFrameImage|RuntimeObjectShpSpriteCacheEntry)\b',
+                            code_views.get(target, "")):
+                        add("chrono-locomotion-policy-drawing-state", start, module + ":" + target, witness=witness)
+                if module == "chrono-state":
+                    if target.startswith("src/render/") or re.search(
+                            r'\b(?:RuntimeMapRenderCache|RuntimeMapRenderContext|RuntimeShpFrameImage|RuntimeObjectShpSpriteCacheEntry)\b',
+                            code_views.get(target, "")):
+                        add("chrono-state-drawing-state", start, module + ":" + target, witness=witness)
+                if module == "chrono-cell-occupancy":
+                    if target.startswith("src/render/") or re.search(
+                            r'\b(?:RuntimeMapRenderCache|RuntimeMapRenderContext|RuntimeShpFrameImage|RuntimeObjectShpSpriteCacheEntry)\b',
+                            code_views.get(target, "")):
+                        add("chrono-cell-occupancy-drawing-state", start, module + ":" + target, witness=witness)
+                if module == "chrono-terrain-view":
+                    if target.startswith("src/render/") or re.search(
+                            r'\b(?:RuntimeMapRenderCache|RuntimeMapRenderContext|RuntimeShpFrameImage|RuntimeObjectShpSpriteCacheEntry)\b',
+                            code_views.get(target, "")):
+                        add("chrono-terrain-view-drawing-state", start, module + ":" + target, witness=witness)
+                if module in ("temporal-state", "temporal-attack-policy", "temporal-feedback-policy", "parasite-state", "parasite-action-policy", "parasite-host-death-policy", "parasite-lifecycle-values", "parasite-stun-state", "parasite-atomic-policy", "parasite-admission-policy", "parasite-launch-policy", "parasite-impact-policy", "parasite-host-event-policy", "parasite-chrono-move-policy", "parasite-saved-authority-policy", "squid-grapple-water-policy", "squid-splash-codec", "impact-effect-values"):
+                    if target.startswith("src/render/") or re.search(
+                            r'\b(?:RuntimeMapRenderCache|RuntimeMapRenderContext|RuntimeShpFrameImage|RuntimeObjectShpSpriteCacheEntry)\b',
+                            code_views.get(target, "")):
+                        add(module + "-drawing-state", start, module + ":" + target, witness=witness)
+                    if target in ("src/simulation/abilities/unit_special/RuntimeSpecialMechanisms.h",
+                                  "src/simulation/abilities/unit_special/RuntimeSpecialMechanisms.cpp"):
+                        add("parasite-special-aggregate" if module in ("parasite-state", "parasite-action-policy", "parasite-host-death-policy", "parasite-lifecycle-values", "parasite-stun-state", "parasite-atomic-policy", "parasite-admission-policy", "parasite-launch-policy", "parasite-impact-policy", "parasite-host-event-policy", "parasite-chrono-move-policy", "parasite-saved-authority-policy", "squid-grapple-water-policy", "squid-splash-codec", "impact-effect-values") else "temporal-special-aggregate", start, module + ":" + target, witness=witness)
+                if module in ("parasite-saved-authority-policy", "squid-grapple-water-policy", "squid-splash-codec", "impact-effect-values"):
+                    if re.search("(?<![A-Za-z0-9_])RuntimeSpecialMechanismState(?![A-Za-z0-9_])", code_views.get(target, "")):
+                        add(module + "-aggregate-state", start, module + ":" + target, witness=witness)
+                if module == "chrono-warp":
+                    if target.startswith("src/render/") or re.search(
+                            r'\b(?:RuntimeMapRenderCache|RuntimeMapRenderContext|RuntimeShpFrameImage|RuntimeObjectShpSpriteCacheEntry)\b',
+                            code_views.get(target, "")):
+                        add("chrono-warp-drawing-state", start, module + ":" + target, witness=witness)
+                if module == "superweapon-ai-policy":
+                    if target.startswith("src/render/") or re.search(
+                            r'\b(?:RuntimeMapRenderCache|RuntimeMapRenderContext|RuntimeShpFrameImage|RuntimeObjectShpSpriteCacheEntry)\b',
+                            code_views.get(target, "")):
+                        add("superweapon-ai-policy-drawing-state", start, module + ":" + target, witness=witness)
+                if module == "superweapon-vision-effects":
+                    if target.startswith("src/render/") or re.search(
+                            r'\b(?:RuntimeMapRenderCache|RuntimeMapRenderContext|RuntimeShpFrameImage|RuntimeObjectShpSpriteCacheEntry)\b',
+                            code_views.get(target, "")):
+                        add("superweapon-vision-drawing-state", start, module + ":" + target, witness=witness)
                 for detail in platform.get(target, ()):
                     # Original synchronous diagnostic observer contexts carry no
                     # OS/device semantics. Keep all opaque facts visible in the
@@ -923,7 +1041,10 @@ def scan(root, build, inventory, trace, modules=None):
                                            "opaque:void*:runtimeRadarCellColorsObserverContext"}):
                         continue
                     add("protected-platform", start, module + ":" + target + ":" + detail, witness=witness)
-                if re.search(r'\b(?:RuntimeWindowState|WindowState)\b', code_views.get(target, "")):
+                if (re.search(r'\b(?:RuntimeWindowState|WindowState)\b', code_views.get(target, ""))
+                        or (module in ("world-audio-backend-session", "computer-tactic-selection", "computer-tactic-lifecycle", "computer-tactic-reservations", "computer-tactic-recruitment", "computer-base-plan", "computer-tactic-production", "nuclear-death", "mind-overload-effects", "dominator-control-completion", "auxiliary-shp-bytes", "art-animation-sequence", "superweapon-animation-timing", "nearest-subcell-policy", "superweapon-vision-effects", "support-flight-persistence", "superweapon-ai-policy", "camouflage-stationary", "deployment-missions", "chrono-transport-admission", "chrono-locomotion-policy", "chrono-state", "chrono-cell-occupancy", "chrono-terrain-view", "chrono-warp", "temporal-state", "temporal-attack-policy", "temporal-feedback-policy", "parasite-state", "parasite-action-policy", "parasite-host-death-policy", "parasite-lifecycle-values", "parasite-stun-state", "parasite-atomic-policy", "parasite-admission-policy", "parasite-launch-policy", "parasite-impact-policy", "parasite-host-event-policy", "parasite-chrono-move-policy", "parasite-saved-authority-policy", "squid-grapple-water-policy", "squid-splash-codec", "impact-effect-values") and re.search(
+                            r'\b(?:RuntimeProductionHostState|RuntimeGameSessionState)\b',
+                            code_views.get(target, "")))):
                     add("protected-host-state", start, module + ":" + target, witness=witness)
 
     targets = target_model(inventory)
@@ -1123,7 +1244,7 @@ def scan(root, build, inventory, trace, modules=None):
             if re.search(r'\b(?:RuntimeWindowState|GameWorld|RuntimeVoiceAudio)\b|\bvoid\s*\*|\b(?:std::)?uintptr_t\b', code_views.get(standard, "")):
                 add("menu-sound-live-or-opaque", standard, "standard playback results cannot hide live or native owners")
         native_header = "src/audio/events/win32/RuntimeMenuSoundWin32.h"
-        allowed = {"tests/audio/RuntimeMenuSfxClockContract.cpp", "src/ui/skirmish/RuntimeSkirmishMenu.cpp", "src/audio/events/win32/RuntimeMenuSoundWin32.cpp", "tests/audio/menu_sfx_device/MenuSoundNativeContract.cpp"}
+        allowed = {"tests/audio/RuntimeMenuSfxClockContract.cpp", "src/audio/events/win32/RuntimeMenuSoundPlaybackWin32.cpp", "src/audio/events/win32/RuntimeMenuSoundWin32.cpp", "tests/audio/menu_sfx_device/MenuSoundNativeContract.cpp"}
         for edge in edges:
             if edge["target"] == native_header and edge["source"] not in allowed:
                 add("menu-sound-native-consumer", edge["source"], native_header, line=edge["line"])

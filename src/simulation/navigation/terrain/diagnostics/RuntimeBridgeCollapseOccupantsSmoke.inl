@@ -165,8 +165,12 @@ bool runRuntimeBridgeCollapseOccupantsSmoke(const RuntimeConfig& config, std::st
         // One anchor enters the doomed area through the actual UI/path clock.
         const int walker=add("HTNK","Americans",point(31,0));if(walker<0)return fail("stock walker");s.selectedObjectIds={walker};
         if(!dispatchRuntimeTargetOrderFromUi(s,RuntimeMultiplayerGameplayTargetOrderKind::Move,target)||s.lastCommand.acceptedCount!=1)return fail("native anchor Move rejected");
-        bool arrived=false;for(int t=0;t<hz*40&&!arrived;++t){step(s);const auto* o=findObjectById(s,walker);
-            arrived=o&&o->x==target.x&&o->y==target.y&&o->onBridge&&(!o->renderMoveActive||std::hypot(o->renderX-target.x,o->renderY-target.y)<.05);}
+        bool arrived=false;
+        for(int t=0;t<hz*40&&!arrived;++t){
+            step(s);const auto* o=findObjectById(s,walker);
+            const bool atBodyCenter=o&&(!o->hasRenderPosition||(o->renderX==target.x&&o->renderY==target.y));
+            arrived=o&&o->x==target.x&&o->y==target.y&&o->onBridge&&!o->renderMoveActive&&atBodyCenter;
+        }
         if(!arrived)return fail("native walker never reached doomed deck: "+describe(findObjectById(s,walker)));
         s.selectedObjectIds={walker};if(!dispatchRuntimeSelectionCommandFromUi(s,RuntimeMultiplayerGameplayCommandType::Stop)||s.lastCommand.acceptedCount!=1)return fail("native walker Stop rejected");++moves;
         findMutableObjectById(s,walker)->mission="Sleep";
@@ -192,9 +196,10 @@ bool runRuntimeBridgeCollapseOccupantsSmoke(const RuntimeConfig& config, std::st
         const auto author=[&](int id,RuntimeCellPoint p,bool bridge,double level,bool airborne=false){auto* o=findMutableRuntimeObjectByIdIncludingInactive(s,id);
             if(!o)return false;setRuntimeObjectCell(s,*o,p,false);o->level=static_cast<int>(level);o->onBridge=bridge;o->airborne=airborne;
             if(airborne)o->flightLevel=static_cast<int>(level);
-            // Same-cell fractional stops are explicit authored body positions,
-            // preserved by the existing StoppedMovePoses ordinary save format.
-            o->hasRenderPosition=true;o->renderX=p.x+(airborne?0.0:.125);o->renderY=p.y;o->renderLevel=level;o->renderOnBridge=bridge;o->renderMoveActive=false;
+            // A fractional vehicle stop also holds a neighboring whole cell.
+            // Keep stationary vehicles centered, and retain infantry subcell poses.
+            const double xOffset = !airborne && o->kind == WorldObjectKind::Infantry ? .125 : 0.0;
+            o->hasRenderPosition=true;o->renderX=p.x+xOffset;o->renderY=p.y;o->renderLevel=level;o->renderOnBridge=bridge;o->renderMoveActive=false;
             assignRuntimeInfantrySubcellAtCurrentLocation(s,*o);
             o->mission="Sleep";eraseRuntimeBehavior(s,id);syncRuntimeTransportCargoPositions(s,*o);return true;};
         int pendingHost=-1,pendingSource=-1,pendingActor=-1;
@@ -216,8 +221,9 @@ bool runRuntimeBridgeCollapseOccupantsSmoke(const RuntimeConfig& config, std::st
             if(pendingHost<0||pendingSource<0||!author(pendingHost,point(35,1),true,deck)||!author(pendingSource,point(34,0),true,deck))
                 return fail("original pending parasite source/host fixture");
             // Preserve a distinct spatial cue from the native MTNK which
-            // later occupies this same logical vehicle cell.
-            findMutableObjectById(s,pendingHost)->renderX+=.25;
+            // later occupies this same logical vehicle cell. Keep the footprint off the
+            // adjacent infantry lane.
+            findMutableObjectById(s,pendingHost)->renderY+=.25;
             if(!reservedReturnSlotLegal(s))return false;
             facade(s,"Russians");s.selectedObjectIds={pendingSource};const auto* host=findObjectById(s,pendingHost);
             if(!dispatchRuntimeTargetOrderFromUi(s,RuntimeMultiplayerGameplayTargetOrderKind::Primary,runtimeCellPointForObject(*host),host)
@@ -260,24 +266,42 @@ bool runRuntimeBridgeCollapseOccupantsSmoke(const RuntimeConfig& config, std::st
             // infantry share the adjacent lane's three native subcell slots.
             const bool reserve=pendingActor>=0&&a==34&&lane==0;const auto p=point(a,reserve?1:lane);
             if(p==target)continue;const int id=add(types[n%types.size()],owners[lane],p);++n;
-            if(id<0||!author(id,p,true,deck)||!remember(id,reserve?"authoredReservedReturnLane1":"authoredDeckLane"+std::to_string(lane),true))return fail("native full-health deck actor");}
+            if(id<0||!author(id,p,true,deck))return fail("native full-health deck actor");
+            auto& parked = *findMutableRuntimeObjectByIdIncludingInactive(s, id);
+            // Keep the native navigation layer for centered vehicles on an authored high side lane.
+            // Their separate deck body is saved without taking an adjacent infantry cell.
+            if (high && parked.kind == WorldObjectKind::Unit && !runtimeCellIsBridge(s, p.x, p.y)) {
+                parked.level = terrainLevelAtRuntimeCell(s, p.x, p.y);
+                parked.onBridge = false;
+            }
+            if(!remember(id,reserve?"authoredReservedReturnLane1":"authoredDeckLane"+std::to_string(lane),true))return fail("native full-health deck actor");}
         // Units share the native anchor; infantry retain free side-lane slots.
         // Fractional drawing offsets alone do not make infantry/vehicle logic
         // occupancy valid, so no ground infantry is placed in this unit cell.
         const auto transportPoint=target;if(!author(transport,transportPoint,true,deck))return false;
-        findMutableObjectById(s,transport)->renderX+=.25;
+        auto* loadedTransport = findMutableObjectById(s,transport);
+        // Sample a fractional stopped transport on the outside of lane zero.
+        if (alongX) loadedTransport->renderY -= .25;
+        else loadedTransport->renderX -= .25;
         if(!remember(transport,"nativeLoadedTransport",true))return false;
         const auto transportSound=expected.back().sound;if(!remember(passenger,"nativeContainedPassenger",true,transportSound))return false;
         const auto groundedPoint=point(whole?31:(high?34:35),pendingActor>=0?1:(high?0:2));
         const int grounded=add("JUMPJET","Neutral",groundedPoint);if(grounded<0||!author(grounded,groundedPoint,true,deck)||!remember(grounded,"authoredGroundedJumpjet",true))return false;
         // Separate continuous positions distinguish coincident fixture audio.
-        findMutableObjectById(s,grounded)->renderX+=.125;expected.back().before=*findObjectById(s,grounded);expected.back().sound.x+=.125;
+        findMutableObjectById(s,grounded)->renderX+=.0625;expected.back().before=*findObjectById(s,grounded);expected.back().sound.x+=.0625;
         for(const auto& entry:std::array<std::tuple<const char*,RuntimeCellPoint,bool,double>,5>{{
             {"bank",point(29,0),false,double(deck)},{"parallel",point(35,0,14),true,double(deck)},
             {whole?"farBank":"intactSegment",whole?point(41,0):point(38,0),!whole,double(deck)},
             {"underBridge",target,false,0.0},{"flyingJumpjet",target,false,double(deck+8)}}}){
             const auto& [role,p,bridge,z]=entry;const bool air=std::string(role)=="flyingJumpjet";const int id=add(air?"JUMPJET":"MTNK","Russians",p);
-            if(id<0||!author(id,p,bridge,z,air)||!remember(id,role,false))return fail("native survivor control");}
+            if(id<0||!author(id,p,bridge,z,air))return fail("native survivor control");
+            if(!air){
+                auto& control=*findMutableRuntimeObjectByIdIncludingInactive(s,id);
+                // Save the authored body while leaving the navigation layer at the native cell.
+                control.level=terrainLevelAtRuntimeCell(s,p.x,p.y);
+                control.onBridge=runtimeCellIsBridge(s,p.x,p.y);
+            }
+            if(!remember(id,role,false))return fail("native survivor control");}
         // Real begin/advance produces opposite logical/body bridge identities.
         // These are authored endpoint setups, not fabricated fractional XYZ.
         const auto motion=[&](bool departing){const auto deckPoint=target,shorePoint=point(35,-1);

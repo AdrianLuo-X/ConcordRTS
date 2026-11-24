@@ -1,13 +1,4 @@
 // UI-only helpers, included after camera/sidebar functions and before key routing.
-RuntimePlayerBeacon* runtimePlayerSelectedBeacon(RuntimeWindowState& state) {
-    auto& ui=state.playerCommunication;
-    const auto owner=runtimePlayerCommunicationViewerOwner(state);
-    if (ui.selectedBeacon) for (auto& beacon:ui.beacons)
-        if (beacon.owner==owner && beacon.cell==*ui.selectedBeacon && runtimePlayerBeaconVisibleToLocal(state,beacon)) return &beacon;
-    ui.selectedBeacon.reset();
-    return nullptr;
-}
-
 bool dispatchRuntimePlayerCommunicationFromUi(RuntimeWindowState& state,
     RuntimeMultiplayerGameplayPlayerCommunicationCommand command) {
     std::string error;
@@ -279,7 +270,8 @@ void drawRuntimePlayerHotkeyOverlay(HDC dc, const RECT& client, RuntimeWindowSta
     }
     auto& ui = state.playerCommunication;
     const RECT viewport = runtimeMapViewport(client);
-    drawRuntimePlayerWaypoints(dc, viewport, state);
+    drawRuntimePlayerWaypoints(dc, viewport, state, state.camera, state.selectedObjectIds,
+        state.playerLocalCommands, !ui.chatOpen && !ui.diplomacyOpen);
     const int saved = SaveDC(dc);
     concord::ui::HudSystemFontWin32 font;
     font.initialize(concord::ui::HudSystemFontRole::NoticeAndHotkeys);
@@ -294,7 +286,7 @@ void drawRuntimePlayerHotkeyOverlay(HDC dc, const RECT& client, RuntimeWindowSta
     std::erase_if(ui.cheerUntilTick, [&](const auto& c) { return c.second <= state.tick; });
     (void)runtimePlayerSelectedBeacon(state);
     drawRuntimePlayerBeaconOverlay(dc,viewport,state);
-    const int noticeHeight = runtimePlayerDefeatNoticeStackHeight(state,viewport,runtimeUiClockNow(state));
+    const int noticeHeight = runtimePlayerDefeatNoticeStackHeight(state.playerDefeatNotices.lines,viewport,runtimeUiClockNow(state));
     int y = viewport.top + 12 + noticeHeight;
     for (const auto& entry : ui.lines) if (!ui.diplomacyOpen && (entry.untilTick > state.tick || ui.chatOpen)) {
         if (y + 25 > viewport.bottom) break;

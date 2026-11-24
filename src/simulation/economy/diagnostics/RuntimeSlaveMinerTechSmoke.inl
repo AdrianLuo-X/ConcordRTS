@@ -16,9 +16,22 @@ bool runRuntimeSlaveMinerTechSmoke(RuntimeWindowState& live,std::string& error) 
         s.rulesLoaded=s.report.rulesLoaded;s.artLoaded=s.report.artLoaded;s.theaterLoaded=s.report.theaterLoaded;
         if(!s.report.success)return fail("native resources");
         initializeRuntimeNavigation(s);initializeRuntimeEconomy(s);
-        if(!initializeRuntimeSkirmishStart(s)||!initializeRuntimeTriggers(s)
-            ||!dispatchRuntimeSecondaryActionFromUi(s,s.economy.skirmishStartObjectId))return fail("Yuri opening");
+        if (!initializeRuntimeSkirmishStart(s) || !initializeRuntimeTriggers(s)) return fail("Yuri opening");
+        const int openingMcv = s.economy.skirmishStartObjectId;
+        if (!dispatchRuntimeSecondaryActionFromUi(s, openingMcv)) return fail("Yuri opening deploy input");
+        // The original UI command now finishes after the chassis turns. Use
+        // its production phase before advancing the yard's build animation.
+        for (int frame = 0; frame < hz * 6 && findObjectById(s, openingMcv); ++frame) {
+            ++s.tick;
+            advanceRuntimeMcvDeployTurns(s);
+        }
         const std::string owner=s.economy.owner, enemy=runtimeSkirmishOwnerForSlot(1);
+        const auto& objects = s.world.getObjects();
+        const bool openingYard = std::any_of(objects.begin(), objects.end(), [&](const auto& object) {
+            return object.alive && object.kind == WorldObjectKind::Structure
+                && object.owner == owner && object.type == "YACNST";
+        });
+        if (findObjectById(s, openingMcv) || !openingYard) return fail("Yuri opening yard did not finish");
         const auto finishAnimations=[&](){for(int i=0;i<hz*15;++i){++s.tick;advanceRuntimeBuildAnimations(s);}};
         finishAnimations();
         const auto completeAndPlace=[&](const RuntimeBuildCatalogItem& item)->int {
@@ -55,6 +68,17 @@ bool runRuntimeSlaveMinerTechSmoke(RuntimeWindowState& live,std::string& error) 
             ++phases;return true;
         };
         const auto roundTrip=[&](bool expected){
+            // The fixture advances construction without the rest of the
+            // simulation. Bring initialized authorities to the same save tick.
+            if (s.superWeaponsInitialized && s.superWeapons.lastTick() != s.tick) {
+                advanceRuntimeSuperWeapons(s);
+                syncRuntimeLightingSuperWeaponProfiles(s);
+                advanceRuntimeLighting(s);
+            }
+            if (s.particlesInitialized && s.particles.currentTick() < s.tick)
+                advanceRuntimeParticles(s);
+            if (s.worldAudioInitialized && s.worldAudio.lastAdvancedTick() < s.tick)
+                advanceRuntimeWorldAudio(s);
             std::ostringstream saved;IniFile ini;auto restored=std::make_unique<RuntimeWindowState>();
             seedRuntimeLoadScratch(*restored,s,false);
             if(!writeRuntimeStateToStream(s,saved,error)||!ini.loadFromString(saved.str())
@@ -64,7 +88,14 @@ bool runRuntimeSlaveMinerTechSmoke(RuntimeWindowState& live,std::string& error) 
         };
         const auto transform=[&](int id,const char* expected)->int {
             s.selectedObjectIds={id};
-            if(!dispatchRuntimeSecondaryActionFromUi(s,id)||s.selectedObjectIds.size()!=1)return -1;
+            if (!dispatchRuntimeSecondaryActionFromUi(s, id)) return -1;
+            for (int frame = 0; frame < hz * 6; ++frame) {
+                const auto* pending = findObjectById(s, id);
+                if (!pending || !runtimeMissionIsMcvDeployPending(*pending)) break;
+                ++s.tick;
+                advanceRuntimeMcvDeployTurns(s);
+            }
+            if (s.selectedObjectIds.size() != 1) return -1;
             const auto* object=findObjectById(s,s.selectedObjectIds.front());
             if(!object||object->type!=expected)return -1;
             const int next=object->instanceId;finishAnimations();return next;
@@ -85,14 +116,42 @@ bool runRuntimeSlaveMinerTechSmoke(RuntimeWindowState& live,std::string& error) 
         if(mobile<0||!check(true,"last refinery packed with active production")
             ||runtimePrerequisiteTokenMet(s,"YAREFN"))return fail("mobile form: "+error);
         if(completeAndPlace(radarItem)<0||!roundTrip(true))return fail("production/load while packed: "+error);
-        const auto* miner=findObjectById(s,mobile);
-        const auto move=findRuntimePassableCellNear(s,*miner,{miner->x+4,miner->y+2},8);
-        if(!move)return fail("move destination");
+        const auto* miner = findObjectById(s, mobile);
+        const auto building = runtimeBuildItemForBuilding(s, "YAREFN");
+        if (!miner || !building) return fail("mobile miner or native refinery placement item missing");
+        const auto origin = runtimeCellPointForObject(*miner);
+        std::optional<RuntimeCellPoint> move;
+        const std::array<RuntimeCellPoint, 4> shifts{{{4, 2}, {4, -2}, {-4, 2}, {-4, -2}}};
+        for (const auto& shift : shifts) {
+            auto placementProbe = *miner;
+            placementProbe.x = origin.x + shift.x;
+            placementProbe.y = origin.y + shift.y;
+            placementProbe.cell = runtimeCellKey(placementProbe.x, placementProbe.y);
+            const auto site = findRuntimeMcvDeployCell(s, placementProbe, *building);
+            if (!site || *site == origin) continue;
+            const auto route = findRuntimePath(s, *miner, origin, *site);
+            if (!route.empty() && route.back() == *site) {
+                move = site;
+                break;
+            }
+        }
+        if (!move) return fail("no reachable move destination with a native refinery foundation");
         s.selectedObjectIds={mobile};issueRuntimeMoveCommand(s,*move);
         if(s.lastCommand.acceptedCount!=1||!check(true,"mobile move order"))return fail("moving technology: "+error);
+        const auto arrived = [&] {
+            const auto* object = findObjectById(s, mobile);
+            return object && runtimeCellPointForObject(*object) == *move && !object->renderMoveActive;
+        };
+        for (int tick = 0; tick < hz * 30 && !arrived(); ++tick) {
+            ++s.tick;
+            advanceRuntimeSimulation(s);
+        }
+        if (!arrived()) return fail("mobile refinery never arrived at the legal deployment cell");
         if(!dispatchRuntimeSelectionCommandFromUi(s,RuntimeMultiplayerGameplayCommandType::Stop))return fail("stop miner");
         refinery=transform(mobile,"YAREFN");
-        if(refinery<0||!check(true,"redeployed refinery"))return fail("redeploy: "+error);
+        if(refinery<0||!check(true,"redeployed refinery"))
+            return fail("redeploy: " + error + " economy=" + s.economy.status
+                + " interaction=" + s.interactionStatus);
         mobile=transform(refinery,"SMIN");
         if(mobile<0||!check(true,"repacked refinery")||!roundTrip(true))return fail("repack: "+error);
         const int second=buy("YAREFN");

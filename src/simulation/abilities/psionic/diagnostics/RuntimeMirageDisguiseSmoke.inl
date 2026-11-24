@@ -83,11 +83,22 @@ bool runRuntimeMirageDisguiseSmoke(const RuntimeConfig& config, std::string& err
         const auto treeBody=paint(s->world);
         context.specialMechanismSnapshots=nullptr;
         const auto ground=paint(reference);
+        RuntimeMapRenderContext ordinaryContext = context;
+        ordinaryContext.specialMechanismSnapshots = nullptr;
+        RuntimeInputPixelRect ordinaryBody{};
+        if (!resolveRuntimeMobileObjectSpriteBounds(
+                *projection.front().object, projection.front().renderCenter,
+                ordinaryContext, s->camera, s->renderCache, ordinaryBody))
+            return fail("original MGTK body reference unavailable");
+        const auto ordinaryFrame = runtimeUnitSelectionBoundsForSprite(
+            runtimeRenderPlacementNativeRect(ordinaryBody));
+        // Live selection bounds follow the disguise sprite. Use the same
+        // unit's unmasked body frame to identify the tall canopy independently.
         bool pickedCanopy=false;
         for(int y=viewport.top;y<viewport.bottom;++y)for(int x=viewport.left;x<viewport.right;++x){
             if(treeBody[y*width+x]==ground[y*width+x])continue;
             if(!pointInRectInclusive(projection.front().bounds,{x,y}))return fail("tree pixels outside click bounds");
-            if(y<projection.front().selectionBounds.top
+            if(y<ordinaryFrame.top
                 &&findProjectedObjectAtPoint(projection,{x,y})!=nullptr)pickedCanopy=true;
         }
         if(!pickedCanopy)return fail("tall tree canopy cannot select its tank");

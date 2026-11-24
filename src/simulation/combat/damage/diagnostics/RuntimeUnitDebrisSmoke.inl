@@ -182,7 +182,13 @@ bool runRuntimeUnitDebrisSmoke(const RuntimeConfig& config, std::string& error) 
     destroyed.type="MTNK";auto rule=*legacy.rules.findUnitType("UnitType","MTNK");rule.minDebris=rule.maxDebris=2;
     spawnRuntimeUnitDebris(legacy,destroyed,rule,cause);
     const auto newText=serializeRuntimeProjectileEffect(legacy.projectiles.front());
-    const auto oldText=newText.substr(0,newText.rfind('|'));
+    if (splitRuntimeSaveFields(newText).size() != runtimeProjectileSaveFieldCountV6)
+        return fail("current projectile field count");
+    // Schema three ends before voxel motion, homing angles and native source offsets.
+    std::size_t legacyEnd = newText.size();
+    for (auto fields = runtimeProjectileSaveFieldCountV6; fields > runtimeProjectileSaveFieldCountV3; --fields)
+        legacyEnd = newText.rfind('|', legacyEnd - 1);
+    const auto oldText = newText.substr(0, legacyEnd);
     RuntimeProjectileEffect parsed;
     if(!parseRuntimeProjectileEffect(oldText,parsed,runtimeProjectileSaveSchemaV3) || parsed.voxelDebris.enabled)return fail("legacy schema 3");++boundaries;
     if(parseRuntimeProjectileEffect(newText+"|extra",parsed))return fail("surplus projectile field");++boundaries;

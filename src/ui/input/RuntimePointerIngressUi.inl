@@ -1,6 +1,6 @@
 #include "ui/input/RuntimePointerIngressController.h"
 
-bool runtimeDiplomacyAllianceEnabled(const RuntimeWindowState&, const RuntimeDiplomacyRow&);
+bool runtimeDiplomacyAllianceEnabled(const RuntimeProductionHostState&, const RuntimeDiplomacyRow&);
 void runtimePlayerToggleAlliance(RuntimeWindowState&, const std::string&);
 
 static RuntimeInputPixelRect runtimePointerIngressPixelRect(const RECT& rect) {

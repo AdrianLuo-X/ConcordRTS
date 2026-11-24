@@ -61,13 +61,13 @@ bool runRuntimeObjectAmbientSmoke(const RuntimeConfig& config, std::string& erro
         auto box = make(hz); auto& s = *box; add(s, id, 1700);
         auto now = start(s, 0); ++scenes;
         if (id == "PROPA" || id == "CAMSC06") {
-            if (!s.objectAmbientAudio.bindings.empty() || !s.runtimeWorldAudioBackendActionHistory.empty()) return fail(id + " invented missing sample");
+            if (!s.objectAmbientAudio.bindings.empty() || !s.worldAudioBackend.history().empty()) return fail(id + " invented missing sample");
             ++silent; events << hz << ',' << id << ",silent,,,,,,\n"; continue;
         }
         if (s.objectAmbientAudio.bindings.size() != 1) return fail(id + " missing controller");
         auto binding = s.objectAmbientAudio.bindings.begin()->second;
         if (!binding.active || binding.ordinal != 1) return fail(id + " first playback ordinal=" + std::to_string(binding.ordinal));
-        const auto firstAction = s.runtimeWorldAudioBackendActionHistory.back();
+        const auto firstAction = s.worldAudioBackend.history().back();
         const auto firstPath = findRuntimeSoundSamplePath(s, binding.sample);
         if (!firstPath) return fail(id + " first sample path");
         const auto playbackPath = runtimeAudioPitchVariantPath(*firstPath,
@@ -109,7 +109,7 @@ bool runRuntimeObjectAmbientSmoke(const RuntimeConfig& config, std::string& erro
         if (!finalizeRuntimeObjectExit(s, exit).accepted) return fail(id + " actual exit");
         advanceRuntimeObjectAmbientAudio(s, now);
         if (!s.objectAmbientAudio.bindings.empty()) return fail(id + " departed object audio survived");
-        const auto& last = s.runtimeWorldAudioBackendActionHistory.back();
+        const auto& last = s.worldAudioBackend.history().back();
         if (last.kind != RuntimeWorldAudioActionKind::Stop || last.handleId != finalBinding.handle) return fail(id + " targeted stop");
         ++deaths;
         events << hz << ',' << id << ',' << binding.source.event << ',' << binding.sample << ',' << binding.handle << ",yes,yes,yes,yes," << firstAction.frequencyPermille << ',' << milliseconds
@@ -135,7 +135,7 @@ bool runRuntimeObjectAmbientSmoke(const RuntimeConfig& config, std::string& erro
         if (s.objectAmbientAudio.bindings.begin()->second.sample == "vcoplo1") return fail("police intro repeated in body loop");
     } ++boundaries;
     stopRuntimeWorldAudioBackend(s);
-    if (!s.objectAmbientAudio.bindings.empty() || !s.runtimeWorldAudioBackendBindings.empty()) return fail("backend shutdown"); ++boundaries;
+    if (!s.objectAmbientAudio.bindings.empty() || !s.worldAudioBackend.bindings().empty()) return fail("backend shutdown"); ++boundaries;
     now = start(s, now); loadRuntimeSoundDatabase(s);
     if (!s.objectAmbientAudio.bindings.empty()) return fail("sound catalog reload"); ++boundaries;
     // An event limit must release its slot when the bound object disappears.

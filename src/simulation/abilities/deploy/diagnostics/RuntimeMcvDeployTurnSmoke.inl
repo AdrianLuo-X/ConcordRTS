@@ -35,8 +35,33 @@ bool runRuntimeMcvDeployTurnSmoke(const RuntimeConfig& config, std::string& erro
         for (const auto& o : s.world.getObjects()) if (o.alive && o.kind == WorldObjectKind::Structure && o.type == type) return &o;
         return nullptr;
     };
-    const auto wait = [&](RuntimeWindowState& s, int id) {
-        for (int tick = 0; tick < s.config.fixedTickHz * 6 && findObjectById(s, id); ++tick) step(s);
+    const auto wait = [&](RuntimeWindowState& s, int id, std::ostream* trace = nullptr) {
+        const auto capture = [&] {
+            if (!trace) return;
+            const auto* object = findObjectById(s, id);
+            if (!object) {
+                *trace << s.tick << ",transformed\n";
+                return;
+            }
+            const auto* unit = findRuntimeUnitType(s.rules, *object);
+            const int expected = unit ? runtimeMcvResolvedDeployFacing(s, *object, *unit) : -1;
+            const auto order = s.behaviors.find(id);
+            *trace << s.tick << ',' << object->mission << ',' << object->facing << ',' << expected
+                << "," << object->x << ',' << object->y << ',' << runtimeObjectRenderX(*object)
+                << ',' << runtimeObjectRenderY(*object) << ',' << object->renderMoveActive
+                << ',' << runtimeMissionIsMcvDeployPending(*object)
+                << ',' << runtimeObjectDisabledByParasite(s, id)
+                << ',' << (s.specialMechanismsInitialized && s.specialMechanisms.isTemporalFrozen(id))
+                << ',' << (s.specialMechanismsInitialized && s.specialMechanisms.isChronoMovementLocked(id, s.tick))
+                << ',' << (order == s.behaviors.end() ? -1 : order->second.moveCooldownTicks)
+                << ',' << (order == s.behaviors.end() ? -1 : order->second.renderMoveTicksRemaining)
+                << ',' << std::quoted(runtimeSerializeFacingClock(object->bodyFacingClock)) << '\n';
+        };
+        capture();
+        for (int tick = 0; tick < s.config.fixedTickHz * 6 && findObjectById(s, id); ++tick) {
+            step(s);
+            capture();
+        }
         return !findObjectById(s, id);
     };
     int cases = 0, visible = 0, turnFrames = 0, saves = 0, images = 0, extras = 0;
@@ -130,8 +155,23 @@ bool runRuntimeMcvDeployTurnSmoke(const RuntimeConfig& config, std::string& erro
         if (!mcv) return fail("extra fixture"); const int id = mcv->instanceId; mcv->facing = 0;
         if (mode == 0) {
             mcv->facing = runtimeFacingFromDelta(1,0); s.selectedObjectIds = {id}; issueRuntimeMoveCommand(s,{21,20});
-            for(int tick=0;tick<hz*4;++tick) {step(s);mcv=findMutableObjectById(s,id);if(mcv&&mcv->renderMoveActive)break;}
-            if(!mcv||!mcv->renderMoveActive) return fail("moving deployment setup");
+            // Click while the real committed segment is still visible.
+            // Starting the click on its first tick consumes most of the
+            // turning deadline at the stock MCV movement speed.
+            bool midStep = false;
+            for (int tick = 0; tick < hz * 4; ++tick) {
+                step(s);
+                mcv = findMutableObjectById(s, id);
+                const auto behavior = s.behaviors.find(id);
+                if (!mcv || !mcv->renderMoveActive || behavior == s.behaviors.end()) continue;
+                const auto& order = behavior->second;
+                if (order.renderMoveTicksRemaining > 0
+                    && order.renderMoveTicksRemaining <= order.renderMoveTicksTotal / 2) {
+                    midStep = true;
+                    break;
+                }
+            }
+            if (!midStep || !mcv || !mcv->renderMoveActive) return fail("moving deployment setup");
         }
         const auto origin = runtimeCellPointForObject(*mcv); const double x = runtimeObjectRenderX(*mcv), y = runtimeObjectRenderY(*mcv);
         s.selectedObjectIds = {id}; if(!dispatchRuntimeSecondaryActionFromUi(s,id)) return fail("extra deploy rejected");
@@ -170,7 +210,29 @@ bool runRuntimeMcvDeployTurnSmoke(const RuntimeConfig& config, std::string& erro
             if(!findObjectById(s,id)||yardFor(s,"GACNST"))return fail("late occupied footprint was built over");
         } else {
             if(mode==3) for(int click=0;click<20;++click)if(!dispatchRuntimeSecondaryActionFromUi(s,id))return fail("repeated deploy input");
-            if(!wait(s,id))return fail("pending deploy did not finish");
+            std::ofstream motionTrace;
+            if (mode == 0) {
+                motionTrace.open(root / ("moving-deploy-" + std::to_string(hz) + "-phase.csv"));
+                motionTrace << "tick,mission,facing,requested,x,y,body_x,body_y,moving,pending,parasite,temporal,chrono,cooldown,render_ticks_remaining,facing_clock\n";
+            }
+            if (!wait(s, id, motionTrace.is_open() ? &motionTrace : nullptr)) {
+                const auto* waiting = findObjectById(s, id);
+                const auto behavior = s.behaviors.find(id);
+                std::ostringstream details;
+                details << "pending deploy did not finish: hz=" << hz << " mode=" << mode
+                    << " tick=" << s.tick << " id=" << id << " origin=" << origin.x << ',' << origin.y
+                    << " mission=" << waiting->mission << " facing=" << waiting->facing
+                    << " cell=" << waiting->x << ',' << waiting->y << " body="
+                    << runtimeObjectRenderX(*waiting) << ',' << runtimeObjectRenderY(*waiting)
+                    << " economy=" << s.economy.status << " interaction=" << s.interactionStatus;
+                if (behavior != s.behaviors.end()) {
+                    const auto& order = behavior->second;
+                    details << " target=" << order.moveTarget.x << ',' << order.moveTarget.y
+                        << " cooldown=" << order.moveCooldownTicks << " renderTicks="
+                        << order.renderMoveTicksRemaining << '/' << order.renderMoveTicksTotal;
+                }
+                return fail(details.str());
+            }
             const auto* yard=yardFor(s,"GACNST");if(!yard||yard->facing!=160||runtimePlacementAnchorCellForFootprint(runtimeCellPointForObject(*yard),runtimeStructureFootprintForObject(s,*yard))!=origin)return fail("moving/repeated deployment shifted site");
         }
         ++extras;

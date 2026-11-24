@@ -1,3 +1,4 @@
+#include "nearest_subcell/RuntimeNearestSubcellSelectionContract.inl"
 #include "core/io/IniFile.h"
 #include "simulation/navigation/occupancy/RuntimeSubcellSystem.h"
 
@@ -1288,5 +1289,6 @@ int main(int argc, char** argv) {
     ok &= reconcileReservationScaleContract();
     ok &= reconcileSelfAndDuplicateContract();
     ok &= targetedOccupancyContract();
+    ok &= nearest_subcell_model_detail::runContract();
     return ok ? 0 : 1;
 }

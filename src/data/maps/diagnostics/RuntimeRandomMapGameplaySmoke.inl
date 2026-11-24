@@ -2,7 +2,8 @@ bool runRuntimeRandomMapGameplaySmoke(const RuntimeConfig& config,std::string& e
     std::cout << std::unitbuf;
     const auto fail=[&](const std::string& why){error="Random map gameplay: "+why;return false;};
     const char* output=std::getenv("CONCORD_RANDOM_MAP_OUTPUT");
-    const std::filesystem::path root=output?output:"build/smoke/random-map-gameplay";
+    if (output == nullptr || output[0] == '\0') return fail("CONCORD_RANDOM_MAP_OUTPUT requires an explicit output directory");
+    const std::filesystem::path root=output;
     std::filesystem::create_directories(root);
     int passed=0;
     for (int climate=0;climate<2;++climate) for (int shape=0;shape<5;++shape) {

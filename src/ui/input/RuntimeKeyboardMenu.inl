@@ -63,15 +63,17 @@ RuntimeMenuAction runtimeKeyboardActionForIndex(int index) {
         :static_cast<RuntimeMenuAction>(4096+index);
 }
 
-std::vector<int> runtimeKeyboardCategoryBindings(const RuntimeWindowState& state) {
+std::vector<int> runtimeKeyboardCategoryBindings(
+    const std::vector<std::pair<std::string, int>>& bindings, int category) {
     std::vector<int> result;
-    for (std::size_t i=0;i<state.runtimeMenuKeyboardBindings.size();++i)
-        if (runtimeKeyboardCategoryForId(state.runtimeMenuKeyboardBindings[i].first)==state.runtimeMenuKeyboardCategory)
+    for (std::size_t i=0;i<bindings.size();++i)
+        if (runtimeKeyboardCategoryForId(bindings[i].first)==category)
             result.push_back(static_cast<int>(i));
     return result;
 }
-int runtimeKeyboardCategoryPages(const RuntimeWindowState& state) {
-    return std::max(1,(static_cast<int>(runtimeKeyboardCategoryBindings(state).size())+4)/5);
+int runtimeKeyboardCategoryPages(
+    const std::vector<std::pair<std::string, int>>& bindings, int category) {
+    return std::max(1,(static_cast<int>(runtimeKeyboardCategoryBindings(bindings, category).size())+4)/5);
 }
 int runtimeKeyboardDefaultAt(int index) {
     const auto& definitions=runtimeKeyboardBindingDefinitions();
@@ -85,7 +87,7 @@ int runtimeKeyboardDefaultAt(int index) {
 void runtimeKeyboardChangePage(RuntimeWindowState& state,int delta,bool category) {
     state.runtimeMenuKeyCaptureIndex=-1;
     if (category) {state.runtimeMenuKeyboardCategory=(state.runtimeMenuKeyboardCategory+delta+5)%5;state.runtimeMenuKeyboardPage=0;}
-    else {const int count=runtimeKeyboardCategoryPages(state);state.runtimeMenuKeyboardPage=(state.runtimeMenuKeyboardPage+delta+count)%count;}
+    else {const int count=runtimeKeyboardCategoryPages(state.runtimeMenuKeyboardBindings, state.runtimeMenuKeyboardCategory);state.runtimeMenuKeyboardPage=(state.runtimeMenuKeyboardPage+delta+count)%count;}
     state.runtimeMenuHover=state.runtimeMenuPressed=RuntimeMenuAction::None;
     state.runtimeMenuFocus=0;
     state.runtimeMenuStatus=L"选命令改键 · Esc取消 · Backspace默认";

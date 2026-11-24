@@ -1,4 +1,5 @@
 // Included inside the paid-team fixture, sharing its stock bases and tick loop.
+if (!teamWeaponsOnly) {
 {
     auto probe = makeWorld("Americans", "Hard", {"0CAD0B2C-G"}); auto& s = *probe;
     tick(s);
@@ -61,9 +62,26 @@
             ammo = aircraft->currentAmmo; repeated &= shots[id] >= 2;
         }
     }
-    if (!repeated) return fail("Korean four-plane team did not return and fly another sortie" + describe(s));
+    if (!repeated) {
+        std::ostringstream diagnostic;
+        diagnostic << "Korean four-plane team did not return and fly another sortie" << describe(s);
+        for (const auto& [id, ammo] : ammunition) {
+            diagnostic << " id=" << id << " shots=" << shots[id] << " ammo=" << ammo;
+            if (const auto* aircraft = findObjectById(s, id)) {
+                diagnostic << " at=" << aircraft->x << ',' << aircraft->y
+                           << " render=" << runtimeObjectRenderX(*aircraft) << ',' << runtimeObjectRenderY(*aircraft)
+                           << " mission=" << aircraft->mission << " air=" << aircraft->airborne
+                           << " dock=" << aircraft->dockedToObjectId << ',' << aircraft->dockIndex;
+            }
+            const auto command = s.behaviors.find(id);
+            if (command != s.behaviors.end())
+                diagnostic << " command=" << runtimeMultiplayerSnapshotBehaviorRecord(id, command->second);
+        }
+        return fail(diagnostic.str());
+    }
     if (runtimeComputerTacticAircraftSpawn(s, owner, *item)) return fail("fifth aircraft bypassed four occupied support pads");
     std::cout << "Computer Korea: four paid Black Eagles=yes four separate support pads=yes repeated sorties=yes no fifth unsupported plane=yes\n";
+}
 }
 for (bool chrono : {false, true}) {
     const std::string triggerId = chrono ? "0C32599C-G" : "0D2769BC-G";

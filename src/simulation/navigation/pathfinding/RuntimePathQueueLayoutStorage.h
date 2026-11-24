@@ -118,7 +118,7 @@ public:
     }
     const Data& read() const noexcept { return *view_; }
     bool isShared() const noexcept { return shared_ != nullptr; }
-    const void* sharedIdentityForDiagnostics() const noexcept { return shared_.get(); }
+    const RuntimePathQueueLayoutData* sharedIdentityForDiagnostics() const noexcept { return shared_.get(); }
     Data& ownedForConstruction() {
         if (shared_) throw std::logic_error("shared queue layout is immutable");
         return owned_;

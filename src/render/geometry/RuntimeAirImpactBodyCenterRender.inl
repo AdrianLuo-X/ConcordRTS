@@ -1,3 +1,5 @@
+#include "render/geometry/RuntimeAirImpactBodyCenterValues.h"
+
 namespace {
 
 bool runtimeAirImpactBodyCenterAtCamera(
@@ -53,15 +55,13 @@ bool runtimeAirImpactBodyCenterAtCamera(
     }
     if (!drawn || !geometry.valid) return false;
 
-    const POINT logical = screenPoint(projectCellXY(hitX, hitY, hitLevel, camera), viewport, camera);
-    const auto centerX = (static_cast<long long>(geometry.bounds.left) + geometry.bounds.right) / 2;
-    const auto centerY = (static_cast<long long>(geometry.bounds.top) + geometry.bounds.bottom) / 2;
-    const auto x = centerX - logical.x;
-    const auto y = centerY - logical.y;
-    // Match the existing impact presentation record's bounded pixel fields.
-    if (x < -4096 || x > 4096 || y < -4096 || y > 4096) return false;
-    offsetX = static_cast<int>(x);
-    offsetY = static_cast<int>(y);
+    const auto logical = runtimeRenderPlacementPixelPoint(
+        screenPoint(projectCellXY(hitX, hitY, hitLevel, camera), viewport, camera));
+    RuntimeInputPixelPoint offset{};
+    if (!concord::render::geometry::resolveAirImpactCameraOffset(
+            runtimeRenderPlacementPixelRect(geometry.bounds), logical, offset)) return false;
+    offsetX = offset.x;
+    offsetY = offset.y;
     return true;
 }
 
@@ -105,10 +105,12 @@ bool resolveRuntimeAirImpactBodyCenterOffset(
     camera.tileHeight = 60;
     if (!runtimeAirImpactBodyCenterAtCamera(world, object, probe, cache,
             hitX, hitY, hitLevel, camera, doubledX, doubledY, missile)) return false;
-    screenX = referenceX;
-    screenY = referenceY;
-    fixedX = 2 * referenceX - doubledX;
-    fixedY = 2 * referenceY - doubledY;
+    const auto offset = concord::render::geometry::airImpactBodyPixelOffset(
+        {referenceX, referenceY}, {doubledX, doubledY});
+    screenX = offset.reference.x;
+    screenY = offset.reference.y;
+    fixedX = offset.fixed.x;
+    fixedY = offset.fixed.y;
     presentation = std::move(frozenPresentation);
     spriteOffsetY = missile != nullptr ? 0 : -runtimeAircraftSpriteLiftPixels(object,
         runtimeObjectLooksAircraftForRender(object, probe));

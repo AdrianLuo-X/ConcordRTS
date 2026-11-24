@@ -1586,7 +1586,7 @@ bool runRuntimeMapRightPointerSmokeProbe(RuntimeWindowState& stock,std::ostream&
         if(!need(target.has_value(),"formal wall initializer/topology validates complete overlay identity"))return std::nullopt;
         bool selected=false;
         for(const auto& object:state.world.getObjects())if(object.alive&&object.owner==state.economy.owner&&object.kind!=WorldObjectKind::Structure){
-            state.selectedObjectIds={object.instanceId};if(runtimeOverlayWallSelectionCanAttack(state,*target)){selected=true;break;}}
+            state.selectedObjectIds={object.instanceId};if(runtimeOverlayWallSelectionCanAttack(state, runtimeCombatSelection(state), *target, state.forceAttackHeld)){selected=true;break;}}
         if(!need(selected,"actual original owned armed unit eligible for overlay wall force-fire"))return std::nullopt;
         RECT rect{};GetClientRect(window.window,&rect);centerRuntimeCameraOnCell(state,rect,*cell);const RECT view=runtimeMapViewport(rect);
         invalidateRuntimeObjectProjectionCache(state);

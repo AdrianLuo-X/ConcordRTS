@@ -55,7 +55,7 @@ static bool runRuntimeBuildingDepthPixelCopyContractCheck(std::string& error) {
             RuntimeBuildingDepthFrameState frame;
             frame.geometryOnly = frame.collectOnly = true; frame.composeColors = compose;
             CollectScope collection(frame, object);
-            if (!drawRuntimeShpFrame(nullptr, viewport, object.center, context, camera, image,
+            if (!drawRuntimeShpFrame(nullptr, viewport, runtimeRenderPlacementNativePoint(object.center), context, camera, image,
                 palette, true, RGB(30, 80, 170), 7, false, false, 128) || frame.draws.size() != 1)
                 return fail("collection did not retain the VXL part");
             auto& draw = frame.draws.front();

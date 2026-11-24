@@ -1,4 +1,5 @@
 #pragma once
+#include "simulation/projectiles/RuntimeVoxelDebrisState.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -14,18 +15,7 @@ inline constexpr double runtimeDebrisHeightPerLepton = 2.449489742783178 / 256.0
 inline constexpr double runtimeDebrisGravity = 1.399999976158142;
 inline constexpr double runtimeDebrisRadiansPerDegree = 0.01745277777777778;
 
-struct RuntimeVoxelDebrisState {
-    bool enabled = false;
-    int framesLeft = 0;
-    int frameRemainder = 0;
-    int frameCount = 0;
-    int bounces = 0;
-    double elasticity = 0.8;
-    std::array<float, 3> position{};
-    std::array<float, 3> velocity{};
-    std::array<float, 4> orientation{0, 0, 0, 1};
-    std::array<float, 4> spin{0, 0, 0, 1};
-};
+
 
 inline std::uint64_t runtimeDebrisRandom(std::uint64_t& seed) {
     // Retain Concord's deterministic stream; this is not Westwood's global RNG.

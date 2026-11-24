@@ -1,6 +1,11 @@
+#include "render/geometry/RuntimeInfantryMuzzleAnchors.h"
+#include "render/geometry/RuntimeMarineMuzzleAnchors.h"
+#include "render/geometry/RuntimeAircraftClearanceCapture.h"
 #include "render/core/win32/RuntimeMapDrawingWin32.h"
 #include "render/geometry/win32/RuntimeRenderPlacementWin32.h"
 #include "render/core/RuntimeMapPixelRules.h"
+#include "render/core/RuntimeWorldObjectRenderOrder.h"
+#include "render/core/RuntimeObjectSortPosition.h"
 #include "ui/surface/win32/MapNativeOverlayWin32.h"
 #include "ui/surface/win32/MapCompositionWin32.h"
 #include "render/core/RuntimeMapTerrainFrameRenderer.h"
@@ -33,10 +38,27 @@
 #include "render/visibility/RuntimeShroudSparseBlur.h"
 #include "render/shadows/RuntimeShadowDibHalf.h"
 #include "render/buildings/RuntimeBuildingDepthEmptyScene.h"
+#include "render/buildings/RuntimeBuildingDepthFramePreparation.h"
+#include "render/buildings/RuntimeBuildingDepthRaster.h"
+#include "render/buildings/RuntimeBuildingDepthMaterials.h"
+#include "render/buildings/RuntimeRepairDepotRenderAnimation.h"
+#include "render/buildings/RuntimeRepairDepotForegroundOrder.h"
+#include "render/buildings/RuntimeFactoryAirExitBodyClip.h"
+#include "render/buildings/RuntimeFactoryAirExitForeground.h"
+#include "render/buildings/RuntimeBuildingCollapseAppearance.h"
+#include "render/buildings/RuntimeGrindingRenderAnimation.h"
+#include "render/buildings/RuntimeSuperWeaponBuildingPresentation.h"
+#include "render/buildings/RuntimeBuildingDepthReplay.h"
+#include "render/effects/RuntimeBehindMarkerOcclusion.h"
 #include "render/buildings/RuntimeAuxiliaryAnimation.h"
 #include "render/shadows/RuntimeWaterWakeHistoryMaintenance.h"
 #include "render/core/RuntimeRendererEnvironment.h"
 #include "render/units/RuntimeInfantryDeathAnimation.h"
+#include "render/units/RuntimeObjectSequenceSelection.h"
+#include "render/units/RuntimeVehicleBodyBlastPresentation.h"
+#include "render/units/RuntimeVehicleBodyPoseSources.h"
+#include "render/units/RuntimeVehicleBodyPoseComposition.h"
+#include "render/units/RuntimeVehicleBodyPoseCache.h"
 #include "render/core/RuntimeRenderSpatialIndex.h"
 #include "runtime/performance/RuntimePerfTrace.h"
 #include "render/voxel/RuntimeVoxelCornerProjectionMemo.h"
@@ -46,9 +68,17 @@
 #include "render/voxel/RuntimeGrandCannonPrewarmTestHooks.h"
 #include <thread>
 #include "render/voxel/GrandCannonRasterTask.h"
+#include "render/voxel/RuntimeVxlReferenceRaster.h"
 #include "render/voxel/RuntimeFutureVoxelBootstrap.h"
 #include "ui/selection/diagnostics/RuntimePaintProjectionSignatureContractOracle.h"
 #include "render/shadows/RuntimeGroundShadowEligibility.h"
+#include "render/terrain/RuntimeTerrainLayerBlit.h"
+#include "render/terrain/RuntimeTerrainLayerRaster.h"
+#include "render/terrain/RuntimeTerrainVisualSelection.h"
+#include "render/terrain/RuntimeTerrainVisualResources.h"
+#include "render/terrain/RuntimeBridgeViewportBounds.h"
+#include "render/terrain/RuntimeVehicleTerrainSlope.h"
+#include "render/terrain/RuntimeTerrainWallDepth.h"
 #include "render/terrain/RuntimeTerrainViewportFill.h"
 #include "render/terrain/RuntimeTerrainNativeDepth.h"
 #include "simulation/movement/ground/RuntimeMovementClassification.h"
@@ -827,24 +857,7 @@ const UnitType* findObjectUnitTypeForRender(
     if (const auto* metadata = runtimeGeometryMetadataForObject(object, context)) {
         return metadata->unit;
     }
-    if (context.rules == nullptr) {
-        return nullptr;
-    }
-
-    if (object.kind == WorldObjectKind::Infantry) {
-        return context.rules->findUnitType("infantry", object.type);
-    }
-
-    if (object.kind != WorldObjectKind::Unit) {
-        return nullptr;
-    }
-
-    const UnitType* unitType =
-        context.rules->findUnitType("vehicle", object.type);
-    if (unitType == nullptr) {
-        unitType = context.rules->findUnitType("aircraft", object.type);
-    }
-    return unitType;
+    return concord::render::geometry::findAircraftClearanceUnit(context.rules, object);
 }
 
 const UnitType* findUnitTypeByAnyRenderList(
@@ -949,13 +962,8 @@ std::string resolveObjectArtId(
         resolveObjectVisualTypeIdForRender(object, context);
 
     if (object.kind == WorldObjectKind::Structure) {
-        const BuildingType* buildingType =
-            context.rules->findBuildingType(object.type);
-        if (buildingType != nullptr) {
-            return runtimeArcticArtId(buildingType->image.empty() ? object.type : buildingType->image,
-                buildingType->alternateArcticArt, runtimeRenderUsesArcticArt(context));
-        }
-        return object.type;
+        return concord::render::geometry::aircraftClearanceStructureArtId(
+            context.rules, object, runtimeRenderUsesArcticArt(context));
     }
 
     if (object.kind == WorldObjectKind::Infantry) {
@@ -1580,14 +1588,7 @@ int runtimeAnimationFrameDelayTicks(const ArtType* artType, int fixedTickHz) {
         runtimeRuleAnimationDelayFrames(artType ? artType->rate : 0), fixedTickHz));
 }
 
-int runtimeInfantrySequenceDelayTicks(const ArtType* artType, int fixedTickHz) {
-    // Preserve the existing nominal sequence cadence pending a separate
-    // InfantryClass sequence-rate comparison. AnimType::Rate is independent.
-    const int legacyTicks = !artType || artType->rate <= 0 ? 6
-        : std::clamp((900 + artType->rate / 2) / artType->rate, 1, 36);
-    return std::max(1, static_cast<int>((static_cast<long long>(legacyTicks)
-        * std::clamp(fixedTickHz, 1, 1000) + 29) / 30));
-}
+using concord::render::runtimeInfantrySequenceDelayTicks;
 
 int selectRuntimeInfantryIdleFrame(
     const RuntimeMapRenderContext& context,
@@ -1641,39 +1642,21 @@ int selectRuntimeAuxiliaryAnimationFrame(
         context.animationTick, context.fixedTickHz);
 }
 
-struct RuntimeObjectSequenceFrameResult {
-    bool matched = false;
-    int frameIndex = 0;
-    std::string sequenceName;
-};
+using concord::render::RuntimeObjectSequenceFrameResult;
 
-void addRuntimeSequenceCandidate(
-    std::vector<std::string>& candidates,
-    const std::string& name
+using concord::render::runtimeMissionHasToken;
+using concord::render::runtimeObjectShouldUseMovingSequence;
+
+std::vector<std::string> runtimeSequenceCandidatesForObjectState(
+    const WorldObjectInstance& object, bool swimming
 ) {
-    if (name.empty()) {
-        return;
-    }
-    const std::string token = toLowerAscii(name);
-    for (const std::string& candidate : candidates) {
-        if (toLowerAscii(candidate) == token) {
-            return;
-        }
-    }
-    candidates.push_back(name);
+    return concord::render::runtimeSequenceCandidatesForObjectState(object, swimming, toLowerAscii);
 }
 
-bool runtimeMissionHasToken(
-    const std::string& mission,
-    const std::string& token
+const ArtType::SequenceFrame* findRuntimeSequenceFrame(
+    const ArtType& art, const std::vector<std::string>& candidates
 ) {
-    return mission.find(token) != std::string::npos;
-}
-
-bool runtimeObjectShouldUseMovingSequence(
-    const WorldObjectInstance& object
-) {
-    return object.hasRenderPosition && object.renderMoveActive;
+    return concord::render::findRuntimeSequenceFrame(art, candidates, toLowerAscii);
 }
 
 bool runtimeInfantryIsSwimmingForRender(
@@ -1685,230 +1668,6 @@ int runtimeUnitAnimationTick(
     const WorldObjectInstance& object, const RuntimeMapRenderContext& context
 );
 
-std::vector<std::string> runtimeSequenceCandidatesForObjectState(
-    const WorldObjectInstance& object, bool swimming
-) {
-    const std::string mission = toLowerAscii(object.mission);
-    std::vector<std::string> candidates;
-
-    if (object.airborne && mission == "paradropdrop") {
-        addRuntimeSequenceCandidate(candidates, "Paradrop");
-    }
-    const bool undeploying = runtimeMissionHasToken(mission, "undeploy");
-    const bool deployedFire =
-        runtimeMissionHasToken(mission, "deployedfire");
-    const bool deployFire =
-        !deployedFire && runtimeMissionHasToken(mission, "deployfire");
-    const bool deployedIdle =
-        runtimeMissionHasToken(mission, "deployedidle")
-        || runtimeMissionHasToken(mission, "deployidle")
-        || mission == "deployed"
-        || (object.deployed
-            && !undeploying
-            && !deployedFire
-            && !deployFire
-            && !runtimeMissionHasToken(mission, "deploying"));
-    const bool deploying =
-        !undeploying
-        && !deployedFire
-        && !deployFire
-        && !deployedIdle
-        && runtimeMissionHasToken(mission, "deploy");
-    const bool secondaryFire =
-        runtimeMissionHasToken(mission, "secondary")
-        || runtimeMissionHasToken(mission, "altfire");
-    const bool firing =
-        deployedFire
-        || deployFire
-        || secondaryFire
-        || runtimeMissionHasToken(mission, "attack")
-        || runtimeMissionHasToken(mission, "fire");
-    const bool moving = runtimeObjectShouldUseMovingSequence(object);
-    const bool shoveling = object.kind == WorldObjectKind::Infantry
-        && !moving && mission == "harvestload";
-    const bool carrying = object.kind == WorldObjectKind::Infantry
-        && moving && mission == "return";
-    if (swimming) {
-        // Pursuit still uses Swim until the body stops to attack. Wet poses
-        // also take precedence over a land prone/deployed state.
-        if (moving) {
-            addRuntimeSequenceCandidate(candidates, "Swim");
-        } else if (firing) {
-            addRuntimeSequenceCandidate(candidates, "WetAttack");
-        } else if (runtimeMissionHasToken(mission, "idle1")) {
-            addRuntimeSequenceCandidate(candidates, "WetIdle1");
-        } else if (runtimeMissionHasToken(mission, "idle2")) {
-            addRuntimeSequenceCandidate(candidates, "WetIdle2");
-        }
-        addRuntimeSequenceCandidate(candidates, "Tread");
-    }
-    if (object.airborne) {
-        if (firing) {
-            addRuntimeSequenceCandidate(candidates, "FireFly");
-        } else if (moving) {
-            addRuntimeSequenceCandidate(candidates, "Fly");
-        } else {
-            addRuntimeSequenceCandidate(candidates, "Hover");
-        }
-    }
-
-    if (undeploying) {
-        addRuntimeSequenceCandidate(candidates, "Undeploy");
-    } else if (deploying) {
-        addRuntimeSequenceCandidate(candidates, "Deploy");
-    } else if (deployedFire) {
-        addRuntimeSequenceCandidate(candidates, "DeployedFire");
-        addRuntimeSequenceCandidate(candidates, "DeployFire");
-        addRuntimeSequenceCandidate(candidates, "Fire");
-        addRuntimeSequenceCandidate(candidates, "SecondaryFire");
-        addRuntimeSequenceCandidate(candidates, "Deployed");
-        addRuntimeSequenceCandidate(candidates, "FireUp");
-    } else if (deployFire) {
-        addRuntimeSequenceCandidate(candidates, "DeployFire");
-        addRuntimeSequenceCandidate(candidates, "DeployedFire");
-        addRuntimeSequenceCandidate(candidates, "Fire");
-        addRuntimeSequenceCandidate(candidates, "SecondaryFire");
-        addRuntimeSequenceCandidate(candidates, "Deployed");
-        addRuntimeSequenceCandidate(candidates, "FireUp");
-    } else if (deployedIdle) {
-        addRuntimeSequenceCandidate(candidates, "DeployedIdle");
-        addRuntimeSequenceCandidate(candidates, "DeployIdle");
-        addRuntimeSequenceCandidate(candidates, "Deployed");
-        addRuntimeSequenceCandidate(candidates, "Guard");
-        addRuntimeSequenceCandidate(candidates, "Ready");
-    } else if (secondaryFire) {
-        if (object.prone) {
-            addRuntimeSequenceCandidate(candidates, "SecondaryProne");
-            addRuntimeSequenceCandidate(candidates, "FireProne");
-        }
-        addRuntimeSequenceCandidate(candidates, "SecondaryFire");
-        addRuntimeSequenceCandidate(candidates, "Fire");
-        addRuntimeSequenceCandidate(candidates, "FireUp");
-    } else if (firing) {
-        if (object.prone) {
-            addRuntimeSequenceCandidate(candidates, "FireProne");
-            addRuntimeSequenceCandidate(candidates, "SecondaryProne");
-        }
-        addRuntimeSequenceCandidate(candidates, "Fire");
-        addRuntimeSequenceCandidate(candidates, "FireUp");
-        addRuntimeSequenceCandidate(candidates, "SecondaryFire");
-    }
-
-    if (shoveling && !firing && !deploying && !undeploying) {
-        addRuntimeSequenceCandidate(candidates, "Shovel");
-    }
-    if (moving && !firing && !deploying && !undeploying) {
-        if (object.kind == WorldObjectKind::Infantry && !object.airborne
-            && runtimeMissionHasToken(mission, "panic")) addRuntimeSequenceCandidate(candidates, "Panic");
-        if (carrying) addRuntimeSequenceCandidate(candidates, "Carry");
-        addRuntimeSequenceCandidate(
-            candidates,
-            object.prone ? "Crawl" : "Walk"
-        );
-        addRuntimeSequenceCandidate(
-            candidates,
-            object.prone ? "Walk" : "Crawl"
-        );
-    }
-
-    if (!moving && !firing && !deploying && !undeploying && !deployedIdle) {
-        if (object.prone) {
-            addRuntimeSequenceCandidate(candidates, "Prone");
-            addRuntimeSequenceCandidate(candidates, "Crawl");
-            addRuntimeSequenceCandidate(candidates, "Ready");
-        } else if (runtimeMissionHasToken(mission, "cheer")) {
-            addRuntimeSequenceCandidate(candidates, "Cheer");
-            addRuntimeSequenceCandidate(candidates, "Idle1");
-        } else if (runtimeMissionHasToken(mission, "idle1")) {
-            addRuntimeSequenceCandidate(candidates, "Idle1");
-            addRuntimeSequenceCandidate(candidates, "Idle");
-            addRuntimeSequenceCandidate(candidates, "Ready");
-        } else if (runtimeMissionHasToken(mission, "idle2")) {
-            addRuntimeSequenceCandidate(candidates, "Idle2");
-            addRuntimeSequenceCandidate(candidates, "Idle");
-            addRuntimeSequenceCandidate(candidates, "Ready");
-        } else if (runtimeMissionHasToken(mission, "guard")) {
-            addRuntimeSequenceCandidate(candidates, "Guard");
-            addRuntimeSequenceCandidate(candidates, "Ready");
-        } else {
-            addRuntimeSequenceCandidate(candidates, "Ready");
-            addRuntimeSequenceCandidate(candidates, "Guard");
-        }
-    }
-
-    addRuntimeSequenceCandidate(candidates, "Ready");
-    addRuntimeSequenceCandidate(candidates, "Guard");
-    return candidates;
-}
-
-const ArtType::SequenceFrame* findRuntimeSequenceFrame(
-    const ArtType& artType,
-    const std::vector<std::string>& candidates
-) {
-    for (const std::string& candidate : candidates) {
-        const std::string token = toLowerAscii(candidate);
-        for (const ArtType::SequenceFrame& frame : artType.sequenceFrames) {
-            if (frame.present && toLowerAscii(frame.name) == token) {
-                return &frame;
-            }
-        }
-    }
-    return nullptr;
-}
-
-int runtimeSequenceFramePhase(
-    const WorldObjectInstance& object,
-    const RuntimeMapRenderContext& context,
-    const ArtType& artType,
-    const ArtType::SequenceFrame& frame,
-    bool reversedDeployFallback
-) {
-    const int span = std::max(1, frame.frameCount);
-    if (span <= 1) {
-        return 0;
-    }
-
-    const std::string sequenceName = toLowerAscii(frame.name);
-    if (runtimeObjectShouldUseMovingSequence(object)
-        && (runtimeMissionHasToken(sequenceName, "walk")
-            || runtimeMissionHasToken(sequenceName, "crawl")
-            || sequenceName == "fly"
-            || sequenceName == "swim"
-            || sequenceName == "panic"
-            || sequenceName == "carry")) {
-        return worldObjectMovementAnimationPhase(object, span);
-    }
-    if ((runtimeMissionHasToken(sequenceName, "deploy")
-            || runtimeMissionHasToken(sequenceName, "undeploy"))
-        && object.buildAnimTicksTotal > 0) {
-        const int total = std::max(1, object.buildAnimTicksTotal);
-        const int done =
-            std::clamp(total - object.buildAnimTicksRemaining, 0, total);
-        int phase = (done * (span - 1)) / total;
-        if (reversedDeployFallback) {
-            phase = (span - 1) - phase;
-        }
-        return std::clamp(phase, 0, span - 1);
-    }
-
-    const int framePhaseSeed = std::abs(
-        (object.instanceId * 31)
-        + (object.x * 7)
-        + (object.y * 11)
-        + (object.subCell * 13)
-        + (object.facing * 3)
-    );
-    int step = context.animationTick / runtimeInfantrySequenceDelayTicks(&artType, context.fixedTickHz);
-    if (sequenceName == "shovel" || sequenceName == "tread" || sequenceName == "swim"
-        || sequenceName == "wetattack" || sequenceName == "wetidle1"
-        || sequenceName == "wetidle2") {
-        const std::int64_t tick = runtimeUnitAnimationTick(object, context);
-        const int delay = runtimeInfantrySequenceDelayTicks(&artType, context.fixedTickHz);
-        step = static_cast<int>((tick / delay) % span);
-    }
-    return (step + framePhaseSeed) % span;
-}
-
 RuntimeObjectSequenceFrameResult selectRuntimeObjectSequenceFrame(
     const WorldObjectInstance& object,
     const RuntimeMapRenderContext& context,
@@ -1916,161 +1675,25 @@ RuntimeObjectSequenceFrameResult selectRuntimeObjectSequenceFrame(
     int frameCount,
     RuntimeMapRenderCache* cache = nullptr
 ) {
-    RuntimeObjectSequenceFrameResult result;
-    if (artType == nullptr
-        || artType->sequenceFrames.empty()
-        || frameCount <= 1) {
-        return result;
-    }
-
-    // Cheer changes only the displayed idle sequence, never orders or world state.
-    if (context.playerCheerUntilTick && object.kind == WorldObjectKind::Infantry
-        && !object.airborne && !object.deployed && !object.prone
-        && !runtimeObjectShouldUseMovingSequence(object)
-        && (toLowerAscii(object.mission) == "guard" || toLowerAscii(object.mission) == "idle")) {
-        const auto cheer = context.playerCheerUntilTick->find(object.instanceId);
-        if (cheer != context.playerCheerUntilTick->end() && cheer->second > context.animationTick) {
-            WorldObjectInstance presentation = object;
-            presentation.mission = "Cheer";
-            return selectRuntimeObjectSequenceFrame(presentation, context, artType, frameCount, cache);
-        }
-    }
-    int cacheFacingCount =
-        artType->facings > 0 ? artType->facings : 8;
-    cacheFacingCount = std::clamp(cacheFacingCount, 1, 32);
-    const int cacheFacingBucket =
-        cacheFacingCount > 1
-            ? facingBucketForDirectionalShp(
-                object.facing,
-                cacheFacingCount
-            )
-            : 0;
-    const std::string mission = toLowerAscii(object.mission);
-    const bool movingSequence = runtimeObjectShouldUseMovingSequence(object);
-    const bool swimming = runtimeInfantryIsSwimmingForRender(object, context, cache);
-    const std::string cacheKey =
-        artType->id
-        + "|kind=" + toString(object.kind)
-        + "|mission=" + mission
-        + "|airborne=" + (object.airborne ? "1" : "0")
-        + "|render=" + (object.hasRenderPosition ? "1" : "0")
-        + "|moving=" + (movingSequence ? "1" : "0")
-        + "|swimming=" + (swimming ? "1" : "0")
-        + "|prone=" + (object.prone ? "1" : "0")
-        + "|deployed=" + (object.deployed ? "1" : "0")
-        + "|facing=" + std::to_string(cacheFacingBucket)
-        + "|frames=" + std::to_string(frameCount);
+    using SequenceCacheView =
+        concord::render::RuntimeSequenceFrameMetadataCacheView<RuntimeSequenceFrameMetadataCacheEntry>;
+    std::optional<SequenceCacheView> metadata;
     if (cache != nullptr) {
-        const auto found = cache->sequenceFrameMetadataByKey.find(cacheKey);
-        if (found != cache->sequenceFrameMetadataByKey.end()) {
-            ++cache->sequenceFrameCacheHits;
-            const RuntimeSequenceFrameMetadataCacheEntry& metadata =
-                found->second;
-            if (!metadata.matched) {
-                return result;
-            }
-            const ArtType::SequenceFrame frame{
-                metadata.sequenceName,
-                true,
-                metadata.startFrame,
-                metadata.framesPerFacing,
-                metadata.facingStride
-            };
-            const int phase = runtimeSequenceFramePhase(
-                object,
-                context,
-                *artType,
-                frame,
-                metadata.reversedDeployFallback
-            );
-            int frameIndex =
-                metadata.startFrame
-                + (metadata.facingBucket * metadata.facingStride)
-                + std::clamp(phase, 0, metadata.framesPerFacing - 1);
-            if (frameIndex < 0 || frameIndex >= frameCount) {
-                frameIndex %= frameCount;
-                if (frameIndex < 0) {
-                    frameIndex += frameCount;
-                }
-            }
-            result.matched = true;
-            result.frameIndex = frameIndex;
-            result.sequenceName = metadata.sequenceName;
-            return result;
-        }
-        ++cache->sequenceFrameCacheMisses;
+        metadata.emplace(SequenceCacheView{
+            cache->sequenceFrameMetadataByKey, cache->sequenceFrameCacheHits, cache->sequenceFrameCacheMisses
+        });
     }
-
-    const std::vector<std::string> candidates =
-        runtimeSequenceCandidatesForObjectState(object, swimming);
-    const ArtType::SequenceFrame* sequence =
-        findRuntimeSequenceFrame(*artType, candidates);
-    if (sequence == nullptr) {
-        if (cache != nullptr) {
-            cache->sequenceFrameMetadataByKey.emplace(
-                cacheKey,
-                RuntimeSequenceFrameMetadataCacheEntry{}
-            );
-        }
-        return result;
-    }
-
-    const bool reversedDeployFallback =
-        runtimeMissionHasToken(mission, "undeploy")
-        && toLowerAscii(sequence->name) == "deploy";
-    const int framesPerFacing = std::clamp(
-        sequence->frameCount > 0 ? sequence->frameCount : 1,
-        1,
-        std::max(1, frameCount)
-    );
-    const int facingStride = std::max(
-        framesPerFacing,
-        sequence->facingMultiplier > 0
-            ? sequence->facingMultiplier
-            : framesPerFacing
-    );
-    int facingCount =
-        sequence->facingMultiplier > 0
-            ? (artType->facings > 0 ? artType->facings : 8)
-            : 1;
-    facingCount = std::clamp(facingCount, 1, 32);
-    const int facingBucket =
-        facingCount > 1
-            ? facingBucketForDirectionalShp(object.facing, facingCount)
-            : 0;
-    const int phase = runtimeSequenceFramePhase(
-        object,
-        context,
-        *artType,
-        *sequence,
-        reversedDeployFallback
-    );
-    int frameIndex =
-        sequence->startFrame
-        + (facingBucket * facingStride)
-        + std::clamp(phase, 0, framesPerFacing - 1);
-    if (frameIndex < 0 || frameIndex >= frameCount) {
-        frameIndex %= frameCount;
-        if (frameIndex < 0) {
-            frameIndex += frameCount;
-        }
-    }
-
-    result.matched = true;
-    result.frameIndex = frameIndex;
-    result.sequenceName = sequence->name;
-    if (cache != nullptr) {
-        RuntimeSequenceFrameMetadataCacheEntry metadata;
-        metadata.matched = true;
-        metadata.startFrame = sequence->startFrame;
-        metadata.framesPerFacing = framesPerFacing;
-        metadata.facingStride = facingStride;
-        metadata.facingBucket = facingBucket;
-        metadata.reversedDeployFallback = reversedDeployFallback;
-        metadata.sequenceName = sequence->name;
-        cache->sequenceFrameMetadataByKey.emplace(cacheKey, metadata);
-    }
-    return result;
+    return concord::render::selectRuntimeObjectSequenceFrame(
+        object, artType, frameCount,
+        {context.animationTick, context.fixedTickHz, context.playerCheerUntilTick},
+        metadata ? &*metadata : nullptr,
+        toLowerAscii, facingBucketForDirectionalShp,
+        [&](const WorldObjectInstance& presentation) {
+            return runtimeInfantryIsSwimmingForRender(presentation, context, cache);
+        },
+        [&](const WorldObjectInstance& presentation) {
+            return runtimeUnitAnimationTick(presentation, context);
+        });
 }
 
 #include "render/units/RuntimeUnitIdleAnimation.inl"
@@ -2281,65 +1904,8 @@ bool parseRuntimeVxlMetadataFromBytes(
     RuntimeVoxelMetadata& metadata,
     std::string& errorMessage
 ) {
-    constexpr std::size_t signatureBytes = 16;
-    constexpr std::size_t fixedHeaderBytes = 34;
-    constexpr std::size_t embeddedPaletteBytes = 768;
-    constexpr std::size_t sectionRecordBytes = 28;
-    if (bytes.size() < fixedHeaderBytes + embeddedPaletteBytes) {
-        errorMessage = "VXL file is too small: " + sourceName;
-        return false;
-    }
-
-    const std::string signature = readAsciiString(bytes, 0, signatureBytes);
-    if (signature != "Voxel Animation") {
-        errorMessage = "VXL signature is not Voxel Animation: " + sourceName;
-        return false;
-    }
-
-    const unsigned int sectionCount = readUInt32(bytes, 20);
-    if (sectionCount > 1024) {
-        errorMessage = "VXL section count is unreasonably large: " + sourceName;
-        return false;
-    }
-
-    const std::size_t sectionTableOffset =
-        fixedHeaderBytes + embeddedPaletteBytes;
-    std::size_t sectionTableBytes = 0;
-    if (!checkedMul(
-            static_cast<std::size_t>(sectionCount),
-            sectionRecordBytes,
-            sectionTableBytes
-        )) {
-        errorMessage = "VXL section table overflowed: " + sourceName;
-        return false;
-    }
-
-    if (sectionTableOffset + sectionTableBytes > bytes.size()) {
-        errorMessage = "VXL section table is outside file: " + sourceName;
-        return false;
-    }
-
-    metadata.vxlPath = sourceName;
-    metadata.vxlSectionCount = static_cast<int>(sectionCount);
-    metadata.vxlFileSize = static_cast<std::uint64_t>(bytes.size());
-    metadata.vxlSectionSample.clear();
-    const unsigned int sectionSampleCount = std::min<unsigned int>(sectionCount, 4U);
-    for (unsigned int sectionIndex = 0;
-        sectionIndex < sectionSampleCount;
-        ++sectionIndex) {
-        appendRuntimeSectionSample(
-            metadata.vxlSectionSample,
-            readAsciiString(
-                bytes,
-                sectionTableOffset
-                    + (static_cast<std::size_t>(sectionIndex) * sectionRecordBytes),
-                16
-            )
-        );
-    }
-    return true;
+    return concord::assets::voxel::render::parseRuntimeVxlMetadataFromBytes(bytes, sourceName, metadata, errorMessage);
 }
-
 bool parseRuntimeVxlMetadata(
     const std::string& vxlPath,
     RuntimeVoxelMetadata& metadata,
@@ -2364,82 +1930,8 @@ bool parseRuntimeHvaMetadataFromBytes(
     RuntimeVoxelMetadata& metadata,
     std::string& errorMessage
 ) {
-    constexpr std::size_t fixedHeaderBytes = 24;
-    constexpr std::size_t sectionNameBytes = 16;
-    constexpr std::size_t matrixFloatCount = 12;
-    constexpr std::size_t matrixBytes = matrixFloatCount * 4;
-    if (bytes.size() < fixedHeaderBytes) {
-        errorMessage = "HVA file is too small: " + sourceName;
-        return false;
-    }
-
-    const unsigned int frameCount = readUInt32(bytes, 16);
-    const unsigned int sectionCount = readUInt32(bytes, 20);
-    if (frameCount > 100000 || sectionCount > 1024) {
-        errorMessage = "HVA frame or section count is unreasonably large: "
-            + sourceName;
-        return false;
-    }
-
-    std::size_t sectionNameTableBytes = 0;
-    if (!checkedMul(
-            static_cast<std::size_t>(sectionCount),
-            sectionNameBytes,
-            sectionNameTableBytes
-        )) {
-        errorMessage = "HVA section table overflowed: " + sourceName;
-        return false;
-    }
-
-    std::size_t matrixDataOffset = 0;
-    if (!checkedAdd(fixedHeaderBytes, sectionNameTableBytes, matrixDataOffset)) {
-        errorMessage = "HVA matrix data offset overflowed: " + sourceName;
-        return false;
-    }
-
-    std::size_t matrixCount = 0;
-    if (!checkedMul(
-            static_cast<std::size_t>(frameCount),
-            static_cast<std::size_t>(sectionCount),
-            matrixCount
-        )) {
-        errorMessage = "HVA matrix count overflowed: " + sourceName;
-        return false;
-    }
-
-    std::size_t allMatrixBytes = 0;
-    if (!checkedMul(matrixCount, matrixBytes, allMatrixBytes)) {
-        errorMessage = "HVA matrix byte count overflowed: " + sourceName;
-        return false;
-    }
-
-    if (matrixDataOffset + allMatrixBytes > bytes.size()) {
-        errorMessage = "HVA matrix data is outside file: " + sourceName;
-        return false;
-    }
-
-    metadata.hvaPath = sourceName;
-    metadata.hvaFrameCount = static_cast<int>(frameCount);
-    metadata.hvaSectionCount = static_cast<int>(sectionCount);
-    metadata.hvaFileSize = static_cast<std::uint64_t>(bytes.size());
-    metadata.hvaSectionSample.clear();
-    const unsigned int sectionSampleCount = std::min<unsigned int>(sectionCount, 4U);
-    for (unsigned int sectionIndex = 0;
-        sectionIndex < sectionSampleCount;
-        ++sectionIndex) {
-        appendRuntimeSectionSample(
-            metadata.hvaSectionSample,
-            readAsciiString(
-                bytes,
-                fixedHeaderBytes
-                    + (static_cast<std::size_t>(sectionIndex) * sectionNameBytes),
-                sectionNameBytes
-            )
-        );
-    }
-    return true;
+    return concord::assets::voxel::render::parseRuntimeHvaMetadataFromBytes(bytes, sourceName, metadata, errorMessage);
 }
-
 bool parseRuntimeHvaMetadata(
     const std::string& hvaPath,
     RuntimeVoxelMetadata& metadata,
@@ -2465,82 +1957,8 @@ bool parseRuntimeHvaFrameTransformsFromBytes(
     std::string& errorMessage,
     int frameIndex = 0
 ) {
-    constexpr std::size_t fixedHeaderBytes = 24;
-    constexpr std::size_t sectionNameBytes = 16;
-    constexpr std::size_t matrixFloatCount = 12;
-    constexpr std::size_t matrixBytes = matrixFloatCount * 4;
-    if (bytes.size() < fixedHeaderBytes) {
-        errorMessage = "HVA file is too small: " + sourceName;
-        return false;
-    }
-
-    const unsigned int frameCount = readUInt32(bytes, 16);
-    const unsigned int sectionCount = readUInt32(bytes, 20);
-    if (frameCount == 0 || frameCount > 100000 || sectionCount == 0 || sectionCount > 1024
-        || frameIndex < 0 || static_cast<unsigned int>(frameIndex) >= frameCount) {
-        errorMessage = "HVA animation frame transform table is invalid: "
-            + sourceName;
-        return false;
-    }
-
-    std::size_t sectionNameTableBytes = 0;
-    if (!checkedMul(
-            static_cast<std::size_t>(sectionCount),
-            sectionNameBytes,
-            sectionNameTableBytes
-        )) {
-        errorMessage = "HVA section table overflowed: " + sourceName;
-        return false;
-    }
-
-    std::size_t matrixOffset = 0;
-    if (!checkedAdd(fixedHeaderBytes, sectionNameTableBytes, matrixOffset)) {
-        errorMessage = "HVA matrix offset overflowed: " + sourceName;
-        return false;
-    }
-
-    std::size_t firstFrameBytes = 0;
-    if (!checkedMul(
-            static_cast<std::size_t>(sectionCount),
-            matrixBytes,
-            firstFrameBytes
-        )) {
-        errorMessage = "HVA first frame byte count overflowed: " + sourceName;
-        return false;
-    }
-
-    std::size_t frameOffset = 0;
-    if (!checkedMul(static_cast<std::size_t>(frameIndex), firstFrameBytes, frameOffset)
-        || !checkedAdd(matrixOffset, frameOffset, matrixOffset)
-        || matrixOffset > bytes.size() || firstFrameBytes > bytes.size() - matrixOffset) {
-        errorMessage = "HVA animation frame matrix data is outside file: "
-            + sourceName;
-        return false;
-    }
-
-    transforms.clear();
-    transforms.reserve(sectionCount);
-    for (unsigned int sectionIndex = 0; sectionIndex < sectionCount; ++sectionIndex) {
-        const std::size_t transformOffset =
-            matrixOffset
-            + (static_cast<std::size_t>(sectionIndex) * matrixBytes);
-        RuntimeHvaTransform transform;
-        transform.valid = true;
-        for (std::size_t i = 0; i < matrixFloatCount; ++i) {
-            const double value = readFloat32(bytes, transformOffset + (i * 4));
-            if (!std::isfinite(value)) {
-                errorMessage = "HVA matrix contains a non-finite value: "
-                    + sourceName;
-                return false;
-            }
-            transform.m[i] = value;
-        }
-        transforms.push_back(transform);
-    }
-
-    return true;
+    return concord::assets::voxel::render::parseRuntimeHvaFrameTransformsFromBytes(bytes, sourceName, transforms, errorMessage, frameIndex);
 }
-
 struct RuntimeVxlNormalLighting {
     double brightness = 0.0;
     int shadeStep = 0;
@@ -6941,100 +6359,6 @@ bool decodeRuntimeVxlSpriteFromBytes(
         };
     const double referenceFaceBias =
         runtimeVxlReferenceFaceBias();
-    const auto rasterizeReferenceTriangle =
-        [&](const DrawFace& face, int a, int b, int c) {
-            if (face.color == 0) {
-                return;
-            }
-            const double ax = static_cast<double>(padding)
-                + face.preciseX[static_cast<std::size_t>(a)];
-            const double ay = static_cast<double>(padding)
-                + face.preciseY[static_cast<std::size_t>(a)];
-            const double bx = static_cast<double>(padding)
-                + face.preciseX[static_cast<std::size_t>(b)];
-            const double by = static_cast<double>(padding)
-                + face.preciseY[static_cast<std::size_t>(b)];
-            const double cx = static_cast<double>(padding)
-                + face.preciseX[static_cast<std::size_t>(c)];
-            const double cy = static_cast<double>(padding)
-                + face.preciseY[static_cast<std::size_t>(c)];
-            const int left = std::clamp(
-                static_cast<int>(std::floor(std::min({ax, bx, cx}))),
-                0,
-                width - 1
-            );
-            const int right = std::clamp(
-                static_cast<int>(std::ceil(std::max({ax, bx, cx}))),
-                0,
-                width - 1
-            );
-            const int top = std::clamp(
-                static_cast<int>(std::floor(std::min({ay, by, cy}))),
-                0,
-                height - 1
-            );
-            const int bottom = std::clamp(
-                static_cast<int>(std::ceil(std::max({ay, by, cy}))),
-                0,
-                height - 1
-            );
-            const double denominator =
-                ((by - cy) * (ax - cx)) + ((cx - bx) * (ay - cy));
-            if (std::abs(denominator) < 0.0001) {
-                return;
-            }
-            ++rasterPathStats.triangleFacesRasterized;
-            for (int py = top; py <= bottom; ++py) {
-                for (int px = left; px <= right; ++px) {
-                    const double sampleX = static_cast<double>(px) + 0.5;
-                    const double sampleY = static_cast<double>(py) + 0.5;
-                    const double weightA =
-                        (((by - cy) * (sampleX - cx))
-                            + ((cx - bx) * (sampleY - cy)))
-                        / denominator;
-                    const double weightB =
-                        (((cy - ay) * (sampleX - cx))
-                            + ((ax - cx) * (sampleY - cy)))
-                        / denominator;
-                    const double weightC = 1.0 - weightA - weightB;
-                    if (weightA < -0.01 || weightB < -0.01 || weightC < -0.01) {
-                        continue;
-                    }
-                    const double pixelDepth =
-                        (weightA * face.cornerDepth[static_cast<std::size_t>(a)])
-                        + (weightB * face.cornerDepth[static_cast<std::size_t>(b)])
-                        + (weightC * face.cornerDepth[static_cast<std::size_t>(c)])
-                        + referenceFaceBias;
-
-                    const std::size_t pixelIndex =
-                        (static_cast<std::size_t>(py)
-                            * static_cast<std::size_t>(width))
-                        + static_cast<std::size_t>(px);
-                    if (pixelDepth <= pixelDepths[pixelIndex] + referenceDepthEpsilon) {
-                        continue;
-                    }
-                    pixelDepths[pixelIndex] = pixelDepth;
-                    pixels[pixelIndex] = face.color;
-                    rawColorIndices[pixelIndex] =
-                        static_cast<unsigned char>(face.material & 0xFFU);
-                    ownerRemapMask[pixelIndex] =
-                        face.ownerRemap ? 1 : 0;
-                    lightLevels[pixelIndex] = runtimeVxlNeutralLightLevel();
-                    normalIndices[pixelIndex] = face.normalIndex;
-                    normalBrightnessLevels[pixelIndex] =
-                        runtimeVxlNormalBrightnessByte(face.normalBrightness);
-                    vplSections[pixelIndex] = face.vplSection;
-                    pixelMaterials[pixelIndex] = face.material;
-                }
-            }
-        };
-    const auto rasterizeReferenceVoxelFace =
-        [&](const DrawFace& face) {
-            ++rasterPathStats.cuboidFacesRasterized;
-            rasterizeReferenceTriangle(face, 0, 1, 2);
-            rasterizeReferenceTriangle(face, 0, 2, 3);
-        };
-
     const auto rasterizeReferenceIndexedCoverage =
         [&]() {
             struct RuntimeVxlCoverageSample {
@@ -8779,8 +8103,21 @@ bool decodeRuntimeVxlSpriteFromBytes(
             rasterizeReferenceIndexedCoverage();
         } else {
             rasterFunctionActuallyCalled = "cuboid";
+            const concord::render::VxlReferenceRasterTarget target{
+                width, height, padding, referenceDepthEpsilon, referenceFaceBias,
+                runtimeVxlNeutralLightLevel(), pixelDepths, pixels, rawColorIndices,
+                ownerRemapMask, lightLevels, normalIndices, normalBrightnessLevels, vplSections};
+            const auto writeMaterial = [&](std::size_t index, std::uint32_t material) {
+                pixelMaterials[index] = material;
+            };
             for (const DrawFace& face : drawFaces) {
-                rasterizeReferenceVoxelFace(face);
+                const concord::render::VxlReferenceFaceView projected{
+                    face.preciseX, face.preciseY, face.cornerDepth,
+                    face.normalBrightness, face.material, face.color, face.normalIndex,
+                    face.vplSection, face.ownerRemap};
+                concord::render::rasterizeVxlReferenceFace(projected, target,
+                    rasterPathStats.cuboidFacesRasterized, rasterPathStats.triangleFacesRasterized,
+                    runtimeVxlNormalBrightnessByte, writeMaterial, [] { return false; });
             }
         }
     } else if (rasterMode == RuntimeVxlRasterMode::SupersampledSprite
@@ -9366,15 +8703,7 @@ int colorChannel(COLORREF color, int channel) {
 }
 
 COLORREF shadeColor(COLORREF color, int delta) {
-    const auto shade = [delta](int value) {
-        return std::clamp(value + delta, 0, 255);
-    };
-
-    return RGB(
-        shade(colorChannel(color, 0)),
-        shade(colorChannel(color, 1)),
-        shade(colorChannel(color, 2))
-    );
+    return concord::render::shadeMapRgb(static_cast<std::uint32_t>(color), delta);
 }
 
 bool runtimeOverlayLooksLikeBridge(const TerrainCell& cell) {
@@ -10056,11 +9385,7 @@ bool runtimeSpecialObjectIsHidden(
     const RuntimeSpecialObjectRenderLookup* lookup = nullptr
 ) {
     if (lookup == nullptr) lookup = runtimeGeometrySpecialObjectLookup(context);
-    if (runtimeInvisibleMapBuilding(context.rules, object)) return true;
-    if (object.kind == WorldObjectKind::Structure && context.rules != nullptr) {
-        const auto* building = context.rules->findBuildingType(object.type);
-        if (building && toLowerAscii(building->image) == "null") return true;
-    }
+    if (concord::render::geometry::aircraftClearanceStructureHidden(context.rules, object)) return true;
     if (lookup != nullptr) {
         const auto found = lookup->find(object.instanceId);
         if (found == lookup->end()) {
@@ -10291,29 +9616,9 @@ struct RuntimeFootprintDimensions {
     int height = 1;
 };
 
-RuntimeFootprintDimensions parseRuntimeFoundationDimensions(
-    const std::string& foundation
-) {
-    if (foundation.empty()) {
-        return {};
-    }
-
-    const std::string value = toLowerAscii(foundation);
-    const std::size_t separator = value.find('x');
-    if (separator == std::string::npos) {
-        if (value == "custom") {
-            return {2, 2};
-        }
-        return {};
-    }
-
-    try {
-        const int width = std::stoi(value.substr(0, separator));
-        const int height = std::stoi(value.substr(separator + 1));
-        return {std::max(1, width), std::max(1, height)};
-    } catch (...) {
-        return {};
-    }
+RuntimeFootprintDimensions parseRuntimeFoundationDimensions(const std::string& foundation) {
+    const auto dimensions = concord::render::geometry::parseAircraftClearanceFoundation(foundation);
+    return {dimensions.width, dimensions.height};
 }
 
 RuntimeFootprintDimensions runtimeObjectFoundationDimensions(
@@ -10460,57 +9765,14 @@ ProjectedPoint runtimeObjectSortPoint(
     const RuntimeFootprintDimensions& footprint,
     const RuntimeMapCamera& camera
 ) {
-    double sortX = objectRenderX(object);
-    double sortY = objectRenderY(object);
-    const WorldObjectCellOffset subCellOffset =
-        worldObjectSubCellOffset(object);
-    sortX += subCellOffset.x;
-    sortY += subCellOffset.y;
-    if (object.kind == WorldObjectKind::Structure) {
-        sortX += static_cast<double>(std::max(1, footprint.width) - 1);
-        sortY += static_cast<double>(std::max(1, footprint.height) - 1);
-    }
-
-    return projectCellXY(sortX, sortY, drawLevelForObject(object), camera);
+    const double renderX = objectRenderX(object);
+    const double renderY = objectRenderY(object);
+    const auto position = concord::render::runtimeObjectSortPosition(
+        object, renderX, renderY, footprint.width, footprint.height);
+    return projectCellXY(position.x, position.y, drawLevelForObject(object), camera);
 }
 
-bool runtimeWorldObjectRenderOrderLess(
-    const ProjectedPoint& leftSortPoint,
-    double leftDrawLevel,
-    double leftCellSum,
-    int leftKindBias,
-    int leftInstanceId,
-    const ProjectedPoint& rightSortPoint,
-    double rightDrawLevel,
-    double rightCellSum,
-    int rightKindBias,
-    int rightInstanceId
-) {
-    if (leftSortPoint.y != rightSortPoint.y) {
-        return leftSortPoint.y < rightSortPoint.y;
-    }
-    if (leftDrawLevel != rightDrawLevel) {
-        return leftDrawLevel < rightDrawLevel;
-    }
-    if (leftSortPoint.x != rightSortPoint.x) {
-        return leftSortPoint.x < rightSortPoint.x;
-    }
-    if (leftCellSum != rightCellSum) {
-        return leftCellSum < rightCellSum;
-    }
-    if (leftKindBias != rightKindBias) {
-        return leftKindBias < rightKindBias;
-    }
-    return leftInstanceId < rightInstanceId;
-}
-
-enum class RuntimeGroundBodyKind {
-    WaterWake,
-    GroundImpact,
-    Particle,
-    WorldObject,
-    GateOverlay
-};
+using concord::render::RuntimeGroundBodyKind;
 
 bool runtimeImpactActorUsesGroundLayer(
     const RuntimeImpactRenderActor& actor
@@ -10578,43 +9840,7 @@ struct RuntimeGroundBodyDrawRecord {
     ProjectedPoint particleProjected;
 };
 
-bool runtimeGroundBodyRenderOrderLess(
-    const RuntimeGroundBodySortKey& left,
-    const RuntimeGroundBodySortKey& right
-) {
-    if (left.groundRubble != right.groundRubble) {
-        return left.groundRubble;
-    }
-    if (left.ySortLeptons != right.ySortLeptons) {
-        return left.ySortLeptons < right.ySortLeptons;
-    }
-    if (left.drawLevel != right.drawLevel) {
-        return left.drawLevel < right.drawLevel;
-    }
-    if (left.sortPoint.x != right.sortPoint.x) {
-        return left.sortPoint.x < right.sortPoint.x;
-    }
-    if (left.cellSum != right.cellSum) {
-        return left.cellSum < right.cellSum;
-    }
-    // Flat ground effects at the exact same key must remain beneath the body
-    // that created them, irrespective of the body's category tie-breaker.
-    if (left.kind != right.kind) {
-        return static_cast<int>(left.kind) < static_cast<int>(right.kind);
-    }
-    if (left.kindBias != right.kindBias) {
-        return left.kindBias < right.kindBias;
-    }
-    // Older independent AnimClass actors are ordered first. Body records use
-    // the default -1 and therefore retain their existing instance ordering.
-    if (left.spawnTick != right.spawnTick) {
-        return left.spawnTick < right.spawnTick;
-    }
-    if (left.instanceId != right.instanceId) {
-        return left.instanceId < right.instanceId;
-    }
-    return left.ordinal < right.ordinal;
-}
+using concord::render::runtimeGroundBodyRenderOrderLess;
 
 bool runtimeGroundBodyIncludesWorldObject(
     bool bodyVisible,
@@ -10641,24 +9867,10 @@ double runtimeWorldObjectYSortLeptons(
         return 0.0;
     }
     const WorldObjectInstance& object = *drawRecord.object;
-    double sortX = objectRenderX(object);
-    double sortY = objectRenderY(object);
-    const WorldObjectCellOffset subCellOffset =
-        worldObjectSubCellOffset(object);
-    sortX += subCellOffset.x;
-    sortY += subCellOffset.y;
-    if (object.kind == WorldObjectKind::Structure) {
-        sortX += static_cast<double>(
-            std::max(1, drawRecord.footprintWidth) - 1
-        );
-        sortY += static_cast<double>(
-            std::max(1, drawRecord.footprintHeight) - 1
-        );
-    }
-    // ObjectClass::GetYSort compares the render-coordinate X+Y value in
-    // leptons. Keep that unit here instead of introducing screen projection
-    // or rounding; one map cell is 256 leptons.
-    return (sortX + sortY) * 256.0;
+    const double renderX = objectRenderX(object);
+    const double renderY = objectRenderY(object);
+    return concord::render::runtimeObjectYSortLeptons(concord::render::runtimeObjectSortPosition(
+        object, renderX, renderY, drawRecord.footprintWidth, drawRecord.footprintHeight));
 }
 
 #include "render/buildings/RuntimeRepairDepotRender.inl"
@@ -11152,21 +10364,7 @@ void sortRuntimeWorldObjectShadowDrawRecords(
     std::sort(
         records.begin(),
         records.end(),
-        [](const RuntimeWorldObjectShadowDrawRecord& left,
-            const RuntimeWorldObjectShadowDrawRecord& right) {
-            return runtimeWorldObjectRenderOrderLess(
-                left.sortPoint,
-                left.drawLevel,
-                left.cellSum,
-                left.kindBias,
-                left.instanceId,
-                right.sortPoint,
-                right.drawLevel,
-                right.cellSum,
-                right.kindBias,
-                right.instanceId
-            );
-        }
+        concord::render::RuntimeWorldObjectRenderOrderLess{}
     );
 }
 
@@ -12270,19 +11468,13 @@ bool putSurfacePixel(
     std::uint32_t color
 ) {
     if(runtimeGpuWorldPixel(context,x,y,concord::render::MapDrawKind::Fill,color))return true;
-    if (!hasPixelSurface(context)
-        || x < 0
-        || y < 0
-        || x >= context.surfaceWidth
-        || y >= context.surfaceHeight) {
+    auto* pixel = concord::render::mapSoftwarePixelAt(
+        context.surfacePixels, context.surfaceWidth, context.surfaceHeight, x, y);
+    if (pixel == nullptr) {
         return false;
     }
 
-    context.surfacePixels[
-        (static_cast<std::size_t>(y)
-            * static_cast<std::size_t>(context.surfaceWidth))
-        + static_cast<std::size_t>(x)
-    ] = color;
+    *pixel = color;
     return true;
 }
 
@@ -12293,22 +11485,14 @@ bool shadeSurfacePixel(
     int shade
 ) {
     if(runtimeGpuWorldPixel(context,x,y,concord::render::MapDrawKind::Shade,static_cast<std::uint32_t>(shade)))return true;
-    if (!hasPixelSurface(context)
-        || x < 0
-        || y < 0
-        || x >= context.surfaceWidth
-        || y >= context.surfaceHeight) {
+    auto* pixel = concord::render::mapSoftwarePixelAt(
+        context.surfacePixels, context.surfaceWidth, context.surfaceHeight, x, y);
+    if (pixel == nullptr) {
         return false;
     }
 
-    std::uint32_t& pixel =
-        context.surfacePixels[
-            (static_cast<std::size_t>(y)
-                * static_cast<std::size_t>(context.surfaceWidth))
-            + static_cast<std::size_t>(x)
-        ];
-    pixel = packRuntimeDibColor(
-        shadeColor(colorRefFromRuntimeDibColor(pixel), shade)
+    *pixel = packRuntimeDibColor(
+        shadeColor(colorRefFromRuntimeDibColor(*pixel), shade)
     );
     return true;
 }
@@ -13115,16 +12299,9 @@ RuntimeParticleClearanceRoof runtimeStructureFlightClearanceRoof(
     const RuntimeMapRenderContext& context,
     RuntimeMapRenderCache& cache
 ) {
-    RuntimeParticleClearanceRoof roof;
-    const auto subCell = worldObjectSubCellOffset(structure);
-    roof.cellSum = objectRenderX(structure) + subCell.x
-        + objectRenderY(structure) + subCell.y;
-    roof.level = drawLevelForObject(structure);
-    roof.rubble = runtimeObjectIsRenderableRubble(structure);
-    if (roof.rubble) return roof;
-    const ArtType* artType = findArtTypeForObject(structure, context);
-    roof.authoredHeight = artType == nullptr ? 0 : std::clamp(artType->height, 0, 512);
-    if (roof.authoredHeight <= 0) {
+    const auto* art = runtimeObjectIsRenderableRubble(structure) ? nullptr : findArtTypeForObject(structure, context);
+    auto roof = concord::render::geometry::makeAircraftClearanceRoof(structure, art);
+    if (!roof.rubble && roof.authoredHeight <= 0) {
         RuntimeObjectShpSpriteCacheEntry* sprite =
             loadRuntimeObjectShpSpriteFromCache(structure, context, cache);
         if (sprite != nullptr) {
@@ -13140,18 +12317,7 @@ RuntimeParticleClearanceRoof runtimeStructureFlightClearanceRoof(
 int runtimeStructureFlightClearanceHeightPixels(
     const RuntimeParticleClearanceRoof& roof, const RuntimeMapCamera& camera
 ) {
-    if (roof.rubble) return 0;
-    const int heightPixelScale = std::max(4, camera.tileHeight / 3);
-    const int fallbackHeightPixels = std::max(18, camera.tileHeight);
-    return std::clamp(
-        std::max({
-            fallbackHeightPixels,
-            roof.authoredHeight * heightPixelScale,
-            roof.nativeSpriteHeight
-        }),
-        fallbackHeightPixels,
-        512
-    );
+    return concord::render::geometry::aircraftClearanceRoofHeightPixels(roof, camera.tileHeight);
 }
 
 int runtimeStructureFlightClearanceHeightPixels(
@@ -13166,34 +12332,8 @@ bool runtimeAircraftOverStructureFoundation(
     const RuntimeWorldObjectDrawRecord& aircraftRecord,
     const RuntimeWorldObjectDrawRecord& structureRecord
 ) {
-    if (aircraftRecord.object == nullptr
-        || structureRecord.object == nullptr
-        || structureRecord.object->kind != WorldObjectKind::Structure) {
-        return false;
-    }
-
-    const WorldObjectInstance& aircraft = *aircraftRecord.object;
-    const WorldObjectCellOffset aircraftSubCell =
-        worldObjectSubCellOffset(aircraft);
-    const double aircraftX = objectRenderX(aircraft) + aircraftSubCell.x;
-    const double aircraftY = objectRenderY(aircraft) + aircraftSubCell.y;
-    const double structureX = objectRenderX(*structureRecord.object);
-    const double structureY = objectRenderY(*structureRecord.object);
-    const double halfCell = 0.5;
-    const double epsilon = 0.000001;
-    const double maxStructureX =
-        structureX + static_cast<double>(
-            std::max(1, structureRecord.footprintWidth)
-        ) - halfCell;
-    const double maxStructureY =
-        structureY + static_cast<double>(
-            std::max(1, structureRecord.footprintHeight)
-        ) - halfCell;
-
-    return aircraftX + epsilon >= structureX - halfCell
-        && aircraftX - epsilon <= maxStructureX
-        && aircraftY + epsilon >= structureY - halfCell
-        && aircraftY - epsilon <= maxStructureY;
+    return concord::render::geometry::aircraftOverClearanceStructure(aircraftRecord.object,
+        {structureRecord.object, {structureRecord.footprintWidth, structureRecord.footprintHeight}});
 }
 
 std::vector<RuntimeWorldObjectDrawRecord> runtimeAircraftClearanceStructures(
@@ -13262,65 +12402,17 @@ bool captureRuntimeAircraftPresentationFromRecords(
     const std::vector<std::size_t>* candidates = nullptr,
     bool enforceSavedLimit = true
 ) {
-    presentation = {};
-    presentation.factoryLiftCancellation = -1;
-    if (aircraftRecord.object == nullptr
-        || !aircraftRecord.airborneForeground) {
-        return true;
-    }
-    presentation.enabled = true;
-    const auto& aircraft = *aircraftRecord.object;
-    const auto subCell = worldObjectSubCellOffset(aircraft);
-    if (aircraft.aircraftDockFlightProgress >= 0.0) {
-        presentation.clearanceFraction = std::clamp(
-            aircraft.aircraftDockFlightProgress, 0.0, 1.0);
-    }
-    presentation.sourceCellSum = (objectRenderX(aircraft) + subCell.x)
-        + (objectRenderY(aircraft) + subCell.y);
-    presentation.sourceLevel = drawLevelForObject(aircraft);
-    if (aircraft.aircraftBuildingClearanceLevel >= 0.0
-        && aircraft.factoryExitHostId < 0) {
-        presentation.resolvedClearanceLevel = aircraft.aircraftBuildingClearanceLevel;
-        return true;
-    }
-    const std::size_t candidateCount = candidates == nullptr
-        ? sortedObjects.size() : candidates->size();
-    for (std::size_t candidate = 0; candidate < candidateCount; ++candidate) {
-        const RuntimeWorldObjectDrawRecord& structureRecord = sortedObjects[
-            candidates == nullptr ? candidate : (*candidates)[candidate]];
-        if (!runtimeAircraftOverStructureFoundation(
-                aircraftRecord,
-                structureRecord
-            )) {
-            continue;
-        }
-
-        if (aircraftRecord.object->factoryExitHostId == structureRecord.object->instanceId) {
-            // The generic aircraft sprite lift is inappropriate on the factory
-            // floor. Introduce it continuously with the actual climb and reach
-            // the ordinary flight pose before the factory association ends.
-            const auto* unit = findObjectUnitTypeForRender(context, *aircraftRecord.object);
-            if (unit && unit->jumpJetHeight > 0) {
-                const double height = std::max(0.0,
-                    objectRenderLevel(*aircraftRecord.object) - structureRecord.object->level);
-                const double progress = std::clamp(height * 256.0 / unit->jumpJetHeight, 0.0, 1.0);
-                if (progress < 1.0) {
-                    presentation.factoryLiftCancellation =
-                        static_cast<int>(std::lround(34.0 * (1.0 - progress)));
-                    presentation.roofs.clear();
-                    return true;
-                }
-            }
-            continue; // The producing roof is crossed by real climb, not a visual lift.
-        }
-        if (enforceSavedLimit && presentation.roofs.size() >= runtimeParticleMaximumClearanceRoofs) {
-            presentation = {};
-            return false;
-        }
-        presentation.roofs.push_back(runtimeStructureFlightClearanceRoof(
-            *structureRecord.object, context, cache));
-    }
-    return true;
+    const std::size_t count = candidates == nullptr ? sortedObjects.size() : candidates->size();
+    return concord::render::geometry::captureAircraftClearance(aircraftRecord.object,
+        aircraftRecord.airborneForeground, count,
+        [&](std::size_t index) {
+            const auto& structure = sortedObjects[candidates == nullptr ? index : (*candidates)[index]];
+            return concord::render::geometry::AircraftClearanceStructure{
+                structure.object, {structure.footprintWidth, structure.footprintHeight}};
+        },
+        [&] { return findObjectUnitTypeForRender(context, *aircraftRecord.object); },
+        [&](const WorldObjectInstance& roof) { return runtimeStructureFlightClearanceRoof(roof, context, cache); },
+        presentation, enforceSavedLimit);
 }
 
 int runtimeAircraftBuildingClearanceLiftPixels(
@@ -14624,7 +13716,7 @@ bool drawRuntimeShpFrame(
         if (opacity <= 0) return true;
         if (runtimeBuildingDepthFrame->collectOnly) {
             const bool shareColorSnapshot = runtimeBuildingDepthFrame->composeColors
-                && runtimeBuildingDepthImageRequiresPin(image) && !runtimeBuildingDepthPixelCopyReference();
+                && concord::render::runtimeBuildingDepthImageRequiresPin(image) && !runtimeBuildingDepthPixelCopyReference();
             const bool collectionProfile = runtimeBuildingDepthFrame->profileEnabled;
             const auto recordFullSnapshot = [&] {
                 auto& profile = runtimeBuildingDepthFrame->profileCollection;
@@ -23832,13 +22924,10 @@ bool tryDrawVoxelSprite(
         const auto sizing = runtimeVxlRasterSizingForOwner(object.type);
         const double yaw = (facingBucketForObject(object, runtimeVoxelFacingBucketCount) - 8)
             * 6.283185307179586 / runtimeVoxelFacingBucketCount;
-        const double slopeX = -std::tan(bodyPose.terrainPitch) / std::cos(bodyPose.terrainRoll);
-        const double slopeY = std::tan(bodyPose.terrainRoll);
-        const double support = runtimeVehicleGroundSupportLift(modelBounds, rotation, yaw,
-            sizing.modelOriginPivot, slopeX, slopeY);
-        spriteCenter.y -= static_cast<LONG>(std::lround(support * voxel->rasterFitScale
-            * runtimeVxlProjectionParamsForSizing(sizing).heightYScale + bodyPose.height * camera.tileHeight
-            + bodyPose.terrainHeight * camera.tileHeight * 0.5));
+        spriteCenter.y -= static_cast<LONG>(std::lround(
+            concord::render::projectRuntimeVehicleGroundBodyLift(modelBounds, rotation, bodyPose,
+                yaw, sizing.modelOriginPivot, voxel->rasterFitScale,
+                runtimeVxlProjectionParamsForSizing(sizing).heightYScale, camera.tileHeight)));
     }
     const int spriteOpacity = runtimeObjectSpriteOpacity(object);
     const auto vxlBodyStarted = runtimeMaybeTimingStart(vxlProfileFrame != nullptr);
@@ -24160,7 +23249,7 @@ RuntimeWorldObjectShadowResult drawRuntimeWorldObjectShadow(
         const RuntimeVehicleBodyPose groundPose = runtimeVehicleTerrainPoseForRender(object, context);
         if (groundPose.terrainSupported) {
             supportedGroundCenter.y -= static_cast<LONG>(std::lround(
-                groundPose.terrainHeight * camera.tileHeight * 0.5));
+                concord::render::runtimeVehicleGroundPlanePixelOffset(groundPose, camera.tileHeight)));
         }
         const POINT voxelShadowCenter = runtimeVoxelModelDrawCenter(
             supportedGroundCenter,
@@ -24400,40 +23489,8 @@ bool drawTmpTileImage(
                 );
         }
 
-        const int clippedStartX = std::max(startX, -targetX);
-        const int clippedEndX = std::min(endX, context.surfaceWidth - targetX);
-        if (clippedStartX >= clippedEndX) {
-            return true;
-        }
-
-        for (int y = startY; y < endY; ++y) {
-            const int screenY = targetY + y;
-            if (screenY < 0 || screenY >= context.surfaceHeight) {
-                continue;
-            }
-
-            const unsigned char* source =
-                image.pixels.data()
-                + (static_cast<std::size_t>(y)
-                    * static_cast<std::size_t>(image.width))
-                + static_cast<std::size_t>(clippedStartX);
-            std::uint32_t* target =
-                context.surfacePixels
-                + (static_cast<std::size_t>(screenY)
-                    * static_cast<std::size_t>(context.surfaceWidth))
-                + static_cast<std::size_t>(targetX + clippedStartX);
-
-            for (int x = clippedStartX; x < clippedEndX; ++x) {
-                const unsigned char paletteIndex =
-                    source[static_cast<std::size_t>(x - clippedStartX)];
-                if (paletteIndex == 0) {
-                    continue;
-                }
-
-                target[static_cast<std::size_t>(x - clippedStartX)] =
-                    packedPalette[paletteIndex];
-            }
-        }
+        runtimeRasterTerrainTileColorSurface(image, packedPalette, {startX, startY, endX, endY},
+            {targetX, targetY}, context.surfacePixels, {context.surfaceWidth, context.surfaceHeight});
         return true;
     }
 
@@ -26344,6 +25401,11 @@ std::uint32_t packDibColor(const RuntimePaletteColor& color) {
         | static_cast<std::uint32_t>(color.b);
 }
 
+RuntimeTerrainLayerPlanes runtimeTerrainLayerPlanes(RuntimeTerrainLayerCache& layer) noexcept {
+    return {{layer.width, layer.height}, layer.pixels, layer.terrainDepthWords,
+        layer.terrainCellIndices, layer.surfaceCellIndices};
+}
+
 void putLayerPixel(
     RuntimeTerrainLayerCache& layer,
     int x,
@@ -26352,52 +25414,8 @@ void putLayerPixel(
     int terrainCellIndex = -1,
     int surfaceCellIndex = -1
 ) {
-    if (x < 0 || y < 0 || x >= layer.width || y >= layer.height) {
-        return;
-    }
-
-    const std::size_t offset =
-        (static_cast<std::size_t>(y)
-            * static_cast<std::size_t>(layer.width))
-        + static_cast<std::size_t>(x);
-    layer.pixels[offset] = color;
-    // A painter without authored TMP Z must not leave the hidden previous
-    // tile eligible to reject a later pixel. Native put restores accepted Z.
-    if (layer.terrainDepthWords.size() == layer.pixels.size()) {
-        layer.terrainDepthWords[offset] = 0xffffU;
-    }
-    if (terrainCellIndex >= 0
-        && layer.terrainCellIndices.size() == layer.pixels.size()) {
-        layer.terrainCellIndices[offset] = terrainCellIndex;
-    }
-    const int surfaceOwner = surfaceCellIndex >= 0
-        ? surfaceCellIndex : terrainCellIndex;
-    if (surfaceOwner >= 0
-        && layer.surfaceCellIndices.size() == layer.pixels.size()) {
-        layer.surfaceCellIndices[offset] = surfaceOwner;
-    }
-}
-
-void putLayerPixelZBuffered(
-    RuntimeTerrainLayerCache& layer,
-    std::vector<std::uint16_t>& zBuffer,
-    int x,
-    int y,
-    std::uint16_t zValue,
-    std::uint32_t color,
-    int terrainCellIndex
-) {
-    if (x < 0 || y < 0 || x >= layer.width || y >= layer.height) {
-        return;
-    }
-    const std::size_t index = static_cast<std::size_t>(y) * layer.width + x;
-    if (index >= zBuffer.size() || zValue > zBuffer[index]) {
-        return;
-    }
-    // TMP accepts equal Z (unlike the strict object SHP leaves). Color and
-    // both ownership maps must describe the same accepted source pixel.
-    putLayerPixel(layer, x, y, color, terrainCellIndex, terrainCellIndex);
-    zBuffer[index] = zValue;
+    runtimeWriteTerrainLayerPixel(runtimeTerrainLayerPlanes(layer),
+        x, y, color, terrainCellIndex, surfaceCellIndex);
 }
 const RuntimeTmpSubTileImage* resolveRuntimeTerrainMetadata(
     int tileIndex,
@@ -26469,42 +25487,6 @@ const RuntimeTmpSubTileImage* resolveTerrainCellImage(
 
 #include "render/terrain/RuntimeTerrainVisualVariants.inl"
 
-std::uint64_t runtimePackedPaletteHash(
-    const std::array<std::uint32_t, 256>& packedPalette
-) {
-    std::uint64_t hash = 1469598103934665603ULL;
-    for (std::uint32_t color : packedPalette) {
-        hash ^= static_cast<std::uint64_t>(color);
-        hash *= 1099511628211ULL;
-    }
-    return hash;
-}
-
-const std::vector<std::uint32_t>& runtimePackedTmpPixels(
-    const RuntimeTmpSubTileImage& image,
-    const std::array<std::uint32_t, 256>& packedPalette
-) {
-    const std::size_t pixelCount =
-        static_cast<std::size_t>(std::max(0, image.width))
-        * static_cast<std::size_t>(std::max(0, image.height));
-    const std::uint64_t paletteHash = runtimePackedPaletteHash(packedPalette);
-    if (image.packedPixelPaletteHash == paletteHash
-        && image.packedPixels.size() == pixelCount) {
-        return image.packedPixels;
-    }
-
-    image.packedPixelPaletteHash = paletteHash;
-    image.packedPixels.assign(pixelCount, 0);
-    const std::size_t count =
-        std::min(pixelCount, image.pixels.size());
-    for (std::size_t index = 0; index < count; ++index) {
-        const unsigned char paletteIndex = image.pixels[index];
-        image.packedPixels[index] =
-            paletteIndex == 0 ? 0 : packedPalette[paletteIndex];
-    }
-    return image.packedPixels;
-}
-
 bool drawTmpTileImageToLayer(
     RuntimeTerrainLayerCache& layer,
     int targetX,
@@ -26514,44 +25496,8 @@ bool drawTmpTileImageToLayer(
     int terrainCellIndex = -1,
     int surfaceCellIndex = -1
 ) {
-    if (image.width <= 0
-        || image.height <= 0
-        || image.pixels.size()
-            < static_cast<std::size_t>(image.width)
-                * static_cast<std::size_t>(image.height)
-    ) {
-        return false;
-    }
-
-    const int startY = std::max(0, -targetY);
-    const int endY = std::min(image.height, layer.height - targetY);
-    const int startX = std::max(0, -targetX);
-    const int endX = std::min(image.width, layer.width - targetX);
-    const std::vector<std::uint32_t>& packedPixels =
-        runtimePackedTmpPixels(image, packedPalette);
-
-    for (int y = startY; y < endY; ++y) {
-        for (int x = startX; x < endX; ++x) {
-            const std::uint32_t color =
-                packedPixels[static_cast<std::size_t>(y * image.width + x)];
-            // Transparency is palette index zero. An opaque black entry may
-            // also pack to RGB zero and must still cover the terrain below.
-            if (image.pixels[static_cast<std::size_t>(y * image.width + x)] == 0) {
-                continue;
-            }
-
-            putLayerPixel(
-                layer,
-                targetX + x,
-                targetY + y,
-                color,
-                terrainCellIndex,
-                surfaceCellIndex
-            );
-        }
-    }
-
-    return true;
+    return runtimeRasterTerrainTileOpaque(runtimeTerrainLayerPlanes(layer),
+        targetX, targetY, image, packedPalette, terrainCellIndex, surfaceCellIndex);
 }
 
 bool drawTmpTileImageToLayer(
@@ -26618,22 +25564,6 @@ bool drawHighBridgeTmpImageToLayer(
     );
 }
 
-// Only standard native TMPs with complete base/extra Z data enter this path.
-// Bridge adapters and custom color-only images retain their existing painter.
-bool runtimeTmpImageHasNativeDepth(const RuntimeTmpSubTileImage& image) {
-    constexpr std::size_t nativeDiamondPixels = 900;
-    if (image.baseWidth != 60 || image.baseHeight != 30
-        || image.basePixels.size() < nativeDiamondPixels
-        || !image.hasBaseZData || image.baseZData.size() < nativeDiamondPixels) {
-        return false;
-    }
-    if (!image.hasExtra) return true;
-    const auto count = static_cast<std::size_t>(std::max(0, image.extraWidth))
-        * static_cast<std::size_t>(std::max(0, image.extraHeight));
-    return count > 0 && image.hasExtraZData
-        && image.extraPixels.size() >= count && image.extraZData.size() >= count;
-}
-
 bool drawTmpTileImageZBufferedToLayer(
     RuntimeTerrainLayerCache& layer,
     std::vector<std::uint16_t>& zBuffer,
@@ -26644,42 +25574,9 @@ bool drawTmpTileImageZBufferedToLayer(
     const std::array<std::uint32_t, 256>& packedPalette,
     int terrainCellIndex
 ) {
-    if (camera.tileWidth != 60 || camera.tileHeight != 30
-        || !runtimeTmpImageHasNativeDepth(image)) {
-        return drawTmpTileImageToLayer(layer, center, camera, image,
-            packedPalette, terrainCellIndex);
-    }
-    const int targetX = center.x - camera.tileWidth / 2;
-    const int targetY = center.y - camera.tileHeight / 2;
-    int rowWidth = 0;
-    std::size_t sourceIndex = 0;
-    for (int y = 0; y < image.baseHeight; ++y) {
-        rowWidth += y < image.baseHeight / 2 ? 4 : -4;
-        const int xStart = (image.baseWidth - rowWidth) / 2;
-        for (int x = 0; x < rowWidth; ++x, ++sourceIndex) {
-            const auto color = image.basePixels[sourceIndex];
-            if (color == 0) continue;
-            putLayerPixelZBuffered(layer, zBuffer,
-                targetX + image.baseOffsetX + xStart + x,
-                targetY + image.baseOffsetY + y,
-                runtimeTmpNativeDepthWord(cell.x, cell.y, image.baseZData[sourceIndex]),
-                packedPalette[color], terrainCellIndex);
-        }
-    }
-    if (!image.hasExtra) return true;
-    const int extraTargetX = targetX + image.extraOffsetX - image.baseOffsetX;
-    const int extraTargetY = targetY + image.extraOffsetY - image.baseOffsetY;
-    for (int y = 0; y < image.extraHeight; ++y) {
-        for (int x = 0; x < image.extraWidth; ++x) {
-            const auto source = static_cast<std::size_t>(y) * image.extraWidth + x;
-            const auto color = image.extraPixels[source];
-            if (color == 0) continue;
-            putLayerPixelZBuffered(layer, zBuffer, extraTargetX + x, extraTargetY + y,
-                runtimeTmpNativeDepthWord(cell.x, cell.y, image.extraZData[source]),
-                packedPalette[color], terrainCellIndex);
-        }
-    }
-    return true;
+    return runtimeRasterTerrainTileNativeDepth(runtimeTerrainLayerPlanes(layer), zBuffer,
+        runtimeRenderPlacementPixelPoint(center), {cell.x, cell.y},
+        {camera.tileWidth, camera.tileHeight}, image, packedPalette, terrainCellIndex);
 }
 bool drawRuntimeAuxiliaryTmpSpriteToLayer(
     RuntimeTerrainLayerCache& layer,
@@ -27231,7 +26128,7 @@ bool buildTerrainLayer(
         };
         if (!rectIntersects(tileWorldRect, layerWorldRect)
             && !runtimeBridgeSpriteIntersectsPaintArea(cell,
-                POINT{projected.x, projected.y}, layerWorldRect,
+                {projected.x, projected.y}, runtimeRenderPlacementPixelRect(layerWorldRect),
                 context, camera, cache)) {
             continue;
         }
@@ -27317,7 +26214,7 @@ bool buildTerrainLayer(
         };
         if (!rectIntersects(tileWorldRect, layerWorldRect)
             && !runtimeBridgeSpriteIntersectsPaintArea(cell,
-                POINT{projected.x, projected.y}, layerWorldRect,
+                {projected.x, projected.y}, runtimeRenderPlacementPixelRect(layerWorldRect),
                 context, camera, cache)) {
             continue;
         }
@@ -27648,39 +26545,45 @@ bool drawTerrainLayerToViewport(
         return false;
     }
 
-    const int layerScreenX =
-        viewport.left + layer.originX - camera.worldOffsetX;
-    const int layerScreenY =
-        viewport.top + layer.originY - camera.worldOffsetY;
-    const int viewportLeft = static_cast<int>(viewport.left);
-    const int viewportTop = static_cast<int>(viewport.top);
-    const int viewportRight = static_cast<int>(viewport.right);
-    const int viewportBottom = static_cast<int>(viewport.bottom);
-    const int destX = std::max(viewportLeft, layerScreenX);
-    const int destY = std::max(viewportTop, layerScreenY);
-    const int destRight =
-        std::min(viewportRight, layerScreenX + layer.width);
-    const int destBottom =
-        std::min(viewportBottom, layerScreenY + layer.height);
-    const int copyWidth = destRight - destX;
-    const int copyHeight = destBottom - destY;
-    if (copyWidth <= 0 || copyHeight <= 0) {
+    const auto blit = runtimeTerrainLayerClip(
+        runtimeRenderPlacementPixelRect(viewport), {layer.originX, layer.originY},
+        {camera.worldOffsetX, camera.worldOffsetY}, {layer.width, layer.height});
+    if (!blit) {
         return true;
     }
+    const auto [destX, destY, destRight, destBottom] = blit->destination;
+    const int copyWidth = destRight - destX;
+    const int copyHeight = destBottom - destY;
+    const RuntimeInputPixelSize copySize{copyWidth, copyHeight};
 
-    const int sourceX = destX - layerScreenX;
-    const int sourceY = destY - layerScreenY;
-
-    if(runtimeGpuWorldDc(dc)) {
-        try{auto* list=runtimeGpuWorldOwner->drawList();if(!list)return true;auto c=runtimeGpuWorldRegion(destX,destY,destRight,destBottom,concord::render::MapDrawKind::Terrain);
-            c.originX=layerScreenX;c.originY=layerScreenY;c.width=layer.width;c.height=layer.height;c.stride=layer.width*4;
-            std::array<std::uint32_t,256> palette{};
-            // The decoder palette is already resident; only256 values are prepared, neverterrainRGB.
-            const auto* colors=runtimeGpuTerrainPalette;
-            if(!colors||colors->size()<256){runtimeGpuWorldOwner->reject("world-terrain-palette");return true;}
-            for(std::size_t i=0;i<palette.size();++i)palette[i]=packRuntimeDibColor((*colors)[i]);
-            c.offset=list->internValues<std::uint32_t>(layer.pixels);c.palette=list->internValues<std::uint32_t>(palette);(void)runtimeGpuWorldEmit(c);return true;
-        }catch(...){runtimeGpuWorldOwner->reject("world-terrain-budget");return true;}
+    if (runtimeGpuWorldDc(dc)) {
+        try {
+            auto* list = runtimeGpuWorldOwner->drawList();
+            if (!list) return true;
+            auto c = runtimeGpuWorldRegion(
+                destX, destY, destRight, destBottom, concord::render::MapDrawKind::Terrain);
+            c.originX = blit->imageOrigin.x;
+            c.originY = blit->imageOrigin.y;
+            c.width = layer.width;
+            c.height = layer.height;
+            c.stride = layer.width * 4;
+            std::array<std::uint32_t, 256> palette{};
+            const auto* colors = runtimeGpuTerrainPalette;
+            if (!colors || colors->size() < palette.size()) {
+                runtimeGpuWorldOwner->reject("world-terrain-palette");
+                return true;
+            }
+            for (std::size_t i = 0; i < palette.size(); ++i) {
+                palette[i] = packRuntimeDibColor((*colors)[i]);
+            }
+            c.offset = list->internValues<std::uint32_t>(layer.pixels);
+            c.palette = list->internValues<std::uint32_t>(palette);
+            (void)runtimeGpuWorldEmit(c);
+            return true;
+        } catch (...) {
+            runtimeGpuWorldOwner->reject("world-terrain-budget");
+            return true;
+        }
     }
 
     if (hasPixelSurface(context)
@@ -27688,50 +26591,22 @@ bool drawTerrainLayerToViewport(
         && destY >= 0
         && destRight <= context.surfaceWidth
         && destBottom <= context.surfaceHeight) {
-        for (int row = 0; row < copyHeight; ++row) {
-            const std::uint32_t* source =
-                layer.pixels.data()
-                + (static_cast<std::size_t>(sourceY + row)
-                    * static_cast<std::size_t>(layer.width))
-                + static_cast<std::size_t>(sourceX);
-            std::uint32_t* target =
-                context.surfacePixels
-                + (static_cast<std::size_t>(destY + row)
-                    * static_cast<std::size_t>(context.surfaceWidth))
-                + static_cast<std::size_t>(destX);
-            std::memcpy(
-                target,
-                source,
-                static_cast<std::size_t>(copyWidth)
-                    * sizeof(std::uint32_t)
-            );
-        }
+        auto* target = context.surfacePixels
+            + static_cast<std::size_t>(destY) * static_cast<std::size_t>(context.surfaceWidth)
+            + static_cast<std::size_t>(destX);
+        runtimeCopyTerrainLayerColorRows(layer.pixels.data(), layer.width, blit->sourceOrigin,
+            target, context.surfaceWidth, copySize);
         return true;
     }
 
     static thread_local std::vector<std::uint32_t> visiblePixels;
     const std::size_t visiblePixelCount =
-        static_cast<std::size_t>(copyWidth)
-        * static_cast<std::size_t>(copyHeight);
+        static_cast<std::size_t>(copyWidth) * static_cast<std::size_t>(copyHeight);
     if (visiblePixels.size() < visiblePixelCount) {
         visiblePixels.resize(visiblePixelCount);
     }
-    for (int row = 0; row < copyHeight; ++row) {
-        const std::uint32_t* source =
-            layer.pixels.data()
-            + (static_cast<std::size_t>(sourceY + row)
-                * static_cast<std::size_t>(layer.width))
-            + static_cast<std::size_t>(sourceX);
-        std::uint32_t* target =
-            visiblePixels.data()
-            + (static_cast<std::size_t>(row)
-                * static_cast<std::size_t>(copyWidth));
-        std::memcpy(
-            target,
-            source,
-            static_cast<std::size_t>(copyWidth) * sizeof(std::uint32_t)
-        );
-    }
+    runtimeCopyTerrainLayerColorRows(layer.pixels.data(), layer.width, blit->sourceOrigin,
+        visiblePixels.data(), copyWidth, copySize);
 
     BITMAPINFO bitmapInfo{};
     bitmapInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
@@ -28334,30 +27209,8 @@ int runtimeAircraftAirbornePresentationLiftPixels(
     const RuntimeParticleAirbornePresentation& presentation,
     const RuntimeMapCamera& camera, int screenOffsetY
 ) {
-    if (!presentation.enabled) return 0;
-    if (presentation.factoryLiftCancellation >= 0)
-        return -presentation.factoryLiftCancellation;
-    if (presentation.resolvedClearanceLevel >= 0.0) {
-        return static_cast<int>(std::lround(presentation.resolvedClearanceLevel
-            * camera.tileHeight / 2.0));
-    }
-    const auto projectedY = [&camera](double cellSum, double level) {
-        return static_cast<int>(std::llround(cellSum * camera.tileHeight / 2.0
-            - level * camera.tileHeight / 2.0));
-    };
-    const int aircraftY = projectedY(presentation.sourceCellSum, presentation.sourceLevel)
-        + screenOffsetY;
-    const int margin = std::max(4, camera.tileHeight / 6);
-    int lift = 0;
-    for (const auto& roof : presentation.roofs) {
-        const int top = projectedY(roof.cellSum, roof.level) + camera.tileHeight / 2
-            - runtimeStructureFlightClearanceHeightPixels(roof, camera);
-        lift = std::max(lift, aircraftY - (top - margin));
-    }
-    // Fade the resolved clearance, including its camera-dependent fallback
-    // height and margin. Scaling authored roof dimensions loses that shape.
-    return static_cast<int>(std::lround(std::clamp(lift, 0, 512)
-        * std::clamp(presentation.clearanceFraction, 0.0, 1.0)));
+    return concord::render::geometry::aircraftAirborneClearanceLiftPixels(
+        presentation, camera.tileHeight, screenOffsetY);
 }
 
 double runtimeKirovClearanceTargetLevel(
@@ -28366,70 +27219,16 @@ double runtimeKirovClearanceTargetLevel(
     double directionX, double directionY, double approachSpeed
 ) {
     const auto* unit = findObjectUnitTypeForRender(context, aircraft);
-    if (!unit || toLowerAscii(unit->id) != "zep" || !aircraft.alive
-        || !aircraft.airborne || aircraft.factoryExitHostId >= 0) return 0.0;
+    if (!concord::render::geometry::aircraftEligibleForKirovClearance(aircraft, unit)) return 0.0;
     RuntimeRendererEnvironmentScope environment;
-    RuntimeMapCamera camera;
-    camera.tileWidth = 60;
-    camera.tileHeight = 30;
-    const auto subCell = worldObjectSubCellOffset(aircraft);
-    const double sourceX = objectRenderX(aircraft) + subCell.x;
-    const double sourceY = objectRenderY(aircraft) + subCell.y;
-    const double length = std::hypot(directionX, directionY);
-    const bool forward = std::isfinite(length) && length > 0.000001;
-    const double dx = forward ? directionX / length : 0.0;
-    const double dy = forward ? directionY / length : 0.0;
-    double target = 0.0;
-    for (const auto& structure : world.getObjects()) {
-        // Presentation may depend on original artwork, but never on a local
-        // viewport, shroud, owner colour or visibility decision.
-        if (structure.kind != WorldObjectKind::Structure || !structure.alive
-            || runtimeObjectIsRenderableRubble(structure)) continue;
-        const auto foundation = runtimeObjectFoundationDimensions(structure, context);
-        const double minX = objectRenderX(structure) - 0.5;
-        const double minY = objectRenderY(structure) - 0.5;
-        const double maxX = minX + std::max(1, foundation.width);
-        const double maxY = minY + std::max(1, foundation.height);
-        const bool inside = sourceX >= minX && sourceX <= maxX
-            && sourceY >= minY && sourceY <= maxY;
-        double entry = 0.0;
-        double exit = 0.0;
-        if (forward) {
-            exit = std::numeric_limits<double>::infinity();
-            const auto clip = [&](double source, double direction, double low, double high) {
-                if (std::abs(direction) <= 0.000001) return source >= low && source <= high;
-                double slabEntry = (low-source)/direction, slabExit = (high-source)/direction;
-                if (slabEntry > slabExit) std::swap(slabEntry, slabExit);
-                entry = std::max(entry, slabEntry); exit = std::min(exit, slabExit);
-                return entry <= exit;
-            };
-            if (!clip(sourceX, dx, minX, maxX) || !clip(sourceY, dy, minY, maxY)
-                || exit < 0.0) continue;
-        } else if (!inside) continue;
-        RuntimeParticleAirbornePresentation required;
-        required.enabled = true;
-        // Resolve the highest support needed anywhere along this crossing.
-        // A diagonal flight can otherwise reach the entry plane gradually
-        // but still approach a rising roof requirement faster than Climb.
-        required.sourceCellSum = sourceX + sourceY
-            + std::max(entry*(dx+dy), exit*(dx+dy));
-        required.sourceLevel = drawLevelForObject(aircraft);
-        required.roofs.push_back(runtimeStructureFlightClearanceRoof(structure, context, cache));
-        const double lift = runtimeAircraftAirbornePresentationLiftPixels(required, camera,
-            -runtimeAircraftSpriteLiftPixels(aircraft, true)) / 15.0;
-        if (!inside) {
-            // Start climbing early enough to reach the original roof support
-            // plane using the original Climb/Speed ratio, plus a one-cell apron.
-            // The flight controller still limits every actual tick's height.
-            const double speed = std::isfinite(approachSpeed) && approachSpeed >= 0.0
-                ? approachSpeed : unit->jumpjetSpeed;
-            const double neededDistance = unit->jumpjetClimb > 0.0
-                ? lift * std::max(0.0, speed) / unit->jumpjetClimb + 1.0 : 0.0;
-            if (entry > neededDistance) continue;
-        }
-        target = std::max(target, lift);
-    }
-    return target;
+    return concord::render::geometry::forecastAircraftClearance(world, aircraft,
+        directionX, directionY, approachSpeed, unit->jumpjetSpeed, unit->jumpjetClimb,
+        -runtimeAircraftSpriteLiftPixels(aircraft, true),
+        [&](const WorldObjectInstance& structure) {
+            const auto footprint = runtimeObjectFoundationDimensions(structure, context);
+            return concord::render::geometry::AircraftClearanceFoundation{footprint.width, footprint.height};
+        },
+        [&](const WorldObjectInstance& structure) { return runtimeStructureFlightClearanceRoof(structure, context, cache); });
 }
 
 bool pickRuntimeMapSurfaceCell(
@@ -33061,21 +31860,7 @@ bool runRuntimeWaterWakeAssetRenderContractCheck(
     std::sort(
         legacyVisibleObjects.begin(),
         legacyVisibleObjects.end(),
-        [](const RuntimeWorldObjectDrawRecord& left,
-            const RuntimeWorldObjectDrawRecord& right) {
-            return runtimeWorldObjectRenderOrderLess(
-                left.sortPoint,
-                left.drawLevel,
-                left.cellSum,
-                left.kindBias,
-                left.instanceId,
-                right.sortPoint,
-                right.drawLevel,
-                right.cellSum,
-                right.kindBias,
-                right.instanceId
-            );
-        }
+        concord::render::RuntimeWorldObjectRenderOrderLess{}
     );
     const std::vector<RuntimeGroundBodyDrawRecord> objectOnlyGroundOrder =
         buildRuntimeGroundBodyDrawRecords(
@@ -33483,29 +32268,13 @@ bool resolveRuntimeTerrainRadarColors(
 }
 
 COLORREF runtimeBlendBlack(COLORREF color, int alpha) {
-    const int clampedAlpha = std::clamp(alpha, 0, 255);
-    const int keep = 255 - clampedAlpha;
-    const auto blend = [keep, clampedAlpha](int source, int tint) {
-        return ((source * keep) + (tint * clampedAlpha) + 127) / 255;
-    };
-    return RGB(
-        blend(GetRValue(color), 0),
-        blend(GetGValue(color), 0),
-        blend(GetBValue(color), 0)
-    );
+    return concord::render::blendMapVisionRgb(
+        static_cast<std::uint32_t>(color), 0, std::clamp(alpha, 0, 255));
 }
 
 COLORREF runtimeBlendTint(COLORREF color, COLORREF tint, int alpha) {
-    const int clampedAlpha = std::clamp(alpha, 0, 255);
-    const int keep = 255 - clampedAlpha;
-    const auto blend = [keep, clampedAlpha](int source, int overlay) {
-        return ((source * keep) + (overlay * clampedAlpha) + 127) / 255;
-    };
-    return RGB(
-        blend(GetRValue(color), GetRValue(tint)),
-        blend(GetGValue(color), GetGValue(tint)),
-        blend(GetBValue(color), GetBValue(tint))
-    );
+    return concord::render::blendMapVisionRgb(
+        static_cast<std::uint32_t>(color), static_cast<std::uint32_t>(tint), std::clamp(alpha, 0, 255));
 }
 
 bool blendSurfacePixelWithBlack(
@@ -33515,20 +32284,13 @@ bool blendSurfacePixelWithBlack(
     int alpha
 ) {
     if(runtimeGpuWorldPixel(context,x,y,concord::render::MapDrawKind::ConstantBlend,0,alpha))return true;
-    if (!hasPixelSurface(context)
-        || x < 0
-        || y < 0
-        || x >= context.surfaceWidth
-        || y >= context.surfaceHeight) {
+    auto* pixel = concord::render::mapSoftwarePixelAt(
+        context.surfacePixels, context.surfaceWidth, context.surfaceHeight, x, y);
+    if (pixel == nullptr) {
         return false;
     }
-    std::uint32_t& pixel = context.surfacePixels[
-        (static_cast<std::size_t>(y)
-            * static_cast<std::size_t>(context.surfaceWidth))
-        + static_cast<std::size_t>(x)
-    ];
-    pixel = packRuntimeDibColor(
-        runtimeBlendBlack(colorRefFromRuntimeDibColor(pixel), alpha)
+    *pixel = packRuntimeDibColor(
+        runtimeBlendBlack(colorRefFromRuntimeDibColor(*pixel), alpha)
     );
     return true;
 }
@@ -33541,20 +32303,13 @@ bool blendSurfacePixelWithTint(
     int alpha
 ) {
     if(runtimeGpuWorldPixel(context,x,y,concord::render::MapDrawKind::ConstantBlend,packRuntimeDibColor(tint),alpha))return true;
-    if (!hasPixelSurface(context)
-        || x < 0
-        || y < 0
-        || x >= context.surfaceWidth
-        || y >= context.surfaceHeight) {
+    auto* pixel = concord::render::mapSoftwarePixelAt(
+        context.surfacePixels, context.surfaceWidth, context.surfaceHeight, x, y);
+    if (pixel == nullptr) {
         return false;
     }
-    std::uint32_t& pixel = context.surfacePixels[
-        (static_cast<std::size_t>(y)
-            * static_cast<std::size_t>(context.surfaceWidth))
-        + static_cast<std::size_t>(x)
-    ];
-    pixel = packRuntimeDibColor(runtimeBlendTint(
-        colorRefFromRuntimeDibColor(pixel),
+    *pixel = packRuntimeDibColor(runtimeBlendTint(
+        colorRefFromRuntimeDibColor(*pixel),
         tint,
         alpha
     ));
@@ -38262,121 +37017,7 @@ void drawRuntimeProjectileActors(
 
 #include "render/terrain/diagnostics/RuntimeYuriWallRenderContract.inl"
 
-bool runRuntimeBuildingDebrisPaletteContractCheck(
-    const RuntimeMapRenderContext& context,
-    std::string& errorMessage
-) {
-    errorMessage.clear();
-    if (context.art == nullptr) {
-        errorMessage = "building debris art is missing";
-        return false;
-    }
-    auto cache = std::make_unique<RuntimeMapRenderCache>();
-    const auto* palette = runtimeAnimPaletteForRender(context, *cache);
-    if (palette == nullptr) {
-        errorMessage = "building debris animation palette is missing";
-        return false;
-    }
-
-    constexpr int size = 192;
-    constexpr std::uint32_t background = 0x00010203U;
-    std::vector<std::uint32_t> pixels(size * size, background);
-    std::vector<RuntimeProjectileRenderActor> actors(1);
-    RuntimeMapRenderContext probe = context;
-    probe.vision = nullptr;
-    probe.surfacePixels = pixels.data();
-    probe.surfaceWidth = size;
-    probe.surfaceHeight = size;
-    probe.projectileActors = &actors;
-    RuntimeMapCamera camera;
-    camera.worldOffsetX = -size / 2;
-    camera.worldOffsetY = -size / 2;
-    const RECT viewport{0, 0, size, size};
-    int typesChecked = 0;
-    int framesChecked = 0;
-    std::unordered_set<std::string> authoredDebris;
-    if (context.rules != nullptr) {
-        const auto collect = [&](const std::string& value) {
-            std::istringstream stream(value); std::string id;
-            while (std::getline(stream, id, ',')) authoredDebris.insert(toLowerAscii(trimAsciiForRender(id)));
-        };
-        collect(context.rules->getCombatDetailRules().metallicDebris);
-        for (const auto& type : context.rules->getBuildingTypes()) collect(type.debrisAnims);
-    }
-    for (const ArtType& art : context.art->getArtTypes()) {
-        if (!art.bouncer || art.voxel
-            || (context.rules != nullptr ? authoredDebris.count(toLowerAscii(art.id)) == 0
-                : toLowerAscii(art.id).rfind("dbris", 0) != 0)
-            || !art.palette.empty() || !art.customPalette.empty()
-            || !art.altPalette.empty() || art.translucent) {
-            continue;
-        }
-        RuntimeProjectileRenderActor& actor = actors.front();
-        actor.projectileId = art.id;
-        actor.projectileImageId = art.image.empty() ? art.id : art.image;
-        actor.renderIntent = "buildingDebris";
-        actor.lifecycleState = "Travelling";
-        actor.totalTicks = 60;
-        actor.remainingTicks = 30;
-        actor.hasCurrentPosition = true;
-        auto* first = loadRuntimeAuxiliaryShpSpriteFromCache(
-            actor.projectileImageId, 0, probe, *cache, false
-        );
-        if (first == nullptr) {
-            errorMessage = "building debris sprite is missing: " + art.id;
-            return false;
-        }
-        const int frameCount = first->frameCount;
-        for (int frame = 0; frame < frameCount; ++frame) {
-            actor.frameIndex = frame;
-            auto* sprite = loadRuntimeAuxiliaryShpSpriteFromCache(
-                actor.projectileImageId, frame, probe, *cache, false
-            );
-            if (sprite == nullptr) {
-                errorMessage = art.id + " frame=" + std::to_string(frame);
-                return false;
-            }
-            // Compare every opaque source pixel against the original animation
-            // palette, including cached frames. A whole-scene yellow-pixel
-            // count can pass while a different actor still draws purple debris.
-            std::unordered_map<std::uint32_t, int> expectedColors;
-            for (unsigned char index : sprite->image.pixels) {
-                if (index != 0) {
-                    ++expectedColors[packRuntimeDibColor((*palette)[index])];
-                }
-            }
-            for (int repeat = 0; repeat < 2; ++repeat) {
-                std::fill(pixels.begin(), pixels.end(), background);
-                RuntimeMapRenderStats stats;
-                drawRuntimeProjectileActors(
-                    nullptr, viewport, probe, camera, *cache, stats
-                );
-                std::unordered_map<std::uint32_t, int> actualColors;
-                for (std::uint32_t pixel : pixels) {
-                    if (pixel != background) {
-                        ++actualColors[pixel];
-                    }
-                }
-                if (stats.projectileActorTravelDrawn != 1
-                    || actualColors != expectedColors) {
-                    errorMessage = art.id + " frame=" + std::to_string(frame)
-                        + " cached=" + std::to_string(repeat)
-                        + " did not render with the animation palette";
-                    return false;
-                }
-            }
-            ++framesChecked;
-        }
-        ++typesChecked;
-    }
-    if (typesChecked == 0 || framesChecked == 0) {
-        errorMessage = "no building debris frames were checked";
-        return false;
-    }
-    std::cout << "Building debris palette: types=" << typesChecked
-        << " frames=" << framesChecked << " palette=anim.pal cached=yes\n";
-    return true;
-}
+#include "render/effects/diagnostics/RuntimeBuildingDebrisPaletteContract.inl"
 
 bool runtimeImpactActorHasResourceAtCell(
     const RuntimeImpactRenderActor& actor,
@@ -39898,8 +38539,8 @@ RuntimeMapRenderStats drawRuntimeMap(
         };
 
         if (!rectIntersects(tileRect, viewport)
-            && !runtimeBridgeSpriteIntersectsPaintArea(cell, center,
-                viewport, context, camera, cache)) {
+            && !runtimeBridgeSpriteIntersectsPaintArea(cell, runtimeRenderPlacementPixelPoint(center),
+                runtimeRenderPlacementPixelRect(viewport), context, camera, cache)) {
             continue;
         }
 
@@ -40834,21 +39475,7 @@ RuntimeMapRenderStats drawRuntimeMap(
     std::sort(
         sortedObjects.begin(),
         sortedObjects.end(),
-        [](const RuntimeWorldObjectDrawRecord& left,
-            const RuntimeWorldObjectDrawRecord& right) {
-            return runtimeWorldObjectRenderOrderLess(
-                left.sortPoint,
-                left.drawLevel,
-                left.cellSum,
-                left.kindBias,
-                left.instanceId,
-                right.sortPoint,
-                right.drawLevel,
-                right.cellSum,
-                right.kindBias,
-                right.instanceId
-            );
-        }
+        concord::render::RuntimeWorldObjectRenderOrderLess{}
     );
     stats.worldObjectSortMs = runtimeMaybeElapsedMs(stageTiming, worldObjectSortStart);
     traceStage("world-sort-ready");
@@ -42088,8 +40715,8 @@ RuntimeMapRenderStats drawRuntimeMap(
                 clearanceLiftPixels
             );
         }
-        const RECT bodyViewport = runtimeFactoryAirExitBodyViewport(drawRecord,
-            clearanceStructures, context, camera, cache, viewport);
+        const RECT bodyViewport = runtimeRenderPlacementNativeRect(runtimeFactoryAirExitBodyViewport(
+            drawRecord, clearanceStructures, context, runtimeRenderPlacementPixelRect(viewport)));
         if (bodyViewport.bottom <= bodyViewport.top) continue;
         ++stats.airborneForegroundBodiesDrawn;
         RuntimeFactoryAirExitOcclusionPixels foregroundPixels;
@@ -42275,28 +40902,7 @@ RuntimeMapRenderStats drawRuntimeMap(
 }
 
 
-bool runRuntimePlayerCheerSequenceCheck(std::string& error) {
-    ArtType art; art.id="HotkeyCheer";
-    art.sequenceFrames={{"Ready",true,0,1,0},{"Walk",true,8,6,0},{"Fire",true,20,6,0},{"Cheer",true,30,8,0}};
-    WorldObjectInstance object; object.instanceId=42; object.kind=WorldObjectKind::Infantry;
-    object.alive=true; object.health=100; object.mission="Guard";
-    RuntimeMapRenderContext context; context.animationTick=1;
-    std::unordered_map<int,int> cheering{{42,60}}; context.playerCheerUntilTick=&cheering;
-    RuntimeMapRenderCache cache;
-    const auto frame=selectRuntimeObjectSequenceFrame(object,context,&art,100,&cache);
-    if (!frame.matched || frame.sequenceName!="Cheer" || frame.frameIndex<30 || frame.frameIndex>=38
-        || object.mission!="Guard") { error="idle Cheer sequence failed"; return false; }
-    context.animationTick=61;
-    const auto expired=selectRuntimeObjectSequenceFrame(object,context,&art,100,&cache);
-    if (expired.sequenceName=="Cheer") { error="Cheer did not expire"; return false; }
-    context.animationTick=2; object.mission="Attack";
-    const auto attack=selectRuntimeObjectSequenceFrame(object,context,&art,100,&cache);
-    if (attack.sequenceName=="Cheer") { error="Cheer interrupted firing"; return false; }
-    object.mission="Guard"; object.hasRenderPosition=true; object.renderMoveActive=true;
-    const auto move=selectRuntimeObjectSequenceFrame(object,context,&art,100,&cache);
-    if (move.sequenceName=="Cheer") { error="Cheer interrupted movement"; return false; }
-    error.clear(); return true;
-}
+#include "render/units/diagnostics/RuntimePlayerCheerSequenceContract.inl"
 
 #include "render/geometry/diagnostics/RuntimePaintSpecialObjectIdMemoContract.inl"
 #include "render/geometry/diagnostics/RuntimePaintProjectionSignatureContractOracle.inl"

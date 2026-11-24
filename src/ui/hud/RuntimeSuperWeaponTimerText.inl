@@ -1,12 +1,11 @@
 // Superweapon HUD rectangles are native screen pixels, independent of the
 // 800x600 result-page transform used by the shared GAME.FNT loader.
-int runtimeSuperWeaponTimerTextWidth(const RuntimeWindowState& state, const std::wstring& text) {
-    return runtimeResultBitFont(state).measure(text);
+int runtimeSuperWeaponTimerTextWidth(const RuntimeResultBitFont& font, const std::wstring& text) {
+    return font.measure(text);
 }
 
-void drawRuntimeSuperWeaponTimerText(HDC dc, RECT rect, const RuntimeWindowState& state,
+void drawRuntimeSuperWeaponTimerText(HDC dc, RECT rect, const RuntimeResultBitFont& font,
     const std::wstring& value, COLORREF color) {
-    const auto& font = runtimeResultBitFont(state);
     if (font.bytes.empty() || value.empty() || rect.right <= rect.left || rect.bottom <= rect.top) return;
     std::wstring text = value;
     const int width = static_cast<int>(rect.right - rect.left);

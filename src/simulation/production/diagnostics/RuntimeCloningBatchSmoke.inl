@@ -92,6 +92,13 @@ bool runRuntimeCloningBatchSmoke(RuntimeWindowState& live, std::string& error) {
             TerrainCell c; c.x = x; c.y = y; c.cellIndex512 = y * 512 + x; c.tileIndex = c.subTileIndex = 0; s.world.accessTerrainCells().push_back(c);
         }
         RuntimeSnapshotActiveStateScope active(s);
+        if (!resetRuntimeOverlayWallsForSavedProjection(s, error))
+            return fail("flat map wall projection: " + error);
+        for (auto& cell : s.world.accessTerrainCells()) {
+            if (cell.overlayWall.health < 0) continue;
+            cell.overlayWall.health = 0;
+            clearRuntimeOverlayWallSprite(cell);
+        }
         initializeRuntimeNavigation(s); ensureRuntimeSubcellsInitialized(s);
         const auto add = [&](const char* type, RuntimeCellPoint point) {
             auto* o = addRuntimeObjectInstanceForOwner(s, "YuriCountry", RuntimeBuildKind::Building, type, point);
@@ -194,10 +201,15 @@ bool runRuntimeCloningBatchSmoke(RuntimeWindowState& live, std::string& error) {
                 && (o.renderMoveActive || q.behaviors.contains(o.instanceId))) return false;
             return true;
         };
+        const auto visibleInfantryPosition = [](const WorldObjectInstance& object) {
+            const auto slot = worldObjectSubCellOffset(object);
+            return std::pair{runtimeObjectRenderX(object) + slot.x, runtimeObjectRenderY(object) + slot.y};
+        };
         const auto step = [&]() {
             const int beforeCompleted = s.economy.completedInfantry;
             std::map<int, std::pair<double, double>> previous;
-            for (const auto& o : s.world.getObjects()) if (o.kind == WorldObjectKind::Infantry) previous[o.instanceId] = {runtimeObjectRenderX(o), runtimeObjectRenderY(o)};
+            for (const auto& o : s.world.getObjects())
+                if (o.kind == WorldObjectKind::Infantry) previous[o.instanceId] = visibleInfantryPosition(o);
             nativeStep(s); if (ordinary) nativeStep(*ordinary); if (canonical) nativeStep(*canonical);
             std::vector<int> newOriginals, newClones;
             for (const auto& o : s.world.getObjects()) if (!seen.contains(o.instanceId)) {
@@ -266,7 +278,8 @@ bool runRuntimeCloningBatchSmoke(RuntimeWindowState& live, std::string& error) {
                 if (!o.alive || !originals.contains(o.type) || o.health != originals.at(o.type).first || o.owner != "YuriCountry") return fail("generated original health/identity changed");
                 const auto found = previous.find(o.instanceId); const auto* t = s.rules.findUnitType("infantry", o.type);
                 if (found != previous.end() && t) {
-                    const double distance = std::hypot(runtimeObjectRenderX(o) - found->second.first, runtimeObjectRenderY(o) - found->second.second);
+                    const auto current = visibleInfantryPosition(o);
+                    const double distance = std::hypot(current.first - found->second.first, current.second - found->second.second);
                     const double originalStep = 1.25 * std::min(255, t->speed * 256 / 100) * 15.0 / (256.0 * hz);
                     if (!std::isfinite(distance) || distance > originalStep + 1e-6) return fail("noncontinuous original infantry body: " + describe(s, o.instanceId));
                 }

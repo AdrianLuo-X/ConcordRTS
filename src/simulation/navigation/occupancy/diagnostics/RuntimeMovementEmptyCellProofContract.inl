@@ -84,18 +84,49 @@ bool runRuntimeWorldActivationOccupancyContract(std::string& error) {
             auto storage = makeState();
             if (!storage) return fail("unload fixture rules did not load");
             auto& s = *storage; RuntimeSnapshotActiveStateScope scope(s);
+            // A real diagonal departure also needs its two corner cells.
+            const RuntimeCellPoint allowedExit{6, 5};
             if (restricted) {
                 for (auto& [key, info] : s.terrainInfoByCell)
-                    info.passable = key == runtimeCellKey(5, 5);
+                    info.passable = key == runtimeCellKey(allowedExit.x, allowedExit.y);
+            } else {
+                // Early outer goals admit a single infantry occupant while the
+                // remaining sides preserve real vehicle routes and exits.
+                for (int x = 4; x <= 7; ++x) {
+                    WorldTerrainObject marker;
+                    marker.mapId = "unload-fixture-slot-" + std::to_string(x);
+                    marker.type = "FixtureSubcellMarker";
+                    marker.x = x;
+                    marker.y = 4;
+                    marker.cell = runtimeCellKey(marker.x, marker.y);
+                    marker.occupationBits = 0;
+                    marker.occupiedSubCells = {2, 3};
+                    s.world.accessTerrainObjects().push_back(marker);
+                }
             }
             if (warm) {
                 (void)runtimeTickOccupancyLookup(s);
-                if (!runtimeMovementTickProvesEmptyCell(s, {5, 5}))
+                if (!runtimeMovementTickProvesEmptyCell(s, restricted ? allowedExit : RuntimeCellPoint{5, 5}))
                     return fail("unload fixture did not start with a warm proof");
             } else invalidateRuntimeTickOccupancyCache(s);
             auto* host = findMutableObjectById(s, 100);
-            unloaded[warm] = unloadRuntimeTransport(s, *host);
+            if (host == nullptr) return fail("transport fixture host missing");
+            const int firstExit = unloadRuntimeTransport(s, *host);
+            if (firstExit != 1 || host->transportPassengerIds.size() != 5)
+                return fail("transport first exit restricted=" + std::to_string(restricted)
+                    + " warm=" + std::to_string(warm) + " firstExit=" + std::to_string(firstExit)
+                    + " retained=" + std::to_string(host->transportPassengerIds.size()));
             const int expected = restricted ? 1 : 6;
+            // A vehicle now releases later passengers when the previous
+            // body clears its exit. The fixed-tick path must complete the
+            // same six or one exits using actual passenger movement.
+            for (int tick = 0; tick < 12 * s.config.fixedTickHz; ++tick) {
+                ++s.tick;
+                (void)advanceRuntimeSimulation(s, false);
+                host = findMutableObjectById(s, 100);
+                if (host == nullptr) return fail("transport lost its fixture identity");
+            }
+            unloaded[warm] = 6 - static_cast<int>(host->transportPassengerIds.size());
             if (unloaded[warm] != expected
                 || host->transportPassengerIds.size() != static_cast<std::size_t>(6 - expected))
                 return fail("unexpected unload count " + std::to_string(unloaded[warm])
@@ -151,8 +182,8 @@ bool runRuntimeWorldActivationOccupancyContract(std::string& error) {
                 || !first->alive || !second->alive || first->cell == second->cell
                 || first->health != 81 || second->health != 82
                 || first->mission != "Guard" || second->mission != "ParasiteStunned"
-                || !s.parasiteStunUntilTickByObject.contains(2)
-                || s.parasiteStunUntilTickByObject.at(2) != s.tick + 5)
+                || !s.parasiteStunUntilTickByObject.entries().contains(2)
+                || s.parasiteStunUntilTickByObject.entries().at(2) != s.tick + 5)
                 return fail("return/eject did not restore both sources exactly");
             (void)runtimeTickOccupancyLookup(s);
             for (const auto* object : {first, second}) {

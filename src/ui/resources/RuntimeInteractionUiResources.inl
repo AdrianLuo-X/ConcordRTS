@@ -5,14 +5,14 @@
 struct RuntimeInteractionUiResourceScope {
     static inline thread_local RuntimeInteractionUiResourceScope* active = nullptr;
     RuntimeInteractionUiResourceScope* previous = active;
-    RuntimeWindowState* state = nullptr;
+    RuntimeHostResourceCacheState* state = nullptr;
     using FrameKey = std::tuple<std::string, std::string, int>;
     std::map<FrameKey, RuntimeUiShpCacheEntry*> frames;
     std::unordered_map<std::string, const std::vector<RuntimePaletteColor>*> palettes;
     bool veterancyResolved = false;
     std::optional<std::pair<int, int>> veterancyFrames;
 
-    explicit RuntimeInteractionUiResourceScope(RuntimeWindowState& owner, bool enabled = true) {
+    explicit RuntimeInteractionUiResourceScope(RuntimeHostResourceCacheState& owner, bool enabled = true) {
         static const bool reference = [] {
             const char* value = std::getenv("CONCORD_MOVEMENT_REFERENCE");
             return value && value[0] == '1' && value[1] == '\0';
@@ -21,7 +21,7 @@ struct RuntimeInteractionUiResourceScope {
         active = this;
     }
     ~RuntimeInteractionUiResourceScope() { active = previous; }
-    static RuntimeInteractionUiResourceScope* forState(const RuntimeWindowState& owner) {
+    static RuntimeInteractionUiResourceScope* forState(const RuntimeHostResourceCacheState& owner) {
         return active && active->state == &owner ? active : nullptr;
     }
 };

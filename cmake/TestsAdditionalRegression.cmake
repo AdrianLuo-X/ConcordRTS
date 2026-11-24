@@ -327,3 +327,20 @@ if(TARGET concord_service_console_contract)
     set_tests_properties(service_console_lifecycle_contract_test PROPERTIES TIMEOUT 30
         LABELS "windows;service-console;native-contract")
 endif()
+
+# H055 and H056 use separate entry points and fresh evidence directories.
+add_test(NAME runtime_random_map_generation_test COMMAND ${CMAKE_COMMAND}
+    "-DTEST_KIND=generation" "-DTEST_EXE=$<TARGET_FILE:concord_random_map_smoke>"
+    "-DPROJECT_ROOT=${CMAKE_SOURCE_DIR}" "-DOUTPUT_PARENT=${CMAKE_BINARY_DIR}/random-map"
+    -P "${CMAKE_CURRENT_LIST_DIR}/RunRandomMapSmoke.cmake")
+set_tests_properties(runtime_random_map_generation_test PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" LABELS "assets;random-map" TIMEOUT 600)
+if(WIN32)
+    add_test(NAME runtime_random_map_gameplay_test COMMAND ${CMAKE_COMMAND}
+        "-DTEST_KIND=gameplay" "-DTEST_EXE=$<TARGET_FILE:concord_runtime>"
+        "-DPROJECT_ROOT=${CMAKE_SOURCE_DIR}" "-DOUTPUT_PARENT=${CMAKE_BINARY_DIR}/random-map"
+        -P "${CMAKE_CURRENT_LIST_DIR}/RunRandomMapSmoke.cmake")
+    set_tests_properties(runtime_random_map_gameplay_test PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}" LABELS "assets;random-map;windows-reference"
+        TIMEOUT 600 RUN_SERIAL TRUE)
+endif()

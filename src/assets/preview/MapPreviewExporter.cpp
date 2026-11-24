@@ -1,4 +1,6 @@
 #include "assets/preview/MapPreviewExporter.h"
+#include "assets/codecs/RuntimeTmpCodec.h"
+#include "assets/preview/MapPreviewReport.h"
 #include "assets/preview/MapPreviewResourceContext.h"
 #include "assets/codecs/ShpCodec.h"
 #include "assets/codecs/PalDecoder.h"
@@ -25,6 +27,13 @@
 #include <vector>
 
 namespace {
+
+using concord::assets::preview::formatActiveAnimationSummary;
+using concord::assets::preview::formatCandidateList;
+using concord::assets::preview::formatFullCandidateList;
+using concord::assets::preview::formatStructureAnchorAdvice;
+using concord::assets::preview::formatStructureAnchorWarning;
+using concord::assets::preview::StructureSpriteReport;
 
 struct Color {
     unsigned char r = 0;
@@ -725,197 +734,6 @@ void addUniqueCandidate(std::vector<std::string>& candidates, const std::string&
     ) {
         candidates.push_back(candidate);
     }
-}
-
-std::string formatCandidateList(const std::vector<std::string>& candidates) {
-    if (candidates.empty()) {
-        return "(none)";
-    }
-
-    std::string result;
-    const std::size_t previewCount = std::min<std::size_t>(candidates.size(), 5);
-    for (std::size_t i = 0; i < previewCount; ++i) {
-        if (!result.empty()) {
-            result += ",";
-        }
-
-        result += candidates[i];
-    }
-
-    if (candidates.size() > previewCount) {
-        result += ",...";
-    }
-
-    return result;
-}
-
-std::string formatFullCandidateList(const std::vector<std::string>& candidates) {
-    if (candidates.empty()) {
-        return "(none)";
-    }
-
-    std::string result;
-    for (const std::string& candidate : candidates) {
-        if (!result.empty()) {
-            result += ",";
-        }
-
-        result += candidate;
-    }
-
-    return result;
-}
-
-std::string formatAnimationLayer(
-    const ArtType::ActiveAnimation& animation,
-    const std::string& label,
-    std::size_t index
-) {
-    std::string result =
-        label
-        + std::to_string(index + 1)
-        + "="
-        + animation.image;
-
-    if (!animation.damagedImage.empty()) {
-        result += "/damaged=" + animation.damagedImage;
-    }
-
-    result += "@";
-    result += std::to_string(animation.offsetX);
-    result += ",";
-    result += std::to_string(animation.offsetY);
-    result += " ySort=";
-    result += std::to_string(animation.ySort);
-    result += " zAdjust=";
-    result += std::to_string(animation.zAdjust);
-    result += animation.powered ? " powered=yes" : " powered=no";
-    return result;
-}
-
-std::string formatActiveAnimationSummary(const ArtType* artType) {
-    if (artType == nullptr
-        || (artType->activeAnimations.empty() && artType->specialAnimations.empty())) {
-        return "-";
-    }
-
-    std::string summary;
-    for (std::size_t i = 0; i < artType->activeAnimations.size(); ++i) {
-        if (!summary.empty()) {
-            summary += "; ";
-        }
-
-        summary += formatAnimationLayer(artType->activeAnimations[i], "active", i);
-    }
-
-    for (std::size_t i = 0; i < artType->specialAnimations.size(); ++i) {
-        if (!summary.empty()) {
-            summary += "; ";
-        }
-
-        summary += formatAnimationLayer(artType->specialAnimations[i], "special", i);
-    }
-
-    return summary;
-}
-
-std::string formatExpectedStructureRect(const ShpFrameImage& image) {
-    const int tileHeight = 30;
-    const int left = (-image.globalWidth / 2) + image.offsetX;
-    const int top = (tileHeight / 2) - image.globalHeight + image.offsetY;
-    return "expectedRectRelativeToRearCell="
-        + std::to_string(left)
-        + ","
-        + std::to_string(top)
-        + ","
-        + std::to_string(image.globalWidth)
-        + "x"
-        + std::to_string(image.globalHeight)
-        + " visibleFrame="
-        + std::to_string(image.width)
-        + "x"
-        + std::to_string(image.height)
-        + " tileH="
-        + std::to_string(tileHeight);
-}
-
-std::string formatStructureAnchorWarning(
-    const std::string& structureType,
-    const ArtObjectLink& link,
-    const ArtType* artType,
-    const ShpFrameImage& image,
-    const std::vector<std::string>& candidateFiles
-) {
-    const StructureFootprint footprint = parseFoundationSize(link.foundation);
-    const int anchorDx = std::max(0, footprint.width - 1);
-    const int anchorDy = std::max(0, footprint.height - 1);
-    return "structure art anchor "
-        + structureType
-        + ": art="
-        + (link.artId.empty() ? "-" : link.artId)
-        + " image="
-        + (link.image.empty() ? "-" : link.image)
-        + " foundation="
-        + (link.foundation.empty() ? "-" : link.foundation)
-        + " shp="
-        + std::filesystem::path(image.sourcePath).filename().string()
-        + " frame="
-        + std::to_string(image.frameIndex)
-        + " size="
-        + std::to_string(image.width)
-        + "x"
-        + std::to_string(image.height)
-        + " global="
-        + std::to_string(image.globalWidth)
-        + "x"
-        + std::to_string(image.globalHeight)
-        + " offset="
-        + std::to_string(image.offsetX)
-        + ","
-        + std::to_string(image.offsetY)
-        + " format="
-        + std::to_string(image.format)
-        + " dataOffset="
-        + std::to_string(image.dataOffset)
-        + " activeAnim="
-        + formatActiveAnimationSummary(artType)
-        + " rendererAnchor=footprintRearCell(+"
-        + std::to_string(anchorDx)
-        + ",+"
-        + std::to_string(anchorDy)
-        + ")"
-        + " spriteTopLeft=project(x+"
-        + std::to_string(anchorDx)
-        + ",y+"
-        + std::to_string(anchorDy)
-        + ")+(-globalWidth/2+frameOffsetX,+tileH/2-globalHeight+frameOffsetY)"
-        + " "
-        + formatExpectedStructureRect(image)
-        + " candidates="
-        + formatCandidateList(candidateFiles);
-}
-
-std::string formatStructureAnchorAdvice(
-    const ArtObjectLink& link,
-    const ShpFrameImage& image
-) {
-    const StructureFootprint footprint = parseFoundationSize(link.foundation);
-    const int anchorDx = std::max(0, footprint.width - 1);
-    const int anchorDy = std::max(0, footprint.height - 1);
-
-    return "footprintRearCell(+"
-        + std::to_string(anchorDx)
-        + ",+"
-        + std::to_string(anchorDy)
-        + ") topLeft=project(anchor)+("
-        + std::to_string((-image.globalWidth / 2) + image.offsetX)
-        + ","
-        + "tileH/2-"
-        + std::to_string(image.globalHeight)
-        + "+"
-        + std::to_string(image.offsetY)
-        + ") "
-        + formatExpectedStructureRect(image);
 }
 
 std::vector<std::string> structureAssetFileCandidates(
@@ -2042,15 +1860,25 @@ std::unordered_map<std::string, int> buildStructureSpriteIds(
         image.foundation = linkIt->second.foundation;
         image.candidateFiles = formatCandidateList(candidateFiles);
         image.activeAnimations = formatActiveAnimationSummary(artType);
-        image.anchorAdvice = formatStructureAnchorAdvice(linkIt->second, image);
+        const StructureFootprint footprint = parseFoundationSize(linkIt->second.foundation);
+        const int anchorDx = std::max(0, footprint.width - 1);
+        const int anchorDy = std::max(0, footprint.height - 1);
+        const StructureSpriteReport report{
+            image.offsetX, image.offsetY, image.globalWidth, image.globalHeight,
+            image.width, image.height, image.frameIndex, image.format, image.dataOffset
+        };
+        image.anchorAdvice = formatStructureAnchorAdvice(report, anchorDx, anchorDy);
 
         const int spriteId = static_cast<int>(spriteImages.size());
         stats.warnings.push_back(formatStructureAnchorWarning(
             structureType,
             linkIt->second,
             artType,
-            image,
-            candidateFiles
+            report,
+            candidateFiles,
+            anchorDx,
+            anchorDy,
+            std::filesystem::path(image.sourcePath).filename().string()
         ));
         spriteImages.push_back(std::move(image));
         spriteIdsByFileName.emplace(selectedFileName, spriteId);
@@ -5310,65 +5138,7 @@ bool decodeRawTmpFormat3Pixels(
     std::vector<unsigned char>& pixels,
     std::string& errorMessage
 ) {
-    if (dataOffset >= dataEnd || dataEnd > bytes.size()) {
-        errorMessage = "TMP raw image data bounds are invalid.";
-        return false;
-    }
-
-    pixels.assign(static_cast<std::size_t>(width) * static_cast<std::size_t>(height), 0);
-
-    std::size_t cursor = dataOffset;
-    for (unsigned int y = 0; y < height; ++y) {
-        if (cursor + 2 > dataEnd) {
-            errorMessage = "TMP raw format 3 row table ended early.";
-            return false;
-        }
-
-        const std::size_t rowStart = cursor;
-        const std::size_t rowLength = readUInt16(bytes, cursor);
-        if (rowLength < 2) {
-            errorMessage = "TMP raw format 3 row has an invalid length.";
-            return false;
-        }
-
-        const std::size_t rowEnd = rowStart + rowLength;
-        if (rowEnd < rowStart || rowEnd > dataEnd) {
-            errorMessage = "TMP raw format 3 row extends past the image record.";
-            return false;
-        }
-
-        cursor += 2;
-        unsigned int x = 0;
-        while (cursor < rowEnd) {
-            const unsigned char value = bytes[cursor++];
-            if (value != 0) {
-                if (x >= width) {
-                    errorMessage = "TMP raw format 3 row contains too many opaque pixels.";
-                    return false;
-                }
-
-                pixels[(static_cast<std::size_t>(y) * width) + x] = value;
-                ++x;
-                continue;
-            }
-
-            if (cursor >= rowEnd) {
-                errorMessage = "TMP raw format 3 transparent run is truncated.";
-                return false;
-            }
-
-            unsigned int runLength = bytes[cursor++];
-            if (x + runLength > width) {
-                runLength = width - x;
-            }
-
-            x += runLength;
-        }
-
-        cursor = rowEnd;
-    }
-
-    return true;
+    return ::decodeRuntimeTmpFormat3Pixels(bytes, dataOffset, dataEnd, width, height, pixels, errorMessage);
 }
 
 bool loadRawTmpTileFile(

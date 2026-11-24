@@ -25,8 +25,8 @@ RuntimeVehicleBodyPose runtimeVehicleBodyPoseReferenceForContract(
         const double y = object.hasRenderPosition ? object.renderY : object.y;
         const double z = object.hasRenderPosition ? object.renderLevel : object.level;
         for (const auto& impact : *context.impactActors) {
-            if (impact.damage <= 0 || impact.remainingTicks <= 0 || impact.totalTicks <= 0
-                || !runtimeVehicleBodyHasBlastIntent(impact)) continue;
+            if (!runtimeVehicleBodyHasLiveBlast(impact.damage, impact.remainingTicks, impact.totalTicks,
+                impact.renderIntent, impact.lifecycleState)) continue;
             const auto* wh = context.rules->findWarheadType(impact.warheadId);
             if (wh == nullptr || wh->parasite || wh->mindControl || wh->temporal
                 || wh->radiation || wh->psychicDamage || wh->electricAssault
@@ -38,7 +38,8 @@ RuntimeVehicleBodyPose runtimeVehicleBodyPoseReferenceForContract(
                 (impact.totalTicks - impact.remainingTicks) / hz,
                 std::min(0.9, impact.totalTicks / hz), dx, dy, distance, radius,
                 impact.damage, unit->weight,
-                runtimeVehicleBlastRockingCoefficient(*wh, *context.rules));
+                runtimeVehicleBlastRockingCoefficient(*wh, wh->rocker
+                    ? context.rules->getSpecialMechanismRules().directRockingCoefficient : 0.0));
             pose.pitch += impulse.pitch; pose.roll += impulse.roll; pose.height += impulse.height;
         }
     }

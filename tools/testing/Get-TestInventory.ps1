@@ -297,6 +297,39 @@ if ([IO.File]::Exists($reviewFile)) {
     }
 }
 
+$reviewedContractRunners = @{
+    (Join-Path $projectRoot 'cmake/RunMainBitmapTextReference.cmake') = @{
+        target = 'concord_main_bitmap_text_native_contract'
+        executableArgument = '-DREFERENCE_EXECUTABLE='
+        commandCount = 6
+        evidence = 'reviewed-main-font-reference-runner-and-exact-TARGET_FILE'
+    }
+    (Join-Path $projectRoot 'cmake/RunTerrainTmpQueryContract.cmake') = @{
+        target = 'concord_terrain_tmp_query_contract'
+        executableArgument = '-DCONTRACT_EXECUTABLE='
+        commandCount = 5
+        evidence = 'reviewed-terrain-tmp-query-runner-and-exact-TARGET_FILE'
+    }
+}
+
+$reviewedRandomMapRunner = Get-AbsolutePath (Join-Path $projectRoot 'cmake/RunRandomMapSmoke.cmake') $buildRoot
+$reviewedRandomMapTests = @{
+    runtime_random_map_generation_test = @{
+        kind = 'generation'
+        target = 'concord_random_map_smoke'
+        executableArgument = '-DTEST_EXE='
+        commandCount = 7
+        evidence = 'reviewed-random-map-generation-runner-and-exact-TARGET_FILE'
+    }
+    runtime_random_map_gameplay_test = @{
+        kind = 'gameplay'
+        target = 'concord_runtime'
+        executableArgument = '-DTEST_EXE='
+        commandCount = 7
+        evidence = 'reviewed-random-map-gameplay-runner-and-exact-TARGET_FILE'
+    }
+}
+
 $rows = [Collections.Generic.List[object]]::new()
 $unresolved = [Collections.Generic.List[string]]::new()
 $commandMismatches = [Collections.Generic.List[string]]::new()
@@ -352,24 +385,39 @@ foreach ($test in $ctestData.tests) {
             }
         }
     }
-    # Exact Main-font reference wrapper only; existing runner mapping is unchanged.
+    # Bind a reviewed wrapper to its exact CTest executable and File API artifact.
     if ($null -eq $targetName -and $null -ne $registration -and $null -ne $command -and
-        $command.Count -eq 6 -and [IO.Path]::IsPathRooted($command[0]) -and
+        $command.Count -ge 5 -and [IO.Path]::IsPathRooted($command[0]) -and
         (Get-AbsolutePath $command[0] $buildRoot) -ieq (Get-AbsolutePath $cache.CMAKE_COMMAND $buildRoot) -and
-        $command[4] -ceq '-P' -and [IO.Path]::IsPathRooted($command[5]) -and
-        (Get-AbsolutePath $command[5] $buildRoot) -ieq (Join-Path $projectRoot 'cmake/RunMainBitmapTextReference.cmake')) {
-        $declaredReferences = @($registration.commandTokens | Where-Object { $_ -ceq '-DREFERENCE_EXECUTABLE=$<TARGET_FILE:concord_main_bitmap_text_native_contract>' })
-        $actualReferences = @($command | Where-Object { $_ -cmatch '^-DREFERENCE_EXECUTABLE=(.+)$' })
-        $referenceTarget = 'concord_main_bitmap_text_native_contract'
-        if ($declaredReferences.Count -eq 1 -and $actualReferences.Count -eq 1 -and
-            $targets.ContainsKey($referenceTarget) -and $targets[$referenceTarget].type -ceq 'EXECUTABLE') {
-            $actualReference = $actualReferences[0].Substring('-DREFERENCE_EXECUTABLE='.Length)
-            $expectedReference = $targets[$referenceTarget].executableArtifact
-            if ([IO.Path]::IsPathRooted($actualReference) -and $null -ne $expectedReference -and
-                (Get-AbsolutePath $actualReference $buildRoot) -ieq (Get-AbsolutePath $expectedReference $buildRoot)) {
-                $targetName = $referenceTarget
-                $wrappedExecutableArtifact = Get-AbsolutePath $actualReference $buildRoot
-                $targetEvidence = 'reviewed-main-font-reference-runner-and-exact-TARGET_FILE'
+        $command[-2] -ceq '-P' -and [IO.Path]::IsPathRooted($command[-1])) {
+        $wrapperPath = Get-AbsolutePath $command[-1] $buildRoot
+        $runner = $reviewedContractRunners[$wrapperPath]
+        if ($wrapperPath -ieq $reviewedRandomMapRunner -and $reviewedRandomMapTests.ContainsKey($test.name)) {
+            $randomMap = $reviewedRandomMapTests[$test.name]
+            $expectedKind = '-DTEST_KIND=' + $randomMap.kind
+            if ($command.Count -eq $randomMap.commandCount -and
+                $registration.commandTokens.Count -gt 1 -and
+                $registration.commandTokens[1] -ceq $expectedKind -and $command[1] -ceq $expectedKind) {
+                $runner = $randomMap
+            }
+        }
+        if ($null -ne $runner -and $command.Count -eq $runner.commandCount) {
+            $declaredToken = $runner.executableArgument + '$<TARGET_FILE:' + $runner.target + '>'
+            $declaredExecutables = @($registration.commandTokens | Where-Object { $_ -ceq $declaredToken })
+            $actualExecutables = @($command | Where-Object {
+                $_.Length -gt $runner.executableArgument.Length -and
+                    $_.StartsWith($runner.executableArgument, [StringComparison]::Ordinal)
+            })
+            if ($declaredExecutables.Count -eq 1 -and $actualExecutables.Count -eq 1 -and
+                $targets.ContainsKey($runner.target) -and $targets[$runner.target].type -ceq 'EXECUTABLE') {
+                $actualExecutable = $actualExecutables[0].Substring($runner.executableArgument.Length)
+                $expectedExecutable = $targets[$runner.target].executableArtifact
+                if ([IO.Path]::IsPathRooted($actualExecutable) -and $null -ne $expectedExecutable -and
+                    (Get-AbsolutePath $actualExecutable $buildRoot) -ieq (Get-AbsolutePath $expectedExecutable $buildRoot)) {
+                    $targetName = $runner.target
+                    $wrappedExecutableArtifact = Get-AbsolutePath $actualExecutable $buildRoot
+                    $targetEvidence = $runner.evidence
+                }
             }
         }
     }

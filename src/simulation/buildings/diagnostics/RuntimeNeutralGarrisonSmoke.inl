@@ -255,7 +255,17 @@ bool runRuntimeNeutralGarrisonSmokeProbe(RuntimeWindowState& live, std::string& 
             << " pending=" << probe.pendingOccupyTargets.size() << " status=" << probe.simulationStatus;
         for (const auto& [id, targetId] : probe.pendingOccupyTargets) {
             const auto* unit = findObjectById(probe, id);
-            if (unit) diagnostic << " unit=" << id << " at=" << unit->x << ',' << unit->y << " mission=" << unit->mission;
+            if (unit) {
+                diagnostic << " unit=" << id << " at=" << unit->x << ',' << unit->y
+                           << " mission=" << unit->mission << " target=" << targetId
+                           << " rendered=" << unit->renderX << ',' << unit->renderY
+                           << " renderActive=" << unit->renderMoveActive;
+                const auto order = probe.behaviors.find(id);
+                if (order != probe.behaviors.end()) {
+                    diagnostic << " command="
+                               << runtimeMultiplayerSnapshotBehaviorRecord(id, order->second);
+                }
+            }
         }
         return fail(diagnostic.str());
     }

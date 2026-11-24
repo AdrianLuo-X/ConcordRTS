@@ -205,7 +205,7 @@ bool runRuntimeSessionKeySmokeProbe(RuntimeWindowState& stock,std::ostream& outp
                 return 0;
             }
             if (state->campaignMode && wParam != VK_ESCAPE
-                && queueRuntimeCampaignPostScore(*state)) {
+                && queueRuntimeCampaignPostScore(*state, *state, state->interactionStatus)) {
                 state->repaintRequested = true;
                 return 0;
             }

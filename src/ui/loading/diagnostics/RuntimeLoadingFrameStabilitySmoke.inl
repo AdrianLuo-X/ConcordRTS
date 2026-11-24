@@ -368,7 +368,7 @@ int runRuntimeLoadingFrameStabilitySmoke(const RuntimeConfig& config) {
             ++hiddenHandoffs; ++releaseChecks;
             stage = "actual prepared world/live first-paint handoff";
             if (!prepareRuntimeLoadingMaterial(handoff,runtime)) return fail("handoff original page material unavailable");
-            handoff.mapStartAssignments = assignments; refreshRuntimeLoadingMapStarts(handoff,runtime);
+            handoff.mapStartAssignments = assignments; refreshRuntimeLoadingMapStarts(handoff, runtime, runtime.ownerRemapColors);
             handoff.completed = handoff.total;
             if (!showRuntimeLoadingWindow(handoff) || !observe(handoff,handoffAudit)) return fail("real handoff page unavailable");
             SetWindowPos(handoff.window,nullptr,0,0,size.x,size.y,SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);

@@ -10,5 +10,6 @@ if(WIN32)
     endif()
     add_test(NAME menu_sfx_clock_contract_test COMMAND concord_menu_sfx_clock_contract)
     set_tests_properties(menu_sfx_clock_contract_test PROPERTIES TIMEOUT 60
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
         LABELS "windows;no-assets;native-audio;clock;contract")
 endif()

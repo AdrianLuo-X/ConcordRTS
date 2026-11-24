@@ -308,7 +308,8 @@ public:
         return result;
     }
     std::optional<RuntimeInputPixelPoint> waypointScreenPoint(RuntimeInputPixelRect viewport, const RuntimePlayerWaypoint& waypoint) override {
-        const auto point = runtimePlayerWaypointScreenPoint(state_, runtimeRightPointerNativeRect(viewport), waypoint);
+        const auto point = runtimePlayerWaypointScreenPoint(state_, state_.camera,
+            runtimeRightPointerNativeRect(viewport), waypoint);
         return point ? std::optional<RuntimeInputPixelPoint>({point->x, point->y}) : std::nullopt;
     }
     void setSelectedWaypoint(std::uint64_t id) override { state_.playerLocalCommands.selectedWaypoint = id; }

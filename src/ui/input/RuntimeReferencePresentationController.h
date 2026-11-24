@@ -1,4 +1,5 @@
 #pragma once
+#include "simulation/production/RuntimeBuildKind.h"
 
 #include "simulation/production/RuntimeProductionLanes.h"
 #include "ui/input/RuntimeInputPixelValues.h"
@@ -10,12 +11,7 @@
 
 struct RuntimePlayerLocalCommands;
 
-enum class RuntimeBuildKind {
-    Building,
-    Defense,
-    Infantry,
-    Unit
-};
+
 
 enum class RuntimeSidebarTool {
     None,

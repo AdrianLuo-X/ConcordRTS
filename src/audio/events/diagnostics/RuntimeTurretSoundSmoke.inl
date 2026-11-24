@@ -45,11 +45,27 @@ bool runRuntimeTurretSoundSmoke(const RuntimeConfig& config, std::string& error)
             require(runtimeObjectHasOperationalPower(s, *turret), type + " initial power");
             return id;
         };
+        const auto finishPlacement = [&](RuntimeProductionHostState& s, int id) {
+            int buildupTicks = 0;
+            for (const auto& object : s.world.getObjects())
+                buildupTicks = std::max(buildupTicks, object.buildAnimTicksRemaining);
+            for (int tick = 0; tick < buildupTicks; ++tick) {
+                ++s.tick;
+                advanceRuntimeBuildAnimations(s);
+            }
+            completeRuntimeWorldRefresh(s);
+            rebuildRuntimeEconomyPower(s);
+            const auto* turret = findObjectById(s, id);
+            require(turret && turret->buildAnimTicksRemaining == 0
+                && turret->mission == "Guard"
+                && runtimeObjectHasOperationalPower(s, *turret),
+                "turret fixture construction did not finish");
+        };
         std::ofstream events(root + "/turret-events.csv");
         events << "hz,type,event,sample,phase,handle,ordinal,frequency,milliseconds,now,sourcePath,playbackPath\n";
         const auto audio = [&](RuntimeWindowState& s, std::uint64_t now, const std::string& type) {
-            s.runtimeWorldAudioBackendActionHistory.clear(); advanceRuntimeTurretSoundAudio(s, now);
-            for (const auto& action : s.runtimeWorldAudioBackendActionHistory) {
+            s.worldAudioBackend.clearHistory(); advanceRuntimeTurretSoundAudio(s, now);
+            for (const auto& action : s.worldAudioBackend.history()) {
                 if ((action.handleId >> 60) != 3 || (action.kind != RuntimeWorldAudioActionKind::Play && action.kind != RuntimeWorldAudioActionKind::Replay)) continue;
                 const auto path = findRuntimeSoundSamplePath(s, action.sampleName); require(path.has_value(), "sample " + action.sampleName);
                 const auto playback = runtimeAudioPitchVariantPath(*path, std::filesystem::path(s.config.localDataRootPath) / "runtime_audio_cache", action.frequencyPermille);
@@ -79,6 +95,7 @@ bool runRuntimeTurretSoundSmoke(const RuntimeConfig& config, std::string& error)
         for (int hz : {15, 30, 60}) for (const std::string type : {"GTGCAN", "CAEAST02"}) {
             auto box = make(hz); auto& s = *box; const int id = add(s, type); std::uint64_t now = 0;
             audio(s, now, type); require(s.turretSoundAudio.active.empty(), "placement played rotation sound"); ++silent;
+            finishPlacement(s, id);
             const std::string event = runtimeTurretSoundForObject(s, *findObjectById(s, id));
             const auto& spec = s.turretSoundAudio.specs.at(event);
             require(spec.attack && spec.decay && spec.all && spec.literalLoop && spec.sound.simultaneousLimit == 5, "stock control flags");
@@ -99,7 +116,7 @@ bool runRuntimeTurretSoundSmoke(const RuntimeConfig& config, std::string& error)
                 audio(s, now, type);
                 if (step == 0) require(hash != 0 && runtimeStandaloneSimulationStateHash(s, error) == hash && error.empty(), "local audio changed gameplay hash");
                 require(s.turretSoundAudio.active.size() == 1, "tracking controller missing");
-                for (const auto& action : s.runtimeWorldAudioBackendActionHistory)
+                for (const auto& action : s.worldAudioBackend.history())
                     if (action.reason == "turret rotation body" && action.kind == RuntimeWorldAudioActionKind::Replay) bodySamples.push_back(action.sampleName);
             }
             require(s.projectiles.empty(), "aim-only fixture fired");
@@ -162,6 +179,7 @@ bool runRuntimeTurretSoundSmoke(const RuntimeConfig& config, std::string& error)
         // Real player attack and the full simulation dispatch, without a direct sound request.
         for (int hz : {15, 30, 60}) {
             auto box = make(hz); auto& s = *box; const int id = add(s, "GTGCAN"); std::uint64_t now = 0;
+            finishPlacement(s, id);
             const auto center = runtimeWorldAudioContext(s).listenerCell;
             auto* target = addRuntimeObjectInstance(s, RuntimeBuildKind::Unit, "MTNK", {center.x + 7, center.y + 2}); require(target, "attack target");
             const int targetId = target->instanceId; target->owner = "Russians";
@@ -194,6 +212,7 @@ bool runRuntimeTurretSoundSmoke(const RuntimeConfig& config, std::string& error)
             (void)targetId;
         }
         auto box = make(30); auto& s = *box; const int id = add(s, "GTGCAN"); std::uint64_t now = 0;
+        finishPlacement(s, id);
         auto* object = findMutableObjectById(s, id); object->facing = 128;
         auto detached = *object;
         WorldObjectInstance detachedTarget; detachedTarget.x=object->x+4; detachedTarget.y=object->y+2;
@@ -218,7 +237,7 @@ bool runRuntimeTurretSoundSmoke(const RuntimeConfig& config, std::string& error)
         s.runtimeSoundVolume = 100; audio(s, ++now, "GTGCAN-boundary");
         object->mission = "InsideTransport"; audio(s, ++now, "GTGCAN-boundary"); require(s.turretSoundAudio.active.empty() && !s.turretSoundAudio.endings.empty(), "limbo did not EndLooping"); ++boundaries;
         object->mission = "Guard"; audio(s, ++now, "GTGCAN-boundary"); stopRuntimeWorldAudioBackend(s);
-        require(s.turretSoundAudio.active.empty() && s.turretSoundAudio.endings.empty() && s.runtimeWorldAudioBackendBindings.empty(), "backend shutdown retained controller"); ++boundaries;
+        require(s.turretSoundAudio.active.empty() && s.turretSoundAudio.endings.empty() && s.worldAudioBackend.bindings().empty(), "backend shutdown retained controller"); ++boundaries;
         audio(s, ++now, "GTGCAN-boundary"); loadRuntimeSoundDatabase(s); require(s.turretSoundAudio.active.empty(), "catalog reset retained controller"); ++boundaries;
         const auto oldHash = s.rules.getDetailRulesHash(); IniFile extra;
         extra.loadFromString("[MTNK]\nTurretRotateSound=GrandCannonRotate\n[GTGCAN]\nTurretRotateSound=YuriBustRotate\n"); original.appendFrom(extra); s.rules.loadFromIni(original);

@@ -991,35 +991,51 @@ RuntimeSpatialAudioPosition runtimeSpatialAudioPositionForImpact(const RuntimeIm
         impact.hasWorldPosition ? double(impact.worldLevel) : double(impact.level)};
 }
 
-RuntimeSpatialAudioResult runtimeSpatialAudioAt(const RuntimeProductionHostState& state,
-    const RuntimeSpatialAudioRules& rules, const RuntimeSpatialAudioPosition& source) {
+template<class ReadFallbackListener>
+static RuntimeSpatialAudioResult runtimeSpatialAudioAtViewport(
+    const RuntimeGameSessionState& session,
+    const RuntimeMapCamera& camera,
+    const RuntimeInputPixelRect& viewport,
+    const RuntimeSpatialAudioRules& rules,
+    const RuntimeSpatialAudioPosition& source,
+    ReadFallbackListener&& readFallbackListener
+) {
     const bool valid = std::isfinite(source.x) && std::isfinite(source.y) && std::isfinite(source.level)
         && source.x >= -1048576 && source.x <= 1048576 && source.y >= -1048576 && source.y <= 1048576
         && source.level >= -1048576 && source.level <= 1048576;
     if (!valid) return {};
-    const auto projected = runtimeProjectCellXY(source.x, source.y, source.level, state.camera);
-    double width = state.cameraClampViewport.right - state.cameraClampViewport.left;
-    double height = state.cameraClampViewport.bottom - state.cameraClampViewport.top;
-    double x = double(projected.x) - state.camera.worldOffsetX;
-    double y = double(projected.y) - state.camera.worldOffsetY;
+    const auto projected = runtimeProjectCellXY(source.x, source.y, source.level, camera);
+    double width = viewport.right - viewport.left;
+    double height = viewport.bottom - viewport.top;
+    double x = double(projected.x) - camera.worldOffsetX;
+    double y = double(projected.y) - camera.worldOffsetY;
     if (width <= 0 || height <= 0) {
         // No window during command smoke/loading: preserve the established
         // waypoint listener, with an explicit 640x400 reference viewport.
-        const auto context = runtimeWorldAudioContext(state);
-        if (!context.listenerCellValid) return {};
-        const auto center = runtimeProjectCellXY(context.listenerCell.x,
-            context.listenerCell.y, context.listenerCell.level, state.camera);
+        const auto listener = readFallbackListener();
+        if (!listener) return {};
+        const auto center = runtimeProjectCellXY(listener->x, listener->y, listener->level, camera);
         width = 640; height = 400;
         x = projected.x - center.x + width / 2; y = projected.y - center.y + height / 2;
     }
-    std::string observer = state.economy.owner;
-    for (const auto& house : state.humanHouseAuthorities) if (house.localFacade) {
+    std::string observer = session.economy.owner;
+    for (const auto& house : session.humanHouseAuthorities) if (house.localFacade) {
         observer = house.canonicalOwner; break;
     }
-    const bool mapped = !state.visionEnabled || state.vision.visibilityFor(observer,
+    const bool mapped = !session.visionEnabled || session.vision.visibilityFor(observer,
         static_cast<int>(source.x), static_cast<int>(source.y)) != RuntimeCellVisibility::Shrouded;
     return runtimeSpatialAudioAtProjection(rules, x, y, width, height, mapped,
-        std::max(1, state.camera.tileWidth) / 60.0);
+        std::max(1, camera.tileWidth) / 60.0);
+}
+
+RuntimeSpatialAudioResult runtimeSpatialAudioAt(const RuntimeProductionHostState& state,
+    const RuntimeSpatialAudioRules& rules, const RuntimeSpatialAudioPosition& source) {
+    return runtimeSpatialAudioAtViewport(state, state.camera, state.cameraClampViewport, rules, source,
+        [&]() -> std::optional<RuntimeWorldAudioCell> {
+            const auto context = runtimeWorldAudioContext(state);
+            if (!context.listenerCellValid) return std::nullopt;
+            return context.listenerCell;
+        });
 }
 
 RuntimeSpatialAudioResult runtimeSpatialAudioAt(const RuntimeProductionHostState& state,
@@ -1028,9 +1044,9 @@ RuntimeSpatialAudioResult runtimeSpatialAudioAt(const RuntimeProductionHostState
     return runtimeSpatialAudioAt(state, sound ? sound->spatial : runtimeSpatialAudioRules(state.soundIni, event), source);
 }
 
-int runtimeSpatialAudioCombinedGain(const RuntimeProductionHostState& state, int authoredPermille, int spatial16384) {
+int runtimeSpatialAudioCombinedGain(const RuntimeHostAudioState& audio, int authoredPermille, int spatial16384) {
     const auto authored = std::clamp(authoredPermille, 0, 1000) * 16384 / 1000;
-    const auto user = std::clamp(state.runtimeSoundVolume, 0, 100) * 16384 / 100;
+    const auto user = std::clamp(audio.runtimeSoundVolume, 0, 100) * 16384 / 100;
     return int((std::int64_t(authored) * std::clamp(spatial16384, 0, 16384) / 16384) * user / 16384);
 }
 
@@ -1081,26 +1097,31 @@ void stopRuntimeSfxPlayback(RuntimeProductionHostState& state) {
     state.runtimeSfxSpatialRecords = {};
 }
 
-void applyRuntimeAudioVariation(RuntimeProductionHostState& state, RuntimeSoundPlaybackRecord& record) {
-    if (record.eva || !state.soundLoaded) return;
-    const auto* catalogSound = state.worldAudioCatalogLoaded
-        ? state.worldAudioCatalog.find(record.section) : nullptr;
+static void applyRuntimeAudioVariation(
+    const RuntimeHostAudioState& audio,
+    int tick,
+    const std::string& localDataRootPath,
+    RuntimeSoundPlaybackRecord& record
+) {
+    if (record.eva || !audio.soundLoaded) return;
+    const auto* catalogSound = audio.worldAudioCatalogLoaded
+        ? audio.worldAudioCatalog.find(record.section) : nullptr;
     const auto spec = catalogSound ? catalogSound->variation
-        : runtimeAudioVariationRules(state.soundIni, record.section);
+        : runtimeAudioVariationRules(audio.soundIni, record.section);
     const auto variation = runtimeAudioVariationFor(spec,
         runtimeAudioVariationSeed(record.section,
-            static_cast<std::uint64_t>(state.runtimeSoundEvents), state.tick));
+            static_cast<std::uint64_t>(audio.runtimeSoundEvents), tick));
     const int authoredVolume = catalogSound ? catalogSound->volumePercent
         : std::clamp(parseRuntimeIntOrDefault(stripRuntimeSoundComment(
-            state.soundIni.getValue(record.section, "Volume",
-                state.soundIni.getValue("Defaults", "Volume", "80"))), 80), 0, 100);
+            audio.soundIni.getValue(record.section, "Volume",
+                audio.soundIni.getValue("Defaults", "Volume", "80"))), 80), 0, 100);
     const int varied = std::clamp(authoredVolume * 10 + variation.volumeDeltaPermille, 0, 1000);
     record.authoredGainPermille = varied;
-    record.gain16384 = runtimeSpatialAudioCombinedGain(state, varied, 16384);
-    record.volumePercent = std::clamp((varied * state.runtimeSoundVolume + 500) / 1000, 0, 100);
-    if (!record.path.empty() && state.runtimeSoundsEnabled) {
+    record.gain16384 = runtimeSpatialAudioCombinedGain(audio, varied, 16384);
+    record.volumePercent = std::clamp((varied * audio.runtimeSoundVolume + 500) / 1000, 0, 100);
+    if (!record.path.empty() && audio.runtimeSoundsEnabled) {
         record.path = runtimeAudioPitchVariantPath(record.path,
-            std::filesystem::path(state.config.localDataRootPath) / "runtime_audio_cache",
+            std::filesystem::path(localDataRootPath) / "runtime_audio_cache",
             variation.frequencyPermille);
     }
 }
@@ -1142,7 +1163,7 @@ void enforceRuntimeSoundVoiceLimit(RuntimeProductionHostState& state,
             && state.runtimeVoiceAudio->isPlaying(handle).value_or(false))
             playing.push_back({handle, previous.tick, previous.playbackOrder, int(channel)});
     }
-    for (const auto& [handle, binding] : state.runtimeWorldAudioBackendBindings)
+    for (const auto& [handle, binding] : state.worldAudioBackend.bindings())
         if (handle != excludedHandle && toLowerAsciiLocal(binding.action.eventId) == key
             && state.runtimeVoiceAudio->isPlaying(handle).value_or(false))
             playing.push_back({handle, binding.action.eventTick, binding.playbackOrder, -1});
@@ -1156,12 +1177,7 @@ void enforceRuntimeSoundVoiceLimit(RuntimeProductionHostState& state,
             state.runtimeSfxMciChannelActive[oldest->channel] = false;
             state.runtimeSfxBusyUntilTick[oldest->channel] = 0;
         } else {
-            const auto binding = state.runtimeWorldAudioBackendBindings.find(oldest->handle);
-            if (binding != state.runtimeWorldAudioBackendBindings.end()
-                && binding->second.action.sourceObjectId >= 0 && binding->second.action.queueAfterCurrent)
-                state.runtimeWorldAudioLimitEvictedHandles.insert(oldest->handle);
-            state.runtimeVoiceAudio->close(oldest->handle);
-            state.runtimeWorldAudioBackendBindings.erase(oldest->handle);
+            state.worldAudioBackend.evictVoice(oldest->handle, *state.runtimeVoiceAudio);
         }
         playing.erase(oldest);
     }
@@ -1244,7 +1260,7 @@ void playRuntimeResolvedSound(
     }
 
     if (!record.eva) {
-        record.playbackOrder = ++state.runtimeSoundVoiceOrder;
+        record.playbackOrder = state.worldAudioBackend.nextPlaybackOrder();
         enforceRuntimeSoundVoiceLimit(state, record.section, 0);
     }
     bool played = false;
@@ -1485,7 +1501,7 @@ void emitRuntimeSound(RuntimeProductionHostState& state, const std::string& even
         }
     }
 
-    applyRuntimeAudioVariation(state, record);
+    applyRuntimeAudioVariation(state, state.tick, state.config.localDataRootPath, record);
     if (record.spatial) {
         const auto spatial = runtimeSpatialAudioAt(state, record.section, record.sourcePosition);
         record.spatialGain16384 = spatial.gain16384; record.pan16384 = spatial.pan16384;
@@ -2319,74 +2335,42 @@ RuntimeSpatialAudioPosition runtimeWorldAudioSourcePosition(const RuntimeGameSes
     return {double(action.cell.x), double(action.cell.y), double(action.cell.level)};
 }
 
+class RuntimeWorldAudioBackendSessionHost final : public concord::audio::RuntimeWorldAudioBackendHost {
+public:
+    explicit RuntimeWorldAudioBackendSessionHost(RuntimeProductionHostState& state) : state_(state) {}
+    RuntimeSpatialAudioPosition sourcePosition(const RuntimeWorldAudioAction& action) override {
+        return runtimeWorldAudioSourcePosition(state_, action);
+    }
+    RuntimeSpatialAudioResult spatial(const std::string& event, const RuntimeSpatialAudioPosition& position) override {
+        return runtimeSpatialAudioAt(state_, event, position);
+    }
+    bool soundsEnabled() override { return state_.runtimeSoundsEnabled; }
+    int effectiveGain(int authored, int spatialGain) override {
+        return !state_.runtimeSoundEffectsEnabled ? 0 : runtimeSpatialAudioCombinedGain(state_, authored, spatialGain);
+    }
+    std::optional<std::string> samplePath(const RuntimeWorldAudioAction& action) override {
+        std::optional<std::string> path = findRuntimeSoundSamplePath(state_, action.sampleName);
+        if (path) path = runtimeAudioPitchVariantPath(*path,
+            std::filesystem::path(state_.config.localDataRootPath) / "runtime_audio_cache", action.frequencyPermille);
+        return path;
+    }
+    RuntimeVoiceAudio* audioIfInitialized() override { return state_.runtimeVoiceAudio.get(); }
+    RuntimeVoiceAudio& audioFor() override { return runtimeVoiceAudioFor(state_); }
+    void enforceVoiceLimit(const std::string& event, std::uint64_t excluded) override {
+        enforceRuntimeSoundVoiceLimit(state_, event, excluded);
+    }
+    int tick() override { return state_.tick; }
+private:
+    RuntimeProductionHostState& state_;
+};
+
 void rememberRuntimeWorldAudioBackendAction(RuntimeProductionHostState& state, const RuntimeWorldAudioAction& action) {
-    state.runtimeWorldAudioBackendActionHistory.push_back(action);
-    while (state.runtimeWorldAudioBackendActionHistory.size() > 32U)
-        state.runtimeWorldAudioBackendActionHistory.pop_front();
+    state.worldAudioBackend.remember(action);
 }
 
 void applyRuntimeWorldAudioBackendAction(RuntimeProductionHostState& state, const RuntimeWorldAudioAction& input) {
-    RuntimeWorldAudioAction action = input;
-    if (action.kind == RuntimeWorldAudioActionKind::Stop) {
-        rememberRuntimeWorldAudioBackendAction(state, action);
-        if (state.runtimeVoiceAudio) state.runtimeVoiceAudio->close(action.handleId);
-        state.runtimeWorldAudioBackendBindings.erase(action.handleId);
-        state.runtimeWorldAudioLimitEvictedHandles.erase(action.handleId); return;
-    }
-    auto found = state.runtimeWorldAudioBackendBindings.find(action.handleId);
-    if (action.kind == RuntimeWorldAudioActionKind::SetGain && found != state.runtimeWorldAudioBackendBindings.end()) {
-        const auto& previous = found->second.action;
-        if (action.eventId.empty()) {action.eventId = previous.eventId; action.cell = previous.cell;}
-        if (action.sourceObjectId < 0) action.sourceObjectId = previous.sourceObjectId;
-        if (action.authoredGainPermille < 0) action.authoredGainPermille = previous.authoredGainPermille;
-    }
-    const auto position = runtimeWorldAudioSourcePosition(state, action);
-    const auto spatial = runtimeSpatialAudioAt(state, action.eventId, position);
-    action.pan16384 = spatial.pan16384; action.spatialGain16384 = spatial.gain16384;
-    const int authored = action.authoredGainPermille >= 0 ? action.authoredGainPermille : action.gainPermille;
-    action.authoredGainPermille = authored;
-    action.gainPermille = authored * spatial.gain16384 / 16384;
-    rememberRuntimeWorldAudioBackendAction(state, action);
-    if (!state.runtimeSoundsEnabled) return;
-    const int gain = !state.runtimeSoundEffectsEnabled ? 0
-        : runtimeSpatialAudioCombinedGain(state, authored, spatial.gain16384);
-    if (action.kind == RuntimeWorldAudioActionKind::SetGain) {
-        if (found == state.runtimeWorldAudioBackendBindings.end()) return;
-        auto& binding = found->second;
-        if (state.runtimeVoiceAudio && state.runtimeVoiceAudio->setMix(action.handleId, gain, action.pan16384)) {
-            binding.action.authoredGainPermille = authored;
-            binding.action.cell = action.cell; binding.action.sourceObjectId = action.sourceObjectId;
-            binding.action.spatialGain16384 = action.spatialGain16384; binding.action.pan16384 = action.pan16384;
-            binding.position = position; binding.gainPermille = action.gainPermille;
-            binding.gain16384 = gain; binding.pan16384 = action.pan16384;
-        }
-        return;
-    }
-    if (action.queueAfterCurrent && action.sourceObjectId >= 0
-        && state.runtimeWorldAudioLimitEvictedHandles.contains(action.handleId)) return;
-    std::optional<std::string> path = findRuntimeSoundSamplePath(state, action.sampleName);
-    if (path) path = runtimeAudioPitchVariantPath(*path,
-        std::filesystem::path(state.config.localDataRootPath) / "runtime_audio_cache", action.frequencyPermille);
-    auto& audio = runtimeVoiceAudioFor(state);
-    if (action.queueAfterCurrent && path && found != state.runtimeWorldAudioBackendBindings.end()
-        && audio.queue(action.handleId, concord::audio::runtimeVoiceUtf8PathFromLegacyNative(*path))) return;
-    audio.close(action.handleId); state.runtimeWorldAudioBackendBindings.erase(action.handleId);
-    if (!path || (spatial.gain16384 == 0 && action.backendLoopIterations != -1)) return;
-    if (spatial.gain16384 > 0)
-        enforceRuntimeSoundVoiceLimit(state, action.eventId, action.handleId);
-    if (!audio.open(action.handleId, concord::audio::runtimeVoiceUtf8PathFromLegacyNative(*path)) || !audio.setMix(action.handleId, gain, action.pan16384)) {
-        audio.close(action.handleId); return;
-    }
-    const bool active = spatial.gain16384 > 0;
-    if (active && !audio.playFromStart(action.handleId, action.backendLoopIterations == -1, action.queueAfterCurrent)) {
-        audio.close(action.handleId); return;
-    }
-    RuntimeWorldAudioBackendBinding binding;
-    binding.handleId = action.handleId; binding.playbackOrder = ++state.runtimeSoundVoiceOrder;
-    binding.active = active; binding.action = action;
-    binding.position = position; binding.gainPermille = action.gainPermille;
-    binding.gain16384 = gain; binding.pan16384 = action.pan16384;
-    state.runtimeWorldAudioBackendBindings.emplace(action.handleId, std::move(binding));
+    RuntimeWorldAudioBackendSessionHost host(state);
+    state.worldAudioBackend.apply(input, host);
 }
 
 void applyRuntimeWorldAudioBackendActions(RuntimeProductionHostState& state, const std::vector<RuntimeWorldAudioAction>& actions) {
@@ -2394,10 +2378,8 @@ void applyRuntimeWorldAudioBackendActions(RuntimeProductionHostState& state, con
 }
 
 void stopRuntimeWorldAudioBackend(RuntimeProductionHostState& state, bool preserveChronosphereSelection) {
-    if (state.runtimeVoiceAudio) for (const auto& [id, binding] : state.runtimeWorldAudioBackendBindings)
-        state.runtimeVoiceAudio->close(id);
-    state.runtimeWorldAudioBackendBindings.clear();
-    state.runtimeWorldAudioLimitEvictedHandles.clear();
+    RuntimeWorldAudioBackendSessionHost host(state);
+    state.worldAudioBackend.stop(host);
     state.superWeaponBuildingAudio = {}; state.diskDrainAudio = {}; state.diskMoveAudio = {};
     state.gattlingAudio = {};
     if (preserveChronosphereSelection && state.chronosphereSelectionAudio.selected) {
@@ -2414,15 +2396,13 @@ void stopRuntimeWorldAudioBackend(RuntimeProductionHostState& state, bool preser
 }
 
 void reapRuntimeWorldAudioBackendBindings(RuntimeProductionHostState& state) {
-    if (!state.runtimeVoiceAudio) return;
-    auto& audio = *state.runtimeVoiceAudio;
-    for (auto it = state.runtimeWorldAudioBackendBindings.begin(); it != state.runtimeWorldAudioBackendBindings.end();) {
-        auto& binding = it->second;
-        if (binding.active && !audio.isPlaying(it->first).value_or(false)) {
-            audio.close(it->first); it = state.runtimeWorldAudioBackendBindings.erase(it); continue;
-        }
-        ++it;
-    }
+    RuntimeWorldAudioBackendSessionHost host(state);
+    state.worldAudioBackend.reap(host);
+}
+
+void advanceRuntimeWorldAudioBackendSpatialMixes(RuntimeProductionHostState& state) {
+    RuntimeWorldAudioBackendSessionHost host(state);
+    state.worldAudioBackend.mix(host);
 }
 
 std::uint64_t runtimeDiskMoveSoundHandle(int objectId, int channel) {
@@ -2480,7 +2460,7 @@ bool advanceRuntimeDiskLoopSources(RuntimeProductionHostState& state, RuntimeSup
         // A voice evicted by soundmd Limit stays silent until this motor run
         // ends or leaves hearing range; it must not steal another handle
         // on every presentation frame.
-        if(state.runtimeSoundsEnabled && state.runtimeWorldAudioLimitEvictedHandles.contains(handle(id,0))) continue;
+        if(state.runtimeSoundsEnabled && state.worldAudioBackend.limitEvicted(handle(id,0))) continue;
         const auto controls = toLowerAsciiLocal(state.soundIni.getValue(source.event,"Control",""));
         const bool attack = controls.find("attack") != std::string::npos && spec->samples.size() > 2;
         const bool decay = controls.find("decay") != std::string::npos && spec->samples.size() > 2;
@@ -2519,7 +2499,7 @@ bool advanceRuntimeDiskLoopSources(RuntimeProductionHostState& state, RuntimeSup
     }
     for(auto it=audio.sources.begin();it!=audio.sources.end();) {
         if(live.contains(it->first)){++it;continue;}
-        const bool evicted = state.runtimeWorldAudioLimitEvictedHandles.contains(handle(it->first,0));
+        const bool evicted = state.worldAudioBackend.limitEvicted(handle(it->first,0));
         stop(it->first,0);
         const auto* object = findObjectById(state,it->first);
         const auto* old = state.worldAudioCatalog.find(it->second.event);
@@ -3013,6 +2993,8 @@ void emitRuntimeInfantryWaterTransition(
     if (!sound.empty() && toLowerAsciiLocal(sound) != "none" && toLowerAsciiLocal(sound) != "<none>")
         emitRuntimeSound(state, "sound:" + sound, runtimeSpatialAudioPositionForObject(object));
 }
+
+#include "ui/selection/RuntimeChronosphereSelection.inl"
 
 bool runtimeChronosphereSelectionVisibleToLocalOwner(
     const RuntimeGameSessionState& state, const RuntimeImpactEffect& effect) {
@@ -3758,14 +3740,8 @@ std::string runtimeCrateAwardSound(
     return {};
 }
 
-void resetRuntimePlayerDefeatNotices(RuntimeProductionHostState& state) noexcept {
-    state.playerDefeatNotices.lines.clear();
-    state.playerDefeatNotices.announcedOwners.clear();
-    state.playerDefeatNotices.suppressExisting = false;
-}
-
 void prepareRuntimePlayerDefeatNoticeLoadBaseline(RuntimeProductionHostState& state) {
-    resetRuntimePlayerDefeatNotices(state);
+    state.playerDefeatNotices.reset();
     if (state.campaignMode
         || toUpperAsciiLocal(trimAsciiLocal(state.config.gameMode)) == "CAMPAIGNMISSION"
         || !state.economy.skirmishStartApplied) return;
@@ -3854,11 +3830,13 @@ bool observeRuntimePlayerDefeatNotices(RuntimeProductionHostState& state) {
     return observeRuntimePlayerDefeatNotices(state, nowMs);
 }
 
-void emitRuntimeUnitDeathSound(
-    RuntimeProductionHostState& state,
+static void emitRuntimeUnitDeathCues(
+    const RuntimeGameSessionState& state,
+    const int& soundEventCount,
     const WorldObjectInstance& object,
     std::optional<RuntimeSpatialAudioPosition> source,
-    bool includeCrashingSound) {
+    bool includeCrashingSound,
+    const auto& emit) {
     if (object.kind == WorldObjectKind::Structure
         || std::any_of(state.wrecks.begin(), state.wrecks.end(),
             [&](const auto& wreck) {
@@ -3881,7 +3859,7 @@ void emitRuntimeUnitDeathSound(
         && unit->weight >= unit->shipSinkingWeight && !object.airborne;
     if (sinkingWithoutWreck) {
         if (!trimAsciiLocal(unit->sinkingSound).empty()) {
-            emitRuntimeSound(state, "sound:" + trimAsciiLocal(unit->sinkingSound), position, true);
+            emit("sound:" + trimAsciiLocal(unit->sinkingSound), position, true);
         }
         return;
     }
@@ -3890,7 +3868,7 @@ void emitRuntimeUnitDeathSound(
         && (unit->crashable
             || state.rules.findUnitType("AircraftType", object.type) != nullptr);
     if (crashingWithoutWreck && !trimAsciiLocal(unit->crashingSound).empty()) {
-        emitRuntimeSound(state, "sound:" + trimAsciiLocal(unit->crashingSound), position, true);
+        emit("sound:" + trimAsciiLocal(unit->crashingSound), position, true);
     }
     if (unit != nullptr
         && runtimeObjectMovementMode(state, object) == PathMovementMode::Air) {
@@ -3899,8 +3877,8 @@ void emitRuntimeUnitDeathSound(
             const std::size_t seed =
                 static_cast<std::size_t>(std::max(0, object.instanceId)) * 131U
                 + static_cast<std::size_t>(std::max(0, state.tick)) * 17U
-                + static_cast<std::size_t>(state.runtimeSoundEvents);
-            emitRuntimeSound(state, voices[seed % voices.size()], position, true);
+                + static_cast<std::size_t>(soundEventCount);
+            emit(voices[seed % voices.size()], position, true);
         }
     }
     if (crashingWithoutWreck) return;
@@ -3917,13 +3895,29 @@ void emitRuntimeUnitDeathSound(
             const std::size_t seed =
                 static_cast<std::size_t>(std::max(0, object.instanceId)) * 131U
                 + static_cast<std::size_t>(std::max(0, state.tick)) * 17U
-                + static_cast<std::size_t>(state.runtimeSoundEvents) * 29U;
-            emitRuntimeSound(state, "sound:" + sounds[seed % sounds.size()], position);
+                + static_cast<std::size_t>(soundEventCount) * 29U;
+            emit("sound:" + sounds[seed % sounds.size()], position, false);
         }
     } else if (object.kind == WorldObjectKind::Unit
         && (unit == nullptr || !unit->missileSpawn)) {
-        emitRuntimeSound(state, "sound:GenVehicleDie", position);
+        emit("sound:GenVehicleDie", position, false);
     }
+}
+
+void emitRuntimeUnitDeathSound(
+    RuntimeProductionHostState& state,
+    const WorldObjectInstance& object,
+    std::optional<RuntimeSpatialAudioPosition> source,
+    bool includeCrashingSound) {
+    // Earlier cues can advance this counter before the next choice.
+    const auto emit = [&state](
+        const std::string& sound, RuntimeSpatialAudioPosition position, bool trackCamera
+    ) {
+        emitRuntimeSound(state, sound, position, trackCamera);
+    };
+    emitRuntimeUnitDeathCues(
+        state, state.runtimeSoundEvents, object, source, includeCrashingSound, emit
+    );
 }
 
 std::vector<RuntimeGarrisonEvacuationAction>
@@ -4058,11 +4052,30 @@ evacuateRuntimeGarrisonHost(
                     walk.kind = RuntimeBehaviorKind::Move;
                     walk.state = RuntimeBehaviorState::Moving;
                     walk.moveTarget = destination;
+                    const auto from = fromIt->second;
+                    const double fromLevel = terrainLevelAtRuntimeCell(state, from.x, from.y);
                     walk.moveCooldownTicks = consumeRuntimeMovementSegmentIntervalTicks(
-                        state, *occupant, walk, fromIt->second, destination);
-                    beginRuntimeRenderMove(*occupant, walk, fromIt->second, destination,
-                        terrainLevelAtRuntimeCell(state, fromIt->second.x, fromIt->second.y),
-                        host->onBridge, walk.moveCooldownTicks);
+                        state, *occupant, walk, from, destination);
+                    if (runtimeInfantryUsesGroundSubcells(*occupant)) {
+                        const int dx = destination.x - from.x;
+                        const int dy = destination.y - from.y;
+                        const auto slot = worldObjectSubCellOffset(*occupant);
+                        const double slotAlongExit = slot.x * dx + slot.y * dy;
+                        // Place the newly visible body in the inside half of
+                        // its own doorway; walkers using opposite doors diverge.
+                        constexpr double insideDoorway = 0.375;
+                        const double approach = insideDoorway - 0.75 * slotAlongExit;
+                        occupant->hasRenderPosition = true;
+                        occupant->renderMoveActive = false;
+                        occupant->renderX = from.x + dx * approach;
+                        occupant->renderY = from.y + dy * approach;
+                        occupant->renderLevel = fromLevel;
+                        occupant->renderOnBridge = host->onBridge;
+                        walk.moveCooldownTicks = std::max(1, static_cast<int>(
+                            std::ceil(walk.moveCooldownTicks * (1.0 - approach))));
+                    }
+                    beginRuntimeRenderMove(*occupant, walk, from, destination,
+                        fromLevel, host->onBridge, walk.moveCooldownTicks);
                     setRuntimeMissionIntent(state, *occupant, RuntimeMissionIntent::Moving,
                         "garrisonExitWalk");
                     state.behaviors[occupant->instanceId] = std::move(walk);
@@ -4734,9 +4747,9 @@ void updateRuntimeRadarUiState(RuntimeProductionHostState& state, bool radarAvai
     );
 }
 
-RuntimeVoiceAudio& runtimeVoiceAudioFor(RuntimeProductionHostState& state) {
-    if (!state.runtimeVoiceAudio) state.runtimeVoiceAudio = std::make_unique<RuntimeVoiceAudio>();
-    return *state.runtimeVoiceAudio;
+RuntimeVoiceAudio& runtimeVoiceAudioFor(RuntimeHostAudioState& audio) {
+    if (!audio.runtimeVoiceAudio) audio.runtimeVoiceAudio = std::make_unique<RuntimeVoiceAudio>();
+    return *audio.runtimeVoiceAudio;
 }
 
 }

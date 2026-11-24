@@ -8,10 +8,14 @@
 #include <set>
 
 int main(int argc,char** argv) {
+    if (argc != 4 || !argv[1][0] || !argv[2][0] || !argv[3][0]) {
+        std::cerr << "Usage: concord_random_map_smoke <output> <local-data-root> <resource-root>\n";
+        return 1;
+    }
     RuntimeConfig config;
-    config.localDataRootPath="local_data";
-    config.resourceRootPath="RedAlert2";
-    const std::filesystem::path output=argc>1?argv[1]:"build/smoke/random-map-probe/maps";
+    config.localDataRootPath=argv[2];
+    config.resourceRootPath=argv[3];
+    const std::filesystem::path output=argv[1];
     std::string error; int checked=0;
     const auto fail=[&](const std::string& reason){std::cerr<<"Random map: "<<reason<<'\n';return 1;};
     for (int environment=0;environment<5;++environment) for (int climate=0;climate<2;++climate)

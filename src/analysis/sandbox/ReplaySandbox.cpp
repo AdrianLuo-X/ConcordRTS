@@ -7,7 +7,6 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstdint>
-#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
@@ -19,22 +18,6 @@ namespace {
 constexpr std::uint64_t FnvOffsetBasis = 14695981039346656037ull;
 constexpr std::uint64_t FnvPrime = 1099511628211ull;
 constexpr int RangeScale = 256;
-
-std::string findDefaultRuntimeReplayEventFile() {
-    const std::filesystem::path candidates[] = {
-        std::filesystem::path("build") / "runtime_replay_events_command.txt",
-        std::filesystem::path("runtime_replay_events_command.txt"),
-        std::filesystem::path("build") / "Debug" / "runtime_replay_events_command.txt"
-    };
-    std::error_code errorCode;
-    for (const std::filesystem::path& candidate : candidates) {
-        if (std::filesystem::exists(candidate, errorCode)
-            && std::filesystem::is_regular_file(candidate, errorCode)) {
-            return candidate.string();
-        }
-    }
-    return {};
-}
 
 struct ReplayCapabilitySummaryRecord {
     int tick = 0;
@@ -3400,10 +3383,6 @@ ReplaySandboxReport runReplaySandbox(
                 std::getenv("CONCORD_REPLAY_RUNTIME_EVENTS")) {
             runtimeEventFilePath = environmentPath;
             if (!runtimeEventFilePath.empty()) report.provenance.inputKind = "environment-event-file";
-        }
-        if (runtimeEventFilePath.empty()) {
-            runtimeEventFilePath = findDefaultRuntimeReplayEventFile();
-            if (!runtimeEventFilePath.empty()) report.provenance.inputKind = "auto-discovered-event-file";
         }
         if (!runtimeEventFilePath.empty()) report.provenance.inputPath = runtimeEventFilePath;
         std::string loadError;

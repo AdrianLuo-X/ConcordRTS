@@ -115,8 +115,9 @@ bool runRuntimeMcvRepackSmokeProbe(
     for (const auto& faction : factions) {
         auto storage = makeProbe(faction.owner);
         auto& probe = *storage;
+        // The stock 4x4 yard starts one cell northwest of the (6,6) repack anchor.
         auto* yard = addRuntimeObjectInstance(
-            probe, RuntimeBuildKind::Building, faction.yard, {6, 6});
+            probe, RuntimeBuildKind::Building, faction.yard, {5, 5});
         if (yard == nullptr) return fail(std::string(faction.yard) + " is missing");
         finishConstruction(*yard);
         const int yardId = yard->instanceId;

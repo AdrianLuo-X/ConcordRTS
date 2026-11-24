@@ -8,9 +8,59 @@ else()
     set(_session_profile_owner concord_runtime)
 endif()
 
+# H003: local playback state/policy is a standard leaf, shared by game/core.
+concord_add_profiled_leaf(concord_world_audio_backend_session_runtime_leaf
+    src/audio/world/RuntimeWorldAudioBackendSession.cpp ${_session_profile_owner} Runtime)
+
+# H005: original tactic selection/condition policy with typed owner queries.
+concord_add_profiled_leaf(concord_computer_tactic_selection_runtime_leaf
+    src/simulation/ai/RuntimeComputerTacticSelection.cpp ${_session_profile_owner} Runtime)
+
+# H006-01: original lifecycle phases, narrow typed owner effects.
+concord_add_profiled_leaf(concord_computer_tactic_lifecycle_runtime_leaf
+    src/simulation/ai/RuntimeComputerTacticLifecycle.cpp ${_session_profile_owner} Runtime)
+
+# H006-02: const reservation predicates, owned typed queries and values.
+concord_add_profiled_leaf(concord_computer_tactic_reservations_runtime_leaf
+    src/simulation/ai/RuntimeComputerTacticReservations.cpp ${_session_profile_owner} Runtime)
+
+concord_add_profiled_leaf(concord_computer_tactic_recruitment_runtime_leaf
+    src/simulation/ai/RuntimeComputerTacticRecruitment.cpp ${_session_profile_owner} Runtime)
+
+concord_add_profiled_leaf(concord_computer_base_plan_runtime_leaf
+    src/simulation/ai/RuntimeComputerBasePlan.cpp ${_session_profile_owner} Runtime)
+concord_add_profiled_leaf(concord_computer_tactic_production_runtime_leaf
+    src/simulation/ai/RuntimeComputerTacticProduction.cpp ${_session_profile_owner} Runtime)
+
+# H012 original synchronous nuclear-death policy; no host or render dependency.
+concord_add_profiled_leaf(concord_nuclear_death_runtime_leaf
+    src/simulation/superweapons/RuntimeNuclearDeathDetonation.cpp ${_session_profile_owner} Runtime)
+
+# H021-01: original overload response policy; no host or render dependency.
+concord_add_profiled_leaf(concord_mind_overload_runtime_leaf
+    src/simulation/abilities/psionic/RuntimeMindControlOverloadEffects.cpp ${_session_profile_owner} Runtime)
+
+# H015-01: standard permanent-control completion, private typed host bindings.
+concord_add_profiled_leaf(concord_dom_control_runtime_leaf
+    src/simulation/abilities/psionic/RuntimeDominatorControlCompletion.cpp ${_session_profile_owner} Runtime)
+
+# H017: standard resource bytes, shared ART sequence and authoritative timing.
+concord_add_profiled_leaf(concord_auxiliary_shp_bytes_runtime_leaf
+    src/assets/sprites/RuntimeAuxiliaryShpBytes.cpp ${_session_profile_owner} Runtime)
+concord_add_profiled_leaf(concord_art_animation_sequence_runtime_leaf
+    src/assets/animation/RuntimeArtAnimationSequence.cpp ${_session_profile_owner} Runtime)
+concord_add_profiled_leaf(concord_superweapon_animation_timing_runtime_leaf
+    src/simulation/superweapons/RuntimeSuperWeaponAnimationTiming.cpp ${_session_profile_owner} Runtime)
+target_link_libraries(concord_superweapon_animation_timing_runtime_leaf PRIVATE
+    concord_auxiliary_shp_bytes_runtime_leaf concord_art_animation_sequence_runtime_leaf)
+
 concord_add_profiled_leaf(concord_production_session_runtime_leaf
     src/runtime/session/RuntimeSessionTick.cpp ${_session_profile_owner} Runtime)
 target_sources(concord_production_session_runtime_leaf PRIVATE
+    src/simulation/navigation/occupancy/RuntimeNearestSubcellSelection.cpp
+    src/simulation/abilities/unit_special/RuntimeCamouflageStationary.cpp
+    src/simulation/abilities/chrono/RuntimeChronoTransportAdmission.cpp
+    src/simulation/abilities/chrono/RuntimeChronoLocomotionPolicy.cpp
     src/runtime/session/RuntimeSessionCombat.cpp
     src/runtime/session/RuntimeSessionCommands.cpp
     src/runtime/session/RuntimeSessionFeedback.cpp
@@ -18,11 +68,32 @@ target_sources(concord_production_session_runtime_leaf PRIVATE
     src/runtime/session/RuntimeSessionPersistence.cpp
     src/runtime/session/RuntimeSessionProduction.cpp
     src/runtime/session/RuntimeSessionScenario.cpp
+    src/simulation/ai/RuntimeTeamGather.cpp
     src/runtime/session/RuntimeSessionWorld.cpp
     src/render/core/RuntimeProductionResources.cpp
+    src/render/geometry/RuntimeAircraftClearanceCapture.cpp
+    src/render/geometry/RuntimeAircraftClearancePixels.cpp
     src/runtime/menu/RuntimeSkirmishMapResources.cpp)
 
+target_link_libraries(concord_production_session_runtime_leaf PRIVATE
+    concord_world_core_runtime_leaf
+    concord_world_audio_backend_session_runtime_leaf
+    concord_computer_tactic_selection_runtime_leaf
+    concord_computer_tactic_lifecycle_runtime_leaf
+    concord_computer_tactic_reservations_runtime_leaf
+    concord_computer_tactic_recruitment_runtime_leaf
+    concord_computer_base_plan_runtime_leaf
+    concord_computer_tactic_production_runtime_leaf
+    concord_nuclear_death_runtime_leaf
+    concord_mind_overload_runtime_leaf
+    concord_dom_control_runtime_leaf
+    concord_auxiliary_shp_bytes_runtime_leaf
+    concord_art_animation_sequence_runtime_leaf
+    concord_superweapon_animation_timing_runtime_leaf)
+
 if(NOT CONCORD_PORTABLE_CORE)
+    target_link_libraries(concord_production_session_runtime_leaf PRIVATE
+        concord_vision_runtime_leaf concord_superweapon_core_runtime_leaf)
     target_sources(concord_runtime PRIVATE src/runtime/session/win32/RuntimeNativeSessionDevices.cpp)
     target_link_libraries(concord_runtime PRIVATE concord_production_session_runtime_leaf)
     unset(_session_profile_owner)
@@ -74,6 +145,22 @@ target_sources(concord_production_session_support_runtime_leaf PRIVATE
     src/simulation/abilities/psionic/RuntimeMagBeamSystem.cpp
     src/simulation/abilities/psionic/RuntimePsychicStatusSystem.cpp
     src/simulation/abilities/psionic/RuntimeSpySystem.cpp
+    src/simulation/abilities/chrono/RuntimeChronoState.cpp
+    src/simulation/abilities/chrono/RuntimeTemporalState.cpp
+    src/simulation/abilities/chrono/RuntimeTemporalAttackPolicy.cpp
+    src/simulation/abilities/chrono/RuntimeTemporalFeedbackPolicy.cpp
+    src/simulation/abilities/parasites/RuntimeParasiteState.cpp
+    src/simulation/abilities/parasites/RuntimeParasiteActionPolicy.cpp
+    src/simulation/abilities/parasites/RuntimeParasiteHostDeathPolicy.cpp
+    src/simulation/abilities/parasites/RuntimeParasiteStunState.cpp
+    src/simulation/abilities/parasites/RuntimeParasiteAdmissionPolicy.cpp
+    src/simulation/abilities/parasites/RuntimeParasiteLaunchPolicy.cpp
+    src/simulation/abilities/parasites/RuntimeParasiteSavedAuthorityPolicy.cpp
+    src/simulation/abilities/parasites/RuntimeSquidGrappleWaterPolicy.cpp
+    src/simulation/abilities/parasites/RuntimeSquidSplashCodec.cpp
+    src/simulation/abilities/chrono/RuntimeChronoCellOccupancy.cpp
+    src/simulation/abilities/chrono/RuntimeChronoTerrainView.cpp
+    src/simulation/abilities/chrono/RuntimeChronoWarp.cpp
     src/simulation/abilities/unit_special/RuntimeSpecialMechanisms.cpp
     src/simulation/abilities/unit_special/RuntimeTimedBomb.cpp
     src/simulation/ai/RuntimeAircraftProductionMatcher.cpp
@@ -98,21 +185,27 @@ target_sources(concord_production_session_support_runtime_leaf PRIVATE
     src/simulation/navigation/pathfinding/PathGoalCandidateTask.cpp
     src/simulation/navigation/pathfinding/PathGoalCandidates.cpp
     src/simulation/navigation/pathfinding/PathRequestQueue.cpp
+    src/simulation/navigation/pathfinding/PathRequestSearch.cpp
+    src/simulation/navigation/pathfinding/PathRequestFailureCache.cpp
     src/simulation/navigation/terrain/RuntimeNavigationTerrainQuery.cpp
     src/simulation/production/RuntimeFactoryDeliveryState.cpp
     src/simulation/production/RuntimeProductionFixedStep.cpp
     src/simulation/production/RuntimeProductionLanes.cpp
     src/simulation/production/RuntimeProductionTiming.cpp
     src/simulation/superweapons/RuntimeChronosphereRelocation.cpp
+    src/simulation/superweapons/RuntimeSupportFlightPersistence.cpp
+    src/simulation/superweapons/RuntimeSuperWeaponAiPolicy.cpp
     src/simulation/superweapons/SuperWeaponSystem.cpp
     src/simulation/triggers/RuntimeTriggerPersistence.cpp
     src/simulation/triggers/RuntimeTriggerScheduler.cpp
     src/simulation/vision/RuntimeVision.cpp
+    src/simulation/superweapons/RuntimeSuperWeaponVisionEffects.cpp
     src/simulation/vision/RuntimeVisionPhase.cpp
     src/ui/input/RuntimeReferencePresentationController.cpp
     src/audio/backend/RuntimeUnsupportedLegacyWaveDevice.cpp
     src/audio/backend/RuntimeUnsupportedAsyncSoundDevice.cpp)
 target_link_libraries(concord_production_session_support_runtime_leaf PRIVATE Threads::Threads)
+target_link_libraries(concord_production_session_runtime_leaf PRIVATE concord_production_session_support_runtime_leaf)
 
 add_executable(concord_production_session_recovery_smoke
     tests/infrastructure/RuntimeProductionSessionRecoverySmoke.cpp
@@ -143,4 +236,6 @@ target_link_libraries(concord_production_session_recovery_smoke PRIVATE
 if(WIN32)
     target_link_libraries(concord_production_session_recovery_smoke PRIVATE ws2_32 bcrypt)
 endif()
+# Extra reservation qualification uses the existing private recovery host flag.
+# CoreTestSuite keeps its original exact ten CTest registrations.
 unset(_session_profile_owner)

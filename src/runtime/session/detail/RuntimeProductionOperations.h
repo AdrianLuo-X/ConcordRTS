@@ -1,4 +1,7 @@
 #pragma once
+#include "simulation/lifecycle/RuntimeObjectExitValues.h"
+#include "simulation/abilities/parasites/RuntimeParasiteActionResult.h"
+#include "simulation/projectiles/RuntimeProjectileValues.h"
 
 #include <queue>
 #include <numeric>
@@ -11,6 +14,9 @@
 #include <cstdlib>
 #include <cwchar>
 #include "RuntimeProductionHostState.h"
+#include "simulation/ai/RuntimeComputerAiMetrics.h"
+#include "simulation/ai/RuntimeComputerBasePlanValues.h"
+#include "simulation/production/RuntimeProductionSpawnValues.h"
 #include "assets/audio/AudioSampleResolver.h"
 #include "assets/inspection/GameResourceMount.h"
 #include "assets/terrain/RuntimeTerrainTmpQuery.h"
@@ -218,6 +224,12 @@
 #include <iomanip>
 #include <type_traits>
 
+namespace concord::runtime::resource_detail {
+RuntimeAuxiliaryShpByteLookup loadRuntimeAuxiliaryShpBytesForContext(
+    const std::string& imageId, const RuntimeMapRenderContext& context, RuntimeMapRenderCache& cache,
+    const ArtType* fallbackArtType);
+}
+
 namespace concord::runtime::session_detail {
 bool runtimeSessionGeometryAvailable(const RuntimeProductionHostState& state) noexcept ;
 using runtime_save_text::toLowerAsciiLocal;
@@ -407,13 +419,6 @@ inline constexpr std::int64_t runtimeMagBeamQ16One = 1LL << 16U;
 inline constexpr std::int64_t runtimeMagBeamGroundToleranceQ16 =
     runtimeMagBeamQ16One / 256;
 
-enum class RuntimeObjectExitQueueResult : std::uint8_t {
-    Queued = 0,
-    DuplicatePending,
-    AlreadyFinalized,
-    ObjectMissing
-};
-
 struct RuntimeObjectExitResult {
     bool accepted = false;
     bool duplicate = false;
@@ -470,11 +475,6 @@ struct RuntimeSidebarPowerDisplay {
     bool animating = false;
 };
 
-struct RuntimeParasiteActionApplyResult {
-    bool accepted = true;
-    bool changed = false;
-};
-
 struct RuntimeProjectedPoint {
     int x = 0;
     int y = 0;
@@ -501,12 +501,7 @@ struct RuntimeRadarMapSize {
     int height = 0;
 };
 
-struct RuntimeProjectileTargetPosition {
-    RuntimeCellPoint cell;
-    double x = 0.0;
-    double y = 0.0;
-    int level = 0;
-};
+
 
 enum class RuntimeStructureOccupancyMode {
     FullFoundation,
@@ -668,20 +663,7 @@ struct RuntimeSelectedPlacement {
     const RuntimeBuildCatalogItem* item = nullptr;
 };
 
-struct RuntimeProductionSpawn {
-    const WorldObjectInstance* anchor = nullptr;
-    RuntimeCellPoint cell;
-    int dockIndex = -1;
-    bool aircraftDock = false;
-    double renderX = 0.0;
-    double renderY = 0.0;
-    int level = 0;
-};
 
-struct RuntimeAircraftProductionMatchInputBuild {
-    RuntimeAircraftProductionMatchInput input;
-    std::optional<RuntimeAircraftProductionMatchResult> error;
-};
 
 struct RuntimeProjectileSaveCandidate {
     std::vector<RuntimeProjectileEffect> projectiles;
@@ -1063,44 +1045,9 @@ struct RuntimeComputerAiProfile {
     int maximumDefenders = 5;
 };
 
-struct RuntimeComputerAiMetrics {
-    int structures = 0;
-    int mobileUnits = 0;
-    int combatUnits = 0;
-    int constructionYards = 0;
-    int powerPlants = 0;
-    int powerProduced = 0;
-    int powerUsed = 0;
-    int refineries = 0;
-    int ordinaryRefineries = 0;
-    int slaveMiners = 0;
-    int harvesters = 0;
-    int barracks = 0;
-    int vehicleFactories = 0;
-    int shipyards = 0;
-    int radars = 0;
-    int techCenters = 0;
-    int defenses = 0;
-    int superweaponStructures = 0;
-};
+using ::RuntimeComputerAiMetrics;
 
-enum class RuntimeComputerAiStructureRole {
-    Power,
-    Refinery,
-    Barracks,
-    VehicleFactory,
-    Shipyard,
-    Radar,
-    Defense,
-    Tech,
-    Superweapon
-};
 
-struct RuntimeComputerAiBaseTargets {
-    int defenses = 0;
-    int refineries = 1;
-    bool slaveRefineries = false;
-};
 
 enum class RuntimeComputerAiUnitRole {
     Harvester,
@@ -1497,12 +1444,12 @@ RuntimeSpatialAudioResult runtimeSpatialAudioAt(const RuntimeProductionHostState
 RuntimeSpatialAudioResult runtimeSpatialAudioAt(const RuntimeProductionHostState& state,
     const std::string& event, const RuntimeSpatialAudioPosition& source);
 
-int runtimeSpatialAudioCombinedGain(const RuntimeProductionHostState& state, int authoredPermille, int spatial16384);
+int runtimeSpatialAudioCombinedGain(const RuntimeHostAudioState& audio, int authoredPermille, int spatial16384);
 
 int runtimeSpatialAudioGainPermille(const RuntimeProductionHostState& state,
     const RuntimeWorldAudioSoundSpec& sound, const RuntimeSpatialAudioPosition& source);
 
-RuntimeVoiceAudio& runtimeVoiceAudioFor(RuntimeProductionHostState& state);
+RuntimeVoiceAudio& runtimeVoiceAudioFor(RuntimeHostAudioState& audio);
 
 std::uint64_t runtimeSfxVoiceHandle(std::size_t channel);
 
@@ -1510,8 +1457,6 @@ bool playRuntimeSfxOnDedicatedChannel(RuntimeProductionHostState& state,
     const std::string& path, const RuntimeSoundPlaybackRecord& record);
 
 void stopRuntimeSfxPlayback(RuntimeProductionHostState& state);
-
-void applyRuntimeAudioVariation(RuntimeProductionHostState& state, RuntimeSoundPlaybackRecord& record);
 
 std::optional<bool> runtimeEvaMciChannelIsPlaying();
 
@@ -4624,6 +4569,8 @@ void stopRuntimeWorldAudioBackend(RuntimeProductionHostState& state, bool preser
 
 void reapRuntimeWorldAudioBackendBindings(RuntimeProductionHostState& state);
 
+void advanceRuntimeWorldAudioBackendSpatialMixes(RuntimeProductionHostState& state);
+
 std::uint64_t runtimeDiskMoveSoundHandle(int objectId, int channel = 0);
 
 bool advanceRuntimeDiskLoopSources(RuntimeProductionHostState& state, RuntimeSuperWeaponBuildingAudioState& audio,
@@ -6271,6 +6218,11 @@ std::optional<std::array<double, 3>> runtimeTransportMuzzleAnchor(
 RuntimeImpactRenderActor makeRuntimeImpactRenderActor(
     const RuntimeImpactEffect& impact);
 
+void clearRuntimeLocalChronosphereMarker(RuntimeProductionHostState& state);
+
+void beginRuntimeLocalChronosphereMarker(RuntimeProductionHostState& state,
+    const std::string& weaponId, RuntimeCellPoint cell);
+
 bool runtimeChronosphereSelectionVisibleToLocalOwner(
     const RuntimeGameSessionState& state, const RuntimeImpactEffect& effect);
 
@@ -6357,6 +6309,11 @@ void alignRuntimeWeaponMuzzleToSprite(RuntimeProductionHostState& state,
     int firingFacing, RuntimeProjectileSourcePosition& source);
 
 const SpawnedMissileProfile* runtimeSpawnedMissileProfileForWeapon(
+    const RulesDatabase& rules,
+    const WorldObjectInstance& attacker,
+    const WeaponType& weapon);
+
+const SpawnedMissileProfile* runtimeSpawnedMissileProfileForWeapon(
     const RuntimeGameSessionState& state,
     const WorldObjectInstance& attacker,
     const WeaponType& weapon);
@@ -6422,9 +6379,6 @@ std::vector<int> runtimeSonicWaveDamageCells(const RuntimeGameSessionState& stat
 
 void spawnRuntimeSonicWave(RuntimeProductionHostState& state,
     const RuntimeProjectileEffect& shot, const WeaponType& weapon);
-
-void notifyRuntimeWeaponFired(RuntimeProductionHostState& state, const WorldObjectInstance& attacker,
-    const WorldObjectInstance& target, const WeaponType& weapon);
 
 bool detonateRuntimeNuclearDeathWeapon(
     RuntimeProductionHostState& state,
@@ -6952,7 +6906,6 @@ bool runtimeSkirmishOwnerDefeated(
 std::vector<std::string> runtimeMultiplayerOutcomeOwners(
     const RuntimeGameSessionState& state);
 
-void resetRuntimePlayerDefeatNotices(RuntimeProductionHostState& state) noexcept;
 
 void prepareRuntimePlayerDefeatNoticeLoadBaseline(RuntimeProductionHostState& state);
 
@@ -7080,8 +7033,8 @@ int runtimeBridgeSegmentDamageBand(const RuntimeGameSessionState& state, int hea
 int runtimeInitialBridgeSegmentHealth(
     const RuntimeGameSessionState& state, const RuntimeBridgeDamageTarget& target);
 
-void updateRuntimeBridgeSegmentDamageFrame(
-    RuntimeProductionHostState& state, const RuntimeBridgeDamageTarget& target, int health);
+bool updateRuntimeBridgeSegmentDamageFrame(
+    RuntimeGameSessionState& state, const RuntimeBridgeDamageTarget& target, int health);
 
 RuntimeBridgeDamageResult damageRuntimeBridgeAtCell(
     RuntimeProductionHostState& state,
@@ -7205,7 +7158,7 @@ int runtimeProjectileTerrainDamageAtDistance(
     double distance);
 
 RuntimeTerrainProjectileDamageResult applyRuntimeProjectileTerrainDamage(
-    RuntimeProductionHostState& state,
+    RuntimeGameSessionState& state,
     const RuntimeProjectileEffect& projectile,
     const RuntimeCellPoint& impactCell,
     const WeaponType* weapon,
@@ -7229,9 +7182,11 @@ std::optional<WorldObjectInstance> runtimeAttackGroundTargetObject(
 
 void refreshRuntimeOverlayWallTopology(RuntimeGameSessionState& state);
 
-RuntimeTerrainProjectileDamageResult applyRuntimeProjectileOverlayWallDamage(
-    RuntimeProductionHostState& state, const RuntimeProjectileEffect& projectile,
-    const RuntimeCellPoint& impactCell, const WeaponType* weapon, const WarheadType* warhead);
+bool runtimeOverlayWallSelectionCanAttack(
+    const RuntimeGameSessionState& state,
+    const std::vector<int>& selectedCombatIds,
+    const WorldObjectInstance& target,
+    bool forceAttack);
 
 void applyRuntimePsychicStatusActions(
     RuntimeProductionHostState& state,
@@ -9341,31 +9296,20 @@ bool deployRuntimeComputerAiMcvs(
 
 void ensureRuntimeComputerAiStates(RuntimeGameSessionState& state);
 
-bool runtimeComputerTacticCompare(int actual, int expected, int comparator);
 
-std::string runtimeComputerTacticEnemy(const RuntimeGameSessionState& state,
-    const RuntimeComputerAiState& ai);
 
-bool runtimeComputerTacticCondition(RuntimeGameSessionState& state,
-    const RuntimeComputerAiState& ai, const RuntimeCampaignAiTriggerDefinition& trigger,
-    const std::string& enemy);
 
-bool runtimeComputerTacticTemplateBuildable(const RuntimeGameSessionState& state,
-    const RuntimeComputerAiState& ai, const RuntimeTeamType& team);
 
-void reportRuntimeComputerTacticOutcome(RuntimeGameSessionState& state,
-    RuntimeComputerTacticsState& tactics, RuntimeComputerTacticTeam& team);
+
 
 bool selectRuntimeComputerTactic(RuntimeGameSessionState& state, RuntimeComputerAiState& ai,
     RuntimeComputerTacticsState& tactics);
 
 int runtimeComputerTacticGroup(const RuntimeGameSessionState& state, const RuntimeTeamType& type);
 
-bool runtimeComputerTacticMemberPresent(const RuntimeGameSessionState& state,
-    const RuntimeComputerAiState& ai, int id);
 
-void refreshRuntimeComputerTacticMissing(RuntimeGameSessionState& state,
-    RuntimeComputerTacticTeam& team, const RuntimeTeamType& type);
+
+
 
 bool runtimeComputerTacticMayRecruit(const RuntimeGameSessionState& state,
     const RuntimeComputerAiState& ai, const RuntimeComputerTacticTeam& team,
@@ -11553,7 +11497,8 @@ public:
                 || object.instanceId == allowedOccupiedObjectId) continue;
             const bool hard = includeHardBlockers
                 && object.kind != WorldObjectKind::Infantry
-                && !planningGateIds.contains(object.instanceId);
+                && !planningGateIds.contains(object.instanceId)
+                && !runtimeInvisibleMapBuilding(&state.rules, object);
             if (!hard && !includeUnexpectedOccupants) continue;
             if (runtimeObjectOffGroundByMagBeam(state, object.instanceId)
                 || (object.kind != WorldObjectKind::Structure
@@ -11881,11 +11826,14 @@ public:
             else dispatch(RuntimePathOriginalAuthoredLandPermission{});
         } else dispatch(RuntimePathOriginalAuthoredLandPermission{});
         stats_.earlyPrepared=early;
-        stats_.admitted=workset_->viewFor(&state_,&mover_,state_.tick,snapshot_,occupants_).has_value();
+        stats_.admitted=view().has_value();
     }
     std::optional<Workset::ReadOnlyView> earlyView() {
         if(!enabled_ || !stats_.earlyPrepared || runtimePathDynamicPreparationReference()
             || runtimeActivePathDynamicPreparation!=this || !workset_)return std::nullopt;
+        return view();
+    }
+    std::optional<Workset::ReadOnlyView> view() {
         return workset_->viewFor(&state_,&mover_,state_.tick,snapshot_,occupants_);
     }
     const RuntimePathDynamicPreparationBounds* boundsFor(bool needed) {
@@ -12639,32 +12587,7 @@ public:
     }
 };
 
-class RuntimeChronoMoveTerrainView {
-public:
-    explicit RuntimeChronoMoveTerrainView(const RuntimeGameSessionState& state,
-        bool reference = runtimeChronoMoveTerrainReference())
-        : terrain_(&state.terrainByCell), reference_(reference) {
-        RuntimePerfTraceScope trace("moveCommand.chronoTerrain", state.tick);
-        if (terrain_->empty()) {
-            owned_ = buildRuntimeTerrainLookup(state.world);
-            terrain_ = &owned_;
-            generated_ = true;
-        } else if (reference_) {
-            owned_ = state.terrainByCell;
-            terrain_ = &owned_;
-        }
-    }
-    const std::unordered_map<int, const TerrainCell*>& get() const { return *terrain_; }
-    bool borrowed() const { return terrain_ != &owned_; }
-    bool generated() const { return generated_; }
-    bool reference() const { return reference_; }
-    RuntimeChronoMoveTerrainView(const RuntimeChronoMoveTerrainView&) = delete;
-    RuntimeChronoMoveTerrainView& operator=(const RuntimeChronoMoveTerrainView&) = delete;
-private:
-    std::unordered_map<int, const TerrainCell*> owned_;
-    const std::unordered_map<int, const TerrainCell*>* terrain_;
-    bool reference_, generated_ = false;
-};
+
 
 struct RuntimeStrictSlotVehicleCertificateStats {
     std::uint64_t attempts=0, admitted=0, referenceFallbacks=0, guardFallbacks=0;

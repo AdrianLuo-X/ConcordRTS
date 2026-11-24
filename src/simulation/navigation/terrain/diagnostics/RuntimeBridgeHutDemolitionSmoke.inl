@@ -8,6 +8,8 @@ bool runRuntimeBridgeHutDemolitionSmoke(const RuntimeConfig& config, std::string
     std::string label="startup",stage;
     const auto fail=[&](const std::string& why){error="Bridge hut demolition "+label+" ["+stage+"]: "+why;return false;};
     const char* filter=std::getenv("CONCORD_BRIDGE_HUT_DEMOLITION_CASE");
+    const char* hutPolicy=std::getenv("CONCORD_BRIDGE_HUT_DEMOLITION_CURRENT_POLICY");
+    const bool currentHutPolicy=hutPolicy&&std::string_view(hutPolicy)=="1";
     const char* output=std::getenv("CONCORD_BRIDGE_HUT_DEMOLITION_OUTPUT");
     const std::filesystem::path root=output&&*output?output:"build/issue22_05_bridge_hut_demolition";
     std::filesystem::create_directories(root/"native-original");
@@ -248,7 +250,7 @@ bool runRuntimeBridgeHutDemolitionSmoke(const RuntimeConfig& config, std::string
             vehicle=findObjectById(s,scene.source);if(!boarded||!vehicle||vehicle->activeGunnerMode!=(std::string(c.passenger)=="IVAN"?7:11))return diagnoseBoarding("natural original IFV mode not activated");
             const auto profile=runtimeWeaponProfileForObject(s,*vehicle,nullptr);if(!profile.weapon||profile.weapon->id!=c.weapon)return fail("original boarded IFV weapon differs");
         }return true;};
-    const auto check=[&](const Scene& scene,RuntimeWindowState& s,bool collapsed){
+    const auto check=[&](const Scene& scene,RuntimeWindowState& s,bool collapsed,int attachedIvanDamage=0){
         if(s.rules.getDetailRulesHash()!=rulesHash)return fail("stock rules changed");
         const int first=scene.alongX?scene.first.x:scene.first.y,last=scene.alongX?scene.last.x:scene.last.y;
         int bodies=0;
@@ -268,7 +270,8 @@ bool runRuntimeBridgeHutDemolitionSmoke(const RuntimeConfig& config, std::string
         }
         if(collapsed&&bodies!=(last-first+1)*(scene.high?1:3))return fail("independent whole span body count differs");
         for(const auto& before:scene.huts){const auto* hut=findRuntimeObjectByIdIncludingInactive(s,before.instanceId);
-            if(!hut||!hut->alive||hut->health!=before.health||hut->health!=2000||hut->owner!=before.owner||hut->x!=before.x||hut->y!=before.y
+            const int expectedHealth=before.health-(before.instanceId==scene.hut?attachedIvanDamage:0);
+            if(!hut||!hut->alive||before.health!=2000||hut->health!=expectedHealth||hut->owner!=before.owner||hut->x!=before.x||hut->y!=before.y
                 ||s.deathWeapons.hasTriggered(before.instanceId))return fail("original CABHUT life/owner/position changed");}
         if(collapsed)for(int axial=first;axial<=last;++axial){const RuntimeCellPoint p{scene.alongX?axial:scene.first.x,scene.alongX?scene.first.y:axial};
             const auto hp=s.bridgeHealthByCell.find(runtimeCellKey(p.x,p.y));if(hp==s.bridgeHealthByCell.end()||hp->second!=0)return fail("whole span HP anchor not zero");
@@ -423,8 +426,9 @@ bool runRuntimeBridgeHutDemolitionSmoke(const RuntimeConfig& config, std::string
             return fail("natural demolition not proven: collapsed="+std::to_string(collapsed)+" armed="+std::to_string(armedSaved)
                 +" weapon="+std::to_string(sawWeapon)+" deadline="+std::to_string(deadline)+" collapse="+std::to_string(collapseTick)
                 +" status="+s.simulationStatus+" / "+s.interactionStatus);
+        const int expectedDirectDamage=currentHutPolicy&&c.ivan?ivanDamage:0;
         for(auto [replica,q]:replicas()){
-            if(!check(scene,*q,true))return false;
+            if(!check(scene,*q,true,expectedDirectDamage))return false;
             if(q->specialMechanisms.timedBombs().contains(scene.hut))return fail(replica+" expired bridge bomb remained attached");
             const auto* actor=findRuntimeObjectByIdIncludingInactive(*q,scene.source);
             if(!actor||(c.suicide?(actor->alive||actor->health>0):(!actor->alive||actor->health<=0)))return fail(replica+" original suicide/survival differs");
@@ -434,10 +438,10 @@ bool runRuntimeBridgeHutDemolitionSmoke(const RuntimeConfig& config, std::string
                 <<",0,"<<actor->alive<<','<<scene.huts.size()<<','<<q->bridgeRepairSpansByHut.size()<<'\n';}
         if(render&&!nativePixels(scene,s,"broken"))return false;
         ordinary=checkpoint(s,false);canonical=checkpoint(s,true);if(!ordinary||!canonical)return fail(error);
-        for(auto [replica,q]:replicas())if(!check(scene,*q,true))return false;
+        for(auto [replica,q]:replicas())if(!check(scene,*q,true,expectedDirectDamage))return false;
         if(render&&!nativePixels(scene,*canonical,"canonical-broken"))return false;
         stage="continued";for(int ticks=0;ticks<s.config.fixedTickHz*2;++ticks)for(auto [replica,q]:replicas())step(*q);
-        for(auto [replica,q]:replicas())if(!check(scene,*q,true)||!runtimeBridgeRepairHutNeedsRepair(*q,scene.hut))return fail(replica+" destroyed bridge lost repair availability or changed again");
+        for(auto [replica,q]:replicas())if(!check(scene,*q,true,expectedDirectDamage)||!runtimeBridgeRepairHutNeedsRepair(*q,scene.hut))return fail(replica+" destroyed bridge lost repair availability or changed again");
         ++passed;records.flush();std::cout<<"Bridge hut demolition "<<label<<" PASS natural="<<(c.c4?"C4":c.ivan?"Ivan":"weapon")
             <<" wholeAnchors="<<last-first+1<<" collapseTick="<<collapseTick<<" hutsPreserved="<<scene.huts.size()
             <<(*c.passenger?" FVsource=nativeBoardingQueue+naturalTicks":"")
@@ -463,6 +467,44 @@ bool runRuntimeBridgeHutDemolitionSmoke(const RuntimeConfig& config, std::string
         // sabotage secondary weapon. Its ordinary gun may legally fire at
         // an artificial bridge target; only verify this empty-object Primary
         // move cannot plant a bomb. The flag comes from the original weapon.
+        if(currentHutPolicy&&mode>=2&&c.ivan){
+            const auto* hut=findObjectById(s,scene.hut);
+            if(!hut||runtimeBridgeHutDemolitionAvailable(s,*hut))
+                return fail("unregistered or indestructible bridge allowed demolition");
+            stage="direct Ivan charge without bridge demolition";
+            const auto order=mode==2?RuntimeMultiplayerGameplayTargetOrderKind::Primary
+                                    :RuntimeMultiplayerGameplayTargetOrderKind::Attack;
+            if(!dispatchRuntimeTargetOrderFromUi(s,order,{hut->x,hut->y},hut)
+                ||s.lastCommand.acceptedCount!=1)return fail("current direct Ivan command rejected");
+            int deadline=-1;
+            for(int ticks=0;ticks<s.config.fixedTickHz*100;++ticks){
+                step(s);
+                const auto bomb=s.specialMechanisms.timedBombs().find(scene.hut);
+                if(deadline<0&&bomb!=s.specialMechanisms.timedBombs().end()){
+                    const int delay=std::max(1,static_cast<int>(std::lround(
+                        static_cast<double>(ivanFrames)*s.config.fixedTickHz/15.0)));
+                    if(bomb->second.sourceObjectId!=scene.source||bomb->second.kind!=TimedBombKind::Ivan
+                        ||bomb->second.forceDestruction||bomb->second.damage!=ivanDamage
+                        ||bomb->second.detonateTick-bomb->second.attachedTick!=delay)
+                        return fail("direct Ivan timer differs from original rules");
+                    deadline=bomb->second.detonateTick;
+                    s.selectedObjectIds={scene.source};
+                    if(!dispatchRuntimeTargetOrderFromUi(s,RuntimeMultiplayerGameplayTargetOrderKind::Move,scene.spawn)
+                        ||s.lastCommand.acceptedCount!=1)return fail("real Ivan retreat rejected");
+                }
+                if(deadline>=0&&s.tick>=deadline)break;
+            }
+            if(deadline<0||s.tick!=deadline||!s.specialMechanisms.timedBombs().empty()
+                ||!s.pendingTimedBombIntents.empty()||!check(scene,s,false,ivanDamage))
+                return fail("direct charge did not expire with exact damage and intact bridge authority");
+            for(int repeat=0;repeat<s.config.fixedTickHz*2;++repeat)step(s);
+            if(!check(scene,s,false,ivanDamage)||!s.specialMechanisms.timedBombs().empty())
+                return fail("expired direct charge replayed or changed bridge authority");
+            ++negativePassed;
+            std::cout<<"Bridge hut demolition "<<label
+                <<" PASS directIvanHP=1550 naturalTimer/noWholeDemolition/otherHutsPreserved\n";
+            return true;
+        }
         const bool bareMove=c.c4||(*c.weapon&&parseRuntimeBool(raw.getValue(c.weapon,"SabotageCursor","no")));
         if(mode==0){
             if(bareMove){dispatchRuntimeTargetOrderFromUi(s,RuntimeMultiplayerGameplayTargetOrderKind::Primary,scene.first);

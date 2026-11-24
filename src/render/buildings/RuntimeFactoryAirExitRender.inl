@@ -1,23 +1,16 @@
-// A closed hatch hides the aircraft completely. After opening, use the retail
-// front-wall layer, shared with hit testing, instead of a rectangular body cut.
-RECT runtimeFactoryAirExitBodyViewport(const RuntimeWorldObjectDrawRecord& aircraft,
+RuntimeInputPixelRect runtimeFactoryAirExitBodyViewport(const RuntimeWorldObjectDrawRecord& aircraft,
     const std::vector<RuntimeWorldObjectDrawRecord>& structures,
-    const RuntimeMapRenderContext& context, const RuntimeMapCamera& camera,
-    RuntimeMapRenderCache& cache, const RECT& viewport) {
-    RECT clipped = viewport;
-    if (!aircraft.object || aircraft.object->factoryExitHostId < 0) return clipped;
-    for (const auto& record : structures) {
-        if (!record.object || record.object->instanceId != aircraft.object->factoryExitHostId
-            || !record.object->alive || !runtimeAircraftOverStructureFoundation(aircraft, record)) continue;
+    const RuntimeMapRenderContext& context, RuntimeInputPixelRect viewport) {
+    const int hostId = aircraft.object ? aircraft.object->factoryExitHostId : -1;
+    return concord::render::clipRuntimeFactoryAirExitBody(viewport, hostId, context.animationTick,
+        std::span<const RuntimeWorldObjectDrawRecord>{structures},
+        [&](const RuntimeWorldObjectDrawRecord& record, int id)
+            -> std::optional<concord::render::RuntimeFactoryAirExitTransition> {
+        if (!record.object || record.object->instanceId != id || !record.object->alive
+            || !runtimeAircraftOverStructureFoundation(aircraft, record)) return std::nullopt;
         const auto& host = *record.object;
         const int opening = runtimeFactoryAirExitTransitionTicks(
             findArtTypeForObject(host, context), context.art, context.fixedTickHz);
-        if (context.animationTick - host.factoryExitAnimationStartTick < opening) {
-            clipped.bottom = clipped.top;
-        }
-        // Once open, the native foreground roof/wall supplies the occlusion.
-        // A horizontal crop slices a long airship even through the open hatch.
-        break;
-    }
-    return clipped;
+        return concord::render::RuntimeFactoryAirExitTransition{host.factoryExitAnimationStartTick, opening};
+    });
 }
