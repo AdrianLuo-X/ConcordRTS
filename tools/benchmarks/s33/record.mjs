@@ -23,6 +23,7 @@ export function localOutput(directory) {
 // process termination, directory removal, or reuse of an earlier receipt.
 export async function record(directory, argv, overrides = {}, options = {}) {
   directory = localOutput(directory);
+  const workingDirectory = options.workingDirectory ? localOutput(options.workingDirectory) : root;
   await fs.mkdir(directory); // Existing attempts must never be overwritten.
   await fs.mkdir(path.join(directory, 'temp'));
   const environment = { ...process.env };
@@ -33,14 +34,14 @@ export async function record(directory, argv, overrides = {}, options = {}) {
     }
   }
   Object.assign(environment, overrides, { TEMP: path.join(directory, 'temp'), TMP: path.join(directory, 'temp') });
-  const receipt = { argv, cwd: root, executable: await identity(argv[0]),
+  const receipt = { argv, cwd: workingDirectory, executable: await identity(argv[0]),
     startedUtc: new Date().toISOString(), environmentOverrides: overrides, clearedInherited: cleared,
     TEMP: environment.TEMP, TMP: environment.TMP, exitCode: null, signal: null,
     launchError: null, timedOut: false, pid: null };
   const stdout = await fs.open(path.join(directory, 'stdout.log'), 'wx');
   const stderr = await fs.open(path.join(directory, 'stderr.log'), 'wx');
   const start = performance.now();
-  const child = spawn(argv[0], argv.slice(1), { cwd: root, env: environment,
+  const child = spawn(argv[0], argv.slice(1), { cwd: workingDirectory, env: environment,
     windowsHide: options.visible !== true, stdio: ['ignore', stdout.fd, stderr.fd] });
   receipt.pid = child.pid ?? null;
   const observer = options.observeExecutable && child.pid

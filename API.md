@@ -1064,6 +1064,8 @@ struct FrameBackendOptions {
 
 [TaskExecutorContracts.cmake](cmake/TaskExecutorContracts.cmake) 与 [GrandCannonPrewarmContracts.cmake](cmake/GrandCannonPrewarmContracts.cmake) 接入执行器、光栅与预热生产库，保留原根目录 include 顺序。新执行器和光栅合同在独立子目录作用域中使用相同生产源码；完整产品继承对应 Runtime 编译约定。`bounded_task_executor_contract_test` 和 `grand_cannon_raster_contract_test` 不需要游戏素材，`runtime_grand_cannon_prewarm_contract_test` 使用本机素材进行集成核对，注册条件及运行方法见 [README](README.md#测试与开发)。
 
+`Get-TestInventory.ps1` 跟踪测试子目录中的 `CMakeLists.txt` 和 `.cmake` 声明。当 CTest 元数据省略未构建程序的命令时，脚本从已展开的 `add_test()` 参数和 CMake File API 恢复测试到目标的映射。注册映射和运行结果各自记录。见 [测试清点入口](tools/testing/Get-TestInventory.ps1)。
+
 [结构检查入口](tools/testing/Run-StructureChecks.ps1) 接收已有 Release 构建目录和明确的 Python 路径；[检查器](tools/structure/structure_guard.py)、[精确例外基线](tools/structure/structure-baseline.json) 与 [合成夹具](tools/structure/test_structure_guard.py) 共同检查依赖、平台类型、目标归属和测试注册。接口与运行条件见 [README](README.md#测试与开发)，无需复制私人开发记录。
 
 [PathGoalCandidateTaskContracts.cmake](cmake/PathGoalCandidateTaskContracts.cmake) 接入候选任务库、纯任务合同与完整队列对照，保留各消费者的编译约定。[SoftwareFrameContracts.cmake](cmake/SoftwareFrameContracts.cmake) 接入公共软件帧合同及私有 Windows 呈现库；[SkirmishBackBufferWin32Contracts.cmake](cmake/SkirmishBackBufferWin32Contracts.cmake) 同时接入主缓冲合同。相关五项 CTest 名称与平台要求见 [README 的测试说明](README.md#测试与开发)，均未自动并入 12＋4 集合或核心固定 10 项集合。

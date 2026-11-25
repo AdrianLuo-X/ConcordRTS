@@ -16,6 +16,13 @@ ConcordRTS 是使用 C++20 开发的 RTS 引擎工程，面向《命令与征服
 
 ## 更新记录
 
+### 2026-11-25 · 构建与跨模块回归
+
+- 修复测试清点遗漏子目录的问题。清点工具现在跟踪 `tests/` 下的 CMake 注册声明，并结合构建目标信息识别尚未生成可执行文件的测试。开发验收映射了 656 项测试注册，662 项结构检查夹具通过。
+- 用 Clang Release 完成 Windows 游戏和 x86 视频助手的干净构建与部署。选定的 68 项 Windows 回归中，67 项通过，dryheat 瞬态存档往返仍复现既有失败。另一次旧离线用例仍在 tick 0 检出超级武器子状态差异。
+- Windows 独立核心的 10 项测试通过。对照 800 个 tick、7 个命令帧和 96 次恢复后观察，有画与无画运行的权威记录和三份恢复文件与已验 Ubuntu 结果逐字节一致。另有 49 份完整恢复和任务恢复文件通过跨平台对照。
+- 同机复测六种负载的模拟、完整绘制和加载，并核对增量构建。模拟与完整绘制均在原复查阈值内。加载配对确认，默认会为尚未生成的单位预热体素资源，这是所测场景额外等待的主要来源。
+
 ### 2026-11-25
 
 - 梳理游戏宿主、生产会话和模拟模块的职责。将 AI 建造规划、战术选择、征召、预留、生产及队伍推进拆到各自接口，并整理地面通行、占位、矿车与矿工移动、特殊武器和战斗状态提交。沿用既有规则、参数和固定步顺序。
@@ -649,6 +656,8 @@ if ($LASTEXITCODE -ne 0) { throw '合同检查失败。' }
 
 [离线报告检查脚本](tools/testing/Test-OfflineReportEvidence.ps1) 使用 [自编规则与事件](tests/fixtures/offline_report_evidence)，核对报告来源、空输入、部分输入、完整字段与错误处理；生成的报告不等同于真实游戏行为通过。
 
+测试清点从根构建配置、`cmake/` 和 `tests/` 的构建声明收集注册，结合 CMake File API 将测试关联到目标。在新构建目录，即使 CTest 元数据暂时没有未构建程序的可运行命令，也可以核对其注册归属。见 [Get-TestInventory.ps1](tools/testing/Get-TestInventory.ps1)。
+
 结构检查入口见 [Run-StructureChecks.ps1](tools/testing/Run-StructureChecks.ps1)。它需要本工程已校验的 Clang/Ninja Release 构建目录、PowerShell 7，以及 Python 3.10 或更新版本的绝对路径。先按自己的安装位置修改示例解释器路径：
 
 ```powershell
@@ -756,6 +765,8 @@ if ($LASTEXITCODE -ne 0) { throw '地图帧准备合同检查失败。' }
 [设备诊断目录](tools/diagnostics) 是独立 Windows Clang 项目，检测设备、纹理、读回和计时能力，设备库不链接进游戏或独立核心。CPU 提交间隔、独立 GPU 探针和实际显示帧率是不同指标；当前工具没有测量游戏 GPU 帧时间或屏幕扫描输出帧率，所选阶段计时也不构成全游戏加速结论。
 
 运行时产生的环境信息、绝对路径、日志和输入哈希属于本机记录，请将输出放在 `build/` 下并保留在本地。源码包不附带这些记录，也不附带依赖私人文档的验收和交接脚本。
+
+重复采样脚本默认用 `bin/build-provenance.json` 核对已部署的 Clang Release 程序。使用 `--staged-provenance` 可改用项目 `build/` 内、与待测程序同目录的暂存来源清单。两种入口都会核对程序的 SHA-256，采样输出须位于项目内的新目录。见 [Run-Baseline.mjs](tools/benchmarks/s33/Run-Baseline.mjs)。
 
 ### 确定性候选计算与软件帧
 

@@ -12,19 +12,27 @@ const repeats = Number(options.repeats ?? 5);
 if (!Number.isInteger(repeats) || repeats < 3 || repeats > 9) throw new Error('Use 3 through 9 repeats');
 await fs.mkdir(output);
 await fs.mkdir(path.join(output, 'commands'));
-const provenance = await json(path.join(root, 'bin/build-provenance.json'));
+const stagedProvenance = options['staged-provenance'];
+const provenancePath = stagedProvenance
+  ? localOutput(stagedProvenance) : path.join(root, 'bin/build-provenance.json');
+const provenance = await json(provenancePath);
 const executable = await identity(options.executable);
-const buildDirectory = path.join(root, 'build/clang-cl-x64-release');
-const sourceExecutable = await identity(path.join(buildDirectory, 'concord_runtime.exe'));
+const artifactDirectory = localOutput(stagedProvenance ? provenance.stage : provenance.buildDirectory);
+if (!artifactDirectory.toLowerCase().startsWith(path.join(root, 'build').toLowerCase() + path.sep))
+  throw new Error('The product artifact must be inside the project build directory');
+if (stagedProvenance && path.dirname(provenancePath).toLowerCase() !== artifactDirectory.toLowerCase())
+  throw new Error('A staged provenance file must be beside its product artifact');
+const sourceExecutable = await identity(path.join(artifactDirectory, 'concord_runtime.exe'));
+const deployment = provenance.files.find(file => file.name === 'concord_runtime.exe');
 if (provenance.toolchain !== 'clang-cl' || provenance.configuration !== 'Release'
-    || path.resolve(provenance.buildDirectory).toLowerCase() !== buildDirectory.toLowerCase()
+    || deployment?.sha256 !== executable.sha256
     || sourceExecutable.sha256 !== executable.sha256)
-  throw new Error('Executable must match the current trusted Release product and provenance');
+  throw new Error('Executable must match the selected trusted Release product and provenance');
 const config = path.join(output, 'runtime-baseline.ini');
 await fs.writeFile(config, `[Runtime]\nResourceRoot=RedAlert2\nLocalDataRoot=local_data\nWindowWidth=1280\nWindowHeight=720\nFixedTickHz=30\nTargetFps=60\nShowMainMenu=no\n\n[Skirmish]\nShowSetup=no\nGameSpeed=4\nShortGame=no\nComputerAI=no\nUnitCount=10\n`, { flag: 'wx' });
 const sourceMap = path.join(root, 'local_data/resources/mix_exports/multimd/2peaks.map');
 await writeJson(path.join(output, 'input.json'), { executable, sourceExecutable,
-  provenance: await identity(path.join(root, 'bin/build-provenance.json')),
+  provenance: await identity(provenancePath),
   config: await identity(config), sourceMap: await identity(sourceMap),
   repetitions: repeats, order: 'round-robin by repetition', warmupTicks: 60,
   resolution: [1280, 720], targetFps: 60, fixedTickHz: 30, gameSpeed: 4,

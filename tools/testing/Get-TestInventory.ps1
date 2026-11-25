@@ -187,6 +187,12 @@ $configureArguments.Add("--trace-source=$(Join-Path $projectRoot 'CMakeLists.txt
 foreach ($file in (Get-ChildItem -LiteralPath (Join-Path $projectRoot 'cmake') -Filter '*.cmake' -File -Recurse | Sort-Object FullName)) {
     $configureArguments.Add("--trace-source=$($file.FullName)")
 }
+# CTest can omit the command for an unbuilt executable. Trace registrations
+# in test subdirectories so their target can still be bound to the File API.
+foreach ($file in (Get-ChildItem -LiteralPath (Join-Path $projectRoot 'tests') -File -Recurse |
+    Where-Object { $_.Name -eq 'CMakeLists.txt' -or $_.Extension -eq '.cmake' } | Sort-Object FullName)) {
+    $configureArguments.Add("--trace-source=$($file.FullName)")
+}
 $configure = Invoke-Recorded $cache.CMAKE_COMMAND $configureArguments.ToArray() 'configure'
 $configure.traceFile = $traceFile
 if ($configure.exitCode -ne 0) { throw "CMake configure failed with exit $($configure.exitCode); see $($configure.stderrFile)" }
